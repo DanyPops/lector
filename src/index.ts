@@ -8,3 +8,18 @@ export {
 } from "./domain/exact-edit.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
 export { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
+export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./adapters/local-filesystem-workspace.ts";
+export {
+	createLectorService,
+	InvalidWorkspaceRoot,
+	OPERATION_NAMES,
+	UnknownWorkspace,
+	type LectorService,
+	type OperationInputs,
+	type OperationName,
+	type OperationOutputs,
+	type WorkspaceId,
+} from "./service.ts";
+export { buildLectorApp, serveMain, startLectorDaemon, type LectorDaemonOptions } from "./daemon.ts";
+export { connectLectorClient, type ConnectLectorClientOptions, type LectorClient } from "./client.ts";
+export { lectorVersion } from "./version.ts";
