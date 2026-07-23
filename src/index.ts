@@ -21,5 +21,5 @@ export {
 	type WorkspaceId,
 } from "./service.ts";
 export { buildLectorApp, serveMain, startLectorDaemon, type LectorDaemonOptions } from "./daemon.ts";
-export { connectLectorClient, type ConnectLectorClientOptions, type LectorClient } from "./client.ts";
+export { connectLectorClient, remoteErrorIs, type ConnectLectorClientOptions, type LectorClient } from "./client.ts";
 export { lectorVersion } from "./version.ts";

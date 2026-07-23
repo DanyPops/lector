@@ -36,3 +36,16 @@ export async function connectLectorClient(options: ConnectLectorClientOptions = 
 	}
 	return client;
 }
+
+/**
+ * True when `error` is the client-side rejection of a call whose Lector
+ * domain error was `name` (e.g. "StaleExpectedHash"). The RPC transport
+ * carries only a single error string -- see daemon.ts's ops-endpoint catch
+ * block -- so a domain error class does not survive `instanceof` across
+ * HTTP; every Lector domain error's `.name` is rendered as a `"<name>: "`
+ * prefix on that string instead, and this is the one place that convention
+ * should be read back, so host adapters never hand-roll message parsing.
+ */
+export function remoteErrorIs(error: unknown, name: string): boolean {
+	return error instanceof Error && error.message.startsWith(`${name}: `);
+}

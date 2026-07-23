@@ -40,7 +40,13 @@ export function buildLectorApp(service: LectorService, token: string): { fetch(r
 					const result = await service.dispatch(body.op as OperationName, body.input as never);
 					return jsonResponse({ result });
 				} catch (error) {
-					return errorResponse(error instanceof Error ? error.message : String(error), 400);
+					// `toString()`, not `.message`: every Lector domain error sets a stable `.name`
+					// (StaleExpectedHash, UnknownWorkspace, ...), and Error.prototype.toString()
+					// renders it as "<name>: <message>". The RPC client's transport contract only
+					// carries a single error string, so this is the seam that lets a caller on the
+					// other side of HTTP distinguish error kinds without parsing message prose --
+					// check `error.message.startsWith("SomeDomainError: ")`, not full-message matching.
+					return errorResponse(error instanceof Error ? error.toString() : String(error), 400);
 				}
 			}
 			return errorResponse("not found", 404);
