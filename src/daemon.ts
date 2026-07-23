@@ -59,6 +59,8 @@ export interface LectorDaemonOptions {
 	/** Override resolved paths (tests inject an isolated tmp root). Defaults to the real XDG paths. */
 	paths?: DaemonPaths;
 	logger?: Logger;
+	/** Forwarded to createLectorService -- see its own doc comment. Still refuses zero workspaces by default. */
+	allowDynamicOnly?: boolean;
 }
 
 function prepare(options: LectorDaemonOptions): {
@@ -67,10 +69,11 @@ function prepare(options: LectorDaemonOptions): {
 	onShutdown: () => Promise<void>;
 } {
 	const paths = options.paths ?? resolveLectorPaths();
-	// createLectorService throws synchronously on an empty registry, before startDaemon/runDaemonProcess
-	// ever binds a listener or writes a handle file -- the daemon fails loudly at construction rather
-	// than starting and silently returning empty/error results per call. (Locus LCS-BUG-88 class.)
-	const service = createLectorService(options.workspaces);
+	// createLectorService throws synchronously on an empty registry (unless allowDynamicOnly is
+	// explicitly set), before startDaemon/runDaemonProcess ever binds a listener or writes a
+	// handle file -- the daemon fails loudly at construction rather than starting and silently
+	// returning empty/error results per call. (Locus LCS-BUG-88 class.)
+	const service = createLectorService(options.workspaces, { allowDynamicOnly: options.allowDynamicOnly });
 	const token = ensureAuthToken(paths.token, "Lector");
 	// service.close() stops every warm symbol-index (LSP) subprocess the service spawned --
 	// without this hook a daemon restart would leak one language server per workspace that

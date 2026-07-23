@@ -102,4 +102,33 @@ describe("workspace.registerPath", () => {
 		});
 		expect(edit.newHash).toBeTruthy();
 	});
+
+	it(
+		"a daemon started with zero pre-registered workspaces (allowDynamicOnly) still rejects an unregistered id, and still becomes usable once registered -- the mode pi-lector's background daemon actually runs in",
+		async () => {
+			const projectDir = await freshProjectDir();
+			await writeFile(join(projectDir, "existing.txt"), "already on disk");
+			const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
+			cleanupFns.push(cleanupPaths);
+			const daemon = startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
+			cleanupFns.push(() => daemon.stop());
+
+			const token = readFileSync(paths.token, "utf8").trim();
+			const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(
+				`http://${daemon.host}:${daemon.port}`,
+				token,
+				{ label: "Lector" },
+			);
+
+			// No implicit fallback reappears just because the registry started empty: an id nobody
+			// registered still fails loudly, exactly as it would with any statically-seeded registry.
+			await expect(client.call("workspace.rawRead", { workspaceId: "never-registered", path: "existing.txt" })).rejects.toThrow(
+				/UnknownWorkspace/,
+			);
+
+			const { workspaceId } = await client.call("workspace.registerPath", { path: projectDir });
+			const read = await client.call("workspace.rawRead", { workspaceId, path: "existing.txt" });
+			expect(read.content).toBe("already on disk");
+		},
+	);
 });

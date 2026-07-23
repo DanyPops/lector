@@ -55,4 +55,22 @@ describe("startLectorDaemon", () => {
 		expect(handle).not.toBeNull();
 		expect(handle?.port).toBe(daemon.port);
 	});
+
+	it("starts with zero workspaces when allowDynamicOnly is explicitly set -- the guard requires an explicit opt-in, not silent loosening", () => {
+		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
+		const daemon = startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
+		cleanup = () => {
+			void daemon.stop();
+			cleanupPaths();
+		};
+
+		expect(readDaemonHandle(paths.handle)).not.toBeNull();
+	});
+
+	it("still throws on zero workspaces when allowDynamicOnly is absent, even though the option now exists", () => {
+		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
+		cleanup = cleanupPaths;
+
+		expect(() => startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: false })).toThrow(/at least one registered workspace/);
+	});
 });

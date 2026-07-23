@@ -100,6 +100,17 @@ export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void> };
 export interface LectorServiceOptions {
 	/** Factory for the symbol index backing workspace.findSymbols. Defaults to TypescriptSymbolIndex. */
 	createSymbolIndex?: (rootPath: string, seedFile?: string) => ClosableSymbolIndex;
+	/**
+	 * Explicit opt-in to start with zero registered workspaces, relying entirely on
+	 * workspace.registerPath at runtime -- the shape a long-lived background daemon that
+	 * attaches to whatever project a host adapter (pi-lector) is used from actually needs,
+	 * since workspace.registerPath already validates its own explicit absolute path (no
+	 * implicit fallback reappears just because the registry started empty). Without this,
+	 * zero workspaces at construction is still refused (Locus LCS-BUG-88 class): the default
+	 * stays "fail loud on likely misconfiguration," and a caller must say what it actually
+	 * intends rather than the guard being silently loosened for everyone.
+	 */
+	allowDynamicOnly?: boolean;
 }
 
 function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): WorkspacePort {
@@ -146,8 +157,11 @@ async function registerPath(
  * from anything other than an explicit id or an explicit path.
  */
 export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, WorkspacePort>, options: LectorServiceOptions = {}): LectorService {
-	if (workspaces.size === 0) {
-		throw new Error("Lector service requires at least one registered workspace; refusing to start with none");
+	if (workspaces.size === 0 && !options.allowDynamicOnly) {
+		throw new Error(
+			"Lector service requires at least one registered workspace; refusing to start with none " +
+				"(pass options.allowDynamicOnly if this daemon intentionally registers workspaces only via workspace.registerPath at runtime)",
+		);
 	}
 	const registry: MutableRegistry = new Map(Array.from(workspaces, ([id, port]) => [id, { port }]));
 
