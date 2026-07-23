@@ -2,8 +2,12 @@ import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
+import { TypescriptSymbolIndex } from "./adapters/lsp/typescript-symbol-index.ts";
 import { exactEdit, StaleExpectedHash, type EditOutcome, type ExpectedHashEdit } from "./domain/exact-edit.ts";
+import { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 import { rawRead, WorkspaceEntryNotFound, type RawRead } from "./domain/raw-read.ts";
+import type { WorkspaceSymbol } from "./domain/workspace-symbol.ts";
+import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 
 /**
@@ -22,22 +26,6 @@ export class UnknownWorkspace extends Error {
 	}
 }
 
-export type OperationName = "workspace.rawRead" | "workspace.exactEdit" | "workspace.registerPath";
-
-export const OPERATION_NAMES: readonly OperationName[] = ["workspace.rawRead", "workspace.exactEdit", "workspace.registerPath"];
-
-export interface OperationInputs {
-	"workspace.rawRead": { workspaceId: WorkspaceId; path: string };
-	"workspace.exactEdit": { workspaceId: WorkspaceId } & ExpectedHashEdit;
-	"workspace.registerPath": { path: string };
-}
-
-export interface OperationOutputs {
-	"workspace.rawRead": RawRead;
-	"workspace.exactEdit": EditOutcome;
-	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
-}
-
 /** Raised when workspace.registerPath is given a path that isn't a real, accessible directory. */
 export class InvalidWorkspaceRoot extends Error {
 	constructor(
@@ -47,6 +35,37 @@ export class InvalidWorkspaceRoot extends Error {
 		super(`cannot register "${path}" as a workspace root: ${reason}`);
 		this.name = "InvalidWorkspaceRoot";
 	}
+}
+
+/** Raised when a symbol query targets a workspace with no known root path (not registered via workspace.registerPath). */
+export class SymbolQueryUnavailable extends Error {
+	constructor(readonly workspaceId: WorkspaceId) {
+		super(`workspace "${workspaceId}" has no known root path; symbol queries require a workspace registered via workspace.registerPath`);
+		this.name = "SymbolQueryUnavailable";
+	}
+}
+
+export type OperationName = "workspace.rawRead" | "workspace.exactEdit" | "workspace.registerPath" | "workspace.findSymbols";
+
+export const OPERATION_NAMES: readonly OperationName[] = [
+	"workspace.rawRead",
+	"workspace.exactEdit",
+	"workspace.registerPath",
+	"workspace.findSymbols",
+];
+
+export interface OperationInputs {
+	"workspace.rawRead": { workspaceId: WorkspaceId; path: string };
+	"workspace.exactEdit": { workspaceId: WorkspaceId } & ExpectedHashEdit;
+	"workspace.registerPath": { path: string };
+	"workspace.findSymbols": { workspaceId: WorkspaceId; seedFile: string; query: string };
+}
+
+export interface OperationOutputs {
+	"workspace.rawRead": RawRead;
+	"workspace.exactEdit": EditOutcome;
+	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
+	"workspace.findSymbols": { symbols: readonly WorkspaceSymbol[] };
 }
 
 /**
@@ -63,21 +82,40 @@ function deriveWorkspaceId(absolutePath: string): WorkspaceId {
 export interface LectorService {
 	readonly operations: readonly OperationName[];
 	dispatch<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]>;
+	/** Stops every warm symbol-index subprocess this service spawned. Idempotent. */
+	close(): Promise<void>;
 }
 
-function resolveWorkspace(workspaces: ReadonlyMap<WorkspaceId, WorkspacePort>, workspaceId: WorkspaceId): WorkspacePort {
-	const workspace = workspaces.get(workspaceId);
-	if (!workspace) throw new UnknownWorkspace(workspaceId);
-	return workspace;
+interface RegisteredWorkspace {
+	readonly port: WorkspacePort;
+	/** Present only for workspaces registered via workspace.registerPath -- required for symbol queries. */
+	readonly rootPath?: string;
 }
 
-type MutableRegistry = Map<WorkspaceId, WorkspacePort>;
+type MutableRegistry = Map<WorkspaceId, RegisteredWorkspace>;
+
+/** A SymbolIndexPort the service can also shut down when it stops. */
+export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void> };
+
+export interface LectorServiceOptions {
+	/** Factory for the symbol index backing workspace.findSymbols. Defaults to TypescriptSymbolIndex. */
+	createSymbolIndex?: (rootPath: string, seedFile: string) => ClosableSymbolIndex;
+}
+
+function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): WorkspacePort {
+	const entry = registry.get(workspaceId);
+	if (!entry) throw new UnknownWorkspace(workspaceId);
+	return entry.port;
+}
 
 type OperationHandlers = {
 	[Name in OperationName]: (registry: MutableRegistry, input: OperationInputs[Name]) => Promise<OperationOutputs[Name]>;
 };
 
-async function registerPath(registry: MutableRegistry, input: OperationInputs["workspace.registerPath"]): Promise<OperationOutputs["workspace.registerPath"]> {
+async function registerPath(
+	registry: MutableRegistry,
+	input: OperationInputs["workspace.registerPath"],
+): Promise<OperationOutputs["workspace.registerPath"]> {
 	const absolutePath = resolve(input.path);
 	const workspaceId = deriveWorkspaceId(absolutePath);
 	if (registry.has(workspaceId)) {
@@ -94,18 +132,9 @@ async function registerPath(registry: MutableRegistry, input: OperationInputs["w
 		throw new InvalidWorkspaceRoot(absolutePath, "path is not a directory");
 	}
 
-	registry.set(workspaceId, new LocalFilesystemWorkspace(absolutePath));
+	registry.set(workspaceId, { port: new LocalFilesystemWorkspace(absolutePath), rootPath: absolutePath });
 	return { workspaceId, created: true };
 }
-
-const HANDLERS: OperationHandlers = {
-	"workspace.rawRead": (registry, input) => rawRead(resolveWorkspace(registry, input.workspaceId), input.path),
-	"workspace.exactEdit": (registry, input) => {
-		const { workspaceId, ...edit } = input;
-		return exactEdit(resolveWorkspace(registry, workspaceId), edit);
-	},
-	"workspace.registerPath": registerPath,
-};
 
 /**
  * Create the Lector service over an explicit initial registry of workspaces.
@@ -116,11 +145,44 @@ const HANDLERS: OperationHandlers = {
  * workspace.registerPath; there is still no operation that guesses a target
  * from anything other than an explicit id or an explicit path.
  */
-export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, WorkspacePort>): LectorService {
+export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, WorkspacePort>, options: LectorServiceOptions = {}): LectorService {
 	if (workspaces.size === 0) {
 		throw new Error("Lector service requires at least one registered workspace; refusing to start with none");
 	}
-	const registry: MutableRegistry = new Map(workspaces);
+	const registry: MutableRegistry = new Map(Array.from(workspaces, ([id, port]) => [id, { port }]));
+
+	// One warm symbol index per workspace, reused across calls (lsp-cli/tslsp-cli's own
+	// pattern, doc 9c15958b -- a fresh process per query would pay a fork+initialize cost
+	// every time). Keyed by workspaceId, never by seedFile: a workspace's index warms once.
+	const symbolIndexes = new Map<WorkspaceId, ClosableSymbolIndex>();
+	const createSymbolIndex = options.createSymbolIndex ?? ((rootPath: string, seedFile: string) => new TypescriptSymbolIndex(rootPath, seedFile));
+
+	async function findSymbols(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.findSymbols"],
+	): Promise<OperationOutputs["workspace.findSymbols"]> {
+		const entry = registry.get(input.workspaceId);
+		if (!entry) throw new UnknownWorkspace(input.workspaceId);
+		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
+
+		let index = symbolIndexes.get(input.workspaceId);
+		if (!index) {
+			index = createSymbolIndex(entry.rootPath, input.seedFile);
+			symbolIndexes.set(input.workspaceId, index);
+		}
+		const symbols = await findWorkspaceSymbols(index, input.query);
+		return { symbols };
+	}
+
+	const handlers: OperationHandlers = {
+		"workspace.rawRead": (registry, input) => rawRead(resolveWorkspace(registry, input.workspaceId), input.path),
+		"workspace.exactEdit": (registry, input) => {
+			const { workspaceId, ...edit } = input;
+			return exactEdit(resolveWorkspace(registry, workspaceId), edit);
+		},
+		"workspace.registerPath": registerPath,
+		"workspace.findSymbols": findSymbols,
+	};
 
 	return {
 		operations: OPERATION_NAMES,
@@ -131,11 +193,16 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		// which operation ran -- a broken contract for any in-process caller (standalone
 		// mode, a future Alef adapter) that isn't protected by the HTTP layer's try/catch.
 		async dispatch<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]> {
-			const handler = HANDLERS[operation] as (
+			const handler = handlers[operation] as (
 				registry: MutableRegistry,
 				input: OperationInputs[Name],
 			) => Promise<OperationOutputs[Name]>;
 			return handler(registry, input);
+		},
+		async close(): Promise<void> {
+			const indexes = Array.from(symbolIndexes.values());
+			symbolIndexes.clear();
+			await Promise.all(indexes.map((index) => index.close()));
 		},
 	};
 }

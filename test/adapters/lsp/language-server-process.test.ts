@@ -1,0 +1,112 @@
+/**
+ * Checklist (task cbdeea40): subprocess lifecycle safety, proven against
+ * the evil mock server so each failure mode is deterministic rather than
+ * timing-dependent against a real language server.
+ */
+import { afterEach, describe, expect, it } from "bun:test";
+import { fileURLToPath } from "node:url";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+	LanguageServerProcess,
+	LanguageServerProcessExited,
+	LanguageServerRequestTimedOut,
+} from "../../../src/adapters/lsp/language-server-process.ts";
+
+const EVIL_SERVER_PATH = fileURLToPath(new URL("../../support/evil-lsp-server.ts", import.meta.url));
+
+let cwd: string | undefined;
+let server: LanguageServerProcess | undefined;
+
+afterEach(async () => {
+	await server?.stop();
+	server = undefined;
+	if (cwd) rmSync(cwd, { recursive: true, force: true });
+	cwd = undefined;
+});
+
+function spawnEvil(mode: string, requestTimeoutMs?: number): LanguageServerProcess {
+	cwd = mkdtempSync(join(tmpdir(), "lector-evil-lsp-"));
+	server = LanguageServerProcess.spawnProcess({
+		command: "bun",
+		args: [EVIL_SERVER_PATH],
+		cwd,
+		env: { EVIL_LSP_MODE: mode },
+		requestTimeoutMs,
+	});
+	return server;
+}
+
+describe("LanguageServerProcess against a well-behaved mock", () => {
+	it("completes a request/response round trip", async () => {
+		const proc = spawnEvil("normal");
+		const result = await proc.request<{ capabilities: unknown }>("initialize", {});
+		expect(result).toEqual({ capabilities: {} });
+	});
+
+	it("stop() reaps the process (graceful shutdown path)", async () => {
+		const proc = spawnEvil("normal");
+		await proc.request("initialize", {});
+		await proc.stop();
+		// A second stop() must be a safe no-op, not hang or throw, regardless of how the
+		// first one actually terminated the process.
+		await expect(proc.stop()).resolves.toBeUndefined();
+	});
+});
+
+describe("LanguageServerProcess against a hostile mock -- timeouts", () => {
+	it("a request that hangs at initialize times out within roughly the configured budget, not forever", async () => {
+		const proc = spawnEvil("hang-on-initialize", 200);
+		const started = Date.now();
+		await expect(proc.request("initialize", {})).rejects.toBeInstanceOf(LanguageServerRequestTimedOut);
+		expect(Date.now() - started).toBeLessThan(200 * 4);
+	});
+
+	it("a request that hangs past initialize times out the same way", async () => {
+		const proc = spawnEvil("hang-on-request", 200);
+		await proc.request("initialize", {});
+		const started = Date.now();
+		await expect(proc.request("workspace/symbol", { query: "x" })).rejects.toBeInstanceOf(LanguageServerRequestTimedOut);
+		expect(Date.now() - started).toBeLessThan(200 * 4);
+	});
+
+	it("stop() against a server that hangs on shutdown still completes within roughly its own timeout, via a hard kill", async () => {
+		const proc = spawnEvil("hang-on-shutdown");
+		await proc.request("initialize", {});
+		const started = Date.now();
+		await proc.stop(200);
+		expect(Date.now() - started).toBeLessThan(200 * 4);
+	});
+});
+
+describe("LanguageServerProcess against a process that dies mid-flight", () => {
+	it("rejects an in-flight request immediately when the process exits, rather than hanging forever", async () => {
+		const proc = spawnEvil("exit-after-initialize", 10_000); // deliberately long request timeout
+		// The first request's response also triggers the server's own exit(1) right after
+		// replying, so by the time this resolves the process is already on its way out.
+		await proc.request("initialize", {});
+
+		const started = Date.now();
+		let caught: unknown;
+		try {
+			await proc.request("workspace/symbol", { query: "x" });
+		} catch (error) {
+			caught = error;
+		}
+
+		// Must reject promptly via the exit handler, not sit until the 10s request timeout fires.
+		expect(Date.now() - started).toBeLessThan(2_000);
+		expect(caught).toBeInstanceOf(LanguageServerProcessExited);
+	});
+
+	it("a request made after the process already exited is rejected immediately, never silently queued", async () => {
+		const proc = spawnEvil("exit-after-initialize");
+		await proc.request("initialize", {});
+		await new Promise((resolve) => setTimeout(resolve, 300)); // let the exit actually land
+
+		const started = Date.now();
+		await expect(proc.request("workspace/symbol", { query: "x" })).rejects.toBeInstanceOf(LanguageServerProcessExited);
+		expect(Date.now() - started).toBeLessThan(50);
+	});
+});

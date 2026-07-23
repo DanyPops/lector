@@ -15,6 +15,7 @@ const USAGE = `Usage:
   lector workspace register <dir> [--json]
   lector workspace read <workspace-id> <path> [--json]
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
+  lector workspace symbols <workspace-id> <query> --seed-file <path> [--json]
 `;
 
 function fail(message: string): never {
@@ -82,6 +83,25 @@ async function runWorkspaceRegister(dir: string | undefined, flags: string[]): P
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.workspaceId} (${result.created ? "created" : "already registered"})`);
 }
 
+async function runWorkspaceSymbols(workspaceId: string | undefined, query: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !query) fail(USAGE);
+	const seedFile = flagValue(flags, "--seed-file");
+	if (seedFile === undefined) fail("lector workspace symbols requires --seed-file <path>");
+	const client = await connectLectorClient();
+	const { symbols } = await client.call("workspace.findSymbols", { workspaceId, seedFile, query });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(symbols));
+		return;
+	}
+	if (symbols.length === 0) {
+		console.log(`no symbols matched "${query}"`);
+		return;
+	}
+	for (const symbol of symbols) {
+		console.log(`${symbol.kind} ${symbol.name} -- ${symbol.location.path}:${symbol.location.line}:${symbol.location.character}`);
+	}
+}
+
 async function runWorkspaceRead(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !path) fail(USAGE);
 	const client = await connectLectorClient();
@@ -122,6 +142,7 @@ async function main(): Promise<void> {
 		const [workspaceId, path, ...flags] = actionArgs;
 		if (action === "read") return runWorkspaceRead(workspaceId, path, flags);
 		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
+		if (action === "symbols") return runWorkspaceSymbols(workspaceId, path, flags);
 		fail(USAGE);
 	}
 

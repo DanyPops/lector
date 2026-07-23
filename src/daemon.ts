@@ -61,35 +61,44 @@ export interface LectorDaemonOptions {
 	logger?: Logger;
 }
 
-function prepare(options: LectorDaemonOptions): { paths: DaemonPaths; app: { fetch(request: Request): Promise<Response> } } {
+function prepare(options: LectorDaemonOptions): {
+	paths: DaemonPaths;
+	app: { fetch(request: Request): Promise<Response> };
+	onShutdown: () => Promise<void>;
+} {
 	const paths = options.paths ?? resolveLectorPaths();
 	// createLectorService throws synchronously on an empty registry, before startDaemon/runDaemonProcess
 	// ever binds a listener or writes a handle file -- the daemon fails loudly at construction rather
 	// than starting and silently returning empty/error results per call. (Locus LCS-BUG-88 class.)
 	const service = createLectorService(options.workspaces);
 	const token = ensureAuthToken(paths.token, "Lector");
-	return { paths, app: buildLectorApp(service, token) };
+	// service.close() stops every warm symbol-index (LSP) subprocess the service spawned --
+	// without this hook a daemon restart would leak one language server per workspace that
+	// had ever run a symbol query.
+	return { paths, app: buildLectorApp(service, token), onShutdown: () => service.close() };
 }
 
 /** In-process entry point: no signal wiring, returns a stoppable handle. Used by tests and embedders. */
 export function startLectorDaemon(options: LectorDaemonOptions): RunningDaemon {
-	const { paths, app } = prepare(options);
+	const { paths, app, onShutdown } = prepare(options);
 	return startDaemon({
 		daemonLabel: "Lector",
 		handlePath: paths.handle,
 		buildApp: () => app,
 		logger: options.logger,
+		onShutdown,
 	});
 }
 
 /** The real binary's entry point: wires SIGINT/SIGTERM and process.exit. */
 export function serveMain(options: LectorDaemonOptions & { onListen?: (info: { host: string; port: number }) => void }): void {
-	const { paths, app } = prepare(options);
+	const { paths, app, onShutdown } = prepare(options);
 	runDaemonProcess({
 		daemonLabel: "Lector",
 		handlePath: paths.handle,
 		buildApp: () => app,
 		logger: options.logger,
+		onShutdown,
 		onListen: options.onListen,
 	});
 }

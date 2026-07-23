@@ -38,6 +38,20 @@ export async function connectLectorClient(options: ConnectLectorClientOptions = 
 }
 
 /**
+ * Construct a LectorClient directly against a known host/port/token, without
+ * going through paths/handle-file discovery. For callers (tests, host
+ * adapters standing up their own isolated daemon) that already have a
+ * RunningDaemon and its token in hand. Ensures every consumer of Lector's
+ * client gets the exact same AuthenticatedRpcClient class instance Lector
+ * itself depends on -- a second, independently-resolved copy of
+ * @danypops/daemon-kit in a consumer's own node_modules would otherwise be a
+ * structurally distinct (if identical-looking) type.
+ */
+export function connectLectorClientAt(baseUrl: string, token: string): LectorClient {
+	return new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(baseUrl, token, { label: "Lector" });
+}
+
+/**
  * True when `error` is the client-side rejection of a call whose Lector
  * domain error was `name` (e.g. "StaleExpectedHash"). The RPC transport
  * carries only a single error string -- see daemon.ts's ops-endpoint catch
