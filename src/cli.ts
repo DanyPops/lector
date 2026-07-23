@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
+import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { connectLectorClient } from "./client.ts";
 import { serveMain } from "./daemon.ts";
 import type { ContentHash } from "./domain/content-hash.ts";
@@ -7,7 +8,10 @@ import type { WorkspacePort } from "./ports/workspace-port.ts";
 import type { WorkspaceId } from "./service.ts";
 
 const USAGE = `Usage:
-  lector serve --workspace <id> [--workspace <id>...]
+  lector serve [--workspace <id>]... [--workspace-path <id>=<dir>]...
+    at least one --workspace or --workspace-path is required
+    --workspace <id>            ephemeral in-memory workspace (data lost on restart)
+    --workspace-path <id>=<dir> real directory <dir>, registered under <id>
   lector workspace read <workspace-id> <path> [--json]
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
 `;
@@ -38,18 +42,34 @@ function hasFlag(args: string[], flag: string): boolean {
 	return args.includes(flag);
 }
 
-async function runServe(args: string[]): Promise<void> {
-	const ids = collectFlagValues(args, "--workspace");
-	if (ids.length === 0) fail("lector serve requires at least one --workspace <id>");
+function parseWorkspacePathFlag(raw: string): { id: string; dir: string } {
+	const separatorIndex = raw.indexOf("=");
+	if (separatorIndex <= 0 || separatorIndex === raw.length - 1) {
+		fail(`--workspace-path expects <id>=<dir>, got "${raw}"`);
+	}
+	return { id: raw.slice(0, separatorIndex), dir: raw.slice(separatorIndex + 1) };
+}
 
-	// Step 2 of the walking skeleton: in-memory workspaces only. The local-filesystem
-	// adapter (walking-skeleton step 3) is a separate, not-yet-landed piece of work.
-	const workspaces = new Map<WorkspaceId, WorkspacePort>(ids.map((id) => [id, new InMemoryWorkspace()]));
+async function runServe(args: string[]): Promise<void> {
+	const memoryIds = collectFlagValues(args, "--workspace");
+	const pathEntries = collectFlagValues(args, "--workspace-path").map(parseWorkspacePathFlag);
+	if (memoryIds.length === 0 && pathEntries.length === 0) {
+		fail("lector serve requires at least one --workspace <id> or --workspace-path <id>=<dir>");
+	}
+
+	const workspaces = new Map<WorkspaceId, WorkspacePort>();
+	for (const id of memoryIds) workspaces.set(id, new InMemoryWorkspace());
+	for (const { id, dir } of pathEntries) workspaces.set(id, new LocalFilesystemWorkspace(dir));
+
+	const summary = [
+		...memoryIds.map((id) => `${id} (in-memory)`),
+		...pathEntries.map(({ id, dir }) => `${id} (${dir})`),
+	].join(", ");
 
 	serveMain({
 		workspaces,
 		onListen: ({ host, port }) => {
-			console.error(`Lector listening on ${host}:${port} (workspaces: ${ids.join(", ")})`);
+			console.error(`Lector listening on ${host}:${port} (workspaces: ${summary})`);
 		},
 	});
 }
