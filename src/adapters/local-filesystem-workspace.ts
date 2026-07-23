@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { contentHashOf, type ContentHash } from "../domain/content-hash.ts";
 import { StaleExpectedHash } from "../domain/exact-edit.ts";
 import type { WorkspaceEntry, WorkspacePort } from "../ports/workspace-port.ts";
@@ -48,7 +48,13 @@ export class LocalFilesystemWorkspace implements WorkspacePort {
 
 	private resolvePath(path: string): string {
 		const absolute = resolve(this.root, path);
-		if (absolute !== this.root && !absolute.startsWith(this.root + sep)) {
+		// node:path's relative(), not string-prefix concatenation: `this.root + sep` breaks for
+		// the filesystem root itself ("/" + "/" = "//", which no real absolute path starts
+		// with -- root="/" is a real, legitimate case: a path with no enclosing project root
+		// falls back to it, per pi-lector's workspaceForPath, and every such read was rejected
+		// as "escaping" a root it did not actually escape at all).
+		const relativeToRoot = relative(this.root, absolute);
+		if (relativeToRoot === ".." || relativeToRoot.startsWith(".." + sep) || isAbsolute(relativeToRoot)) {
 			throw new PathEscapesWorkspaceRoot(path, this.root);
 		}
 		return absolute;

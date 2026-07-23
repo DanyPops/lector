@@ -80,6 +80,23 @@ describe("LocalFilesystemWorkspace atomic writes", () => {
 		).rejects.toBeInstanceOf(PathEscapesWorkspaceRoot);
 	});
 
+	it(
+		"accepts real, non-escaping paths when the workspace root is the filesystem root itself " +
+			"(regression: root + sep string concatenation produced '//', which no real absolute " +
+			"path starts with, rejecting every legitimate read as a false escape)",
+		async () => {
+			const dir = await freshRoot();
+			const workspace = new LocalFilesystemWorkspace("/");
+			// A relative path expressed from "/" down to a real tmp file this test owns.
+			const relativeFromFilesystemRoot = dir.replace(/^\//, "") + "/a.txt";
+
+			await exactEdit(workspace, { path: relativeFromFilesystemRoot, expectedHash: null, content: "hello from root" });
+			const read = await rawRead(workspace, relativeFromFilesystemRoot);
+
+			expect(read.content).toBe("hello from root");
+		},
+	);
+
 	it("round-trips content and hash exactly like the in-memory adapter", async () => {
 		const dir = await freshRoot();
 		const workspace = new LocalFilesystemWorkspace(dir);
