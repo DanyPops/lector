@@ -4,6 +4,7 @@ import {
 	createWriteToolDefinition,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import { resolve } from "node:path";
 import { Type } from "typebox";
 import { createLectorEditOperations } from "./edit-operations.ts";
 import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts";
@@ -47,14 +48,23 @@ export default function (pi: ExtensionAPI) {
 			name: "find_symbols",
 			label: "Find Symbols",
 			description:
-				"Search the current workspace for functions, classes, interfaces, types, enums, and methods by name (case-insensitive substring match). Returns each match's kind and file location.",
-			promptSnippet: "Search the workspace for a symbol (function, class, etc.) by name",
+				"Search a workspace for functions, classes, interfaces, types, enums, and methods by name " +
+				"(case-insensitive substring match). Returns each match's kind and file location. Defaults to " +
+				"the current project; pass `directory` to search a different one without needing to be in it.",
+			promptSnippet: "Search a workspace for a symbol (function, class, etc.) by name",
 			promptGuidelines: [
 				"Use find_symbols to locate where a function, class, interface, type, enum, or method is declared by name, instead of grepping for it.",
+				"Pass find_symbols' directory argument to search a different project than the current one -- it is not limited to the session's own working directory.",
 			],
-			parameters: Type.Object({ query: Type.String({ description: "Name or substring to search for, case-insensitive" }) }),
+			parameters: Type.Object({
+				query: Type.String({ description: "Name or substring to search for, case-insensitive" }),
+				directory: Type.Optional(
+					Type.String({ description: "Directory of the project to search, absolute or relative to the current working directory; defaults to the current project" }),
+				),
+			}),
 			async execute(_toolCallId, params) {
-				const symbols = await findSymbolsOperations.findSymbols(params.query);
+				const directory = params.directory === undefined ? undefined : resolve(cwd, params.directory);
+				const symbols = await findSymbolsOperations.findSymbols(params.query, directory);
 				const text =
 					symbols.length === 0
 						? `No symbols found matching "${params.query}".`
