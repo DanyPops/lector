@@ -1,0 +1,33 @@
+{
+	"name": "@danypops/pi-lector",
+	"version": "0.0.0",
+	"description": "Pi host adapter for Lector: overrides read/write/edit with a daemon-backed, hash-guarded filesystem",
+	"license": "MIT",
+	"type": "module",
+	"keywords": ["pi-package"],
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"pi": {
+		"extensions": ["extension/src/index.ts"]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
+	},
+	"dependencies": {
+		"@danypops/lector": "file:../lector"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "^0.81.1",
+		"@types/bun": "latest",
+		"typebox": "^1.3.6",
+		"typescript": "^5.7.3"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/DanyPops/pi-lector.git"
+	},
+	"files": ["extension", "README.md"]
+}
