@@ -1,11 +1,14 @@
 {
 	"name": "@danypops/lector",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Platform-neutral filesystem & code-intelligence capability: core, service, and driven adapters",
 	"license": "MIT",
 	"type": "module",
 	"main": "./src/index.ts",
 	"types": "./src/index.ts",
+	"bin": {
+		"lector": "src/cli.ts"
+	},
 	"scripts": {
 		"test": "bun test",
 		"typecheck": "tsc --noEmit",
@@ -15,16 +18,23 @@
 	"dependencies": {
 		"@danypops/daemon-kit": "^0.2.0",
 		"tree-sitter-wasms": "^0.1.13",
+		"typescript-language-server": "^5.3.0",
 		"web-tree-sitter": "0.20.8"
 	},
 	"devDependencies": {
 		"@types/bun": "latest",
-		"typescript": "^5.7.3",
-		"typescript-language-server": "^5.3.0"
+		"typescript": "^5.7.3"
 	},
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/DanyPops/lector.git"
 	},
-	"files": ["src", "README.md"]
+	"homepage": "https://github.com/DanyPops/lector#readme",
+	"bugs": {
+		"url": "https://github.com/DanyPops/lector/issues"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"files": ["src", "README.md", "LICENSE"]
 }
