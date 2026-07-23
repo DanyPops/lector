@@ -1,35 +1,8 @@
-# Lector
+# @danypops/lector
 
-Filesystem & code-intelligence service: a platform-neutral capability core plus a
-supervised daemon, with host adapters (starting with Pi) as thin translation layers
-on top.
-
-Filesystem operations and code intelligence are not two capabilities that happen to
-share a daemon — they operate on the same object, a file's content at a point in
-time, just through different lenses: raw text for reads and hash-guarded edits, an
-AST/symbol view for code queries. Lector caches both lenses under one shared,
-content-addressed key, so satisfying one lens's request can warm the other's for
-free.
-
-## Architecture
-
-```text
-Host adapter (pi-lector, ...)
-      ↓
-authenticated loopback client
-      ↓
-Lector daemon (auth, dispatch, cache/index generations)
-      ↓
-domain: rawRead / exactEdit / findWorkspaceSymbols
-      ↓
-ports: WorkspacePort, SymbolIndexPort, ContentCachePort
-      ↓
-adapters: local filesystem, typescript-language-server, tree-sitter (WASM), SQLite
-```
-
-Follows the same supervised-Bun-daemon shape as `@danypops/papyrus` and
-`@danypops/jittor`, built on `@danypops/daemon-kit`: one process owns the database
-and any subprocesses (language servers); everything else is an authenticated client.
+The capability core and daemon half of [Lector](../../README.md) -- domain,
+ports, adapters, and the CLI/systemd service. See the repo root README for
+the overall architecture and how `packages/pi-lector` fits in.
 
 ## Storage and service
 
@@ -74,8 +47,3 @@ not assumed to:
 - **tree-sitter** (via `web-tree-sitter`, WASM — no native toolchain required) — no
   subprocess, always current, results cached per file under a content-addressed key.
 
-## Packages
-
-- **`lector`** (this package) — the capability core and daemon.
-- **`pi-lector`** — the Pi host adapter: overrides `read`/`write`/`edit` and adds a
-  `find_symbols` tool, all routed through a running Lector daemon.

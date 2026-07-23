@@ -22,12 +22,13 @@
 		"web-tree-sitter": "0.20.8"
 	},
 	"devDependencies": {
-		"@types/bun": "latest",
+		"bun-types": "latest",
 		"typescript": "^5.7.3"
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/DanyPops/lector.git"
+		"url": "git+https://github.com/DanyPops/lector.git",
+		"directory": "packages/lector"
 	},
 	"homepage": "https://github.com/DanyPops/lector#readme",
 	"bugs": {

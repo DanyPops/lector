@@ -1,4 +1,4 @@
-name: Publish Package
+name: Publish lector
 
 # Trusted publishing (OIDC): no long-lived npm tokens after the first release.
 # npm CLI detects the OIDC environment automatically (requires npm >= 11.5.1).
@@ -10,12 +10,17 @@ name: Publish Package
 # (this workflow cannot do that part -- it has no npm token, by design), then
 # (2) configure the trusted publisher: org=DanyPops repo=lector
 # workflow=publish.yml, then (3) this workflow handles every release after
-# that via OIDC, triggered by a `v*` tag push.
+# that via OIDC, triggered by a `lector-v*` tag push.
+#
+# Tag scheme is per-package (`lector-v*`, and `pi-lector-v*` once that package
+# is ready to publish too), not a bare `v*` -- this is a monorepo with two
+# independently versioned packages, and a shared tag prefix would leave which
+# package a release actually refers to ambiguous.
 
 on:
   push:
     tags:
-      - "v*"
+      - "lector-v*"
 
 permissions:
   id-token: write # Required for OIDC
@@ -29,9 +34,14 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      # Installed once from the repo root -- this is what actually links
+      # packages/pi-lector's @danypops/lector dependency to packages/lector
+      # via the workspace, not a separate registry fetch.
       - run: bun install
       - run: bun test
+        working-directory: packages/lector
       - run: bun x tsc --noEmit
+        working-directory: packages/lector
 
       # npm CLI only for the publish step (trusted publishing needs >= 11.5.1).
       # NO registry-url here: it makes setup-node write an .npmrc with an empty
@@ -48,6 +58,7 @@ jobs:
       # Idempotent: a re-run of the same tag (e.g. a retried workflow) must not
       # fail loudly trying to republish a version that already succeeded.
       - id: registry
+        working-directory: packages/lector
         shell: bash
         run: |
           name="$(node -p "require('./package.json').name")"
@@ -62,4 +73,5 @@ jobs:
       # automatically -- real-world reports (multiple independent accounts) found it did not
       # happen reliably without the flag on at least the first OIDC-authenticated publish.
       - if: steps.registry.outputs.published != 'true'
+        working-directory: packages/lector
         run: npm publish --access public --provenance
