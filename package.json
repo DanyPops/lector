@@ -13,7 +13,9 @@
 		"serve": "bun src/cli.ts serve"
 	},
 	"dependencies": {
-		"@danypops/daemon-kit": "^0.2.0"
+		"@danypops/daemon-kit": "^0.2.0",
+		"tree-sitter-wasms": "^0.1.13",
+		"web-tree-sitter": "0.20.8"
 	},
 	"devDependencies": {
 		"@types/bun": "latest",

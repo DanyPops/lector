@@ -13,6 +13,7 @@ export { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 export type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export { TypescriptSymbolIndex } from "./adapters/lsp/typescript-symbol-index.ts";
+export { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 export {
 	LanguageServerProcess,
 	LanguageServerProcessExited,
