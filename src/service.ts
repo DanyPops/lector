@@ -84,6 +84,15 @@ export interface LectorService {
 	dispatch<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]>;
 	/** Stops every warm symbol-index subprocess this service spawned. Idempotent. */
 	close(): Promise<void>;
+	/**
+	 * Closes and removes any warm symbol index (e.g. an LSP subprocess) not used within
+	 * maxIdleMs. Returns the number reaped. Wired into the daemon's periodic maintenance --
+	 * a long-lived, dynamic-workspace daemon that has touched many different projects over
+	 * its uptime must not keep every one of their warm indexes alive forever (Oculus's own
+	 * TTL-eviction lesson: idle LSP servers are a real, unbounded resource-growth risk, not
+	 * a theoretical one).
+	 */
+	reapIdleSymbolIndexes(maxIdleMs: number): Promise<number>;
 }
 
 interface RegisteredWorkspace {
@@ -168,7 +177,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	// One warm symbol index per workspace, reused across calls (lsp-cli/tslsp-cli's own
 	// pattern, doc 9c15958b -- a fresh process per query would pay a fork+initialize cost
 	// every time). Keyed by workspaceId, never by seedFile: a workspace's index warms once.
-	const symbolIndexes = new Map<WorkspaceId, ClosableSymbolIndex>();
+	// lastUsedAt backs reapIdleSymbolIndexes -- an idle-eviction TTL, not just a warm cache.
+	const symbolIndexes = new Map<WorkspaceId, { index: ClosableSymbolIndex; lastUsedAt: number }>();
 	const createSymbolIndex = options.createSymbolIndex ?? ((rootPath: string, seedFile?: string) => new TypescriptSymbolIndex(rootPath, seedFile));
 
 	async function findSymbols(
@@ -179,12 +189,14 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
 		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 
-		let index = symbolIndexes.get(input.workspaceId);
-		if (!index) {
-			index = createSymbolIndex(entry.rootPath, input.seedFile);
-			symbolIndexes.set(input.workspaceId, index);
+		let entryIndex = symbolIndexes.get(input.workspaceId);
+		if (!entryIndex) {
+			entryIndex = { index: createSymbolIndex(entry.rootPath, input.seedFile), lastUsedAt: Date.now() };
+			symbolIndexes.set(input.workspaceId, entryIndex);
+		} else {
+			entryIndex.lastUsedAt = Date.now();
 		}
-		const symbols = await findWorkspaceSymbols(index, input.query);
+		const symbols = await findWorkspaceSymbols(entryIndex.index, input.query);
 		return { symbols };
 	}
 
@@ -214,9 +226,16 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			return handler(registry, input);
 		},
 		async close(): Promise<void> {
-			const indexes = Array.from(symbolIndexes.values());
+			const entries = Array.from(symbolIndexes.values());
 			symbolIndexes.clear();
-			await Promise.all(indexes.map((index) => index.close()));
+			await Promise.all(entries.map((entry) => entry.index.close()));
+		},
+		async reapIdleSymbolIndexes(maxIdleMs: number): Promise<number> {
+			const now = Date.now();
+			const idle = Array.from(symbolIndexes.entries()).filter(([, entry]) => now - entry.lastUsedAt > maxIdleMs);
+			for (const [workspaceId] of idle) symbolIndexes.delete(workspaceId);
+			await Promise.all(idle.map(([, entry]) => entry.index.close()));
+			return idle.length;
 		},
 	};
 }

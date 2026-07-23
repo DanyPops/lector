@@ -1,4 +1,4 @@
-import { runDaemonProcess, startDaemon, type RunningDaemon } from "@danypops/daemon-kit/daemon";
+import { runDaemonProcess, startDaemon, type MaintenanceTask, type RunningDaemon } from "@danypops/daemon-kit/daemon";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/daemon-kit/http";
 import type { Logger } from "@danypops/daemon-kit/logging";
 import { ensureAuthToken, type DaemonPaths } from "@danypops/daemon-kit/paths";
@@ -54,6 +54,16 @@ export function buildLectorApp(service: LectorService, token: string): { fetch(r
 	};
 }
 
+/**
+ * Idle-eviction TTL for warm symbol indexes (LSP subprocesses, mainly): a long-lived,
+ * dynamic-workspace daemon accumulates one per project ever queried over its uptime, with
+ * no natural point at which a project stops being relevant. 30 minutes matches Oculus's
+ * own chosen value for the identical problem (gopls warm-pool TTL eviction) -- a real,
+ * previously-shipped resource-growth fix, not an arbitrary number.
+ */
+const DEFAULT_SYMBOL_INDEX_IDLE_TTL_MS = 30 * 60 * 1000;
+const DEFAULT_SYMBOL_INDEX_REAP_INTERVAL_MS = 5 * 60 * 1000;
+
 export interface LectorDaemonOptions {
 	workspaces: ReadonlyMap<WorkspaceId, WorkspacePort>;
 	/** Override resolved paths (tests inject an isolated tmp root). Defaults to the real XDG paths. */
@@ -61,12 +71,17 @@ export interface LectorDaemonOptions {
 	logger?: Logger;
 	/** Forwarded to createLectorService -- see its own doc comment. Still refuses zero workspaces by default. */
 	allowDynamicOnly?: boolean;
+	/** Override the idle-eviction TTL for warm symbol indexes. Tests use a short value to observe eviction without waiting. */
+	symbolIndexIdleTtlMs?: number;
+	/** Override how often the idle-eviction sweep runs. */
+	symbolIndexReapIntervalMs?: number;
 }
 
 function prepare(options: LectorDaemonOptions): {
 	paths: DaemonPaths;
 	app: { fetch(request: Request): Promise<Response> };
 	onShutdown: () => Promise<void>;
+	maintenanceTasks: MaintenanceTask[];
 } {
 	const paths = options.paths ?? resolveLectorPaths();
 	// createLectorService throws synchronously on an empty registry (unless allowDynamicOnly is
@@ -75,33 +90,50 @@ function prepare(options: LectorDaemonOptions): {
 	// returning empty/error results per call. (Locus LCS-BUG-88 class.)
 	const service = createLectorService(options.workspaces, { allowDynamicOnly: options.allowDynamicOnly });
 	const token = ensureAuthToken(paths.token, "Lector");
+	const idleTtlMs = options.symbolIndexIdleTtlMs ?? DEFAULT_SYMBOL_INDEX_IDLE_TTL_MS;
 	// service.close() stops every warm symbol-index (LSP) subprocess the service spawned --
 	// without this hook a daemon restart would leak one language server per workspace that
-	// had ever run a symbol query.
-	return { paths, app: buildLectorApp(service, token), onShutdown: () => service.close() };
+	// had ever run a symbol query. reapIdleSymbolIndexes (below) is the same idea on a timer,
+	// for indexes that go idle long before the daemon itself ever restarts.
+	return {
+		paths,
+		app: buildLectorApp(service, token),
+		onShutdown: () => service.close(),
+		maintenanceTasks: [
+			{
+				name: "reap-idle-symbol-indexes",
+				intervalMs: options.symbolIndexReapIntervalMs ?? DEFAULT_SYMBOL_INDEX_REAP_INTERVAL_MS,
+				run: async () => {
+					await service.reapIdleSymbolIndexes(idleTtlMs);
+				},
+			},
+		],
+	};
 }
 
 /** In-process entry point: no signal wiring, returns a stoppable handle. Used by tests and embedders. */
 export function startLectorDaemon(options: LectorDaemonOptions): RunningDaemon {
-	const { paths, app, onShutdown } = prepare(options);
+	const { paths, app, onShutdown, maintenanceTasks } = prepare(options);
 	return startDaemon({
 		daemonLabel: "Lector",
 		handlePath: paths.handle,
 		buildApp: () => app,
 		logger: options.logger,
 		onShutdown,
+		maintenanceTasks,
 	});
 }
 
 /** The real binary's entry point: wires SIGINT/SIGTERM and process.exit. */
 export function serveMain(options: LectorDaemonOptions & { onListen?: (info: { host: string; port: number }) => void }): void {
-	const { paths, app, onShutdown } = prepare(options);
+	const { paths, app, onShutdown, maintenanceTasks } = prepare(options);
 	runDaemonProcess({
 		daemonLabel: "Lector",
 		handlePath: paths.handle,
 		buildApp: () => app,
 		logger: options.logger,
 		onShutdown,
+		maintenanceTasks,
 		onListen: options.onListen,
 	});
 }
