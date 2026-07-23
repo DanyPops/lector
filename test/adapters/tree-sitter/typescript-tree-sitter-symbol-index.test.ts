@@ -6,7 +6,32 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { InMemoryContentCache } from "../../../src/adapters/in-memory-content-cache.ts";
 import { TreeSitterSymbolIndex } from "../../../src/adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { contentHashOf } from "../../../src/domain/content-hash.ts";
+import type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "../../../src/ports/content-cache-port.ts";
+import type { ContentHash } from "../../../src/domain/content-hash.ts";
+
+/** Counts get/putSymbols calls per hash, so a test can observe cache hit vs. miss directly instead of only inferring it from output correctness. */
+class CountingContentCache implements ContentCachePort {
+	private readonly delegate = new InMemoryContentCache();
+	readonly getCalls: ContentHash[] = [];
+	readonly putSymbolsCalls: ContentHash[] = [];
+
+	async get(hash: ContentHash): Promise<ContentCacheEntry | undefined> {
+		this.getCalls.push(hash);
+		return this.delegate.get(hash);
+	}
+
+	async putRawContent(hash: ContentHash, content: string): Promise<void> {
+		return this.delegate.putRawContent(hash, content);
+	}
+
+	async putSymbols(hash: ContentHash, symbols: readonly ContentSymbol[]): Promise<void> {
+		this.putSymbolsCalls.push(hash);
+		return this.delegate.putSymbols(hash, symbols);
+	}
+}
 
 const LECTOR_ROOT = new URL("../../..", import.meta.url).pathname;
 
@@ -66,3 +91,64 @@ describe("TreeSitterSymbolIndex bounded scan", () => {
 function mktemp(): string {
 	return mkdtempSync(join(tmpdir(), "lector-tree-sitter-test-"));
 }
+
+describe("TreeSitterSymbolIndex content-addressed caching (doc 38db976d)", () => {
+	it("parses a file once, then serves a second query for the same unchanged file from the cache", async () => {
+		const root = mktemp();
+		try {
+			writeFileSync(join(root, "a.ts"), "export function add() {}");
+			const cache = new CountingContentCache();
+			const index = new TreeSitterSymbolIndex(root, cache);
+
+			await index.findSymbols("add");
+			const putsAfterFirstQuery = cache.putSymbolsCalls.length;
+			expect(putsAfterFirstQuery).toBe(1);
+
+			await index.findSymbols("add");
+			// A second query against the same unchanged file must hit the cache, not parse again --
+			// no additional putSymbols call for a hash already cached.
+			expect(cache.putSymbolsCalls.length).toBe(putsAfterFirstQuery);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("warms the raw-content lens for a hash even though only findSymbols (never rawRead) touched it", async () => {
+		const root = mktemp();
+		try {
+			const source = "export function add() {}";
+			writeFileSync(join(root, "a.ts"), source);
+			const cache = new InMemoryContentCache();
+			const index = new TreeSitterSymbolIndex(root, cache);
+
+			await index.findSymbols("add");
+
+			// code-intel -> fs warming: findSymbols read the file to parse it, so the fs lens for
+			// that same content hash must already be populated for a subsequent plain read to hit.
+			const entry = await cache.get(contentHashOf(source));
+			expect(entry?.rawContent).toBe(source);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("attaches the querying file's own path to cached symbols, not the path of whichever file first populated that hash", async () => {
+		const root = mktemp();
+		try {
+			const identicalSource = "export function sharedName() {}";
+			mkdirSync(join(root, "first"));
+			mkdirSync(join(root, "second"));
+			writeFileSync(join(root, "first", "a.ts"), identicalSource);
+			writeFileSync(join(root, "second", "a.ts"), identicalSource);
+
+			const cache = new InMemoryContentCache();
+			const index = new TreeSitterSymbolIndex(root, cache);
+			const results = await index.findSymbols("sharedName");
+
+			const paths = results.map((symbol) => symbol.location.path).sort();
+			expect(paths).toEqual([join("first", "a.ts"), join("second", "a.ts")].sort());
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+});

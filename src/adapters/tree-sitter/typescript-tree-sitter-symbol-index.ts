@@ -2,8 +2,11 @@ import { readFileSync, readdirSync, type Dirent } from "node:fs";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Parser from "web-tree-sitter";
+import { contentHashOf } from "../../domain/content-hash.ts";
 import type { WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
+import type { ContentCachePort, ContentSymbol } from "../../ports/content-cache-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
+import { InMemoryContentCache } from "../in-memory-content-cache.ts";
 
 const SKIP_DIRECTORY_NAMES = new Set(["node_modules", ".git", "dist", "build", "out", "coverage"]);
 const MAX_FILES_SCANNED = 5_000;
@@ -71,20 +74,26 @@ function findSourceFiles(rootPath: string): string[] {
 	return files;
 }
 
-function extractDeclarations(root: Parser.SyntaxNode, relativePath: string): WorkspaceSymbol[] {
-	const results: WorkspaceSymbol[] = [];
+/** Content-derived only -- no path, so the extraction result is valid caching material regardless of which file currently holds this content. */
+function extractContentSymbols(root: Parser.SyntaxNode): ContentSymbol[] {
+	const results: ContentSymbol[] = [];
 	for (const spec of DECLARATION_KINDS) {
 		for (const node of root.descendantsOfType(spec.nodeType)) {
 			const nameNode = node.childForFieldName("name");
 			if (!nameNode) continue;
-			results.push({
-				name: nameNode.text,
-				kind: spec.kind,
-				location: { path: relativePath, line: node.startPosition.row + 1, character: node.startPosition.column + 1 },
-			});
+			results.push({ name: nameNode.text, kind: spec.kind, line: node.startPosition.row + 1, character: node.startPosition.column + 1 });
 		}
 	}
 	return results;
+}
+
+function toWorkspaceSymbols(symbols: readonly ContentSymbol[], relativePath: string): WorkspaceSymbol[] {
+	return symbols.map((symbol) => ({
+		name: symbol.name,
+		kind: symbol.kind,
+		location: { path: relativePath, line: symbol.line, character: symbol.character },
+		...(symbol.containerName !== undefined ? { containerName: symbol.containerName } : {}),
+	}));
 }
 
 /**
@@ -103,13 +112,22 @@ function extractDeclarations(root: Parser.SyntaxNode, relativePath: string): Wor
  * is pinned to the matching 0.20.8 release rather than its current 0.26.x line, which cannot
  * load grammars built against that older WASM ABI (confirmed directly: 0.26.11 threw a
  * dylink-metadata load error against these exact .wasm files).
+ *
+ * Per-file results ARE cached, keyed by ContentHash, via an injected ContentCachePort
+ * (default: an in-process InMemoryContentCache; pass a SqliteContentCache for durability
+ * across restarts, doc 38db976d). A cache hit skips parsing that file's content entirely.
+ * Reading a file to check its hash also warms the cache's rawContent lens for that hash
+ * (code-intel -> fs warming) even on a symbols cache hit, since the content was read either
+ * way to compute the hash.
  */
 export class TreeSitterSymbolIndex implements SymbolIndexPort {
 	private readonly rootPath: string;
+	private readonly contentCache: ContentCachePort;
 	private readonly parsersByWasmPath = new Map<string, Parser>();
 
-	constructor(rootPath: string) {
+	constructor(rootPath: string, contentCache: ContentCachePort = new InMemoryContentCache()) {
 		this.rootPath = rootPath;
+		this.contentCache = contentCache;
 	}
 
 	private async parserFor(wasmPath: string): Promise<Parser> {
@@ -121,6 +139,25 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 		parser.setLanguage(language);
 		this.parsersByWasmPath.set(wasmPath, parser);
 		return parser;
+	}
+
+	private async contentSymbolsFor(relativePath: string, wasmPath: string, content: string): Promise<ContentSymbol[]> {
+		const hash = contentHashOf(content);
+
+		// Reading the file already required reading its content -- warm the fs lens for this
+		// hash regardless of whether the symbols lens below is a hit or a miss. Awaited, not
+		// fire-and-forget: a caller reading this hash's rawContent right after findSymbols
+		// resolves must see it, not race an in-flight write.
+		await this.contentCache.putRawContent(hash, content);
+
+		const cached = await this.contentCache.get(hash);
+		if (cached?.symbols) return [...cached.symbols];
+
+		const parser = await this.parserFor(wasmPath);
+		const tree = parser.parse(content);
+		const symbols = tree ? extractContentSymbols(tree.rootNode) : [];
+		await this.contentCache.putSymbols(hash, symbols);
+		return symbols;
 	}
 
 	async findSymbols(query: string): Promise<WorkspaceSymbol[]> {
@@ -138,11 +175,8 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 				continue;
 			}
 
-			const parser = await this.parserFor(wasmPath);
-			const tree = parser.parse(content);
-			if (!tree) continue;
-
-			for (const symbol of extractDeclarations(tree.rootNode, relativePath)) {
+			const contentSymbols = await this.contentSymbolsFor(relativePath, wasmPath, content);
+			for (const symbol of toWorkspaceSymbols(contentSymbols, relativePath)) {
 				if (symbol.name.toLowerCase().includes(lowerQuery)) results.push(symbol);
 			}
 		}

@@ -12,6 +12,9 @@ export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./adapters/l
 export { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 export type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
+export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
+export { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
+export { SqliteContentCache } from "./adapters/sqlite-content-cache.ts";
 export { TypescriptSymbolIndex } from "./adapters/lsp/typescript-symbol-index.ts";
 export { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 export {
