@@ -5,11 +5,11 @@
  * bf62f1d), so this operations layer, and the tool schema built on top of
  * it, never has to expose it.
  *
- * findSymbols' `directory` argument is an explicit per-call override of the
- * default -- a real, reported limitation this fixes: a fixed, session-cwd-
- * only default meant there was no way to get code intelligence for a
- * different project in the same session, even though read/write/edit could
- * already touch any repo.
+ * `directory` is required on every call, not an optional override with a
+ * hidden cwd-based default -- exactly like read/write/edit require an
+ * explicit path rather than defaulting to some magic file, a symbol query
+ * requires an explicit project rather than silently defaulting to wherever
+ * the session happens to be running.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -20,6 +20,7 @@ import { resetLectorClientForTests, setLectorClientConnectorForTests } from "../
 import { startIsolatedLectorDaemon } from "./support/isolated-lector-daemon.ts";
 
 let projectDir: string | undefined;
+let otherProjectDir: string | undefined;
 let stopDaemon: (() => Promise<void>) | undefined;
 
 afterEach(async () => {
@@ -27,7 +28,9 @@ afterEach(async () => {
 	await stopDaemon?.();
 	stopDaemon = undefined;
 	if (projectDir) rmSync(projectDir, { recursive: true, force: true });
+	if (otherProjectDir) rmSync(otherProjectDir, { recursive: true, force: true });
 	projectDir = undefined;
+	otherProjectDir = undefined;
 });
 
 describe("Lector-backed find-symbols operation", () => {
@@ -42,8 +45,8 @@ describe("Lector-backed find-symbols operation", () => {
 			mkdirSync(join(projectDir, "src"));
 			writeFileSync(join(projectDir, "src", "index.ts"), "export function greetLoudly(name: string): string {\n\treturn `HELLO ${name}`;\n}\n");
 
-			const ops = createLectorFindSymbolsOperations(projectDir);
-			const symbols = await ops.findSymbols("greetLoudly");
+			const ops = createLectorFindSymbolsOperations();
+			const symbols = await ops.findSymbols("greetLoudly", projectDir);
 
 			const match = symbols.find((symbol) => symbol.name === "greetLoudly");
 			expect(match).toBeDefined();
@@ -62,8 +65,8 @@ describe("Lector-backed find-symbols operation", () => {
 			projectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-"));
 			writeFileSync(join(projectDir, "index.ts"), "export const x = 1;\n");
 
-			const ops = createLectorFindSymbolsOperations(projectDir);
-			const symbols = await ops.findSymbols("ThisSymbolDefinitelyDoesNotExistAnywhere");
+			const ops = createLectorFindSymbolsOperations();
+			const symbols = await ops.findSymbols("ThisSymbolDefinitelyDoesNotExistAnywhere", projectDir);
 
 			expect(symbols).toEqual([]);
 		},
@@ -71,37 +74,30 @@ describe("Lector-backed find-symbols operation", () => {
 	);
 
 	it(
-		"searches an explicitly given directory instead of the default, in the same running Operations instance",
+		"searches whichever directory is given, and one Operations instance can search different directories across calls",
 		async () => {
 			const daemon = startIsolatedLectorDaemon();
 			stopDaemon = daemon.stop;
 			setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
-			// The "session's own project" -- created once, exactly as index.ts's session_start
-			// handler does, and never touched again below.
 			projectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-default-"));
 			writeFileSync(join(projectDir, "index.ts"), "export function inDefaultProject() {}\n");
 
-			// A completely different project the caller explicitly asks about instead.
-			const otherProjectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-other-"));
+			otherProjectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-other-"));
 			writeFileSync(join(otherProjectDir, "index.ts"), "export function inOtherProject() {}\n");
 
-			try {
-				const ops = createLectorFindSymbolsOperations(projectDir);
+			const ops = createLectorFindSymbolsOperations();
 
-				const defaultResults = await ops.findSymbols("inDefaultProject");
-				expect(defaultResults.some((symbol) => symbol.name === "inDefaultProject")).toBe(true);
+			const firstResults = await ops.findSymbols("inDefaultProject", projectDir);
+			expect(firstResults.some((symbol) => symbol.name === "inDefaultProject")).toBe(true);
 
-				const otherResults = await ops.findSymbols("inOtherProject", otherProjectDir);
-				expect(otherResults.some((symbol) => symbol.name === "inOtherProject")).toBe(true);
+			const secondResults = await ops.findSymbols("inOtherProject", otherProjectDir);
+			expect(secondResults.some((symbol) => symbol.name === "inOtherProject")).toBe(true);
 
-				// The explicit-directory call must not have searched (or found anything in) the
-				// default project, and vice versa -- these are two genuinely separate workspaces.
-				expect(await ops.findSymbols("inOtherProject")).toEqual([]);
-				expect(await ops.findSymbols("inDefaultProject", otherProjectDir)).toEqual([]);
-			} finally {
-				rmSync(otherProjectDir, { recursive: true, force: true });
-			}
+			// Neither search leaks into the other's project -- these are genuinely separate
+			// workspaces, not a shared search scope with a remembered "current" directory.
+			expect(await ops.findSymbols("inOtherProject", projectDir)).toEqual([]);
+			expect(await ops.findSymbols("inDefaultProject", otherProjectDir)).toEqual([]);
 		},
 		20_000,
 	);

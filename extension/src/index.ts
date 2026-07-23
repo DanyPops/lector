@@ -43,27 +43,26 @@ export default function (pi: ExtensionAPI) {
 		pi.registerTool(createWriteToolDefinition(cwd, { operations: createLectorWriteOperations() }));
 		pi.registerTool(createEditToolDefinition(cwd, { operations: createLectorEditOperations() }));
 
-		const findSymbolsOperations = createLectorFindSymbolsOperations(cwd);
+		const findSymbolsOperations = createLectorFindSymbolsOperations();
 		pi.registerTool({
 			name: "find_symbols",
 			label: "Find Symbols",
 			description:
 				"Search a workspace for functions, classes, interfaces, types, enums, and methods by name " +
-				"(case-insensitive substring match). Returns each match's kind and file location. Defaults to " +
-				"the current project; pass `directory` to search a different one without needing to be in it.",
+				"(case-insensitive substring match). Returns each match's kind and file location. `directory` " +
+				"selects which project to search -- pass the current working directory to search it, or any " +
+				"other project's directory to get code intelligence there without needing to be in it.",
 			promptSnippet: "Search a workspace for a symbol (function, class, etc.) by name",
 			promptGuidelines: [
 				"Use find_symbols to locate where a function, class, interface, type, enum, or method is declared by name, instead of grepping for it.",
-				"Pass find_symbols' directory argument to search a different project than the current one -- it is not limited to the session's own working directory.",
+				"find_symbols' directory argument selects which project to search; it is never inferred, so pass the current working directory explicitly to search the current project, or another project's directory to search that one instead.",
 			],
 			parameters: Type.Object({
 				query: Type.String({ description: "Name or substring to search for, case-insensitive" }),
-				directory: Type.Optional(
-					Type.String({ description: "Directory of the project to search, absolute or relative to the current working directory; defaults to the current project" }),
-				),
+				directory: Type.String({ description: "Directory of the project to search, absolute or relative to the current working directory" }),
 			}),
 			async execute(_toolCallId, params) {
-				const directory = params.directory === undefined ? undefined : resolve(cwd, params.directory);
+				const directory = resolve(cwd, params.directory);
 				const symbols = await findSymbolsOperations.findSymbols(params.query, directory);
 				const text =
 					symbols.length === 0
