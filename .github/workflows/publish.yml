@@ -1,12 +1,16 @@
 name: Publish Package
 
-# Trusted publishing (OIDC): no long-lived npm tokens. npm CLI detects the
-# OIDC environment automatically (requires npm >= 11.5.1). Configure the
-# trusted publisher on npmjs.com: org=DanyPops repo=lector workflow=publish.yml
-# -- this is a one-time, manual, npmjs.com-website-only step that must be
-# done before the first tag push can succeed (a package with no trusted
-# publisher configured yet fails its publish step with a 404/403, not a
-# silent skip).
+# Trusted publishing (OIDC): no long-lived npm tokens after the first release.
+# npm CLI detects the OIDC environment automatically (requires npm >= 11.5.1).
+#
+# npm's trusted-publisher settings live on the PACKAGE's own settings page
+# (npmjs.com/package/@danypops/lector/access), which does not exist until the
+# package has been published at least once -- so for a brand-new package name,
+# the sequence is: (1) one manual `npm publish` from a machine logged into npm
+# (this workflow cannot do that part -- it has no npm token, by design), then
+# (2) configure the trusted publisher: org=DanyPops repo=lector
+# workflow=publish.yml, then (3) this workflow handles every release after
+# that via OIDC, triggered by a `v*` tag push.
 
 on:
   push:
@@ -54,5 +58,8 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # --provenance explicitly, even though npm's docs say OIDC publishes generate it
+      # automatically -- real-world reports (multiple independent accounts) found it did not
+      # happen reliably without the flag on at least the first OIDC-authenticated publish.
       - if: steps.registry.outputs.published != 'true'
-        run: npm publish --access public
+        run: npm publish --access public --provenance
