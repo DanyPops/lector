@@ -15,7 +15,7 @@ const USAGE = `Usage:
   lector workspace register <dir> [--json]
   lector workspace read <workspace-id> <path> [--json]
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
-  lector workspace symbols <workspace-id> <query> --seed-file <path> [--json]
+  lector workspace symbols <workspace-id> <query> [--seed-file <path>] [--json]
 `;
 
 function fail(message: string): never {
@@ -85,10 +85,9 @@ async function runWorkspaceRegister(dir: string | undefined, flags: string[]): P
 
 async function runWorkspaceSymbols(workspaceId: string | undefined, query: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !query) fail(USAGE);
-	const seedFile = flagValue(flags, "--seed-file");
-	if (seedFile === undefined) fail("lector workspace symbols requires --seed-file <path>");
+	const seedFile = flagValue(flags, "--seed-file"); // omit to auto-discover one
 	const client = await connectLectorClient();
-	const { symbols } = await client.call("workspace.findSymbols", { workspaceId, seedFile, query });
+	const { symbols } = await client.call("workspace.findSymbols", { workspaceId, query, seedFile });
 	if (hasFlag(flags, "--json")) {
 		console.log(JSON.stringify(symbols));
 		return;

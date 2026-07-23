@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
+import { discoverSeedFile } from "./discover-seed-file.ts";
 import { LanguageServerProcess } from "./language-server-process.ts";
 
 const LSP_SYMBOL_KIND_NAMES: Readonly<Record<number, string>> = {
@@ -58,16 +59,22 @@ function resolveTypescriptLanguageServerBin(): string {
  * before that fails with "No Project." (confirmed against a real server
  * while building this). Any file covered by the target tsconfig.json is
  * enough to pull the whole project into scope.
+ *
+ * Callers never need to know this quirk exists: when `seedFile` is omitted,
+ * one is chosen automatically via discoverSeedFile()'s bounded search. Pass
+ * it explicitly only when a specific file (e.g. the one a query is actually
+ * about) should be the one that warms the project, which can materially
+ * change navto's precision -- see doc 0ed166de's backend-parity findings.
  */
 export class TypescriptSymbolIndex implements SymbolIndexPort {
 	private readonly cwd: string;
-	private readonly seedFile: string;
+	private readonly explicitSeedFile: string | undefined;
 	private process: LanguageServerProcess | undefined;
 	private initializing: Promise<LanguageServerProcess> | undefined;
 
-	constructor(cwd: string, seedFile: string) {
+	constructor(cwd: string, seedFile?: string) {
 		this.cwd = cwd;
-		this.seedFile = seedFile;
+		this.explicitSeedFile = seedFile;
 	}
 
 	private async ensureInitialized(): Promise<LanguageServerProcess> {
@@ -87,7 +94,8 @@ export class TypescriptSymbolIndex implements SymbolIndexPort {
 				});
 				proc.notify("initialized", {});
 
-				const seedPath = join(this.cwd, this.seedFile);
+				const seedFile = this.explicitSeedFile ?? discoverSeedFile(this.cwd);
+				const seedPath = join(this.cwd, seedFile);
 				proc.notify("textDocument/didOpen", {
 					textDocument: {
 						uri: pathToFileURL(seedPath).href,

@@ -58,7 +58,7 @@ export interface OperationInputs {
 	"workspace.rawRead": { workspaceId: WorkspaceId; path: string };
 	"workspace.exactEdit": { workspaceId: WorkspaceId } & ExpectedHashEdit;
 	"workspace.registerPath": { path: string };
-	"workspace.findSymbols": { workspaceId: WorkspaceId; seedFile: string; query: string };
+	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string };
 }
 
 export interface OperationOutputs {
@@ -99,7 +99,7 @@ export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void> };
 
 export interface LectorServiceOptions {
 	/** Factory for the symbol index backing workspace.findSymbols. Defaults to TypescriptSymbolIndex. */
-	createSymbolIndex?: (rootPath: string, seedFile: string) => ClosableSymbolIndex;
+	createSymbolIndex?: (rootPath: string, seedFile?: string) => ClosableSymbolIndex;
 }
 
 function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): WorkspacePort {
@@ -155,7 +155,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	// pattern, doc 9c15958b -- a fresh process per query would pay a fork+initialize cost
 	// every time). Keyed by workspaceId, never by seedFile: a workspace's index warms once.
 	const symbolIndexes = new Map<WorkspaceId, ClosableSymbolIndex>();
-	const createSymbolIndex = options.createSymbolIndex ?? ((rootPath: string, seedFile: string) => new TypescriptSymbolIndex(rootPath, seedFile));
+	const createSymbolIndex = options.createSymbolIndex ?? ((rootPath: string, seedFile?: string) => new TypescriptSymbolIndex(rootPath, seedFile));
 
 	async function findSymbols(
 		registry: MutableRegistry,

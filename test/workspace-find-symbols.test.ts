@@ -85,6 +85,31 @@ describe("workspace.findSymbols", () => {
 		20_000,
 	);
 
+	it(
+		"finds a real symbol with no seedFile given at all, via bounded auto-discovery",
+		async () => {
+			const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
+			const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]));
+			const token = ensureAuthToken(paths.token, "Lector");
+			const app = buildLectorApp(service, token);
+			const daemon = startDaemon({ daemonLabel: "Lector", handlePath: paths.handle, buildApp: () => app });
+			cleanup = () => {
+				void service.close().then(() => daemon.stop());
+				cleanupPaths();
+			};
+
+			const client = clientFor(daemon.host, daemon.port, token);
+			const { workspaceId } = await client.call("workspace.registerPath", { path: LECTOR_ROOT });
+
+			// No seedFile in the input at all -- discoverSeedFile() must find one on its own
+			// (Lector's own src/index.ts barrel, via the common-candidate list).
+			const { symbols } = await client.call("workspace.findSymbols", { workspaceId, query: "exactEdit" });
+
+			expect(symbols.some((symbol) => symbol.name === "exactEdit")).toBe(true);
+		},
+		20_000,
+	);
+
 	it("the daemon's shutdown hook actually closes every warm symbol index it created (not just the handle file)", async () => {
 		// LanguageServerProcess.stop()'s own OS-level kill correctness is already proven by
 		// the evil-server tests -- this test verifies a different thing: that the service and
