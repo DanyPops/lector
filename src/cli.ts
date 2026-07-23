@@ -12,6 +12,7 @@ const USAGE = `Usage:
     at least one --workspace or --workspace-path is required
     --workspace <id>            ephemeral in-memory workspace (data lost on restart)
     --workspace-path <id>=<dir> real directory <dir>, registered under <id>
+  lector workspace register <dir> [--json]
   lector workspace read <workspace-id> <path> [--json]
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
 `;
@@ -74,6 +75,13 @@ async function runServe(args: string[]): Promise<void> {
 	});
 }
 
+async function runWorkspaceRegister(dir: string | undefined, flags: string[]): Promise<void> {
+	if (!dir) fail(USAGE);
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.registerPath", { path: dir });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.workspaceId} (${result.created ? "created" : "already registered"})`);
+}
+
 async function runWorkspaceRead(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !path) fail(USAGE);
 	const client = await connectLectorClient();
@@ -106,7 +114,12 @@ async function main(): Promise<void> {
 	if (command === "serve") return runServe(rest);
 
 	if (command === "workspace") {
-		const [action, workspaceId, path, ...flags] = rest;
+		const [action, ...actionArgs] = rest;
+		if (action === "register") {
+			const [dir, ...flags] = actionArgs;
+			return runWorkspaceRegister(dir, flags);
+		}
+		const [workspaceId, path, ...flags] = actionArgs;
 		if (action === "read") return runWorkspaceRead(workspaceId, path, flags);
 		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
 		fail(USAGE);
