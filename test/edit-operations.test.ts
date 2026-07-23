@@ -32,7 +32,7 @@ describe("Lector-backed edit tool", () => {
 		const absolutePath = join(projectDir, "a.txt");
 		writeFileSync(absolutePath, "original");
 
-		const ops = createLectorEditOperations(projectDir);
+		const ops = createLectorEditOperations();
 		await ops.readFile(absolutePath);
 		await ops.writeFile(absolutePath, "edited");
 
@@ -49,7 +49,7 @@ describe("Lector-backed edit tool", () => {
 		writeFileSync(absolutePath, "original");
 
 		const { workspaceId } = await daemon.client.call("workspace.registerPath", { path: projectDir });
-		const ops = createLectorEditOperations(projectDir);
+		const ops = createLectorEditOperations();
 
 		// Simulates what the model's `read` tool call captured earlier in the conversation.
 		await ops.readFile(absolutePath);

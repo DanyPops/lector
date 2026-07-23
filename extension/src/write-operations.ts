@@ -1,12 +1,14 @@
 import { remoteErrorIs, type ContentHash } from "@danypops/lector";
 import type { WriteOperations } from "@earendil-works/pi-coding-agent";
-import { lectorClient, workspaceIdForCwd } from "./lector-client.ts";
+import { lectorClient, workspaceForPath } from "./lector-client.ts";
 import { toWorkspaceRelativePath } from "./workspace-relative-path.ts";
 
 const MAX_STALE_HASH_RETRIES = 3;
 
 /**
- * WriteOperations backed by Lector's hash-guarded exactEdit.
+ * WriteOperations backed by Lector's hash-guarded exactEdit. The workspace
+ * for each call is resolved from the absolute path being written, not a
+ * fixed cwd -- see workspaceForPath.
  *
  * pi's write tool is unconditional overwrite by its own documented contract
  * ("Creates the file if it doesn't exist, overwrites if it does"), so unlike
@@ -17,7 +19,7 @@ const MAX_STALE_HASH_RETRIES = 3;
  * retrying, rather than surfacing StaleExpectedHash to a caller whose tool
  * contract never mentioned hashes at all.
  */
-export function createLectorWriteOperations(cwd: string): WriteOperations {
+export function createLectorWriteOperations(): WriteOperations {
 	async function currentHash(client: Awaited<ReturnType<typeof lectorClient>>, workspaceId: string, relativePath: string): Promise<ContentHash | null> {
 		try {
 			const current = await client.call("workspace.rawRead", { workspaceId, path: relativePath });
@@ -30,8 +32,8 @@ export function createLectorWriteOperations(cwd: string): WriteOperations {
 	return {
 		async writeFile(absolutePath, content) {
 			const client = await lectorClient();
-			const workspaceId = await workspaceIdForCwd(cwd);
-			const relativePath = toWorkspaceRelativePath(cwd, absolutePath);
+			const { workspaceId, root } = await workspaceForPath(absolutePath);
+			const relativePath = toWorkspaceRelativePath(root, absolutePath);
 
 			let expectedHash = await currentHash(client, workspaceId, relativePath);
 

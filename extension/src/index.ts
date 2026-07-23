@@ -19,6 +19,17 @@ import { createLectorWriteOperations } from "./write-operations.ts";
  * find_symbols, a new tool with no built-in pi-coding-agent equivalent, for
  * Lector's code-intelligence side (workspace.findSymbols).
  *
+ * read/write/edit's Lector-backed Operations resolve their own workspace
+ * per absolute path touched (see workspaceForPath) -- never from `cwd`
+ * captured here. A prior version passed `cwd` straight into each Operations
+ * factory and used it as the one-and-only workspace boundary for the whole
+ * session, which hard-refused every legitimate absolute path outside it
+ * (a real, shipped bug, discovered live: a session whose cwd was one repo
+ * could not touch files in a completely different, unrelated repo at all).
+ * `cwd` is still passed to createReadToolDefinition/etc. themselves -- that's
+ * pi-coding-agent's own concern (relative-path display in the tool UI), not
+ * Lector's workspace resolution.
+ *
  * grep/find/ls are not overridden -- no Lector operation backs them yet.
  * No daemon auto-spawn: a Lector-backed tool call fails with a clear
  * "start it with `lector serve`" error if none is reachable, matching
@@ -27,9 +38,9 @@ import { createLectorWriteOperations } from "./write-operations.ts";
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		const { cwd } = ctx;
-		pi.registerTool(createReadToolDefinition(cwd, { operations: createLectorReadOperations(cwd) }));
-		pi.registerTool(createWriteToolDefinition(cwd, { operations: createLectorWriteOperations(cwd) }));
-		pi.registerTool(createEditToolDefinition(cwd, { operations: createLectorEditOperations(cwd) }));
+		pi.registerTool(createReadToolDefinition(cwd, { operations: createLectorReadOperations() }));
+		pi.registerTool(createWriteToolDefinition(cwd, { operations: createLectorWriteOperations() }));
+		pi.registerTool(createEditToolDefinition(cwd, { operations: createLectorEditOperations() }));
 
 		const findSymbolsOperations = createLectorFindSymbolsOperations(cwd);
 		pi.registerTool({

@@ -34,7 +34,7 @@ describe("Lector-backed read tool", () => {
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-read-"));
 		writeFileSync(join(projectDir, "hello.txt"), "hello from a real Lector-backed read tool");
 
-		const tool = createReadToolDefinition(projectDir, { operations: createLectorReadOperations(projectDir) });
+		const tool = createReadToolDefinition(projectDir, { operations: createLectorReadOperations() });
 		const result = await tool.execute("call-1", { path: "hello.txt" }, undefined, undefined, {
 			cwd: projectDir,
 		} as never);

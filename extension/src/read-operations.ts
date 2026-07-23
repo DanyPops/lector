@@ -1,7 +1,7 @@
 import type { ReadOperations } from "@earendil-works/pi-coding-agent";
 import { constants } from "node:fs";
 import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
-import { lectorClient, workspaceIdForCwd } from "./lector-client.ts";
+import { lectorClient, workspaceForPath } from "./lector-client.ts";
 import { toWorkspaceRelativePath } from "./workspace-relative-path.ts";
 
 /**
@@ -29,15 +29,19 @@ function imageMimeTypeFor(absolutePath: string): string | undefined {
 	return IMAGE_MIME_TYPES_BY_EXTENSION[absolutePath.slice(dot).toLowerCase()];
 }
 
-/** ReadOperations backed by a running Lector daemon for text; images bypass Lector (see above). */
-export function createLectorReadOperations(cwd: string): ReadOperations {
+/**
+ * ReadOperations backed by a running Lector daemon for text; images bypass
+ * Lector (see above). The workspace for each call is resolved from the
+ * absolute path being read, not a fixed cwd -- see workspaceForPath.
+ */
+export function createLectorReadOperations(): ReadOperations {
 	return {
 		async readFile(absolutePath) {
 			if (imageMimeTypeFor(absolutePath)) return fsReadFile(absolutePath);
 
 			const client = await lectorClient();
-			const workspaceId = await workspaceIdForCwd(cwd);
-			const relativePath = toWorkspaceRelativePath(cwd, absolutePath);
+			const { workspaceId, root } = await workspaceForPath(absolutePath);
+			const relativePath = toWorkspaceRelativePath(root, absolutePath);
 			const { content } = await client.call("workspace.rawRead", { workspaceId, path: relativePath });
 			return Buffer.from(content, "utf-8");
 		},
@@ -51,8 +55,8 @@ export function createLectorReadOperations(cwd: string): ReadOperations {
 			// workspace.rawRead itself rejects a missing entry (WorkspaceEntryNotFound) -- exactly
 			// the "not accessible" signal pi's read/edit tools expect access() to throw for.
 			const client = await lectorClient();
-			const workspaceId = await workspaceIdForCwd(cwd);
-			const relativePath = toWorkspaceRelativePath(cwd, absolutePath);
+			const { workspaceId, root } = await workspaceForPath(absolutePath);
+			const relativePath = toWorkspaceRelativePath(root, absolutePath);
 			await client.call("workspace.rawRead", { workspaceId, path: relativePath });
 		},
 

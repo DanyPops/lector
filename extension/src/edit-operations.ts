@@ -1,10 +1,12 @@
 import { remoteErrorIs, type ContentHash } from "@danypops/lector";
 import type { EditOperations } from "@earendil-works/pi-coding-agent";
-import { lectorClient, workspaceIdForCwd } from "./lector-client.ts";
+import { lectorClient, workspaceForPath } from "./lector-client.ts";
 import { toWorkspaceRelativePath } from "./workspace-relative-path.ts";
 
 /**
- * EditOperations backed by Lector's hash-guarded exactEdit.
+ * EditOperations backed by Lector's hash-guarded exactEdit. The workspace
+ * for each call is resolved from the absolute path being edited, not a
+ * fixed cwd -- see workspaceForPath.
  *
  * pi's own EditOperations interface has no seam for passing a hash from
  * readFile to writeFile -- it calls ops.readFile, computes the oldText/
@@ -22,14 +24,14 @@ import { toWorkspaceRelativePath } from "./workspace-relative-path.ts";
  * fresh content the model never saw and applying an oldText match computed
  * against stale content, which could silently corrupt the file.
  */
-export function createLectorEditOperations(cwd: string): EditOperations {
+export function createLectorEditOperations(): EditOperations {
 	const observedHashByPath = new Map<string, ContentHash>();
 
 	return {
 		async readFile(absolutePath) {
 			const client = await lectorClient();
-			const workspaceId = await workspaceIdForCwd(cwd);
-			const relativePath = toWorkspaceRelativePath(cwd, absolutePath);
+			const { workspaceId, root } = await workspaceForPath(absolutePath);
+			const relativePath = toWorkspaceRelativePath(root, absolutePath);
 			const { content, hash } = await client.call("workspace.rawRead", { workspaceId, path: relativePath });
 			observedHashByPath.set(absolutePath, hash);
 			return Buffer.from(content, "utf-8");
@@ -39,8 +41,8 @@ export function createLectorEditOperations(cwd: string): EditOperations {
 			const expectedHash = observedHashByPath.get(absolutePath) ?? null;
 			observedHashByPath.delete(absolutePath);
 			const client = await lectorClient();
-			const workspaceId = await workspaceIdForCwd(cwd);
-			const relativePath = toWorkspaceRelativePath(cwd, absolutePath);
+			const { workspaceId, root } = await workspaceForPath(absolutePath);
+			const relativePath = toWorkspaceRelativePath(root, absolutePath);
 			try {
 				await client.call("workspace.exactEdit", { workspaceId, path: relativePath, expectedHash, content });
 			} catch (error) {
@@ -55,8 +57,8 @@ export function createLectorEditOperations(cwd: string): EditOperations {
 			// workspace.rawRead itself rejects a missing entry -- exactly the "not accessible"
 			// signal pi's edit tool expects access() to throw for.
 			const client = await lectorClient();
-			const workspaceId = await workspaceIdForCwd(cwd);
-			const relativePath = toWorkspaceRelativePath(cwd, absolutePath);
+			const { workspaceId, root } = await workspaceForPath(absolutePath);
+			const relativePath = toWorkspaceRelativePath(root, absolutePath);
 			await client.call("workspace.rawRead", { workspaceId, path: relativePath });
 		},
 	};

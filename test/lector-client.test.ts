@@ -1,22 +1,31 @@
 /**
- * Checklist (task ef213eb1): per-cwd workspace registration is cached, and
- * a missing daemon fails clearly rather than hanging or silently bypassing
- * Lector.
+ * Checklist (task ef213eb1, revised after a real, shipped bug fix): a
+ * project's workspace is registered exactly once and reused, but --
+ * unlike the original version of this test suite -- registration is keyed
+ * by each path's *own* nearest git root, never a single fixed session cwd.
+ * Two files under different repos must resolve to two different
+ * workspaces in the very same running session.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { connectLectorClient, resolveLectorPaths, type LectorClient } from "@danypops/lector";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resetLectorClientForTests, setLectorClientConnectorForTests, workspaceIdForCwd } from "../extension/src/lector-client.ts";
+import { resetLectorClientForTests, setLectorClientConnectorForTests, workspaceForDirectory, workspaceForPath } from "../extension/src/lector-client.ts";
 import { startIsolatedLectorDaemon } from "./support/isolated-lector-daemon.ts";
 
 afterEach(() => {
 	resetLectorClientForTests();
 });
 
-describe("workspaceIdForCwd", () => {
-	it("registers a distinct cwd exactly once, even across many calls", async () => {
+function fakeRepo(prefix: string): string {
+	const root = mkdtempSync(join(tmpdir(), prefix));
+	mkdirSync(join(root, ".git"));
+	return root;
+}
+
+describe("workspaceForPath", () => {
+	it("registers a distinct project root exactly once, even across many calls for different files in it", async () => {
 		const daemon = startIsolatedLectorDaemon();
 		let registerCalls = 0;
 		const countingClient: LectorClient = {
@@ -28,32 +37,86 @@ describe("workspaceIdForCwd", () => {
 		} as LectorClient;
 		setLectorClientConnectorForTests(() => Promise.resolve(countingClient));
 
-		const projectDir = mkdtempSync(join(tmpdir(), "pi-lector-project-"));
+		const repo = fakeRepo("pi-lector-project-");
 		try {
-			await workspaceIdForCwd(projectDir);
-			await workspaceIdForCwd(projectDir);
-			await workspaceIdForCwd(projectDir);
+			await workspaceForPath(join(repo, "a.ts"));
+			await workspaceForPath(join(repo, "src", "b.ts"));
+			await workspaceForPath(join(repo, "a.ts"));
 
 			expect(registerCalls).toBe(1);
 		} finally {
-			rmSync(projectDir, { recursive: true, force: true });
+			rmSync(repo, { recursive: true, force: true });
 			await daemon.stop();
 		}
 	});
 
-	it("two distinct cwds receive two distinct workspaceIds", async () => {
+	it(
+		"two files under two different repos resolve to two different workspaces in the same running session -- " +
+			"the exact shape of the bug this fixes (previously hard-locked to one session-wide cwd)",
+		async () => {
+			const daemon = startIsolatedLectorDaemon();
+			setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+			const repoA = fakeRepo("pi-lector-repo-a-");
+			const repoB = fakeRepo("pi-lector-repo-b-");
+			try {
+				const resolvedA = await workspaceForPath(join(repoA, "a.ts"));
+				const resolvedB = await workspaceForPath(join(repoB, "b.ts"));
+
+				expect(resolvedA.workspaceId).not.toBe(resolvedB.workspaceId);
+				expect(resolvedA.root).toBe(repoA);
+				expect(resolvedB.root).toBe(repoB);
+			} finally {
+				rmSync(repoA, { recursive: true, force: true });
+				rmSync(repoB, { recursive: true, force: true });
+				await daemon.stop();
+			}
+		},
+	);
+});
+
+describe("workspaceForDirectory", () => {
+	it("resolves a directory to the same workspace as a file inside it via workspaceForPath", async () => {
 		const daemon = startIsolatedLectorDaemon();
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
-		const projectA = mkdtempSync(join(tmpdir(), "pi-lector-a-"));
-		const projectB = mkdtempSync(join(tmpdir(), "pi-lector-b-"));
+		const repo = fakeRepo("pi-lector-dir-");
 		try {
-			const idA = await workspaceIdForCwd(projectA);
-			const idB = await workspaceIdForCwd(projectB);
-			expect(idA).not.toBe(idB);
+			const byFile = await workspaceForPath(join(repo, "a.ts"));
+			const byDirectory = await workspaceForDirectory(repo);
+			expect(byDirectory.workspaceId).toBe(byFile.workspaceId);
 		} finally {
-			rmSync(projectA, { recursive: true, force: true });
-			rmSync(projectB, { recursive: true, force: true });
+			rmSync(repo, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+});
+
+describe("workspaceForPath vs. workspaceForDirectory fallback when no git repo is found", () => {
+	it("workspaceForPath falls back to the filesystem root -- any absolute path is fair game for read/write/edit", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const plainDir = mkdtempSync(join(tmpdir(), "pi-lector-no-git-"));
+		try {
+			const resolved = await workspaceForPath(join(plainDir, "a.txt"));
+			expect(resolved.root).toBe("/");
+		} finally {
+			rmSync(plainDir, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("workspaceForDirectory falls back to the directory itself, never the filesystem root -- a symbol query must not widen to the whole disk", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const plainDir = mkdtempSync(join(tmpdir(), "pi-lector-no-git-"));
+		try {
+			const resolved = await workspaceForDirectory(plainDir);
+			expect(resolved.root).toBe(plainDir);
+		} finally {
+			rmSync(plainDir, { recursive: true, force: true });
 			await daemon.stop();
 		}
 	});
@@ -68,7 +131,7 @@ describe("lectorClient with no daemon reachable", () => {
 		setLectorClientConnectorForTests(() => connectLectorClient({ paths }));
 
 		try {
-			await expect(workspaceIdForCwd("/tmp")).rejects.toThrow(/lector serve/);
+			await expect(workspaceForPath("/tmp/does-not-matter.txt")).rejects.toThrow(/lector serve/);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}

@@ -55,7 +55,7 @@ describe("Lector-backed write tool", () => {
 		} as LectorClient;
 		setLectorClientConnectorForTests(() => Promise.resolve(racingClient));
 
-		const ops = createLectorWriteOperations(projectDir);
+		const ops = createLectorWriteOperations();
 		await ops.writeFile(absolutePath, "final intended content");
 
 		expect(readFileSync(absolutePath, "utf-8")).toBe("final intended content");
@@ -90,7 +90,7 @@ describe("Lector-backed write tool", () => {
 		} as LectorClient;
 		setLectorClientConnectorForTests(() => Promise.resolve(alwaysRacingClient));
 
-		const ops = createLectorWriteOperations(projectDir);
+		const ops = createLectorWriteOperations();
 		let caught: unknown;
 		try {
 			await ops.writeFile(absolutePath, "never lands");
