@@ -4,10 +4,13 @@ import {
 	createWriteToolDefinition,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import type { WorkspaceSymbol } from "@danypops/lector";
+import { Text } from "@earendil-works/pi-tui";
 import { resolve } from "node:path";
 import { Type } from "typebox";
 import { createLectorEditOperations } from "./edit-operations.ts";
 import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts";
+import { formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-rendering.ts";
 import { createLectorReadOperations } from "./read-operations.ts";
 import { createLectorWriteOperations } from "./write-operations.ts";
 
@@ -71,6 +74,28 @@ export default function (pi: ExtensionAPI) {
 								.map((symbol) => `${symbol.kind} ${symbol.name} -- ${symbol.location.path}:${symbol.location.line}:${symbol.location.character}`)
 								.join("\n");
 				return { content: [{ type: "text", text }], details: { symbols } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatFindSymbolsCall(args as { query?: unknown; directory?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) {
+					return new Text(theme.fg("warning", "Searching..."), 0, 0);
+				}
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "find_symbols failed"), 0, 0);
+				}
+				const details = result.details as { symbols?: readonly WorkspaceSymbol[] } | undefined;
+				const query = typeof context.args?.query === "string" ? context.args.query : "";
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatFindSymbolsResult(details?.symbols, query, expanded, theme));
+				return text;
 			},
 		});
 	});
