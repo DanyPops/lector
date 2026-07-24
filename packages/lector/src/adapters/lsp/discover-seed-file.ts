@@ -1,5 +1,6 @@
 import { type Dirent, existsSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
+import type { LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
 
 const SKIP_DIRECTORY_NAMES = new Set(["node_modules", "dist", "build", "out", "coverage"]);
 const MAX_SCAN_DEPTH = 4;
@@ -63,4 +64,23 @@ export function discoverSeedFile(rootPath: string, extensions: readonly string[]
 	const found = visit("", 0);
 	if (!found) throw new NoSeedFileFound(rootPath, extensions);
 	return found;
+}
+
+/**
+ * For workspace.findSymbols called with no seedFile -- no anchor file to pick a language from.
+ * Tries each descriptor's own discoverSeedFile in declared order; first real match wins.
+ */
+export function discoverWorkspaceDescriptor(
+	rootPath: string,
+	descriptors: readonly LanguageServerDescriptor[],
+): { descriptor: LanguageServerDescriptor; seedFile: string } | undefined {
+	for (const descriptor of descriptors) {
+		try {
+			const seedFile = discoverSeedFile(rootPath, descriptor.extensions, descriptor.commonSeedCandidates);
+			return { descriptor, seedFile };
+		} catch (error) {
+			if (!(error instanceof NoSeedFileFound)) throw error;
+		}
+	}
+	return undefined;
 }

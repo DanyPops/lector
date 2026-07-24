@@ -8,7 +8,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
-import { TYPESCRIPT_DESCRIPTOR } from "../src/domain/language-server-descriptor.ts";
 import { createLectorService, type LectorService, UnknownWorkspace } from "../src/service.ts";
 
 let fixtureRoot: string | undefined;
@@ -35,9 +34,9 @@ describe("workspace.hasWarmIndex", () => {
 		let spawnCount = 0;
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
-			createSymbolIndex: (rootPath, seedFile) => {
+			createSymbolIndex: (rootPath, descriptor, seedFile) => {
 				spawnCount++;
-				return new LspSymbolIndex(rootPath, TYPESCRIPT_DESCRIPTOR, seedFile);
+				return new LspSymbolIndex(rootPath, descriptor, seedFile);
 			},
 		});
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
@@ -56,5 +55,25 @@ describe("workspace.hasWarmIndex", () => {
 	it("rejects an unknown workspaceId rather than silently reporting not-warm", async () => {
 		service = createLectorService(new Map(), { allowDynamicOnly: true });
 		await expect(service.dispatch("workspace.hasWarmIndex", { workspaceId: "never-registered" })).rejects.toBeInstanceOf(UnknownWorkspace);
+	});
+
+	it('with a path, checks that file\'s own language specifically -- not just "is anything warm for this workspace"', async () => {
+		fixtureRoot = buildFixture();
+		writeFileSync(join(fixtureRoot, "main.py"), "def add(a, b):\n    return a + b\n");
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+
+		await service.dispatch("workspace.findSymbols", { workspaceId, query: "add", seedFile: "index.ts" });
+
+		expect((await service.dispatch("workspace.hasWarmIndex", { workspaceId, path: join(fixtureRoot, "index.ts") })).warm).toBe(true);
+		expect((await service.dispatch("workspace.hasWarmIndex", { workspaceId, path: join(fixtureRoot, "main.py") })).warm).toBe(false);
+	}, 20_000);
+
+	it("reports not-warm, not an error, for a path whose extension matches no known language", async () => {
+		fixtureRoot = buildFixture();
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+
+		expect((await service.dispatch("workspace.hasWarmIndex", { workspaceId, path: join(fixtureRoot, "README.md") })).warm).toBe(false);
 	});
 });

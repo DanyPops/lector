@@ -114,3 +114,9 @@ export const LANGUAGE_SERVER_DESCRIPTORS: readonly LanguageServerDescriptor[] = 
 export function descriptorForExtension(extension: string): LanguageServerDescriptor | undefined {
 	return LANGUAGE_SERVER_DESCRIPTORS.find((descriptor) => descriptor.extensions.includes(extension));
 }
+
+/** The descriptor for a file's own extension, e.g. ".py" -> Python. */
+export function descriptorForPath(path: string): LanguageServerDescriptor | undefined {
+	const dot = path.lastIndexOf(".");
+	return dot === -1 ? undefined : descriptorForExtension(path.slice(dot));
+}

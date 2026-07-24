@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { findSourceFiles } from "./adapters/find-source-files.ts";
 import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
+import { discoverWorkspaceDescriptor } from "./adapters/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
@@ -18,7 +19,7 @@ import { goToImplementation as goToImplementationQuery } from "./domain/go-to-im
 import type { Hover } from "./domain/hover.ts";
 import { hoverAt } from "./domain/hover-at.ts";
 import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts";
-import { TYPESCRIPT_DESCRIPTOR } from "./domain/language-server-descriptor.ts";
+import { descriptorForPath, LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./domain/language-server-descriptor.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
 import { populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
@@ -65,6 +66,14 @@ export class SymbolQueryUnavailable extends Error {
 	constructor(readonly workspaceId: WorkspaceId) {
 		super(`workspace "${workspaceId}" has no known root path; symbol queries require a workspace registered via workspace.registerPath`);
 		this.name = "SymbolQueryUnavailable";
+	}
+}
+
+/** Raised when a file's extension (or, with no path/seedFile at all, the whole workspace) matches none of Lector's known LanguageServerDescriptors. */
+export class UnsupportedLanguage extends Error {
+	constructor(readonly hint: string) {
+		super(`no supported language server for "${hint}" -- known extensions: ${LANGUAGE_SERVER_DESCRIPTORS.flatMap((d) => d.extensions).join(", ")}`);
+		this.name = "UnsupportedLanguage";
 	}
 }
 
@@ -151,7 +160,7 @@ export interface OperationInputs {
 	"workspace.reachableFrom": WorkspacePosition & { maxDepth: number; kind?: SymbolEdgeKind };
 	"workspace.symbolEdgesFrom": WorkspacePosition & { kind?: SymbolEdgeKind };
 	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind };
-	"workspace.hasWarmIndex": { workspaceId: WorkspaceId };
+	"workspace.hasWarmIndex": { workspaceId: WorkspaceId; path?: string };
 }
 
 export interface OperationOutputs {
@@ -214,8 +223,8 @@ type MutableRegistry = Map<WorkspaceId, RegisteredWorkspace>;
 export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void> };
 
 export interface LectorServiceOptions {
-	/** Factory for the symbol index backing workspace.findSymbols. Defaults to an LspSymbolIndex configured for TypeScript. */
-	createSymbolIndex?: (rootPath: string, seedFile?: string) => ClosableSymbolIndex;
+	/** Factory for the symbol index backing workspace.findSymbols and code intelligence, given the descriptor resolved for the call. Defaults to an LspSymbolIndex configured for whichever descriptor is passed. */
+	createSymbolIndex?: (rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => ClosableSymbolIndex;
 	/**
 	 * Explicit opt-in to start with zero registered workspaces, relying entirely on
 	 * workspace.registerPath at runtime -- the shape a long-lived background daemon that
@@ -285,13 +294,17 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	}
 	const registry: MutableRegistry = new Map(Array.from(workspaces, ([id, port]) => [id, { port }]));
 
-	// One warm symbol index per workspace, reused across calls -- a fresh process per
-	// query would pay a fork+initialize cost every time. Keyed by workspaceId, never by
-	// seedFile: a workspace's index warms once.
+	// One warm symbol index per (workspace, language) actually queried, reused across calls --
+	// a fresh process per query would pay a fork+initialize cost every time. A polyglot
+	// workspace holds one warm index per language touched, never one guessed for the whole tree.
 	// lastUsedAt backs reapIdleSymbolIndexes -- an idle-eviction TTL, not just a warm cache.
-	const symbolIndexes = new Map<WorkspaceId, { index: ClosableSymbolIndex; lastUsedAt: number }>();
+	const symbolIndexes = new Map<string, { index: ClosableSymbolIndex; workspaceId: WorkspaceId; lastUsedAt: number }>();
 	const createSymbolIndex =
-		options.createSymbolIndex ?? ((rootPath: string, seedFile?: string) => new LspSymbolIndex(rootPath, TYPESCRIPT_DESCRIPTOR, seedFile));
+		options.createSymbolIndex ??
+		((rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => new LspSymbolIndex(rootPath, descriptor, seedFile));
+	function symbolIndexKey(workspaceId: WorkspaceId, languageId: string): string {
+		return `${workspaceId}:${languageId}`;
+	}
 
 	// One symbol graph per workspace, populated only when workspace.populateSymbolGraph is
 	// actually invoked -- unlike symbolIndexes, there is no idle-eviction TTL here: a graph
@@ -308,47 +321,83 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return graph;
 	}
 
-	async function ensureWarmIndex(input: { workspaceId: WorkspaceId; seedFile?: string }): Promise<ClosableSymbolIndex> {
+	/** Resolves which descriptor a call targets: path/seedFile's own extension, per-file like every mainstream editor -- never a guess about "the workspace's language" -- except findSymbols with neither, which has no anchor file at all. */
+	function resolveDescriptor(
+		rootPath: string,
+		hint: { path?: string; seedFile?: string },
+	): { descriptor: LanguageServerDescriptor; seedFile: string | undefined } {
+		const pathHint = hint.path ?? hint.seedFile;
+		if (pathHint) {
+			const descriptor = descriptorForPath(pathHint);
+			if (!descriptor) throw new UnsupportedLanguage(pathHint);
+			return { descriptor, seedFile: hint.seedFile };
+		}
+		const discovered = discoverWorkspaceDescriptor(rootPath, LANGUAGE_SERVER_DESCRIPTORS);
+		if (!discovered) throw new UnsupportedLanguage(rootPath);
+		return { descriptor: discovered.descriptor, seedFile: discovered.seedFile };
+	}
+
+	async function ensureWarmIndex(input: {
+		workspaceId: WorkspaceId;
+		path?: string;
+		seedFile?: string;
+	}): Promise<{ index: ClosableSymbolIndex; descriptor: LanguageServerDescriptor }> {
 		const entry = registry.get(input.workspaceId);
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
 		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
+		const rootPath = entry.rootPath;
 
-		let entryIndex = symbolIndexes.get(input.workspaceId);
+		const { descriptor, seedFile } = resolveDescriptor(rootPath, input);
+		const key = symbolIndexKey(input.workspaceId, descriptor.languageId);
+		let entryIndex = symbolIndexes.get(key);
 		if (!entryIndex) {
-			entryIndex = { index: createSymbolIndex(entry.rootPath, input.seedFile), lastUsedAt: Date.now() };
-			symbolIndexes.set(input.workspaceId, entryIndex);
+			entryIndex = { index: createSymbolIndex(rootPath, descriptor, seedFile), workspaceId: input.workspaceId, lastUsedAt: Date.now() };
+			symbolIndexes.set(key, entryIndex);
 		} else {
 			entryIndex.lastUsedAt = Date.now();
 		}
-		return entryIndex.index;
+		return { index: entryIndex.index, descriptor };
 	}
 
-	/** Never spawns -- a caller deciding whether to enrich a result with LSP-backed information (e.g. a diagnostics hint) must not pay a cold-start cost just to check. */
+	/** Never spawns -- a caller deciding whether to enrich a result with LSP-backed info must not pay a cold-start cost just to check. With a path, checks that file's own language; without one, whether anything is warm for the workspace at all. */
 	async function hasWarmIndex(
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.hasWarmIndex"],
 	): Promise<OperationOutputs["workspace.hasWarmIndex"]> {
-		if (!registry.has(input.workspaceId)) throw new UnknownWorkspace(input.workspaceId);
-		return { warm: symbolIndexes.has(input.workspaceId) };
+		const entry = registry.get(input.workspaceId);
+		if (!entry) throw new UnknownWorkspace(input.workspaceId);
+		if (input.path) {
+			const descriptor = descriptorForPath(input.path);
+			if (!descriptor) return { warm: false };
+			return { warm: symbolIndexes.has(symbolIndexKey(input.workspaceId, descriptor.languageId)) };
+		}
+		for (const value of symbolIndexes.values()) {
+			if (value.workspaceId === input.workspaceId) return { warm: true };
+		}
+		return { warm: false };
 	}
 
 	async function findSymbols(_registry: MutableRegistry, input: OperationInputs["workspace.findSymbols"]): Promise<OperationOutputs["workspace.findSymbols"]> {
-		const index = await ensureWarmIndex(input);
+		const { index } = await ensureWarmIndex(input);
 		const symbols = await findWorkspaceSymbols(index, input.query);
 		return { symbols };
 	}
 
-	async function requireCodeIntelligence(input: { workspaceId: WorkspaceId }): Promise<SymbolIndexPort & CodeIntelligencePort> {
-		const index = await ensureWarmIndex(input);
+	async function requireCodeIntelligence(input: {
+		workspaceId: WorkspaceId;
+		path?: string;
+		seedFile?: string;
+	}): Promise<{ index: SymbolIndexPort & CodeIntelligencePort; descriptor: LanguageServerDescriptor }> {
+		const { index, descriptor } = await ensureWarmIndex(input);
 		if (!supportsCodeIntelligence(index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
-		return index;
+		return { index, descriptor };
 	}
 
 	async function goToDefinition(
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.goToDefinition"],
 	): Promise<OperationOutputs["workspace.goToDefinition"]> {
-		const index = await requireCodeIntelligence(input);
+		const { index } = await requireCodeIntelligence(input);
 		const locations = await goToDefinitionQuery(index, { path: input.path, line: input.line, character: input.character });
 		return { locations };
 	}
@@ -357,7 +406,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.goToImplementation"],
 	): Promise<OperationOutputs["workspace.goToImplementation"]> {
-		const index = await requireCodeIntelligence(input);
+		const { index } = await requireCodeIntelligence(input);
 		const locations = await goToImplementationQuery(index, { path: input.path, line: input.line, character: input.character });
 		return { locations };
 	}
@@ -366,13 +415,13 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.findReferences"],
 	): Promise<OperationOutputs["workspace.findReferences"]> {
-		const index = await requireCodeIntelligence(input);
+		const { index } = await requireCodeIntelligence(input);
 		const locations = await findReferencesQuery(index, { path: input.path, line: input.line, character: input.character }, input.includeDeclaration);
 		return { locations };
 	}
 
 	async function hover(_registry: MutableRegistry, input: OperationInputs["workspace.hover"]): Promise<OperationOutputs["workspace.hover"]> {
-		const index = await requireCodeIntelligence(input);
+		const { index } = await requireCodeIntelligence(input);
 		const hover = await hoverAt(index, { path: input.path, line: input.line, character: input.character });
 		return { hover };
 	}
@@ -381,7 +430,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.documentSymbols"],
 	): Promise<OperationOutputs["workspace.documentSymbols"]> {
-		const index = await requireCodeIntelligence(input);
+		const { index } = await requireCodeIntelligence(input);
 		const symbols = await documentSymbolsQuery(index, input.path);
 		return { symbols };
 	}
@@ -390,7 +439,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.diagnostics"],
 	): Promise<OperationOutputs["workspace.diagnostics"]> {
-		const index = await requireCodeIntelligence(input);
+		const { index } = await requireCodeIntelligence(input);
 		const diagnostics = await diagnosticsQuery(index, input.path);
 		return { diagnostics };
 	}
@@ -399,7 +448,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.prepareCallHierarchy"],
 	): Promise<OperationOutputs["workspace.prepareCallHierarchy"]> {
-		const index = await requireCodeIntelligence(input);
+		const { index } = await requireCodeIntelligence(input);
 		const items = await prepareCallHierarchyQuery(index, { path: input.path, line: input.line, character: input.character });
 		return { items };
 	}
@@ -408,7 +457,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.incomingCalls"],
 	): Promise<OperationOutputs["workspace.incomingCalls"]> {
-		const index = await requireCodeIntelligence(input);
+		const { index } = await requireCodeIntelligence(input);
 		const calls = await incomingCallsQuery(index, { path: input.path, line: input.line, character: input.character });
 		return { calls };
 	}
@@ -417,7 +466,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.outgoingCalls"],
 	): Promise<OperationOutputs["workspace.outgoingCalls"]> {
-		const index = await requireCodeIntelligence(input);
+		const { index } = await requireCodeIntelligence(input);
 		const calls = await outgoingCallsQuery(index, { path: input.path, line: input.line, character: input.character });
 		return { calls };
 	}
@@ -426,11 +475,11 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.populateSymbolGraph"],
 	): Promise<OperationOutputs["workspace.populateSymbolGraph"]> {
-		const index = await requireCodeIntelligence(input);
+		const { index, descriptor } = await requireCodeIntelligence(input);
 		const entry = registry.get(input.workspaceId);
 		if (!entry?.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 		const rootPath = entry.rootPath;
-		const relativeFiles = findSourceFiles(rootPath, (extension) => extension === ".ts" || extension === ".tsx", input.maxFiles);
+		const relativeFiles = findSourceFiles(rootPath, (extension) => descriptor.extensions.includes(extension), input.maxFiles);
 		const files = relativeFiles.map((relativePath) => join(rootPath, relativePath));
 		const graph = ensureSymbolGraph(input.workspaceId);
 		return populateSymbolGraphQuery(index, graph, files, input.maxSymbolsPerFile);

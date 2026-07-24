@@ -12,7 +12,6 @@ import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
 import { buildLectorApp, startLectorDaemon } from "../src/daemon.ts";
-import { TYPESCRIPT_DESCRIPTOR } from "../src/domain/language-server-descriptor.ts";
 import { createLectorService, type LectorServiceOptions, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
@@ -56,9 +55,9 @@ describe("workspace.findSymbols", () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
 		let spawnCount = 0;
 		const options: LectorServiceOptions = {
-			createSymbolIndex: (rootPath, seedFile) => {
+			createSymbolIndex: (rootPath, descriptor, seedFile) => {
 				spawnCount++;
-				return new LspSymbolIndex(rootPath, TYPESCRIPT_DESCRIPTOR, seedFile);
+				return new LspSymbolIndex(rootPath, descriptor, seedFile);
 			},
 		};
 

@@ -15,7 +15,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
 import { TreeSitterSymbolIndex } from "../src/adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
-import { TYPESCRIPT_DESCRIPTOR } from "../src/domain/language-server-descriptor.ts";
 import { type ClosableSymbolIndex, CodeIntelligenceUnavailable, createLectorService, type LectorService } from "../src/service.ts";
 
 let fixtureRoot: string | undefined;
@@ -72,9 +71,9 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 		let spawnCount = 0;
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
-			createSymbolIndex: (rootPath, seedFile) => {
+			createSymbolIndex: (rootPath, descriptor, seedFile) => {
 				spawnCount++;
-				return new LspSymbolIndex(rootPath, TYPESCRIPT_DESCRIPTOR, seedFile);
+				return new LspSymbolIndex(rootPath, descriptor, seedFile);
 			},
 		});
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
