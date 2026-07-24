@@ -1,7 +1,7 @@
 /**
  * A shared conformance fixture runs the same symbol query against every
  * available backend for a capability (here: LSP-backed
- * TypescriptSymbolIndex vs. tree-sitter-backed TreeSitterSymbolIndex),
+ * LspSymbolIndex vs. tree-sitter-backed TreeSitterSymbolIndex),
  * asserting either identical results or an explicitly documented, tested
  * divergence -- never an untested assumption that "they should agree."
  */
@@ -9,11 +9,12 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TypescriptSymbolIndex } from "../../src/adapters/lsp/typescript-symbol-index.ts";
+import { LspSymbolIndex } from "../../src/adapters/lsp/lsp-symbol-index.ts";
 import { TreeSitterSymbolIndex } from "../../src/adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { TYPESCRIPT_DESCRIPTOR } from "../../src/domain/language-server-descriptor.ts";
 
 let fixtureRoot: string | undefined;
-let lspIndex: TypescriptSymbolIndex | undefined;
+let lspIndex: LspSymbolIndex | undefined;
 
 afterEach(async () => {
 	await lspIndex?.close();
@@ -37,7 +38,7 @@ function buildFixture(): string {
 describe("backend parity: LSP vs. tree-sitter symbol queries", () => {
 	it("agree on name, kind, file, and line when the LSP is warmed against the file containing the actual declaration", async () => {
 		fixtureRoot = buildFixture();
-		lspIndex = new TypescriptSymbolIndex(fixtureRoot, "src/math.ts");
+		lspIndex = new LspSymbolIndex(fixtureRoot, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
 		const treeSitterIndex = new TreeSitterSymbolIndex(fixtureRoot);
 
 		const [lspResults, treeSitterResults] = await Promise.all([lspIndex.findSymbols("add"), treeSitterIndex.findSymbols("add")]);
@@ -58,9 +59,9 @@ describe("backend parity: LSP vs. tree-sitter symbol queries", () => {
 		fixtureRoot = buildFixture();
 		// Only src/index.ts (the re-exporting barrel) is opened -- tsserver's project then
 		// contains the barrel but has no independent reason to have parsed math.ts's own
-		// declaration site the way navto reports it (see TypescriptSymbolIndex's own "No
+		// declaration site the way navto reports it (see LspSymbolIndex's own "No
 		// Project." doc comment on this class of tsserver quirk).
-		lspIndex = new TypescriptSymbolIndex(fixtureRoot, "src/index.ts");
+		lspIndex = new LspSymbolIndex(fixtureRoot, TYPESCRIPT_DESCRIPTOR, "src/index.ts");
 		const treeSitterIndex = new TreeSitterSymbolIndex(fixtureRoot);
 
 		const [lspResults, treeSitterResults] = await Promise.all([lspIndex.findSymbols("add"), treeSitterIndex.findSymbols("add")]);

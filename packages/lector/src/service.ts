@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { findSourceFiles } from "./adapters/find-source-files.ts";
 import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
-import { TypescriptSymbolIndex } from "./adapters/lsp/typescript-symbol-index.ts";
+import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
 import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
@@ -17,6 +17,7 @@ import { goToDefinition as goToDefinitionQuery } from "./domain/go-to-definition
 import type { Hover } from "./domain/hover.ts";
 import { hoverAt } from "./domain/hover-at.ts";
 import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts";
+import { TYPESCRIPT_DESCRIPTOR } from "./domain/language-server-descriptor.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
 import { populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
@@ -204,7 +205,7 @@ type MutableRegistry = Map<WorkspaceId, RegisteredWorkspace>;
 export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void> };
 
 export interface LectorServiceOptions {
-	/** Factory for the symbol index backing workspace.findSymbols. Defaults to TypescriptSymbolIndex. */
+	/** Factory for the symbol index backing workspace.findSymbols. Defaults to an LspSymbolIndex configured for TypeScript. */
 	createSymbolIndex?: (rootPath: string, seedFile?: string) => ClosableSymbolIndex;
 	/**
 	 * Explicit opt-in to start with zero registered workspaces, relying entirely on
@@ -227,7 +228,7 @@ function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): 
 	return entry.port;
 }
 
-/** True when a warm SymbolIndexPort is also a real CodeIntelligencePort (currently: any TypescriptSymbolIndex, never TreeSitterSymbolIndex). */
+/** True when a warm SymbolIndexPort is also a real CodeIntelligencePort (currently: any LspSymbolIndex, never TreeSitterSymbolIndex). */
 function supportsCodeIntelligence(index: SymbolIndexPort): index is SymbolIndexPort & CodeIntelligencePort {
 	return typeof (index as Partial<CodeIntelligencePort>).goToDefinition === "function";
 }
@@ -280,7 +281,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	// seedFile: a workspace's index warms once.
 	// lastUsedAt backs reapIdleSymbolIndexes -- an idle-eviction TTL, not just a warm cache.
 	const symbolIndexes = new Map<WorkspaceId, { index: ClosableSymbolIndex; lastUsedAt: number }>();
-	const createSymbolIndex = options.createSymbolIndex ?? ((rootPath: string, seedFile?: string) => new TypescriptSymbolIndex(rootPath, seedFile));
+	const createSymbolIndex =
+		options.createSymbolIndex ?? ((rootPath: string, seedFile?: string) => new LspSymbolIndex(rootPath, TYPESCRIPT_DESCRIPTOR, seedFile));
 
 	// One symbol graph per workspace, populated only when workspace.populateSymbolGraph is
 	// actually invoked -- unlike symbolIndexes, there is no idle-eviction TTL here: a graph

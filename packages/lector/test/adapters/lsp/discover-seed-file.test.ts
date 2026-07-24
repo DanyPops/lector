@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverSeedFile, NoSeedFileFound } from "../../../src/adapters/lsp/discover-seed-file.ts";
 
+const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
+const TS_COMMON_CANDIDATES = ["src/index.ts", "index.ts", "src/main.ts", "main.ts", "src/index.tsx", "index.tsx", "src/index.js", "index.js"];
+
 let root: string | undefined;
 afterEach(() => {
 	if (root) rmSync(root, { recursive: true, force: true });
@@ -22,7 +25,7 @@ describe("discoverSeedFile", () => {
 		writeFileSync(join(dir, "src", "index.ts"), "export {};");
 		writeFileSync(join(dir, "unrelated.ts"), "export {};"); // would also be found by scanning
 
-		expect(discoverSeedFile(dir)).toBe(join("src", "index.ts"));
+		expect(discoverSeedFile(dir, TS_EXTENSIONS, TS_COMMON_CANDIDATES)).toBe(join("src", "index.ts"));
 	});
 
 	it("falls back to a bounded directory scan when no common candidate exists", () => {
@@ -30,7 +33,7 @@ describe("discoverSeedFile", () => {
 		mkdirSync(join(dir, "lib"), { recursive: true });
 		writeFileSync(join(dir, "lib", "only-file.ts"), "export {};");
 
-		expect(discoverSeedFile(dir)).toBe(join("lib", "only-file.ts"));
+		expect(discoverSeedFile(dir, TS_EXTENSIONS, TS_COMMON_CANDIDATES)).toBe(join("lib", "only-file.ts"));
 	});
 
 	it("scans deterministically (alphabetically), not in arbitrary directory-listing order", () => {
@@ -38,7 +41,7 @@ describe("discoverSeedFile", () => {
 		writeFileSync(join(dir, "zzz.ts"), "export {};");
 		writeFileSync(join(dir, "aaa.ts"), "export {};");
 
-		expect(discoverSeedFile(dir)).toBe("aaa.ts");
+		expect(discoverSeedFile(dir, TS_EXTENSIONS, TS_COMMON_CANDIDATES)).toBe("aaa.ts");
 	});
 
 	it("skips node_modules, dist, build, and hidden directories during the fallback scan", () => {
@@ -52,7 +55,7 @@ describe("discoverSeedFile", () => {
 		mkdirSync(join(dir, "lib"), { recursive: true });
 		writeFileSync(join(dir, "lib", "real.ts"), "export {};");
 
-		expect(discoverSeedFile(dir)).toBe(join("lib", "real.ts"));
+		expect(discoverSeedFile(dir, TS_EXTENSIONS, TS_COMMON_CANDIDATES)).toBe(join("lib", "real.ts"));
 	});
 
 	it("does not descend past its bounded scan depth", () => {
@@ -62,13 +65,20 @@ describe("discoverSeedFile", () => {
 		mkdirSync(deepDir, { recursive: true });
 		writeFileSync(join(deepDir, "too-deep.ts"), "export {};");
 
-		expect(() => discoverSeedFile(dir)).toThrow(NoSeedFileFound);
+		expect(() => discoverSeedFile(dir, TS_EXTENSIONS, TS_COMMON_CANDIDATES)).toThrow(NoSeedFileFound);
 	});
 
 	it("throws NoSeedFileFound when no source file exists at all", () => {
 		const dir = freshRoot();
 		writeFileSync(join(dir, "README.md"), "# nothing here");
 
-		expect(() => discoverSeedFile(dir)).toThrow(NoSeedFileFound);
+		expect(() => discoverSeedFile(dir, TS_EXTENSIONS, TS_COMMON_CANDIDATES)).toThrow(NoSeedFileFound);
+	});
+
+	it("uses a different language's own extensions and candidates when given them", () => {
+		const dir = freshRoot();
+		writeFileSync(join(dir, "main.py"), "print('hi')");
+
+		expect(discoverSeedFile(dir, [".py"], ["main.py"])).toBe("main.py");
 	});
 });

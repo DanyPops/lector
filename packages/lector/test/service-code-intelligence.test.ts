@@ -6,15 +6,16 @@
  * CodeIntelligenceUnavailable rather than silently no-op-ing or crashing.
  * Full semantic correctness of each operation is already covered directly
  * against a live typescript-language-server in
- * test/adapters/lsp/typescript-symbol-index.test.ts; this file does not
+ * test/adapters/lsp/lsp-symbol-index.test.ts; this file does not
  * repeat that.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TypescriptSymbolIndex } from "../src/adapters/lsp/typescript-symbol-index.ts";
+import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
 import { TreeSitterSymbolIndex } from "../src/adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { TYPESCRIPT_DESCRIPTOR } from "../src/domain/language-server-descriptor.ts";
 import { type ClosableSymbolIndex, CodeIntelligenceUnavailable, createLectorService, type LectorService } from "../src/service.ts";
 
 let fixtureRoot: string | undefined;
@@ -72,7 +73,7 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 			allowDynamicOnly: true,
 			createSymbolIndex: (rootPath, seedFile) => {
 				spawnCount++;
-				return new TypescriptSymbolIndex(rootPath, seedFile);
+				return new LspSymbolIndex(rootPath, TYPESCRIPT_DESCRIPTOR, seedFile);
 			},
 		});
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });

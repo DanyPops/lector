@@ -9,13 +9,14 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemorySymbolGraph } from "../src/adapters/in-memory-symbol-graph.ts";
-import { TypescriptSymbolIndex } from "../src/adapters/lsp/typescript-symbol-index.ts";
+import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
+import { TYPESCRIPT_DESCRIPTOR } from "../src/domain/language-server-descriptor.ts";
 import { populateSymbolGraph } from "../src/domain/populate-symbol-graph.ts";
 import { deriveSymbolNodeId } from "../src/domain/symbol-node-id.ts";
 import { findPositionOf } from "./support/find-position.ts";
 
 let fixtureRoot: string | undefined;
-let index: TypescriptSymbolIndex | undefined;
+let index: LspSymbolIndex | undefined;
 let graph: InMemorySymbolGraph | undefined;
 
 afterEach(async () => {
@@ -44,7 +45,7 @@ describe("populateSymbolGraph", () => {
 	it("builds a real 'calls' chain a real symbol graph can answer multi-hop questions about", async () => {
 		const { root, chainFile } = buildFixture();
 		fixtureRoot = root;
-		index = new TypescriptSymbolIndex(root, "chain.ts");
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "chain.ts");
 		graph = new InMemorySymbolGraph();
 
 		const result = await populateSymbolGraph(index, graph, [chainFile], 50);
@@ -71,7 +72,7 @@ describe("populateSymbolGraph", () => {
 	it("adds a 'contains' edge from a class to its method, at no extra LSP cost", async () => {
 		const { root, classFile } = buildFixture();
 		fixtureRoot = root;
-		index = new TypescriptSymbolIndex(root, "chain.ts");
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "chain.ts");
 		graph = new InMemorySymbolGraph();
 
 		await populateSymbolGraph(index, graph, [classFile], 50);
@@ -88,7 +89,7 @@ describe("populateSymbolGraph", () => {
 	it("returns honest zero counts for an empty file list, not an error", async () => {
 		const { root } = buildFixture();
 		fixtureRoot = root;
-		index = new TypescriptSymbolIndex(root, "chain.ts");
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "chain.ts");
 		graph = new InMemorySymbolGraph();
 
 		const result = await populateSymbolGraph(index, graph, [], 50);

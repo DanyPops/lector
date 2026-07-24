@@ -10,8 +10,9 @@ import { startDaemon } from "@danypops/daemon-kit/daemon";
 import { ensureAuthToken, readDaemonHandle } from "@danypops/daemon-kit/paths";
 import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
-import { TypescriptSymbolIndex } from "../src/adapters/lsp/typescript-symbol-index.ts";
+import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
 import { buildLectorApp, startLectorDaemon } from "../src/daemon.ts";
+import { TYPESCRIPT_DESCRIPTOR } from "../src/domain/language-server-descriptor.ts";
 import { createLectorService, type LectorServiceOptions, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
@@ -57,7 +58,7 @@ describe("workspace.findSymbols", () => {
 		const options: LectorServiceOptions = {
 			createSymbolIndex: (rootPath, seedFile) => {
 				spawnCount++;
-				return new TypescriptSymbolIndex(rootPath, seedFile);
+				return new LspSymbolIndex(rootPath, TYPESCRIPT_DESCRIPTOR, seedFile);
 			},
 		};
 

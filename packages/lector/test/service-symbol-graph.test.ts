@@ -11,7 +11,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TypescriptSymbolIndex } from "../src/adapters/lsp/typescript-symbol-index.ts";
+import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
+import { TYPESCRIPT_DESCRIPTOR } from "../src/domain/language-server-descriptor.ts";
 import { createLectorService, type LectorService } from "../src/service.ts";
 
 let fixtureRoot: string | undefined;
@@ -40,7 +41,7 @@ describe("createLectorService's symbol-graph operations", () => {
 		fixtureRoot = buildFixture();
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
-			createSymbolIndex: (rootPath, seedFile) => new TypescriptSymbolIndex(rootPath, seedFile),
+			createSymbolIndex: (rootPath, seedFile) => new LspSymbolIndex(rootPath, TYPESCRIPT_DESCRIPTOR, seedFile),
 		});
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
 		// Warms the index with a seed file first, matching how every other Tier A/B operation warms it.
@@ -66,7 +67,7 @@ describe("createLectorService's symbol-graph operations", () => {
 		fixtureRoot = buildFixture();
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
-			createSymbolIndex: (rootPath, seedFile) => new TypescriptSymbolIndex(rootPath, seedFile),
+			createSymbolIndex: (rootPath, seedFile) => new LspSymbolIndex(rootPath, TYPESCRIPT_DESCRIPTOR, seedFile),
 		});
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
 		await service.dispatch("workspace.findSymbols", { workspaceId, query: "a", seedFile: "src/chain.ts" });

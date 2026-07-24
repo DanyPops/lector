@@ -7,7 +7,7 @@ export {
 	LanguageServerProcessExited,
 	LanguageServerRequestTimedOut,
 } from "./adapters/lsp/language-server-process.ts";
-export { TypescriptSymbolIndex } from "./adapters/lsp/typescript-symbol-index.ts";
+export { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
 export { SqliteContentCache } from "./adapters/sqlite-content-cache.ts";
 export { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 export { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
@@ -39,6 +39,13 @@ export { goToDefinition } from "./domain/go-to-definition.ts";
 export type { Hover } from "./domain/hover.ts";
 export { hoverAt } from "./domain/hover-at.ts";
 export { incomingCalls } from "./domain/incoming-calls.ts";
+export {
+	descriptorForExtension,
+	LANGUAGE_SERVER_DESCRIPTORS,
+	type LanguageServerDescriptor,
+	PYTHON_DESCRIPTOR,
+	TYPESCRIPT_DESCRIPTOR,
+} from "./domain/language-server-descriptor.ts";
 export { outgoingCalls } from "./domain/outgoing-calls.ts";
 export { type PopulateSymbolGraphResult, populateSymbolGraph } from "./domain/populate-symbol-graph.ts";
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";

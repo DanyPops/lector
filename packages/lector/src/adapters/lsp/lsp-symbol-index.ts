@@ -6,6 +6,7 @@ import type { CodeRange } from "../../domain/code-range.ts";
 import type { Diagnostic, DiagnosticSeverity } from "../../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../../domain/document-symbol.ts";
 import type { Hover } from "../../domain/hover.ts";
+import type { LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
 import type { WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
@@ -130,8 +131,9 @@ function isHierarchicalDocumentSymbol(item: LspDocumentSymbol | LspSymbolInforma
 	return "range" in item;
 }
 
-function resolveTypescriptLanguageServerBin(): string {
-	return fileURLToPath(import.meta.resolve("typescript-language-server/lib/cli.mjs"));
+/** Resolves a server's JS entry point via import.meta.resolve -- a bare PATH-based command name is not reliably resolvable against a package installed as Lector's own devDependency rather than the target workspace's. */
+function resolveLanguageServerEntry(descriptor: LanguageServerDescriptor): string {
+	return fileURLToPath(import.meta.resolve(descriptor.entryModule));
 }
 
 /** LSP positions are 0-indexed; WorkspaceLocation/CodeRange are 1-indexed (doc convention: humans and CLIs present positions 1-indexed). */
@@ -214,20 +216,24 @@ function normalizeDocumentSymbol(path: string, item: LspDocumentSymbol | LspSymb
 }
 
 /**
- * SymbolIndexPort + CodeIntelligencePort over one warm typescript-language-server
- * process per workspace. Lazily spawned on first use; the caller closes it.
+ * SymbolIndexPort + CodeIntelligencePort over one warm LSP server process per
+ * workspace, driven by a LanguageServerDescriptor rather than a hardcoded
+ * language -- the same class serves TypeScript, Python, or any future
+ * language whose descriptor is supplied. Lazily spawned on first use; the
+ * caller closes it.
  *
- * tsserver only answers `workspace/symbol` for a project it has loaded, and
- * a project loads only once one of its files is opened via `didOpen` --
- * `seedFile` names that file (auto-picked via discoverSeedFile() when
- * omitted). Position/file-based operations need their own target file
- * opened the same way, plus a settle wait (1000ms) before tsserver answers
- * accurately about it; tsserver has no "fully checked" signal to poll
- * instead. findReferences only searches files tsserver has actually
+ * A real LSP server only answers `workspace/symbol` for a project it has
+ * loaded, and a project loads only once one of its files is opened via
+ * `didOpen` -- `seedFile` names that file (auto-picked via discoverSeedFile()
+ * when omitted). Position/file-based operations need their own target file
+ * opened the same way, plus a settle wait (1000ms) before the server answers
+ * accurately about it; most servers have no "fully checked" signal to poll
+ * instead. findReferences only searches files the server has actually
  * loaded -- open a file first to guarantee its usages are included.
  */
-export class TypescriptSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
+export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private readonly cwd: string;
+	private readonly descriptor: LanguageServerDescriptor;
 	private readonly explicitSeedFile: string | undefined;
 	private readonly openedFiles = new Set<string>();
 	private readonly latestDiagnostics = new Map<string, Diagnostic[]>();
@@ -235,8 +241,9 @@ export class TypescriptSymbolIndex implements SymbolIndexPort, CodeIntelligenceP
 	private process: LanguageServerProcess | undefined;
 	private initializing: Promise<LanguageServerProcess> | undefined;
 
-	constructor(cwd: string, seedFile?: string) {
+	constructor(cwd: string, descriptor: LanguageServerDescriptor, seedFile?: string) {
 		this.cwd = cwd;
+		this.descriptor = descriptor;
 		this.explicitSeedFile = seedFile;
 	}
 
@@ -246,7 +253,7 @@ export class TypescriptSymbolIndex implements SymbolIndexPort, CodeIntelligenceP
 			this.initializing = (async () => {
 				const proc = LanguageServerProcess.spawnProcess({
 					command: "bun",
-					args: [resolveTypescriptLanguageServerBin(), "--stdio"],
+					args: [resolveLanguageServerEntry(this.descriptor), ...this.descriptor.args],
 					cwd: this.cwd,
 				});
 				proc.onNotification("textDocument/publishDiagnostics", (params) => {
@@ -270,46 +277,46 @@ export class TypescriptSymbolIndex implements SymbolIndexPort, CodeIntelligenceP
 							documentSymbol: { hierarchicalDocumentSymbolSupport: true },
 							definition: { linkSupport: true },
 							hover: { contentFormat: ["markdown", "plaintext"] },
-							// typescript-language-server gates its own diagnosticsSupport flag on this capability
-							// being present at all -- omitted, it silently never sends publishDiagnostics.
-							publishDiagnostics: {},
-							// Same gating pattern: callHierarchyProvider is real server-side but stays off
-							// the advertised capabilities unless this is declared.
-							callHierarchy: {},
+							...this.descriptor.extraCapabilities,
 						},
 					},
 					initializationOptions: {},
 				});
 				proc.notify("initialized", {});
 
-				const seedFile = this.explicitSeedFile ?? discoverSeedFile(this.cwd);
+				const seedFile = this.explicitSeedFile ?? discoverSeedFile(this.cwd, this.descriptor.extensions, this.descriptor.commonSeedCandidates);
 				const seedPath = join(this.cwd, seedFile);
 				proc.notify("textDocument/didOpen", {
 					textDocument: {
 						uri: pathToFileURL(seedPath).href,
-						languageId: "typescript",
+						languageId: this.descriptor.languageId,
 						version: 1,
 						text: readFileSync(seedPath, "utf-8"),
 					},
 				});
 				this.openedFiles.add(seedPath);
-				// tsserver loads the project asynchronously after didOpen; there is no
+				// Most servers load the project asynchronously after didOpen; there is no
 				// notification for "project loaded", so a short, deliberate wait is the
 				// documented approach (matches Alef's own lsp-client.ts, same gotcha).
 				await new Promise((resolve) => setTimeout(resolve, 300));
 
 				this.process = proc;
 				return proc;
-			})();
+			})().catch((error: unknown) => {
+				// A failed initialize must not permanently poison this workspace's index --
+				// the next call retries fresh rather than replaying the same rejection forever.
+				this.initializing = undefined;
+				throw error;
+			});
 		}
 		return this.initializing;
 	}
 
-	/** Opens `path` with tsserver if not already open, then waits for it to settle. A no-op past the first call for a given path. */
+	/** Opens `path` with the server if not already open, then waits for it to settle. A no-op past the first call for a given path. */
 	private async ensureFileOpen(proc: LanguageServerProcess, path: string): Promise<void> {
 		if (this.openedFiles.has(path)) return;
 		proc.notify("textDocument/didOpen", {
-			textDocument: { uri: pathToFileURL(path).href, languageId: "typescript", version: 1, text: readFileSync(path, "utf-8") },
+			textDocument: { uri: pathToFileURL(path).href, languageId: this.descriptor.languageId, version: 1, text: readFileSync(path, "utf-8") },
 		});
 		this.openedFiles.add(path);
 		await new Promise((resolve) => setTimeout(resolve, 1000));
