@@ -9,7 +9,7 @@ import type {
 	SymbolNode,
 	WorkspaceLocation,
 } from "@danypops/lector";
-import { lectorClient, workspaceForPath } from "./lector-client.ts";
+import { lectorClient, withWorkspace, workspaceForPath } from "./lector-client.ts";
 
 /**
  * Thin wrappers over Lector's code-intelligence operations: goToDefinition,
@@ -44,63 +44,103 @@ export interface CodeIntelligenceOperations {
 export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperations {
 	return {
 		async goToDefinition(path, line, character) {
-			const client = await lectorClient();
-			const { workspaceId } = await workspaceForPath(path);
-			const { locations } = await client.call("workspace.goToDefinition", { workspaceId, path, line, character });
-			return locations;
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { locations } = await client.call("workspace.goToDefinition", { workspaceId, path, line, character });
+					return locations;
+				},
+			);
 		},
 		async findReferences(path, line, character, includeDeclaration) {
-			const client = await lectorClient();
-			const { workspaceId } = await workspaceForPath(path);
-			const { locations } = await client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration });
-			return locations;
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { locations } = await client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration });
+					return locations;
+				},
+			);
 		},
 		async hover(path, line, character) {
-			const client = await lectorClient();
-			const { workspaceId } = await workspaceForPath(path);
-			const { hover } = await client.call("workspace.hover", { workspaceId, path, line, character });
-			return hover;
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { hover } = await client.call("workspace.hover", { workspaceId, path, line, character });
+					return hover;
+				},
+			);
 		},
 		async documentSymbols(path) {
-			const client = await lectorClient();
-			const { workspaceId } = await workspaceForPath(path);
-			const { symbols } = await client.call("workspace.documentSymbols", { workspaceId, path });
-			return symbols;
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { symbols } = await client.call("workspace.documentSymbols", { workspaceId, path });
+					return symbols;
+				},
+			);
 		},
 		async diagnostics(path) {
-			const client = await lectorClient();
-			const { workspaceId } = await workspaceForPath(path);
-			const { diagnostics } = await client.call("workspace.diagnostics", { workspaceId, path });
-			return diagnostics;
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { diagnostics } = await client.call("workspace.diagnostics", { workspaceId, path });
+					return diagnostics;
+				},
+			);
 		},
 		async prepareCallHierarchy(path, line, character) {
-			const client = await lectorClient();
-			const { workspaceId } = await workspaceForPath(path);
-			const { items } = await client.call("workspace.prepareCallHierarchy", { workspaceId, path, line, character });
-			return items;
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { items } = await client.call("workspace.prepareCallHierarchy", { workspaceId, path, line, character });
+					return items;
+				},
+			);
 		},
 		async incomingCalls(path, line, character) {
-			const client = await lectorClient();
-			const { workspaceId } = await workspaceForPath(path);
-			const { calls } = await client.call("workspace.incomingCalls", { workspaceId, path, line, character });
-			return calls;
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { calls } = await client.call("workspace.incomingCalls", { workspaceId, path, line, character });
+					return calls;
+				},
+			);
 		},
 		async outgoingCalls(path, line, character) {
-			const client = await lectorClient();
-			const { workspaceId } = await workspaceForPath(path);
-			const { calls } = await client.call("workspace.outgoingCalls", { workspaceId, path, line, character });
-			return calls;
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { calls } = await client.call("workspace.outgoingCalls", { workspaceId, path, line, character });
+					return calls;
+				},
+			);
 		},
 		async populateSymbolGraph(path, maxFiles, maxSymbolsPerFile) {
-			const client = await lectorClient();
-			const { workspaceId } = await workspaceForPath(path);
-			return client.call("workspace.populateSymbolGraph", { workspaceId, maxFiles, maxSymbolsPerFile });
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					return client.call("workspace.populateSymbolGraph", { workspaceId, maxFiles, maxSymbolsPerFile });
+				},
+			);
 		},
 		async reachableFrom(path, line, character, maxDepth, kind) {
-			const client = await lectorClient();
-			const { workspaceId } = await workspaceForPath(path);
-			const { symbols } = await client.call("workspace.reachableFrom", { workspaceId, path, line, character, maxDepth, kind });
-			return symbols;
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { symbols } = await client.call("workspace.reachableFrom", { workspaceId, path, line, character, maxDepth, kind });
+					return symbols;
+				},
+			);
 		},
 	};
 }

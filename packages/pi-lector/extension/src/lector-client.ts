@@ -1,5 +1,13 @@
 import { dirname, parse } from "node:path";
-import { connectLectorClient, type LectorClient, type WorkspaceId } from "@danypops/lector";
+import {
+	connectLectorClient,
+	type LectorClient,
+	type OperationInputs,
+	type OperationName,
+	type OperationOutputs,
+	remoteErrorIs,
+	type WorkspaceId,
+} from "@danypops/lector";
 import { nearestGitRoot } from "./nearest-workspace-root.ts";
 
 /**
@@ -9,6 +17,13 @@ import { nearestGitRoot } from "./nearest-workspace-root.ts";
  * at a lifecycle the user didn't ask for. A failed connection attempt is
  * not cached, so the very next tool call retries once the daemon is
  * actually running.
+ *
+ * The daemon binds a new random port on every restart. A client resolved
+ * once and cached for the rest of the session would otherwise point at a
+ * dead port after any later restart -- lectorClient()'s returned .call()
+ * detects that on the failing call itself (not just the first connection
+ * attempt) and retries once against a freshly re-resolved client, matching
+ * the pattern already proven in this house's papyrusClient()/callService().
  */
 
 type ClientConnector = () => Promise<LectorClient>;
@@ -17,7 +32,7 @@ let connector: ClientConnector = () => connectLectorClient();
 let cachedClient: Promise<LectorClient> | undefined;
 const workspaceIdByRoot = new Map<string, WorkspaceId>();
 
-export async function lectorClient(): Promise<LectorClient> {
+async function resolveClient(): Promise<LectorClient> {
 	if (!cachedClient) {
 		cachedClient = connector().catch((error: unknown) => {
 			cachedClient = undefined;
@@ -25,6 +40,41 @@ export async function lectorClient(): Promise<LectorClient> {
 		});
 	}
 	return cachedClient;
+}
+
+/**
+ * True when `error` means the connection itself is bad (the daemon
+ * restarted on a new port since this client was cached, or died outright)
+ * -- worth invalidating the cache and retrying once. False for a genuine
+ * domain-level rejection (e.g. UnknownWorkspace), which a retry cannot fix
+ * and would only mask.
+ */
+function isStaleConnectionError(error: unknown): boolean {
+	if (error instanceof TypeError) return true; // fetch()'s own connection-refused/DNS-failure shape
+	if (!(error instanceof Error)) return false;
+	if (error.name === "AbortError" || error.name === "TimeoutError") return true;
+	return /fetch failed|unable to connect|network|socket|ECONNRESET|ECONNREFUSED|connection refused/i.test(error.message);
+}
+
+export interface RetryingLectorClient {
+	call<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]>;
+}
+
+export async function lectorClient(): Promise<RetryingLectorClient> {
+	return {
+		async call(operation, input) {
+			for (let attempt = 0; attempt < 2; attempt++) {
+				const client = await resolveClient();
+				try {
+					return await client.call(operation, input);
+				} catch (error) {
+					cachedClient = undefined;
+					if (attempt === 1 || !isStaleConnectionError(error)) throw error;
+				}
+			}
+			throw new Error("Lector daemon client retry exhausted");
+		},
+	};
 }
 
 export interface ResolvedWorkspace {
@@ -74,6 +124,31 @@ export function workspaceForPath(absolutePath: string): Promise<ResolvedWorkspac
 export function workspaceForDirectory(directory: string): Promise<ResolvedWorkspace> {
 	const root = nearestGitRoot(directory) ?? directory;
 	return workspaceForRoot(root);
+}
+
+/**
+ * Resolves a workspace via `resolve`, then calls `perform` with it. A daemon
+ * restart wipes its in-memory workspace registry (workspace ids are not
+ * persisted across restarts by design), but this module's own workspaceId
+ * cache does not know that on its own -- a call through a stale cached id
+ * fails with UnknownWorkspace even though the underlying files on disk
+ * never changed. On exactly that failure, the stale cache entry is dropped
+ * and the whole flow (resolve, then perform) retries once against a
+ * freshly re-registered workspace -- re-registering the same root always
+ * yields the same workspaceId (deriveWorkspaceId is a deterministic hash
+ * of the path), so this is a safe, idempotent recovery, not a guess.
+ */
+export async function withWorkspace<T>(resolve: () => Promise<ResolvedWorkspace>, perform: (resolved: ResolvedWorkspace) => Promise<T>): Promise<T> {
+	for (let attempt = 0; attempt < 2; attempt++) {
+		const resolved = await resolve();
+		try {
+			return await perform(resolved);
+		} catch (error) {
+			if (attempt === 1 || !remoteErrorIs(error, "UnknownWorkspace")) throw error;
+			workspaceIdByRoot.delete(resolved.root);
+		}
+	}
+	throw new Error("Lector workspace resolution retry exhausted");
 }
 
 export function setLectorClientConnectorForTests(value: ClientConnector): void {

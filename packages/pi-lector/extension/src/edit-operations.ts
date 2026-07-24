@@ -1,6 +1,6 @@
 import { type ContentHash, remoteErrorIs } from "@danypops/lector";
 import type { EditOperations } from "@earendil-works/pi-coding-agent";
-import { lectorClient, workspaceForPath } from "./lector-client.ts";
+import { lectorClient, withWorkspace, workspaceForPath } from "./lector-client.ts";
 import { toWorkspaceRelativePath } from "./workspace-relative-path.ts";
 
 /**
@@ -29,37 +29,49 @@ export function createLectorEditOperations(): EditOperations {
 
 	return {
 		async readFile(absolutePath) {
-			const client = await lectorClient();
-			const { workspaceId, root } = await workspaceForPath(absolutePath);
-			const relativePath = toWorkspaceRelativePath(root, absolutePath);
-			const { content, hash } = await client.call("workspace.rawRead", { workspaceId, path: relativePath });
-			observedHashByPath.set(absolutePath, hash);
-			return Buffer.from(content, "utf-8");
+			return withWorkspace(
+				() => workspaceForPath(absolutePath),
+				async ({ workspaceId, root }) => {
+					const client = await lectorClient();
+					const relativePath = toWorkspaceRelativePath(root, absolutePath);
+					const { content, hash } = await client.call("workspace.rawRead", { workspaceId, path: relativePath });
+					observedHashByPath.set(absolutePath, hash);
+					return Buffer.from(content, "utf-8");
+				},
+			);
 		},
 
 		async writeFile(absolutePath, content) {
 			const expectedHash = observedHashByPath.get(absolutePath) ?? null;
 			observedHashByPath.delete(absolutePath);
-			const client = await lectorClient();
-			const { workspaceId, root } = await workspaceForPath(absolutePath);
-			const relativePath = toWorkspaceRelativePath(root, absolutePath);
-			try {
-				await client.call("workspace.exactEdit", { workspaceId, path: relativePath, expectedHash, content });
-			} catch (error) {
-				if (remoteErrorIs(error, "StaleExpectedHash")) {
-					throw new Error(`"${relativePath}" changed on disk since it was last read; re-read the file and retry the edit.`);
-				}
-				throw error;
-			}
+			await withWorkspace(
+				() => workspaceForPath(absolutePath),
+				async ({ workspaceId, root }) => {
+					const client = await lectorClient();
+					const relativePath = toWorkspaceRelativePath(root, absolutePath);
+					try {
+						await client.call("workspace.exactEdit", { workspaceId, path: relativePath, expectedHash, content });
+					} catch (error) {
+						if (remoteErrorIs(error, "StaleExpectedHash")) {
+							throw new Error(`"${relativePath}" changed on disk since it was last read; re-read the file and retry the edit.`);
+						}
+						throw error;
+					}
+				},
+			);
 		},
 
 		async access(absolutePath) {
 			// workspace.rawRead itself rejects a missing entry -- exactly the "not accessible"
 			// signal pi's edit tool expects access() to throw for.
-			const client = await lectorClient();
-			const { workspaceId, root } = await workspaceForPath(absolutePath);
-			const relativePath = toWorkspaceRelativePath(root, absolutePath);
-			await client.call("workspace.rawRead", { workspaceId, path: relativePath });
+			await withWorkspace(
+				() => workspaceForPath(absolutePath),
+				async ({ workspaceId, root }) => {
+					const client = await lectorClient();
+					const relativePath = toWorkspaceRelativePath(root, absolutePath);
+					await client.call("workspace.rawRead", { workspaceId, path: relativePath });
+				},
+			);
 		},
 	};
 }

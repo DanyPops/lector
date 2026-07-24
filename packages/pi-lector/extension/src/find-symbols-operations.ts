@@ -1,5 +1,5 @@
 import type { WorkspaceSymbol } from "@danypops/lector";
-import { lectorClient, workspaceForDirectory } from "./lector-client.ts";
+import { lectorClient, withWorkspace, workspaceForDirectory } from "./lector-client.ts";
 
 /**
  * Thin wrapper over workspace.findSymbols. No seedFile parameter here or
@@ -21,10 +21,14 @@ export interface FindSymbolsOperations {
 export function createLectorFindSymbolsOperations(): FindSymbolsOperations {
 	return {
 		async findSymbols(query, directory) {
-			const client = await lectorClient();
-			const { workspaceId } = await workspaceForDirectory(directory);
-			const { symbols } = await client.call("workspace.findSymbols", { workspaceId, query });
-			return symbols;
+			return withWorkspace(
+				() => workspaceForDirectory(directory),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { symbols } = await client.call("workspace.findSymbols", { workspaceId, query });
+					return symbols;
+				},
+			);
 		},
 	};
 }

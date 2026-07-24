@@ -1,6 +1,6 @@
 import { type ContentHash, remoteErrorIs } from "@danypops/lector";
 import type { WriteOperations } from "@earendil-works/pi-coding-agent";
-import { lectorClient, workspaceForPath } from "./lector-client.ts";
+import { lectorClient, withWorkspace, workspaceForPath } from "./lector-client.ts";
 import { toWorkspaceRelativePath } from "./workspace-relative-path.ts";
 
 const MAX_STALE_HASH_RETRIES = 3;
@@ -31,21 +31,25 @@ export function createLectorWriteOperations(): WriteOperations {
 
 	return {
 		async writeFile(absolutePath, content) {
-			const client = await lectorClient();
-			const { workspaceId, root } = await workspaceForPath(absolutePath);
-			const relativePath = toWorkspaceRelativePath(root, absolutePath);
+			await withWorkspace(
+				() => workspaceForPath(absolutePath),
+				async ({ workspaceId, root }) => {
+					const client = await lectorClient();
+					const relativePath = toWorkspaceRelativePath(root, absolutePath);
 
-			let expectedHash = await currentHash(client, workspaceId, relativePath);
+					let expectedHash = await currentHash(client, workspaceId, relativePath);
 
-			for (let attempt = 0; attempt < MAX_STALE_HASH_RETRIES; attempt++) {
-				try {
-					await client.call("workspace.exactEdit", { workspaceId, path: relativePath, expectedHash, content });
-					return;
-				} catch (error) {
-					if (!remoteErrorIs(error, "StaleExpectedHash") || attempt === MAX_STALE_HASH_RETRIES - 1) throw error;
-					expectedHash = await currentHash(client, workspaceId, relativePath);
-				}
-			}
+					for (let attempt = 0; attempt < MAX_STALE_HASH_RETRIES; attempt++) {
+						try {
+							await client.call("workspace.exactEdit", { workspaceId, path: relativePath, expectedHash, content });
+							return;
+						} catch (error) {
+							if (!remoteErrorIs(error, "StaleExpectedHash") || attempt === MAX_STALE_HASH_RETRIES - 1) throw error;
+							expectedHash = await currentHash(client, workspaceId, relativePath);
+						}
+					}
+				},
+			);
 		},
 
 		async mkdir() {

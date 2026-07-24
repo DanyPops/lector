@@ -9,7 +9,14 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectLectorClient, type LectorClient, resolveLectorPaths } from "@danypops/lector";
-import { resetLectorClientForTests, setLectorClientConnectorForTests, workspaceForDirectory, workspaceForPath } from "../extension/src/lector-client.ts";
+import {
+	lectorClient,
+	resetLectorClientForTests,
+	setLectorClientConnectorForTests,
+	withWorkspace,
+	workspaceForDirectory,
+	workspaceForPath,
+} from "../extension/src/lector-client.ts";
 import { startIsolatedLectorDaemon } from "./support/isolated-lector-daemon.ts";
 
 afterEach(() => {
@@ -132,6 +139,143 @@ describe("lectorClient with no daemon reachable", () => {
 			await expect(workspaceForPath("/tmp/does-not-matter.txt")).rejects.toThrow(/lector serve/);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("lectorClient recovers from a stale cached connection", () => {
+	// The real bug this fixes: the daemon binds a new random port on every restart, but
+	// lectorClient() previously cached its resolved client forever once connected, so a
+	// restart mid-session left every later call pointed at a dead port until the whole
+	// extension reloaded. Simulated here via a connector that returns a dead-port-shaped
+	// client first, then a real one -- exactly what a daemon restart looks like from here.
+	function fakeConnectionRefused(): LectorClient {
+		return {
+			call: () => {
+				throw new TypeError("fetch failed");
+			},
+		} as unknown as LectorClient;
+	}
+
+	it("reconnects and retries once when the cached client's connection is stale, succeeding transparently", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		let connectorCalls = 0;
+		setLectorClientConnectorForTests(() => {
+			connectorCalls++;
+			return Promise.resolve(connectorCalls === 1 ? fakeConnectionRefused() : daemon.client);
+		});
+
+		try {
+			const client = await lectorClient();
+			const result = await client.call("workspace.registerPath", { path: "/tmp" });
+
+			expect(result.workspaceId).toBeDefined();
+			expect(connectorCalls).toBe(2);
+		} finally {
+			await daemon.stop();
+		}
+	});
+
+	it("gives up after one retry if the connection stays stale, rather than retrying forever", async () => {
+		let connectorCalls = 0;
+		setLectorClientConnectorForTests(() => {
+			connectorCalls++;
+			return Promise.resolve(fakeConnectionRefused());
+		});
+
+		const client = await lectorClient();
+		await expect(client.call("workspace.registerPath", { path: "/tmp" })).rejects.toThrow(TypeError);
+		expect(connectorCalls).toBe(2);
+	});
+
+	it("does not retry a genuine domain-level error -- fails immediately rather than masking it", async () => {
+		let connectorCalls = 0;
+		const domainErrorClient: LectorClient = {
+			call: () => {
+				throw new Error('UnknownWorkspace: no workspace registered under id "x"');
+			},
+		} as unknown as LectorClient;
+		setLectorClientConnectorForTests(() => {
+			connectorCalls++;
+			return Promise.resolve(domainErrorClient);
+		});
+
+		const client = await lectorClient();
+		await expect(client.call("workspace.registerPath", { path: "/tmp" })).rejects.toThrow(/UnknownWorkspace/);
+		expect(connectorCalls).toBe(1);
+	});
+});
+
+describe("withWorkspace recovers from a stale cached workspaceId", () => {
+	// The real bug this fixes: a daemon restart wipes its in-memory workspace registry
+	// (registrations are not persisted across restarts by design), but this module's own
+	// workspaceIdByRoot cache has no way to know that on its own -- a call through a stale
+	// cached id fails with UnknownWorkspace even though nothing about the files on disk
+	// changed.
+	it("re-registers and retries once on UnknownWorkspace, succeeding transparently", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const repo = fakeRepo("pi-lector-stale-workspace-");
+		try {
+			let performCalls = 0;
+			const result = await withWorkspace(
+				() => workspaceForPath(join(repo, "a.ts")),
+				async ({ workspaceId }) => {
+					performCalls++;
+					if (performCalls === 1) throw new Error(`UnknownWorkspace: no workspace registered under id "${workspaceId}"`);
+					return workspaceId;
+				},
+			);
+
+			expect(result).toBeDefined();
+			expect(performCalls).toBe(2);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("does not retry a different error -- fails immediately rather than masking it", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const repo = fakeRepo("pi-lector-other-error-");
+		try {
+			let performCalls = 0;
+			await expect(
+				withWorkspace(
+					() => workspaceForPath(join(repo, "a.ts")),
+					async () => {
+						performCalls++;
+						throw new Error("WorkspaceEntryNotFound: nope");
+					},
+				),
+			).rejects.toThrow(/WorkspaceEntryNotFound/);
+			expect(performCalls).toBe(1);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("gives up after one retry if UnknownWorkspace persists, rather than retrying forever", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const repo = fakeRepo("pi-lector-persistent-stale-");
+		try {
+			let performCalls = 0;
+			await expect(
+				withWorkspace(
+					() => workspaceForPath(join(repo, "a.ts")),
+					async ({ workspaceId }) => {
+						performCalls++;
+						throw new Error(`UnknownWorkspace: no workspace registered under id "${workspaceId}"`);
+					},
+				),
+			).rejects.toThrow(/UnknownWorkspace/);
+			expect(performCalls).toBe(2);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+			await daemon.stop();
 		}
 	});
 });

@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
 import type { ReadOperations } from "@earendil-works/pi-coding-agent";
-import { lectorClient, workspaceForPath } from "./lector-client.ts";
+import { lectorClient, withWorkspace, workspaceForPath } from "./lector-client.ts";
 import { toWorkspaceRelativePath } from "./workspace-relative-path.ts";
 
 /**
@@ -39,11 +39,15 @@ export function createLectorReadOperations(): ReadOperations {
 		async readFile(absolutePath) {
 			if (imageMimeTypeFor(absolutePath)) return fsReadFile(absolutePath);
 
-			const client = await lectorClient();
-			const { workspaceId, root } = await workspaceForPath(absolutePath);
-			const relativePath = toWorkspaceRelativePath(root, absolutePath);
-			const { content } = await client.call("workspace.rawRead", { workspaceId, path: relativePath });
-			return Buffer.from(content, "utf-8");
+			return withWorkspace(
+				() => workspaceForPath(absolutePath),
+				async ({ workspaceId, root }) => {
+					const client = await lectorClient();
+					const relativePath = toWorkspaceRelativePath(root, absolutePath);
+					const { content } = await client.call("workspace.rawRead", { workspaceId, path: relativePath });
+					return Buffer.from(content, "utf-8");
+				},
+			);
 		},
 
 		async access(absolutePath) {
@@ -54,10 +58,14 @@ export function createLectorReadOperations(): ReadOperations {
 
 			// workspace.rawRead itself rejects a missing entry (WorkspaceEntryNotFound) -- exactly
 			// the "not accessible" signal pi's read/edit tools expect access() to throw for.
-			const client = await lectorClient();
-			const { workspaceId, root } = await workspaceForPath(absolutePath);
-			const relativePath = toWorkspaceRelativePath(root, absolutePath);
-			await client.call("workspace.rawRead", { workspaceId, path: relativePath });
+			await withWorkspace(
+				() => workspaceForPath(absolutePath),
+				async ({ workspaceId, root }) => {
+					const client = await lectorClient();
+					const relativePath = toWorkspaceRelativePath(root, absolutePath);
+					await client.call("workspace.rawRead", { workspaceId, path: relativePath });
+				},
+			);
 		},
 
 		detectImageMimeType: (absolutePath) => Promise.resolve(imageMimeTypeFor(absolutePath)),
