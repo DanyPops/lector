@@ -366,6 +366,16 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		return normalizeLocations(result);
 	}
 
+	async goToImplementation(at: WorkspaceLocation): Promise<WorkspaceLocation[]> {
+		const proc = await this.ensureInitialized();
+		await this.ensureFileOpen(proc, at.path);
+		const result = await proc.request<LspLocation | LspLocation[] | LspLocationLink[] | null>("textDocument/implementation", {
+			textDocument: { uri: pathToFileURL(at.path).href },
+			position: toLspPosition(at.line, at.character),
+		});
+		return normalizeLocations(result);
+	}
+
 	async findReferences(at: WorkspaceLocation, includeDeclaration: boolean): Promise<WorkspaceLocation[]> {
 		const proc = await this.ensureInitialized();
 		await this.ensureFileOpen(proc, at.path);

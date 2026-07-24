@@ -14,6 +14,7 @@ import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash }
 import { findReferences as findReferencesQuery } from "./domain/find-references.ts";
 import { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 import { goToDefinition as goToDefinitionQuery } from "./domain/go-to-definition.ts";
+import { goToImplementation as goToImplementationQuery } from "./domain/go-to-implementation.ts";
 import type { Hover } from "./domain/hover.ts";
 import { hoverAt } from "./domain/hover-at.ts";
 import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts";
@@ -89,6 +90,7 @@ export type OperationName =
 	| "workspace.registerPath"
 	| "workspace.findSymbols"
 	| "workspace.goToDefinition"
+	| "workspace.goToImplementation"
 	| "workspace.findReferences"
 	| "workspace.hover"
 	| "workspace.documentSymbols"
@@ -99,7 +101,8 @@ export type OperationName =
 	| "workspace.populateSymbolGraph"
 	| "workspace.reachableFrom"
 	| "workspace.symbolEdgesFrom"
-	| "workspace.symbolEdgesTo";
+	| "workspace.symbolEdgesTo"
+	| "workspace.hasWarmIndex";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
@@ -107,6 +110,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.registerPath",
 	"workspace.findSymbols",
 	"workspace.goToDefinition",
+	"workspace.goToImplementation",
 	"workspace.findReferences",
 	"workspace.hover",
 	"workspace.documentSymbols",
@@ -118,6 +122,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.reachableFrom",
 	"workspace.symbolEdgesFrom",
 	"workspace.symbolEdgesTo",
+	"workspace.hasWarmIndex",
 ];
 
 /** A single position within a file already registered under `workspaceId`, 1-indexed. */
@@ -134,6 +139,7 @@ export interface OperationInputs {
 	"workspace.registerPath": { path: string };
 	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string };
 	"workspace.goToDefinition": WorkspacePosition;
+	"workspace.goToImplementation": WorkspacePosition;
 	"workspace.findReferences": WorkspacePosition & { includeDeclaration: boolean };
 	"workspace.hover": WorkspacePosition;
 	"workspace.documentSymbols": { workspaceId: WorkspaceId; path: string };
@@ -145,6 +151,7 @@ export interface OperationInputs {
 	"workspace.reachableFrom": WorkspacePosition & { maxDepth: number; kind?: SymbolEdgeKind };
 	"workspace.symbolEdgesFrom": WorkspacePosition & { kind?: SymbolEdgeKind };
 	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind };
+	"workspace.hasWarmIndex": { workspaceId: WorkspaceId };
 }
 
 export interface OperationOutputs {
@@ -153,6 +160,7 @@ export interface OperationOutputs {
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
 	"workspace.findSymbols": { symbols: readonly WorkspaceSymbol[] };
 	"workspace.goToDefinition": { locations: readonly WorkspaceLocation[] };
+	"workspace.goToImplementation": { locations: readonly WorkspaceLocation[] };
 	"workspace.findReferences": { locations: readonly WorkspaceLocation[] };
 	"workspace.hover": { hover: Hover | undefined };
 	"workspace.documentSymbols": { symbols: readonly DocumentSymbolEntry[] };
@@ -164,6 +172,7 @@ export interface OperationOutputs {
 	"workspace.reachableFrom": { symbols: readonly SymbolNode[] };
 	"workspace.symbolEdgesFrom": { symbols: readonly SymbolNode[] };
 	"workspace.symbolEdgesTo": { symbols: readonly SymbolNode[] };
+	"workspace.hasWarmIndex": { warm: boolean };
 }
 
 /**
@@ -314,6 +323,15 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return entryIndex.index;
 	}
 
+	/** Never spawns -- a caller deciding whether to enrich a result with LSP-backed information (e.g. a diagnostics hint) must not pay a cold-start cost just to check. */
+	async function hasWarmIndex(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.hasWarmIndex"],
+	): Promise<OperationOutputs["workspace.hasWarmIndex"]> {
+		if (!registry.has(input.workspaceId)) throw new UnknownWorkspace(input.workspaceId);
+		return { warm: symbolIndexes.has(input.workspaceId) };
+	}
+
 	async function findSymbols(_registry: MutableRegistry, input: OperationInputs["workspace.findSymbols"]): Promise<OperationOutputs["workspace.findSymbols"]> {
 		const index = await ensureWarmIndex(input);
 		const symbols = await findWorkspaceSymbols(index, input.query);
@@ -332,6 +350,15 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	): Promise<OperationOutputs["workspace.goToDefinition"]> {
 		const index = await requireCodeIntelligence(input);
 		const locations = await goToDefinitionQuery(index, { path: input.path, line: input.line, character: input.character });
+		return { locations };
+	}
+
+	async function goToImplementation(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.goToImplementation"],
+	): Promise<OperationOutputs["workspace.goToImplementation"]> {
+		const index = await requireCodeIntelligence(input);
+		const locations = await goToImplementationQuery(index, { path: input.path, line: input.line, character: input.character });
 		return { locations };
 	}
 
@@ -448,6 +475,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.registerPath": registerPath,
 		"workspace.findSymbols": findSymbols,
 		"workspace.goToDefinition": goToDefinition,
+		"workspace.goToImplementation": goToImplementation,
 		"workspace.findReferences": findReferences,
 		"workspace.hover": hover,
 		"workspace.documentSymbols": documentSymbolsHandler,
@@ -459,6 +487,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.reachableFrom": reachableFromHandler,
 		"workspace.symbolEdgesFrom": symbolEdgesFromHandler,
 		"workspace.symbolEdgesTo": symbolEdgesToHandler,
+		"workspace.hasWarmIndex": hasWarmIndex,
 	};
 
 	return {

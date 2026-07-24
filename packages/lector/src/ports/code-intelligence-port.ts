@@ -19,6 +19,8 @@ import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
 export interface CodeIntelligencePort {
 	/** Where the symbol at `at` is actually declared -- may cross files, may return more than one candidate. */
 	goToDefinition(at: WorkspaceLocation): Promise<WorkspaceLocation[]>;
+	/** Every concrete implementation of the interface/abstract member at `at` -- unlike goToDefinition, crosses a port/interface boundary into its real adapters. */
+	goToImplementation(at: WorkspaceLocation): Promise<WorkspaceLocation[]>;
 	/** Every project-wide usage of the symbol at `at`. */
 	findReferences(at: WorkspaceLocation, includeDeclaration: boolean): Promise<WorkspaceLocation[]>;
 	/** Type/doc information for the symbol at `at`, or undefined when the server has none. */

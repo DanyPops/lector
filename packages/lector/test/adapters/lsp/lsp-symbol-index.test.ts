@@ -14,6 +14,7 @@ import { documentSymbols } from "../../../src/domain/document-symbols.ts";
 import { findReferences } from "../../../src/domain/find-references.ts";
 import { findWorkspaceSymbols } from "../../../src/domain/find-workspace-symbols.ts";
 import { goToDefinition } from "../../../src/domain/go-to-definition.ts";
+import { goToImplementation } from "../../../src/domain/go-to-implementation.ts";
 import { hoverAt } from "../../../src/domain/hover-at.ts";
 import { incomingCalls } from "../../../src/domain/incoming-calls.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../../src/domain/language-server-descriptor.ts";
@@ -26,6 +27,7 @@ const EXACT_EDIT_FILE = join(LECTOR_ROOT, "src/domain/exact-edit.ts");
 const SERVICE_FILE = join(LECTOR_ROOT, "src/service.ts");
 const FIND_WORKSPACE_SYMBOLS_FILE = join(LECTOR_ROOT, "src/domain/find-workspace-symbols.ts");
 const SYMBOL_INDEX_PORT_FILE = join(LECTOR_ROOT, "src/ports/symbol-index-port.ts");
+const SYMBOL_GRAPH_PORT_FILE = join(LECTOR_ROOT, "src/ports/symbol-graph-port.ts");
 const LSP_SYMBOL_INDEX_FILE = join(LECTOR_ROOT, "src/adapters/lsp/lsp-symbol-index.ts");
 
 let index: LspSymbolIndex | undefined;
@@ -74,6 +76,18 @@ describe("LspSymbolIndex configured for TypeScript", () => {
 
 		expect(locations.length).toBeGreaterThan(0);
 		expect(locations[0]?.path).toBe(SYMBOL_INDEX_PORT_FILE);
+	}, 20_000);
+
+	it("goToImplementation crosses a real port boundary that goToDefinition cannot -- SymbolGraphPort.addNode to both of its concrete adapters", async () => {
+		index = new LspSymbolIndex(LECTOR_ROOT, TYPESCRIPT_DESCRIPTOR, "src/index.ts");
+		const declaration = findPositionOf(SYMBOL_GRAPH_PORT_FILE, "addNode(node: SymbolNode)");
+		const at = { path: SYMBOL_GRAPH_PORT_FILE, line: declaration.line, character: declaration.character + 1 };
+
+		const locations = await goToImplementation(index, at);
+
+		const paths = locations.map((location) => location.path);
+		expect(paths).toContain(join(LECTOR_ROOT, "src/adapters/in-memory-symbol-graph.ts"));
+		expect(paths).toContain(join(LECTOR_ROOT, "src/adapters/sqlite-symbol-graph.ts"));
 	}, 20_000);
 
 	it("findReferences reliably finds usages within the seed file's own transitive import graph", async () => {

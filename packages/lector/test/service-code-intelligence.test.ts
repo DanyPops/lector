@@ -57,6 +57,7 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 		const at = { workspaceId, path: join(fixtureRoot, "src/math.ts"), line: 1, character: 17 };
 
 		await expect(service.dispatch("workspace.goToDefinition", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
+		await expect(service.dispatch("workspace.goToImplementation", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.findReferences", { ...at, includeDeclaration: true })).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.hover", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.documentSymbols", { workspaceId, path: at.path })).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
@@ -88,6 +89,7 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 		const { items } = await service.dispatch("workspace.prepareCallHierarchy", at);
 		await service.dispatch("workspace.incomingCalls", at);
 		await service.dispatch("workspace.outgoingCalls", at);
+		await service.dispatch("workspace.goToImplementation", at);
 
 		expect(spawnCount).toBe(1);
 		expect(symbols.find((symbol) => symbol.name === "add")).toBeDefined();

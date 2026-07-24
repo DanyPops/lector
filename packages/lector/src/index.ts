@@ -36,6 +36,7 @@ export {
 export { findReferences } from "./domain/find-references.ts";
 export { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 export { goToDefinition } from "./domain/go-to-definition.ts";
+export { goToImplementation } from "./domain/go-to-implementation.ts";
 export type { Hover } from "./domain/hover.ts";
 export { hoverAt } from "./domain/hover-at.ts";
 export { incomingCalls } from "./domain/incoming-calls.ts";

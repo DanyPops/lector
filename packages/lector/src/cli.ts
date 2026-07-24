@@ -29,6 +29,7 @@ const USAGE = `Usage:
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
   lector workspace symbols <workspace-id> <query> [--seed-file <path>] [--json]
   lector workspace definition <workspace-id> <path> <line> <character> [--json]
+  lector workspace implementation <workspace-id> <path> <line> <character> [--json]
   lector workspace references <workspace-id> <path> <line> <character> [--include-declaration] [--json]
   lector workspace hover <workspace-id> <path> <line> <character> [--json]
   lector workspace document-symbols <workspace-id> <path> [--json]
@@ -38,6 +39,8 @@ const USAGE = `Usage:
   lector workspace symbol-graph <reachable-from|edges-from|edges-to> <workspace-id> <path> <line> <character>
     [--max-depth <n>] [--kind <calls|references|contains>] [--json]
     --max-depth is required for reachable-from, ignored for edges-from/edges-to
+  lector workspace has-warm-index <workspace-id> [--json]
+    never spawns a symbol index -- reports whether one is already warm
 `;
 
 function fail(message: string): never {
@@ -144,6 +147,23 @@ async function runWorkspaceDefinition(workspaceId: string | undefined, path: str
 	}
 	if (locations.length === 0) {
 		console.log("no definition found");
+		return;
+	}
+	for (const location of locations) console.log(`${location.path}:${location.line}:${location.character}`);
+}
+
+async function runWorkspaceImplementation(workspaceId: string | undefined, path: string | undefined, rest: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const [lineArg, characterArg, ...flags] = rest;
+	const { line, character } = parsePosition(lineArg, characterArg);
+	const client = await connectLectorClient();
+	const { locations } = await client.call("workspace.goToImplementation", { workspaceId, path, line, character });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(locations));
+		return;
+	}
+	if (locations.length === 0) {
+		console.log("no implementation found");
 		return;
 	}
 	for (const location of locations) console.log(`${location.path}:${location.line}:${location.character}`);
@@ -297,6 +317,13 @@ async function runWorkspacePopulateSymbolGraph(workspaceId: string | undefined, 
 			? JSON.stringify(result)
 			: `${result.filesProcessed} files, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`,
 	);
+}
+
+async function runWorkspaceHasWarmIndex(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const client = await connectLectorClient();
+	const { warm } = await client.call("workspace.hasWarmIndex", { workspaceId });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify({ warm }) : warm ? "warm" : "not warm");
 }
 
 function parseSymbolEdgeKind(flags: string[]): "calls" | "references" | "contains" | undefined {
@@ -459,6 +486,7 @@ async function main(): Promise<void> {
 		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
 		if (action === "symbols") return runWorkspaceSymbols(workspaceId, path, flags);
 		if (action === "definition") return runWorkspaceDefinition(workspaceId, path, flags);
+		if (action === "implementation") return runWorkspaceImplementation(workspaceId, path, flags);
 		if (action === "references") return runWorkspaceReferences(workspaceId, path, flags);
 		if (action === "hover") return runWorkspaceHover(workspaceId, path, flags);
 		if (action === "document-symbols") return runWorkspaceDocumentSymbols(workspaceId, path, flags);
@@ -474,6 +502,10 @@ async function main(): Promise<void> {
 		if (action === "symbol-graph") {
 			const [subcommand, sgWorkspaceId, sgPath, ...sgRest] = actionArgs;
 			return runWorkspaceSymbolGraphQuery(subcommand, sgWorkspaceId, sgPath, sgRest);
+		}
+		if (action === "has-warm-index") {
+			const [hwiWorkspaceId, ...hwiFlags] = actionArgs;
+			return runWorkspaceHasWarmIndex(hwiWorkspaceId, hwiFlags);
 		}
 		fail(USAGE);
 	}
