@@ -28,6 +28,12 @@ const USAGE = `Usage:
   lector workspace read <workspace-id> <path> [--json]
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
   lector workspace symbols <workspace-id> <query> [--seed-file <path>] [--json]
+  lector workspace definition <workspace-id> <path> <line> <character> [--json]
+  lector workspace references <workspace-id> <path> <line> <character> [--include-declaration] [--json]
+  lector workspace hover <workspace-id> <path> <line> <character> [--json]
+  lector workspace document-symbols <workspace-id> <path> [--json]
+  lector workspace diagnostics <workspace-id> <path> [--json]
+  lector workspace call-hierarchy <prepare|incoming|outgoing> <workspace-id> <path> <line> <character> [--json]
 `;
 
 function fail(message: string): never {
@@ -77,8 +83,7 @@ async function runServe(args: string[]): Promise<void> {
 	for (const { id, dir } of pathEntries) workspaces.set(id, new LocalFilesystemWorkspace(dir));
 
 	const summary =
-		[...memoryIds.map((id) => `${id} (in-memory)`), ...pathEntries.map(({ id, dir }) => `${id} (${dir})`)].join(", ") ||
-		"none pre-registered, dynamic-only";
+		[...memoryIds.map((id) => `${id} (in-memory)`), ...pathEntries.map(({ id, dir }) => `${id} (${dir})`)].join(", ") || "none pre-registered, dynamic-only";
 
 	serveMain({
 		workspaces,
@@ -114,6 +119,158 @@ async function runWorkspaceSymbols(workspaceId: string | undefined, query: strin
 	}
 }
 
+function parsePosition(line: string | undefined, character: string | undefined): { line: number; character: number } {
+	const parsedLine = Number(line);
+	const parsedCharacter = Number(character);
+	if (!line || !character || !Number.isInteger(parsedLine) || !Number.isInteger(parsedCharacter)) {
+		fail(USAGE);
+	}
+	return { line: parsedLine, character: parsedCharacter };
+}
+
+async function runWorkspaceDefinition(workspaceId: string | undefined, path: string | undefined, rest: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const [lineArg, characterArg, ...flags] = rest;
+	const { line, character } = parsePosition(lineArg, characterArg);
+	const client = await connectLectorClient();
+	const { locations } = await client.call("workspace.goToDefinition", { workspaceId, path, line, character });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(locations));
+		return;
+	}
+	if (locations.length === 0) {
+		console.log("no definition found");
+		return;
+	}
+	for (const location of locations) console.log(`${location.path}:${location.line}:${location.character}`);
+}
+
+async function runWorkspaceReferences(workspaceId: string | undefined, path: string | undefined, rest: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const [lineArg, characterArg, ...flags] = rest;
+	const { line, character } = parsePosition(lineArg, characterArg);
+	const includeDeclaration = hasFlag(flags, "--include-declaration");
+	const client = await connectLectorClient();
+	const { locations } = await client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(locations));
+		return;
+	}
+	if (locations.length === 0) {
+		console.log("no references found");
+		return;
+	}
+	for (const location of locations) console.log(`${location.path}:${location.line}:${location.character}`);
+}
+
+async function runWorkspaceHover(workspaceId: string | undefined, path: string | undefined, rest: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const [lineArg, characterArg, ...flags] = rest;
+	const { line, character } = parsePosition(lineArg, characterArg);
+	const client = await connectLectorClient();
+	const { hover } = await client.call("workspace.hover", { workspaceId, path, line, character });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(hover ?? null));
+		return;
+	}
+	console.log(hover ? hover.contents : "no hover information available");
+}
+
+async function runWorkspaceDocumentSymbols(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const client = await connectLectorClient();
+	const { symbols } = await client.call("workspace.documentSymbols", { workspaceId, path });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(symbols));
+		return;
+	}
+	if (symbols.length === 0) {
+		console.log("no symbols found");
+		return;
+	}
+	const printEntry = (entry: (typeof symbols)[number], depth: number): void => {
+		console.log(`${"  ".repeat(depth)}${entry.kind} ${entry.name} -- ${entry.range.path}:${entry.range.start.line}:${entry.range.start.character}`);
+		for (const child of entry.children ?? []) printEntry(child, depth + 1);
+	};
+	for (const entry of symbols) printEntry(entry, 0);
+}
+
+async function runWorkspaceDiagnostics(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const client = await connectLectorClient();
+	const { diagnostics } = await client.call("workspace.diagnostics", { workspaceId, path });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(diagnostics));
+		return;
+	}
+	if (diagnostics.length === 0) {
+		console.log("no diagnostics");
+		return;
+	}
+	for (const diagnostic of diagnostics) {
+		console.log(
+			`${diagnostic.severity} ${diagnostic.range.path}:${diagnostic.range.start.line}:${diagnostic.range.start.character} -- ${diagnostic.message}${diagnostic.source ? ` (${diagnostic.source}${diagnostic.code !== undefined ? ` ${diagnostic.code}` : ""})` : ""}`,
+		);
+	}
+}
+
+function formatCallHierarchyEntry(entry: { kind: string; name: string; location: { path: string; line: number; character: number } }): string {
+	return `${entry.kind} ${entry.name} -- ${entry.location.path}:${entry.location.line}:${entry.location.character}`;
+}
+
+async function runWorkspaceCallHierarchy(
+	subcommand: string | undefined,
+	workspaceId: string | undefined,
+	path: string | undefined,
+	rest: string[],
+): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const [lineArg, characterArg, ...flags] = rest;
+	const { line, character } = parsePosition(lineArg, characterArg);
+	const client = await connectLectorClient();
+
+	if (subcommand === "prepare") {
+		const { items } = await client.call("workspace.prepareCallHierarchy", { workspaceId, path, line, character });
+		if (hasFlag(flags, "--json")) {
+			console.log(JSON.stringify(items));
+			return;
+		}
+		if (items.length === 0) {
+			console.log("no call-hierarchy root at this position");
+			return;
+		}
+		for (const item of items) console.log(formatCallHierarchyEntry(item));
+		return;
+	}
+	if (subcommand === "incoming") {
+		const { calls } = await client.call("workspace.incomingCalls", { workspaceId, path, line, character });
+		if (hasFlag(flags, "--json")) {
+			console.log(JSON.stringify(calls));
+			return;
+		}
+		if (calls.length === 0) {
+			console.log("no incoming calls found");
+			return;
+		}
+		for (const call of calls) console.log(formatCallHierarchyEntry(call.from));
+		return;
+	}
+	if (subcommand === "outgoing") {
+		const { calls } = await client.call("workspace.outgoingCalls", { workspaceId, path, line, character });
+		if (hasFlag(flags, "--json")) {
+			console.log(JSON.stringify(calls));
+			return;
+		}
+		if (calls.length === 0) {
+			console.log("no outgoing calls found");
+			return;
+		}
+		for (const call of calls) console.log(formatCallHierarchyEntry(call.to));
+		return;
+	}
+	fail(USAGE);
+}
+
 async function runWorkspaceRead(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !path) fail(USAGE);
 	const client = await connectLectorClient();
@@ -135,18 +292,16 @@ async function runWorkspaceEdit(workspaceId: string | undefined, path: string | 
 
 	const client = await connectLectorClient();
 	const result = await client.call("workspace.exactEdit", { workspaceId, path, expectedHash, content });
-	console.log(
-		hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.path}: ${result.previousHash ?? "(new)"} -> ${result.newHash}`,
-	);
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.path}: ${result.previousHash ?? "(new)"} -> ${result.newHash}`);
 }
 
 /**
- * systemd user-unit lifecycle for a persistent Lector daemon (mirrors Papyrus's own
- * `papyrus service <install|start|stop|restart|status>` exactly -- the established
- * @danypops convention for a supervised daemon, not a bespoke scheme for Lector).
- * `install` always runs `serve --dynamic-workspaces`: a long-lived background daemon
- * cannot know upfront which project(s) will attach to it, so it starts with zero
- * pre-registered workspaces and relies entirely on workspace.registerPath at runtime.
+ * systemd user-unit lifecycle (`install|start|stop|restart|status`) for a
+ * persistent Lector daemon. `install` always runs `serve
+ * --dynamic-workspaces`: a long-lived background daemon cannot know
+ * upfront which project(s) will attach to it, so it starts with zero
+ * pre-registered workspaces and relies entirely on workspace.registerPath
+ * at runtime.
  */
 export interface SystemdUnitOptions {
 	bunBin: string;
@@ -190,15 +345,20 @@ function installService(): void {
 function runService(action: string | undefined): void {
 	switch (action) {
 		case "install":
-			return installService();
+			installService();
+			return;
 		case "start":
-			return systemctl("start", LECTOR_PATH_NAMES.systemdUnitName);
+			systemctl("start", LECTOR_PATH_NAMES.systemdUnitName);
+			return;
 		case "stop":
-			return systemctl("stop", LECTOR_PATH_NAMES.systemdUnitName);
+			systemctl("stop", LECTOR_PATH_NAMES.systemdUnitName);
+			return;
 		case "restart":
-			return systemctl("restart", LECTOR_PATH_NAMES.systemdUnitName);
+			systemctl("restart", LECTOR_PATH_NAMES.systemdUnitName);
+			return;
 		case "status":
-			return systemctl("status", LECTOR_PATH_NAMES.systemdUnitName);
+			systemctl("status", LECTOR_PATH_NAMES.systemdUnitName);
+			return;
 		default:
 			fail(USAGE);
 	}
@@ -220,6 +380,15 @@ async function main(): Promise<void> {
 		if (action === "read") return runWorkspaceRead(workspaceId, path, flags);
 		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
 		if (action === "symbols") return runWorkspaceSymbols(workspaceId, path, flags);
+		if (action === "definition") return runWorkspaceDefinition(workspaceId, path, flags);
+		if (action === "references") return runWorkspaceReferences(workspaceId, path, flags);
+		if (action === "hover") return runWorkspaceHover(workspaceId, path, flags);
+		if (action === "document-symbols") return runWorkspaceDocumentSymbols(workspaceId, path, flags);
+		if (action === "diagnostics") return runWorkspaceDiagnostics(workspaceId, path, flags);
+		if (action === "call-hierarchy") {
+			const [subcommand, chWorkspaceId, chPath, ...chRest] = actionArgs;
+			return runWorkspaceCallHierarchy(subcommand, chWorkspaceId, chPath, chRest);
+		}
 		fail(USAGE);
 	}
 

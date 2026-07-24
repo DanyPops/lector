@@ -1,18 +1,14 @@
 /**
- * Checklist (task cbdeea40): subprocess lifecycle safety, proven against
- * the evil mock server so each failure mode is deterministic rather than
- * timing-dependent against a real language server.
+ * Subprocess lifecycle safety, proven against the evil mock server so each
+ * failure mode is deterministic rather than timing-dependent against a
+ * real language server.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { fileURLToPath } from "node:url";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	LanguageServerProcess,
-	LanguageServerProcessExited,
-	LanguageServerRequestTimedOut,
-} from "../../../src/adapters/lsp/language-server-process.ts";
+import { fileURLToPath } from "node:url";
+import { LanguageServerProcess, LanguageServerProcessExited, LanguageServerRequestTimedOut } from "../../../src/adapters/lsp/language-server-process.ts";
 
 const EVIL_SERVER_PATH = fileURLToPath(new URL("../../support/evil-lsp-server.ts", import.meta.url));
 
@@ -43,6 +39,35 @@ describe("LanguageServerProcess against a well-behaved mock", () => {
 		const proc = spawnEvil("normal");
 		const result = await proc.request<{ capabilities: unknown }>("initialize", {});
 		expect(result).toEqual({ capabilities: {} });
+	});
+
+	it("onNotification is called with a server-pushed notification's params", async () => {
+		const proc = spawnEvil("sends-notification");
+		const received = new Promise<unknown>((resolve) => proc.onNotification("textDocument/publishDiagnostics", resolve));
+
+		await proc.request("initialize", {});
+
+		expect(await received).toEqual({ uri: "file:///fake.ts", diagnostics: [] });
+	});
+
+	it("onNotification's returned unsubscribe stops delivering to that handler", async () => {
+		const proc = spawnEvil("sends-notification");
+		let callCount = 0;
+		const unsubscribe = proc.onNotification("textDocument/publishDiagnostics", () => {
+			callCount++;
+		});
+		unsubscribe();
+
+		await proc.request("initialize", {});
+		await new Promise((resolve) => setTimeout(resolve, 100)); // let the notification arrive, if it were going to
+
+		expect(callCount).toBe(0);
+	});
+
+	it("a notification with no registered handler is silently ignored, not thrown", async () => {
+		const proc = spawnEvil("sends-notification");
+
+		await expect(proc.request("initialize", {})).resolves.toEqual({ capabilities: {} });
 	});
 
 	it("stop() reaps the process (graceful shutdown path)", async () => {

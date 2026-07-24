@@ -1,0 +1,79 @@
+import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, Hover, IncomingCall, OutgoingCall, WorkspaceLocation } from "@danypops/lector";
+import { lectorClient, workspaceForPath } from "./lector-client.ts";
+
+/**
+ * Thin wrappers over Lector's code-intelligence operations: goToDefinition,
+ * findReferences, hover, documentSymbols. Position-based (path + 1-indexed
+ * line + character), not symbol-name-based:
+ * an agent already has an exact position from a prior read or find_symbols
+ * call, so these compose directly off that rather than requiring a second,
+ * ambiguity-prone "which occurrence of this name" lookup.
+ *
+ * `path` resolves its own workspace per call (workspaceForPath, falling back
+ * to the filesystem root when no enclosing git repo exists) -- the same
+ * per-call resolution read/write/edit/find_symbols already use, never a
+ * value captured once at session start.
+ */
+export interface CodeIntelligenceOperations {
+	goToDefinition(path: string, line: number, character: number): Promise<readonly WorkspaceLocation[]>;
+	findReferences(path: string, line: number, character: number, includeDeclaration: boolean): Promise<readonly WorkspaceLocation[]>;
+	hover(path: string, line: number, character: number): Promise<Hover | undefined>;
+	documentSymbols(path: string): Promise<readonly DocumentSymbolEntry[]>;
+	diagnostics(path: string): Promise<readonly Diagnostic[]>;
+	prepareCallHierarchy(path: string, line: number, character: number): Promise<readonly CallHierarchyEntry[]>;
+	incomingCalls(path: string, line: number, character: number): Promise<readonly IncomingCall[]>;
+	outgoingCalls(path: string, line: number, character: number): Promise<readonly OutgoingCall[]>;
+}
+
+export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperations {
+	return {
+		async goToDefinition(path, line, character) {
+			const client = await lectorClient();
+			const { workspaceId } = await workspaceForPath(path);
+			const { locations } = await client.call("workspace.goToDefinition", { workspaceId, path, line, character });
+			return locations;
+		},
+		async findReferences(path, line, character, includeDeclaration) {
+			const client = await lectorClient();
+			const { workspaceId } = await workspaceForPath(path);
+			const { locations } = await client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration });
+			return locations;
+		},
+		async hover(path, line, character) {
+			const client = await lectorClient();
+			const { workspaceId } = await workspaceForPath(path);
+			const { hover } = await client.call("workspace.hover", { workspaceId, path, line, character });
+			return hover;
+		},
+		async documentSymbols(path) {
+			const client = await lectorClient();
+			const { workspaceId } = await workspaceForPath(path);
+			const { symbols } = await client.call("workspace.documentSymbols", { workspaceId, path });
+			return symbols;
+		},
+		async diagnostics(path) {
+			const client = await lectorClient();
+			const { workspaceId } = await workspaceForPath(path);
+			const { diagnostics } = await client.call("workspace.diagnostics", { workspaceId, path });
+			return diagnostics;
+		},
+		async prepareCallHierarchy(path, line, character) {
+			const client = await lectorClient();
+			const { workspaceId } = await workspaceForPath(path);
+			const { items } = await client.call("workspace.prepareCallHierarchy", { workspaceId, path, line, character });
+			return items;
+		},
+		async incomingCalls(path, line, character) {
+			const client = await lectorClient();
+			const { workspaceId } = await workspaceForPath(path);
+			const { calls } = await client.call("workspace.incomingCalls", { workspaceId, path, line, character });
+			return calls;
+		},
+		async outgoingCalls(path, line, character) {
+			const client = await lectorClient();
+			const { workspaceId } = await workspaceForPath(path);
+			const { calls } = await client.call("workspace.outgoingCalls", { workspaceId, path, line, character });
+			return calls;
+		},
+	};
+}

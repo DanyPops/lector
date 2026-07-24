@@ -1,5 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { encodeJsonRpcMessage, JsonRpcStreamDecoder, type JsonRpcMessage } from "./json-rpc-stream.ts";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "./json-rpc-stream.ts";
 
 export interface LanguageServerProcessOptions {
 	command: string;
@@ -39,32 +39,21 @@ interface PendingRequest {
 	timer: ReturnType<typeof setTimeout>;
 }
 
+type NotificationHandler = (params: unknown) => void;
+
 /**
- * A spawned language server subprocess with safe lifecycle management,
- * applying real, shipped-and-fixed bugs from Oculus's git history
- * (doc 0ed166de-3b18-4aab-ae43-84b0efacff37 §4):
- *
- *  - Spawned detached (its own process group on POSIX) so stop() can kill
- *    every descendant as a unit, not just the immediate child (Oculus ea504eb).
- *  - The `exit` listener is attached in the constructor, before any request
- *    can possibly be sent, and rejects every currently-pending request the
- *    moment the process dies. A *new* request made after that point is
- *    rejected immediately by an explicit `processExited` guard rather than
- *    ever creating a pending slot nothing can fulfil -- this is exactly the
- *    seam Oculus's PIV-BUG-2 ("the zombie race") was missing: a request
- *    created after the reader already observed death blocked forever there.
- *  - Every request has its own timeout; a timed-out request's pending slot
- *    is always removed so a very late, spurious response cannot resolve a
- *    promise the caller has already treated as failed (Oculus LCS-BUG-76 class).
- *  - stop() always attempts a graceful shutdown/exit first, then force-kills
- *    the whole process group if that does not complete in time -- no code
- *    path leaves the child, or any of its children, running as a zombie.
+ * A spawned language server subprocess with safe lifecycle management:
+ * spawned detached so stop() can kill its whole process group, not just
+ * the immediate child; a request made after the process has already
+ * exited is rejected immediately rather than left pending forever; and
+ * stop() force-kills the process group if a graceful shutdown doesn't
+ * complete in time.
  */
 export class LanguageServerProcess {
 	private readonly child: ChildProcessWithoutNullStreams;
-	private readonly label: string;
 	private readonly decoder = new JsonRpcStreamDecoder();
 	private readonly pending = new Map<number, PendingRequest>();
+	private readonly notificationHandlers = new Map<string, Set<NotificationHandler>>();
 	private readonly requestTimeoutMs: number;
 	private nextId = 1;
 	private processExited = false;
@@ -72,7 +61,6 @@ export class LanguageServerProcess {
 
 	private constructor(child: ChildProcessWithoutNullStreams, label: string, requestTimeoutMs: number) {
 		this.child = child;
-		this.label = label;
 		this.requestTimeoutMs = requestTimeoutMs;
 		this.exitError = new LanguageServerProcessExited(label);
 
@@ -102,13 +90,27 @@ export class LanguageServerProcess {
 	}
 
 	private dispatch(message: JsonRpcMessage): void {
-		if (typeof message.id !== "number") return; // a notification or server-initiated request -- not handled yet
-		const request = this.pending.get(message.id);
-		if (!request) return;
-		clearTimeout(request.timer);
-		this.pending.delete(message.id);
-		if (message.error) request.reject(new Error(message.error.message));
-		else request.resolve(message.result);
+		if (typeof message.id === "number") {
+			const request = this.pending.get(message.id);
+			if (!request) return;
+			clearTimeout(request.timer);
+			this.pending.delete(message.id);
+			if (message.error) request.reject(new Error(message.error.message));
+			else request.resolve(message.result);
+			return;
+		}
+		// No numeric id: either a notification (no id at all) or a server-initiated request
+		// (its own id space, not this client's) -- only notifications are handled.
+		if (message.id !== undefined || !message.method) return;
+		for (const handler of this.notificationHandlers.get(message.method) ?? []) handler(message.params);
+	}
+
+	/** Subscribes to a server-pushed notification (e.g. textDocument/publishDiagnostics). Returns an unsubscribe function. */
+	onNotification(method: string, handler: NotificationHandler): () => void {
+		const handlers = this.notificationHandlers.get(method) ?? new Set();
+		handlers.add(handler);
+		this.notificationHandlers.set(method, handlers);
+		return () => handlers.delete(handler);
 	}
 
 	async request<T>(method: string, params: unknown): Promise<T> {

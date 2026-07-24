@@ -1,10 +1,8 @@
 #!/usr/bin/env bun
 /**
  * A minimal, deliberately hostile LSP server for deterministic subprocess
- * lifecycle tests -- the same pattern Oculus used (lsp/mockserver +
- * EVIL_LSP_MODE, see doc 0ed166de-3b18-4aab-ae43-84b0efacff37 §4) to prove
- * timeout/kill/reader-death behavior without depending on timing against a
- * real, well-behaved language server.
+ * lifecycle tests, so timeout/kill/reader-death behavior can be proven
+ * without depending on timing against a real, well-behaved language server.
  *
  * Mode is read from the EVIL_LSP_MODE env var:
  *   normal               responds to everything correctly
@@ -13,14 +11,20 @@
  *   hang-on-shutdown     responds to everything except `shutdown`
  *   exit-after-initialize responds to `initialize`, then exits immediately
  *                          (simulates a crash after a request is already pending)
+ *   sends-notification    responds to `initialize`, then pushes a fake
+ *                          textDocument/publishDiagnostics notification
  */
-import { encodeJsonRpcMessage, JsonRpcStreamDecoder, type JsonRpcMessage } from "../../src/adapters/lsp/json-rpc-stream.ts";
+import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/adapters/lsp/json-rpc-stream.ts";
 
 const mode = process.env.EVIL_LSP_MODE ?? "normal";
 const decoder = new JsonRpcStreamDecoder();
 
 function respond(id: number | string, result: unknown): void {
 	process.stdout.write(encodeJsonRpcMessage({ jsonrpc: "2.0", id, result }));
+}
+
+function notify(method: string, params: unknown): void {
+	process.stdout.write(encodeJsonRpcMessage({ jsonrpc: "2.0", method, params }));
 }
 
 function handle(message: JsonRpcMessage): void {
@@ -33,6 +37,9 @@ function handle(message: JsonRpcMessage): void {
 		if (mode === "hang-on-initialize") return;
 		respond(message.id, { capabilities: {} });
 		if (mode === "exit-after-initialize") process.exit(1);
+		if (mode === "sends-notification") {
+			notify("textDocument/publishDiagnostics", { uri: "file:///fake.ts", diagnostics: [] });
+		}
 		return;
 	}
 

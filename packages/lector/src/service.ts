@@ -3,10 +3,23 @@ import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { TypescriptSymbolIndex } from "./adapters/lsp/typescript-symbol-index.ts";
-import { exactEdit, StaleExpectedHash, type EditOutcome, type ExpectedHashEdit } from "./domain/exact-edit.ts";
+import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
+import type { Diagnostic } from "./domain/diagnostic.ts";
+import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
+import type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
+import { documentSymbols as documentSymbolsQuery } from "./domain/document-symbols.ts";
+import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash } from "./domain/exact-edit.ts";
+import { findReferences as findReferencesQuery } from "./domain/find-references.ts";
 import { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
-import { rawRead, WorkspaceEntryNotFound, type RawRead } from "./domain/raw-read.ts";
-import type { WorkspaceSymbol } from "./domain/workspace-symbol.ts";
+import { goToDefinition as goToDefinitionQuery } from "./domain/go-to-definition.ts";
+import type { Hover } from "./domain/hover.ts";
+import { hoverAt } from "./domain/hover-at.ts";
+import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts";
+import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
+import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
+import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
+import type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
+import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 
@@ -45,20 +58,72 @@ export class SymbolQueryUnavailable extends Error {
 	}
 }
 
-export type OperationName = "workspace.rawRead" | "workspace.exactEdit" | "workspace.registerPath" | "workspace.findSymbols";
+/**
+ * Raised when a Tier A code-intelligence operation (goToDefinition, findReferences,
+ * hover, documentSymbols) targets a workspace whose warm index is not backed by a
+ * real language server -- e.g. a test override using the tree-sitter backend, which
+ * has no type system and cannot honestly resolve cross-file references or types.
+ * An honest failure, not a silent empty result or a crash.
+ */
+export class CodeIntelligenceUnavailable extends Error {
+	constructor(readonly workspaceId: WorkspaceId) {
+		super(
+			`workspace "${workspaceId}"'s symbol index does not support code-intelligence queries (definition/references/hover/documentSymbols/diagnostics/callHierarchy) -- only findSymbols`,
+		);
+		this.name = "CodeIntelligenceUnavailable";
+	}
+}
+
+export type OperationName =
+	| "workspace.rawRead"
+	| "workspace.exactEdit"
+	| "workspace.registerPath"
+	| "workspace.findSymbols"
+	| "workspace.goToDefinition"
+	| "workspace.findReferences"
+	| "workspace.hover"
+	| "workspace.documentSymbols"
+	| "workspace.diagnostics"
+	| "workspace.prepareCallHierarchy"
+	| "workspace.incomingCalls"
+	| "workspace.outgoingCalls";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
 	"workspace.exactEdit",
 	"workspace.registerPath",
 	"workspace.findSymbols",
+	"workspace.goToDefinition",
+	"workspace.findReferences",
+	"workspace.hover",
+	"workspace.documentSymbols",
+	"workspace.diagnostics",
+	"workspace.prepareCallHierarchy",
+	"workspace.incomingCalls",
+	"workspace.outgoingCalls",
 ];
+
+/** A single position within a file already registered under `workspaceId`, 1-indexed. */
+interface WorkspacePosition {
+	workspaceId: WorkspaceId;
+	path: string;
+	line: number;
+	character: number;
+}
 
 export interface OperationInputs {
 	"workspace.rawRead": { workspaceId: WorkspaceId; path: string };
 	"workspace.exactEdit": { workspaceId: WorkspaceId } & ExpectedHashEdit;
 	"workspace.registerPath": { path: string };
 	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string };
+	"workspace.goToDefinition": WorkspacePosition;
+	"workspace.findReferences": WorkspacePosition & { includeDeclaration: boolean };
+	"workspace.hover": WorkspacePosition;
+	"workspace.documentSymbols": { workspaceId: WorkspaceId; path: string };
+	"workspace.diagnostics": { workspaceId: WorkspaceId; path: string };
+	"workspace.prepareCallHierarchy": WorkspacePosition;
+	"workspace.incomingCalls": WorkspacePosition;
+	"workspace.outgoingCalls": WorkspacePosition;
 }
 
 export interface OperationOutputs {
@@ -66,6 +131,14 @@ export interface OperationOutputs {
 	"workspace.exactEdit": EditOutcome;
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
 	"workspace.findSymbols": { symbols: readonly WorkspaceSymbol[] };
+	"workspace.goToDefinition": { locations: readonly WorkspaceLocation[] };
+	"workspace.findReferences": { locations: readonly WorkspaceLocation[] };
+	"workspace.hover": { hover: Hover | undefined };
+	"workspace.documentSymbols": { symbols: readonly DocumentSymbolEntry[] };
+	"workspace.diagnostics": { diagnostics: readonly Diagnostic[] };
+	"workspace.prepareCallHierarchy": { items: readonly CallHierarchyEntry[] };
+	"workspace.incomingCalls": { calls: readonly IncomingCall[] };
+	"workspace.outgoingCalls": { calls: readonly OutgoingCall[] };
 }
 
 /**
@@ -128,14 +201,16 @@ function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): 
 	return entry.port;
 }
 
+/** True when a warm SymbolIndexPort is also a real CodeIntelligencePort (currently: any TypescriptSymbolIndex, never TreeSitterSymbolIndex). */
+function supportsCodeIntelligence(index: SymbolIndexPort): index is SymbolIndexPort & CodeIntelligencePort {
+	return typeof (index as Partial<CodeIntelligencePort>).goToDefinition === "function";
+}
+
 type OperationHandlers = {
 	[Name in OperationName]: (registry: MutableRegistry, input: OperationInputs[Name]) => Promise<OperationOutputs[Name]>;
 };
 
-async function registerPath(
-	registry: MutableRegistry,
-	input: OperationInputs["workspace.registerPath"],
-): Promise<OperationOutputs["workspace.registerPath"]> {
+async function registerPath(registry: MutableRegistry, input: OperationInputs["workspace.registerPath"]): Promise<OperationOutputs["workspace.registerPath"]> {
 	const absolutePath = resolve(input.path);
 	const workspaceId = deriveWorkspaceId(absolutePath);
 	if (registry.has(workspaceId)) {
@@ -174,17 +249,14 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	}
 	const registry: MutableRegistry = new Map(Array.from(workspaces, ([id, port]) => [id, { port }]));
 
-	// One warm symbol index per workspace, reused across calls (lsp-cli/tslsp-cli's own
-	// pattern, doc 9c15958b -- a fresh process per query would pay a fork+initialize cost
-	// every time). Keyed by workspaceId, never by seedFile: a workspace's index warms once.
+	// One warm symbol index per workspace, reused across calls -- a fresh process per
+	// query would pay a fork+initialize cost every time. Keyed by workspaceId, never by
+	// seedFile: a workspace's index warms once.
 	// lastUsedAt backs reapIdleSymbolIndexes -- an idle-eviction TTL, not just a warm cache.
 	const symbolIndexes = new Map<WorkspaceId, { index: ClosableSymbolIndex; lastUsedAt: number }>();
 	const createSymbolIndex = options.createSymbolIndex ?? ((rootPath: string, seedFile?: string) => new TypescriptSymbolIndex(rootPath, seedFile));
 
-	async function findSymbols(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.findSymbols"],
-	): Promise<OperationOutputs["workspace.findSymbols"]> {
+	async function ensureWarmIndex(input: { workspaceId: WorkspaceId; seedFile?: string }): Promise<ClosableSymbolIndex> {
 		const entry = registry.get(input.workspaceId);
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
 		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
@@ -196,8 +268,88 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		} else {
 			entryIndex.lastUsedAt = Date.now();
 		}
-		const symbols = await findWorkspaceSymbols(entryIndex.index, input.query);
+		return entryIndex.index;
+	}
+
+	async function findSymbols(registry: MutableRegistry, input: OperationInputs["workspace.findSymbols"]): Promise<OperationOutputs["workspace.findSymbols"]> {
+		const index = await ensureWarmIndex(input);
+		const symbols = await findWorkspaceSymbols(index, input.query);
 		return { symbols };
+	}
+
+	async function requireCodeIntelligence(input: { workspaceId: WorkspaceId }): Promise<SymbolIndexPort & CodeIntelligencePort> {
+		const index = await ensureWarmIndex(input);
+		if (!supportsCodeIntelligence(index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
+		return index;
+	}
+
+	async function goToDefinition(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.goToDefinition"],
+	): Promise<OperationOutputs["workspace.goToDefinition"]> {
+		const index = await requireCodeIntelligence(input);
+		const locations = await goToDefinitionQuery(index, { path: input.path, line: input.line, character: input.character });
+		return { locations };
+	}
+
+	async function findReferences(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.findReferences"],
+	): Promise<OperationOutputs["workspace.findReferences"]> {
+		const index = await requireCodeIntelligence(input);
+		const locations = await findReferencesQuery(index, { path: input.path, line: input.line, character: input.character }, input.includeDeclaration);
+		return { locations };
+	}
+
+	async function hover(_registry: MutableRegistry, input: OperationInputs["workspace.hover"]): Promise<OperationOutputs["workspace.hover"]> {
+		const index = await requireCodeIntelligence(input);
+		const hover = await hoverAt(index, { path: input.path, line: input.line, character: input.character });
+		return { hover };
+	}
+
+	async function documentSymbolsHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.documentSymbols"],
+	): Promise<OperationOutputs["workspace.documentSymbols"]> {
+		const index = await requireCodeIntelligence(input);
+		const symbols = await documentSymbolsQuery(index, input.path);
+		return { symbols };
+	}
+
+	async function diagnosticsHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.diagnostics"],
+	): Promise<OperationOutputs["workspace.diagnostics"]> {
+		const index = await requireCodeIntelligence(input);
+		const diagnostics = await diagnosticsQuery(index, input.path);
+		return { diagnostics };
+	}
+
+	async function prepareCallHierarchyHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.prepareCallHierarchy"],
+	): Promise<OperationOutputs["workspace.prepareCallHierarchy"]> {
+		const index = await requireCodeIntelligence(input);
+		const items = await prepareCallHierarchyQuery(index, { path: input.path, line: input.line, character: input.character });
+		return { items };
+	}
+
+	async function incomingCallsHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.incomingCalls"],
+	): Promise<OperationOutputs["workspace.incomingCalls"]> {
+		const index = await requireCodeIntelligence(input);
+		const calls = await incomingCallsQuery(index, { path: input.path, line: input.line, character: input.character });
+		return { calls };
+	}
+
+	async function outgoingCallsHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.outgoingCalls"],
+	): Promise<OperationOutputs["workspace.outgoingCalls"]> {
+		const index = await requireCodeIntelligence(input);
+		const calls = await outgoingCallsQuery(index, { path: input.path, line: input.line, character: input.character });
+		return { calls };
 	}
 
 	const handlers: OperationHandlers = {
@@ -208,6 +360,14 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		},
 		"workspace.registerPath": registerPath,
 		"workspace.findSymbols": findSymbols,
+		"workspace.goToDefinition": goToDefinition,
+		"workspace.findReferences": findReferences,
+		"workspace.hover": hover,
+		"workspace.documentSymbols": documentSymbolsHandler,
+		"workspace.diagnostics": diagnosticsHandler,
+		"workspace.prepareCallHierarchy": prepareCallHierarchyHandler,
+		"workspace.incomingCalls": incomingCallsHandler,
+		"workspace.outgoingCalls": outgoingCallsHandler,
 	};
 
 	return {
@@ -219,10 +379,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		// which operation ran -- a broken contract for any in-process caller (standalone
 		// mode, a future Alef adapter) that isn't protected by the HTTP layer's try/catch.
 		async dispatch<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]> {
-			const handler = handlers[operation] as (
-				registry: MutableRegistry,
-				input: OperationInputs[Name],
-			) => Promise<OperationOutputs[Name]>;
+			const handler = handlers[operation] as (registry: MutableRegistry, input: OperationInputs[Name]) => Promise<OperationOutputs[Name]>;
 			return handler(registry, input);
 		},
 		async close(): Promise<void> {
