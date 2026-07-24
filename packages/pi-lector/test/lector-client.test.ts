@@ -14,6 +14,7 @@ import {
 	resetLectorClientForTests,
 	setLectorClientConnectorForTests,
 	withWorkspace,
+	workspaceForCodeIntelligencePath,
 	workspaceForDirectory,
 	workspaceForPath,
 } from "../extension/src/lector-client.ts";
@@ -120,6 +121,21 @@ describe("workspaceForPath vs. workspaceForDirectory fallback when no git repo i
 		try {
 			const resolved = await workspaceForDirectory(plainDir);
 			expect(resolved.root).toBe(plainDir);
+		} finally {
+			rmSync(plainDir, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("workspaceForCodeIntelligencePath falls back to the file's own containing directory, never the filesystem root -- every code-intelligence operation spawns a real language server, unlike read/write/edit", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const plainDir = mkdtempSync(join(tmpdir(), "pi-lector-no-git-"));
+		try {
+			const resolved = await workspaceForCodeIntelligencePath(join(plainDir, "a.py"));
+			expect(resolved.root).toBe(plainDir);
+			expect(resolved.root).not.toBe("/");
 		} finally {
 			rmSync(plainDir, { recursive: true, force: true });
 			await daemon.stop();

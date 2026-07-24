@@ -127,6 +127,17 @@ export function workspaceForDirectory(directory: string): Promise<ResolvedWorksp
 }
 
 /**
+ * For any operation that spawns a real language server (find_symbols,
+ * goToDefinition, documentSymbols, diagnostics, ...) -- never workspaceForPath,
+ * whose filesystem-root fallback would point a real server at scanning the
+ * whole disk. Falls back to the file's own containing directory instead,
+ * same bound as workspaceForDirectory.
+ */
+export function workspaceForCodeIntelligencePath(absolutePath: string): Promise<ResolvedWorkspace> {
+	return workspaceForDirectory(dirname(absolutePath));
+}
+
+/**
  * Resolves a workspace via `resolve`, then calls `perform` with it. A daemon
  * restart wipes its in-memory workspace registry (workspace ids are not
  * persisted across restarts by design), but this module's own workspaceId

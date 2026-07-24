@@ -9,7 +9,7 @@ import type {
 	SymbolNode,
 	WorkspaceLocation,
 } from "@danypops/lector";
-import { lectorClient, withWorkspace, workspaceForPath } from "./lector-client.ts";
+import { lectorClient, withWorkspace, workspaceForCodeIntelligencePath } from "./lector-client.ts";
 
 /**
  * Thin wrappers over Lector's code-intelligence operations: goToDefinition,
@@ -19,10 +19,10 @@ import { lectorClient, withWorkspace, workspaceForPath } from "./lector-client.t
  * call, so these compose directly off that rather than requiring a second,
  * ambiguity-prone "which occurrence of this name" lookup.
  *
- * `path` resolves its own workspace per call (workspaceForPath, falling back
- * to the filesystem root when no enclosing git repo exists) -- the same
- * per-call resolution read/write/edit/find_symbols already use, never a
- * value captured once at session start.
+ * `path` resolves its own workspace per call (workspaceForCodeIntelligencePath,
+ * falling back to the file's own containing directory, never the filesystem
+ * root -- every one of these operations spawns a real language server,
+ * unlike read/write/edit) -- never a value captured once at session start.
  */
 export interface CodeIntelligenceOperations {
 	goToDefinition(path: string, line: number, character: number): Promise<readonly WorkspaceLocation[]>;
@@ -48,7 +48,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 	return {
 		async goToDefinition(path, line, character) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { locations } = await client.call("workspace.goToDefinition", { workspaceId, path, line, character });
@@ -58,7 +58,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async goToImplementation(path, line, character) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { locations } = await client.call("workspace.goToImplementation", { workspaceId, path, line, character });
@@ -68,7 +68,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async findReferences(path, line, character, includeDeclaration) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { locations } = await client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration });
@@ -78,7 +78,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async hover(path, line, character) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { hover } = await client.call("workspace.hover", { workspaceId, path, line, character });
@@ -88,7 +88,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async documentSymbols(path) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { symbols } = await client.call("workspace.documentSymbols", { workspaceId, path });
@@ -98,7 +98,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async diagnostics(path) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { diagnostics } = await client.call("workspace.diagnostics", { workspaceId, path });
@@ -108,7 +108,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async prepareCallHierarchy(path, line, character) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { items } = await client.call("workspace.prepareCallHierarchy", { workspaceId, path, line, character });
@@ -118,7 +118,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async incomingCalls(path, line, character) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { calls } = await client.call("workspace.incomingCalls", { workspaceId, path, line, character });
@@ -128,7 +128,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async outgoingCalls(path, line, character) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { calls } = await client.call("workspace.outgoingCalls", { workspaceId, path, line, character });
@@ -138,7 +138,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async populateSymbolGraph(path, maxFiles, maxSymbolsPerFile) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.call("workspace.populateSymbolGraph", { workspaceId, maxFiles, maxSymbolsPerFile });
@@ -147,7 +147,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async reachableFrom(path, line, character, maxDepth, kind) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { symbols } = await client.call("workspace.reachableFrom", { workspaceId, path, line, character, maxDepth, kind });
@@ -157,7 +157,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async hasWarmIndex(path) {
 			return withWorkspace(
-				() => workspaceForPath(path),
+				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { warm } = await client.call("workspace.hasWarmIndex", { workspaceId });
