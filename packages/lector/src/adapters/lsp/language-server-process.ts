@@ -78,6 +78,11 @@ export class LanguageServerProcess {
 		});
 	}
 
+	/** Undefined only if the OS never assigned one, i.e. spawn itself failed before this constructor ran. */
+	get pid(): number | undefined {
+		return this.child.pid;
+	}
+
 	static spawnProcess(options: LanguageServerProcessOptions): LanguageServerProcess {
 		const child = spawn(options.command, [...(options.args ?? [])], {
 			cwd: options.cwd,

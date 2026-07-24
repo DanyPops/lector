@@ -6,7 +6,7 @@ import type { CodeRange } from "../../domain/code-range.ts";
 import type { Diagnostic, DiagnosticSeverity } from "../../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../../domain/document-symbol.ts";
 import type { Hover } from "../../domain/hover.ts";
-import type { LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
+import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
 import type { WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
@@ -131,9 +131,12 @@ function isHierarchicalDocumentSymbol(item: LspDocumentSymbol | LspSymbolInforma
 	return "range" in item;
 }
 
-/** Resolves a server's JS entry point via import.meta.resolve -- a bare PATH-based command name is not reliably resolvable against a package installed as Lector's own devDependency rather than the target workspace's. */
-function resolveLanguageServerEntry(descriptor: LanguageServerDescriptor): string {
-	return fileURLToPath(import.meta.resolve(descriptor.entryModule));
+/** Resolves a descriptor's launch into a spawnable command + args. */
+function resolveLanguageServerCommand(descriptor: LanguageServerDescriptor): { command: string; args: string[] } {
+	if (descriptor.launch.kind === "npm-module") {
+		return { command: "bun", args: [fileURLToPath(import.meta.resolve(descriptor.launch.entryModule)), ...descriptor.args] };
+	}
+	return { command: descriptor.launch.command, args: [...descriptor.args] };
 }
 
 /** LSP positions are 0-indexed; WorkspaceLocation/CodeRange are 1-indexed (doc convention: humans and CLIs present positions 1-indexed). */
@@ -226,10 +229,10 @@ function normalizeDocumentSymbol(path: string, item: LspDocumentSymbol | LspSymb
  * loaded, and a project loads only once one of its files is opened via
  * `didOpen` -- `seedFile` names that file (auto-picked via discoverSeedFile()
  * when omitted). Position/file-based operations need their own target file
- * opened the same way, plus a settle wait (1000ms) before the server answers
- * accurately about it; most servers have no "fully checked" signal to poll
- * instead. findReferences only searches files the server has actually
- * loaded -- open a file first to guarantee its usages are included.
+ * opened the same way, plus a settle wait (descriptor.settleMs) before the
+ * server answers accurately about it; most servers have no "fully checked"
+ * signal to poll instead. findReferences only searches files the server has
+ * actually loaded -- open a file first to guarantee its usages are included.
  */
 export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private readonly cwd: string;
@@ -247,13 +250,17 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		this.explicitSeedFile = seedFile;
 	}
 
+	/** Undefined before the server process has been spawned (first real query). */
+	get processId(): number | undefined {
+		return this.process?.pid;
+	}
+
 	private async ensureInitialized(): Promise<LanguageServerProcess> {
 		if (this.process) return this.process;
 		if (!this.initializing) {
 			this.initializing = (async () => {
 				const proc = LanguageServerProcess.spawnProcess({
-					command: "bun",
-					args: [resolveLanguageServerEntry(this.descriptor), ...this.descriptor.args],
+					...resolveLanguageServerCommand(this.descriptor),
 					cwd: this.cwd,
 				});
 				proc.onNotification("textDocument/publishDiagnostics", (params) => {
@@ -295,10 +302,9 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 					},
 				});
 				this.openedFiles.add(seedPath);
-				// Most servers load the project asynchronously after didOpen; there is no
-				// notification for "project loaded", so a short, deliberate wait is the
-				// documented approach (matches Alef's own lsp-client.ts, same gotcha).
-				await new Promise((resolve) => setTimeout(resolve, 300));
+				// No server signals "project loaded"; must match ensureFileOpen's wait below,
+				// since the seed file is often the first file a caller queries.
+				await new Promise((resolve) => setTimeout(resolve, this.descriptor.settleMs ?? DEFAULT_SETTLE_MS));
 
 				this.process = proc;
 				return proc;
@@ -319,7 +325,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			textDocument: { uri: pathToFileURL(path).href, languageId: this.descriptor.languageId, version: 1, text: readFileSync(path, "utf-8") },
 		});
 		this.openedFiles.add(path);
-		await new Promise((resolve) => setTimeout(resolve, 1000));
+		await new Promise((resolve) => setTimeout(resolve, this.descriptor.settleMs ?? DEFAULT_SETTLE_MS));
 	}
 
 	/** Resolves as soon as `path`'s next publishDiagnostics notification lands, or after `timeoutMs` -- diagnostics are server-pushed, never a request/response Lector can just await. */
