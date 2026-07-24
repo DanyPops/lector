@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { findSourceFiles } from "./adapters/find-source-files.ts";
+import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { TypescriptSymbolIndex } from "./adapters/lsp/typescript-symbol-index.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
@@ -16,10 +18,16 @@ import type { Hover } from "./domain/hover.ts";
 import { hoverAt } from "./domain/hover-at.ts";
 import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
+import { populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
 import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
+import { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
+import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
+import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
+import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
 import type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
+import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 
@@ -86,7 +94,11 @@ export type OperationName =
 	| "workspace.diagnostics"
 	| "workspace.prepareCallHierarchy"
 	| "workspace.incomingCalls"
-	| "workspace.outgoingCalls";
+	| "workspace.outgoingCalls"
+	| "workspace.populateSymbolGraph"
+	| "workspace.reachableFrom"
+	| "workspace.symbolEdgesFrom"
+	| "workspace.symbolEdgesTo";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
@@ -101,6 +113,10 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.prepareCallHierarchy",
 	"workspace.incomingCalls",
 	"workspace.outgoingCalls",
+	"workspace.populateSymbolGraph",
+	"workspace.reachableFrom",
+	"workspace.symbolEdgesFrom",
+	"workspace.symbolEdgesTo",
 ];
 
 /** A single position within a file already registered under `workspaceId`, 1-indexed. */
@@ -124,6 +140,10 @@ export interface OperationInputs {
 	"workspace.prepareCallHierarchy": WorkspacePosition;
 	"workspace.incomingCalls": WorkspacePosition;
 	"workspace.outgoingCalls": WorkspacePosition;
+	"workspace.populateSymbolGraph": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
+	"workspace.reachableFrom": WorkspacePosition & { maxDepth: number; kind?: SymbolEdgeKind };
+	"workspace.symbolEdgesFrom": WorkspacePosition & { kind?: SymbolEdgeKind };
+	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind };
 }
 
 export interface OperationOutputs {
@@ -139,6 +159,10 @@ export interface OperationOutputs {
 	"workspace.prepareCallHierarchy": { items: readonly CallHierarchyEntry[] };
 	"workspace.incomingCalls": { calls: readonly IncomingCall[] };
 	"workspace.outgoingCalls": { calls: readonly OutgoingCall[] };
+	"workspace.populateSymbolGraph": { filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number };
+	"workspace.reachableFrom": { symbols: readonly SymbolNode[] };
+	"workspace.symbolEdgesFrom": { symbols: readonly SymbolNode[] };
+	"workspace.symbolEdgesTo": { symbols: readonly SymbolNode[] };
 }
 
 /**
@@ -193,6 +217,8 @@ export interface LectorServiceOptions {
 	 * intends rather than the guard being silently loosened for everyone.
 	 */
 	allowDynamicOnly?: boolean;
+	/** Factory for the graph backing workspace.populateSymbolGraph/reachableFrom/symbolEdgesFrom/symbolEdgesTo. Defaults to an in-memory graph (not durable across a restart). */
+	createSymbolGraph?: (workspaceId: WorkspaceId) => SymbolGraphPort;
 }
 
 function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): WorkspacePort {
@@ -256,6 +282,21 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const symbolIndexes = new Map<WorkspaceId, { index: ClosableSymbolIndex; lastUsedAt: number }>();
 	const createSymbolIndex = options.createSymbolIndex ?? ((rootPath: string, seedFile?: string) => new TypescriptSymbolIndex(rootPath, seedFile));
 
+	// One symbol graph per workspace, populated only when workspace.populateSymbolGraph is
+	// actually invoked -- unlike symbolIndexes, there is no idle-eviction TTL here: a graph
+	// is inert data, not a warm subprocess with a real resource cost while sitting unused.
+	const symbolGraphs = new Map<WorkspaceId, SymbolGraphPort>();
+	const createSymbolGraph = options.createSymbolGraph ?? (() => new InMemorySymbolGraph());
+
+	function ensureSymbolGraph(workspaceId: WorkspaceId): SymbolGraphPort {
+		let graph = symbolGraphs.get(workspaceId);
+		if (!graph) {
+			graph = createSymbolGraph(workspaceId);
+			symbolGraphs.set(workspaceId, graph);
+		}
+		return graph;
+	}
+
 	async function ensureWarmIndex(input: { workspaceId: WorkspaceId; seedFile?: string }): Promise<ClosableSymbolIndex> {
 		const entry = registry.get(input.workspaceId);
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
@@ -271,7 +312,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return entryIndex.index;
 	}
 
-	async function findSymbols(registry: MutableRegistry, input: OperationInputs["workspace.findSymbols"]): Promise<OperationOutputs["workspace.findSymbols"]> {
+	async function findSymbols(_registry: MutableRegistry, input: OperationInputs["workspace.findSymbols"]): Promise<OperationOutputs["workspace.findSymbols"]> {
 		const index = await ensureWarmIndex(input);
 		const symbols = await findWorkspaceSymbols(index, input.query);
 		return { symbols };
@@ -352,6 +393,50 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return { calls };
 	}
 
+	async function populateSymbolGraphHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.populateSymbolGraph"],
+	): Promise<OperationOutputs["workspace.populateSymbolGraph"]> {
+		const index = await requireCodeIntelligence(input);
+		const entry = registry.get(input.workspaceId);
+		if (!entry?.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
+		const rootPath = entry.rootPath;
+		const relativeFiles = findSourceFiles(rootPath, (extension) => extension === ".ts" || extension === ".tsx", input.maxFiles);
+		const files = relativeFiles.map((relativePath) => join(rootPath, relativePath));
+		const graph = ensureSymbolGraph(input.workspaceId);
+		return populateSymbolGraphQuery(index, graph, files, input.maxSymbolsPerFile);
+	}
+
+	async function reachableFromHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.reachableFrom"],
+	): Promise<OperationOutputs["workspace.reachableFrom"]> {
+		const graph = ensureSymbolGraph(input.workspaceId);
+		const id = deriveSymbolNodeId({ path: input.path, line: input.line, character: input.character });
+		const symbols = await reachableSymbolsFrom(graph, id, { maxDepth: input.maxDepth, kind: input.kind });
+		return { symbols };
+	}
+
+	async function symbolEdgesFromHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.symbolEdgesFrom"],
+	): Promise<OperationOutputs["workspace.symbolEdgesFrom"]> {
+		const graph = ensureSymbolGraph(input.workspaceId);
+		const id = deriveSymbolNodeId({ path: input.path, line: input.line, character: input.character });
+		const symbols = await symbolEdgesFrom(graph, id, input.kind);
+		return { symbols };
+	}
+
+	async function symbolEdgesToHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.symbolEdgesTo"],
+	): Promise<OperationOutputs["workspace.symbolEdgesTo"]> {
+		const graph = ensureSymbolGraph(input.workspaceId);
+		const id = deriveSymbolNodeId({ path: input.path, line: input.line, character: input.character });
+		const symbols = await symbolEdgesTo(graph, id, input.kind);
+		return { symbols };
+	}
+
 	const handlers: OperationHandlers = {
 		"workspace.rawRead": (registry, input) => rawRead(resolveWorkspace(registry, input.workspaceId), input.path),
 		"workspace.exactEdit": (registry, input) => {
@@ -368,6 +453,10 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.prepareCallHierarchy": prepareCallHierarchyHandler,
 		"workspace.incomingCalls": incomingCallsHandler,
 		"workspace.outgoingCalls": outgoingCallsHandler,
+		"workspace.populateSymbolGraph": populateSymbolGraphHandler,
+		"workspace.reachableFrom": reachableFromHandler,
+		"workspace.symbolEdgesFrom": symbolEdgesFromHandler,
+		"workspace.symbolEdgesTo": symbolEdgesToHandler,
 	};
 
 	return {
@@ -385,7 +474,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		async close(): Promise<void> {
 			const entries = Array.from(symbolIndexes.values());
 			symbolIndexes.clear();
-			await Promise.all(entries.map((entry) => entry.index.close()));
+			const graphs = Array.from(symbolGraphs.values());
+			symbolGraphs.clear();
+			await Promise.all([...entries.map((entry) => entry.index.close()), ...graphs.map((graph) => graph.close())]);
 		},
 		async reapIdleSymbolIndexes(maxIdleMs: number): Promise<number> {
 			const now = Date.now();

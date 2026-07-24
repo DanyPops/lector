@@ -5,7 +5,7 @@
  * theme approach: asserts on the actual rendered text, no ANSI noise.
  */
 import { describe, expect, it } from "bun:test";
-import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, WorkspaceLocation } from "@danypops/lector";
+import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, SymbolNode, WorkspaceLocation } from "@danypops/lector";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import {
 	formatDiagnosticsCall,
@@ -22,8 +22,12 @@ import {
 	formatIncomingCallsResult,
 	formatOutgoingCallsCall,
 	formatOutgoingCallsResult,
+	formatPopulateSymbolGraphCall,
+	formatPopulateSymbolGraphResult,
 	formatPrepareCallHierarchyCall,
 	formatPrepareCallHierarchyResult,
+	formatReachableFromCall,
+	formatReachableFromResult,
 } from "../extension/src/code-intelligence-rendering.ts";
 import type { LectorTheme } from "../extension/src/lector-tui-theme.ts";
 
@@ -239,5 +243,44 @@ describe("formatOutgoingCallsCall/Result", () => {
 	it("lists each callee", () => {
 		const text = formatOutgoingCallsResult([{ to: callHierarchyEntry({ name: "add" }), fromRanges: [] }], false, plainTheme);
 		expect(text).toContain("add");
+	});
+});
+
+describe("formatPopulateSymbolGraphCall/Result", () => {
+	it("shows the tool name and path", () => {
+		const text = formatPopulateSymbolGraphCall({ path: "src" }, plainTheme);
+		expect(text).toContain("populate_symbol_graph");
+		expect(text).toContain("src");
+	});
+
+	it("shows the real counts from the result", () => {
+		const text = formatPopulateSymbolGraphResult({ filesProcessed: 3, symbolsProcessed: 12, nodesAdded: 10, edgesAdded: 7 }, plainTheme);
+		expect(text).toContain("3 files");
+		expect(text).toContain("12 symbols");
+		expect(text).toContain("10 nodes");
+		expect(text).toContain("7 edges");
+	});
+});
+
+describe("formatReachableFromCall/Result", () => {
+	function symbolNode(overrides: Partial<SymbolNode> = {}): SymbolNode {
+		return { id: "src/math.ts:1:17", name: "add", kind: "function", location: { path: "src/math.ts", line: 1, character: 17 }, ...overrides };
+	}
+
+	it("shows the tool name, position, and depth", () => {
+		const text = formatReachableFromCall({ path: "src/math.ts", line: 5, character: 17, maxDepth: 2 }, plainTheme);
+		expect(text).toContain("reachable_from");
+		expect(text).toContain("src/math.ts:5:17");
+		expect(text).toContain("depth 2");
+	});
+
+	it("shows a clear message when nothing is reachable", () => {
+		expect(formatReachableFromResult([], false, plainTheme)).toContain("Nothing reachable");
+	});
+
+	it("lists each reachable symbol", () => {
+		const text = formatReachableFromResult([symbolNode({ name: "b" }), symbolNode({ name: "c" })], false, plainTheme);
+		expect(text).toContain("b");
+		expect(text).toContain("c");
 	});
 });

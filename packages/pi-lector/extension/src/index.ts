@@ -1,5 +1,15 @@
 import { resolve } from "node:path";
-import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, Hover, IncomingCall, OutgoingCall, WorkspaceLocation, WorkspaceSymbol } from "@danypops/lector";
+import type {
+	CallHierarchyEntry,
+	Diagnostic,
+	DocumentSymbolEntry,
+	Hover,
+	IncomingCall,
+	OutgoingCall,
+	SymbolNode,
+	WorkspaceLocation,
+	WorkspaceSymbol,
+} from "@danypops/lector";
 import { createEditToolDefinition, createReadToolDefinition, createWriteToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -19,8 +29,12 @@ import {
 	formatIncomingCallsResult,
 	formatOutgoingCallsCall,
 	formatOutgoingCallsResult,
+	formatPopulateSymbolGraphCall,
+	formatPopulateSymbolGraphResult,
 	formatPrepareCallHierarchyCall,
 	formatPrepareCallHierarchyResult,
+	formatReachableFromCall,
+	formatReachableFromResult,
 } from "./code-intelligence-rendering.ts";
 import { createLectorEditOperations } from "./edit-operations.ts";
 import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts";
@@ -305,7 +319,10 @@ export default function (pi: ExtensionAPI) {
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
 				const items = await codeIntelligenceOperations.prepareCallHierarchy(path, params.line, params.character);
-				const text = items.length === 0 ? "No call-hierarchy root at this position." : items.map((i) => `${i.kind} ${i.name} -- ${i.location.path}:${i.location.line}:${i.location.character}`).join("\n");
+				const text =
+					items.length === 0
+						? "No call-hierarchy root at this position."
+						: items.map((i) => `${i.kind} ${i.name} -- ${i.location.path}:${i.location.line}:${i.location.character}`).join("\n");
 				return { content: [{ type: "text", text }], details: { items } };
 			},
 			renderCall(args, theme, context) {
@@ -341,7 +358,10 @@ export default function (pi: ExtensionAPI) {
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
 				const calls = await codeIntelligenceOperations.incomingCalls(path, params.line, params.character);
-				const text = calls.length === 0 ? "No incoming calls found." : calls.map((c) => `${c.from.kind} ${c.from.name} -- ${c.from.location.path}:${c.from.location.line}:${c.from.location.character}`).join("\n");
+				const text =
+					calls.length === 0
+						? "No incoming calls found."
+						: calls.map((c) => `${c.from.kind} ${c.from.name} -- ${c.from.location.path}:${c.from.location.line}:${c.from.location.character}`).join("\n");
 				return { content: [{ type: "text", text }], details: { calls } };
 			},
 			renderCall(args, theme, context) {
@@ -375,7 +395,10 @@ export default function (pi: ExtensionAPI) {
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
 				const calls = await codeIntelligenceOperations.outgoingCalls(path, params.line, params.character);
-				const text = calls.length === 0 ? "No outgoing calls found." : calls.map((c) => `${c.to.kind} ${c.to.name} -- ${c.to.location.path}:${c.to.location.line}:${c.to.location.character}`).join("\n");
+				const text =
+					calls.length === 0
+						? "No outgoing calls found."
+						: calls.map((c) => `${c.to.kind} ${c.to.name} -- ${c.to.location.path}:${c.to.location.line}:${c.to.location.character}`).join("\n");
 				return { content: [{ type: "text", text }], details: { calls } };
 			},
 			renderCall(args, theme, context) {
@@ -395,6 +418,107 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { calls?: readonly OutgoingCall[] } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatOutgoingCallsResult(details?.calls, expanded, theme));
+				return text;
+			},
+		});
+
+		pi.registerTool({
+			name: "populate_symbol_graph",
+			label: "Populate Symbol Graph",
+			description:
+				"Walk a workspace's real call relationships into a persisted graph, so reachable_from can answer multi-hop questions (transitive callers, reachability) without chaining many find_references/outgoing_calls calls by hand. Run this once before reachable_from.",
+			promptSnippet: "Populate a workspace's symbol graph for multi-hop queries",
+			promptGuidelines: [
+				"Run populate_symbol_graph once for a workspace before using reachable_from against it; an unpopulated workspace's graph is empty, not an error.",
+				"maxFiles and maxSymbolsPerFile are both required and bound the scan explicitly -- a symbol-dense file (many interfaces/properties) can easily exceed a small maxSymbolsPerFile before reaching the functions/methods that actually matter.",
+			],
+			parameters: Type.Object({
+				path: Type.String({ description: "Any absolute or cwd-relative path inside the workspace to populate" }),
+				maxFiles: Type.Number({ description: "Maximum number of source files to scan" }),
+				maxSymbolsPerFile: Type.Number({ description: "Maximum number of declarations to process per file" }),
+			}),
+			async execute(_toolCallId, params) {
+				const path = resolve(cwd, params.path);
+				const result = await codeIntelligenceOperations.populateSymbolGraph(path, params.maxFiles, params.maxSymbolsPerFile);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `${result.filesProcessed} files, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`,
+						},
+					],
+					details: { result },
+				};
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatPopulateSymbolGraphCall(args as { path?: unknown; maxFiles?: unknown; maxSymbolsPerFile?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Populating symbol graph..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "populate_symbol_graph failed"), 0, 0);
+				}
+				const details = result.details as
+					| {
+							result?: { filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number };
+					  }
+					| undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatPopulateSymbolGraphResult(details?.result, theme));
+				return text;
+			},
+		});
+
+		pi.registerTool({
+			name: "reachable_from",
+			label: "Reachable From",
+			description:
+				"Every symbol reachable from an exact file position by following the workspace's persisted call graph up to maxDepth hops -- transitive callers/reachability that would otherwise require chaining many find_references/outgoing_calls calls by hand. Requires populate_symbol_graph to have been run for this workspace first.",
+			promptSnippet: "Find symbols reachable from a position, up to N hops, via the persisted graph",
+			promptGuidelines: [
+				"Use reachable_from for multi-hop questions (does A eventually call C through B); use outgoing_calls/incoming_calls for a single direct hop live against the language server.",
+			],
+			parameters: Type.Object({
+				...positionParameters,
+				maxDepth: Type.Number({ description: "Maximum number of hops to traverse" }),
+				kind: Type.Optional(
+					Type.Union([Type.Literal("calls"), Type.Literal("references"), Type.Literal("contains")], {
+						description: "Restrict to one edge kind; omit for any kind",
+					}),
+				),
+			}),
+			async execute(_toolCallId, params) {
+				const path = resolve(cwd, params.path);
+				const symbols = await codeIntelligenceOperations.reachableFrom(path, params.line, params.character, params.maxDepth, params.kind);
+				const text =
+					symbols.length === 0
+						? "Nothing reachable at this position."
+						: symbols.map((s) => `${s.kind} ${s.name} -- ${s.location.path}:${s.location.line}:${s.location.character}`).join("\n");
+				return { content: [{ type: "text", text }], details: { symbols } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatReachableFromCall(args as { path?: unknown; line?: unknown; character?: unknown; maxDepth?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Traversing symbol graph..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "reachable_from failed"), 0, 0);
+				}
+				const details = result.details as { symbols?: readonly SymbolNode[] } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatReachableFromResult(details?.symbols, expanded, theme));
 				return text;
 			},
 		});

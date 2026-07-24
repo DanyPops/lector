@@ -1,4 +1,5 @@
 export { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
+export { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 export { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./adapters/local-filesystem-workspace.ts";
 export {
@@ -8,6 +9,7 @@ export {
 } from "./adapters/lsp/language-server-process.ts";
 export { TypescriptSymbolIndex } from "./adapters/lsp/typescript-symbol-index.ts";
 export { SqliteContentCache } from "./adapters/sqlite-content-cache.ts";
+export { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 export { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 export {
 	type ConnectLectorClientOptions,
@@ -38,11 +40,17 @@ export type { Hover } from "./domain/hover.ts";
 export { hoverAt } from "./domain/hover-at.ts";
 export { incomingCalls } from "./domain/incoming-calls.ts";
 export { outgoingCalls } from "./domain/outgoing-calls.ts";
+export { type PopulateSymbolGraphResult, populateSymbolGraph } from "./domain/populate-symbol-graph.ts";
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
+export { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
+export { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
+export { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
+export { deriveSymbolNodeId, type SymbolNodeId } from "./domain/symbol-node-id.ts";
 export type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
+export type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
 export {

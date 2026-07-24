@@ -1,4 +1,4 @@
-import { type Dirent, readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Parser from "web-tree-sitter";
@@ -6,9 +6,9 @@ import { contentHashOf } from "../../domain/content-hash.ts";
 import type { WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { ContentCachePort, ContentSymbol } from "../../ports/content-cache-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
+import { findSourceFiles } from "../find-source-files.ts";
 import { InMemoryContentCache } from "../in-memory-content-cache.ts";
 
-const SKIP_DIRECTORY_NAMES = new Set(["node_modules", ".git", "dist", "build", "out", "coverage"]);
 const MAX_FILES_SCANNED = 5_000;
 
 interface DeclarationKind {
@@ -42,36 +42,6 @@ function wasmPathFor(extension: string): string | undefined {
 					? "tree-sitter-wasms/out/tree-sitter-javascript.wasm"
 					: undefined;
 	return specifier ? fileURLToPath(import.meta.resolve(specifier)) : undefined;
-}
-
-/** Bounded (entry-count-limited, skips node_modules/.git/build output) recursive source-file scan. */
-function findSourceFiles(rootPath: string): string[] {
-	const files: string[] = [];
-	let scanned = 0;
-
-	const visit = (relativeDir: string): void => {
-		if (scanned >= MAX_FILES_SCANNED) return;
-		let entries: Dirent[];
-		try {
-			entries = readdirSync(join(rootPath, relativeDir), { withFileTypes: true, encoding: "utf-8" });
-		} catch {
-			return;
-		}
-		for (const entry of entries) {
-			if (scanned >= MAX_FILES_SCANNED) return;
-			const relativePath = relativeDir ? join(relativeDir, entry.name) : entry.name;
-			if (entry.isDirectory()) {
-				if (SKIP_DIRECTORY_NAMES.has(entry.name) || entry.name.startsWith(".")) continue;
-				visit(relativePath);
-			} else if (entry.isFile() && wasmPathFor(extname(entry.name))) {
-				scanned++;
-				files.push(relativePath);
-			}
-		}
-	};
-
-	visit("");
-	return files;
 }
 
 /** Content-derived only -- no path, so the extraction result is valid caching material regardless of which file currently holds this content. */
@@ -159,7 +129,7 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 		const lowerQuery = query.toLowerCase();
 		const results: WorkspaceSymbol[] = [];
 
-		for (const relativePath of findSourceFiles(this.rootPath)) {
+		for (const relativePath of findSourceFiles(this.rootPath, (extension) => wasmPathFor(extension) !== undefined, MAX_FILES_SCANNED)) {
 			const wasmPath = wasmPathFor(extname(relativePath));
 			if (!wasmPath) continue;
 

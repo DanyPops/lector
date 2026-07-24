@@ -11,13 +11,13 @@ import { join } from "node:path";
 import { TypescriptSymbolIndex } from "../../../src/adapters/lsp/typescript-symbol-index.ts";
 import { diagnostics } from "../../../src/domain/diagnostics.ts";
 import { documentSymbols } from "../../../src/domain/document-symbols.ts";
-import { incomingCalls } from "../../../src/domain/incoming-calls.ts";
-import { outgoingCalls } from "../../../src/domain/outgoing-calls.ts";
-import { prepareCallHierarchy } from "../../../src/domain/prepare-call-hierarchy.ts";
 import { findReferences } from "../../../src/domain/find-references.ts";
 import { findWorkspaceSymbols } from "../../../src/domain/find-workspace-symbols.ts";
 import { goToDefinition } from "../../../src/domain/go-to-definition.ts";
 import { hoverAt } from "../../../src/domain/hover-at.ts";
+import { incomingCalls } from "../../../src/domain/incoming-calls.ts";
+import { outgoingCalls } from "../../../src/domain/outgoing-calls.ts";
+import { prepareCallHierarchy } from "../../../src/domain/prepare-call-hierarchy.ts";
 import { findPositionOf } from "../../support/find-position.ts";
 
 const LECTOR_ROOT = new URL("../../..", import.meta.url).pathname;

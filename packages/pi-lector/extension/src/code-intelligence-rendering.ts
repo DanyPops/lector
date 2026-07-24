@@ -1,4 +1,4 @@
-import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, Hover, IncomingCall, OutgoingCall, WorkspaceLocation } from "@danypops/lector";
+import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, Hover, IncomingCall, OutgoingCall, SymbolNode, WorkspaceLocation } from "@danypops/lector";
 import { keyHint, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { colorForKind, formatLocation, type LectorTheme } from "./lector-tui-theme.ts";
 
@@ -132,7 +132,7 @@ export function formatDiagnosticsResult(diagnostics: readonly Diagnostic[] | und
 	return lines.join("\n");
 }
 
-function formatCallHierarchyEntry(entry: CallHierarchyEntry, theme: LectorTheme): string {
+function formatCallHierarchyEntry(entry: { kind: string; name: string; location: WorkspaceLocation }, theme: LectorTheme): string {
 	const kind = theme.fg(colorForKind(entry.kind), entry.kind);
 	const name = theme.fg("text", theme.bold(entry.name));
 	const location = formatLocation(theme, entry.location.path, entry.location.line, entry.location.character);
@@ -176,6 +176,40 @@ export function formatOutgoingCallsResult(calls: readonly OutgoingCall[] | undef
 	for (const call of calls.slice(0, displayCount)) lines.push(`  ${formatCallHierarchyEntry(call.to, theme)}`);
 
 	const remaining = calls.length - displayCount;
+	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
+	return lines.join("\n");
+}
+
+export function formatPopulateSymbolGraphCall(args: { path?: unknown; maxFiles?: unknown; maxSymbolsPerFile?: unknown }, theme: LectorTheme): string {
+	const path = typeof args.path === "string" ? args.path : "";
+	return `${theme.fg("toolTitle", theme.bold("populate_symbol_graph"))} ${theme.fg("accent", path)}`;
+}
+
+export function formatPopulateSymbolGraphResult(
+	result: { filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number } | undefined,
+	theme: LectorTheme,
+): string {
+	if (!result) return theme.fg("dim", "No result.");
+	return theme.fg(
+		"muted",
+		`${result.filesProcessed} file${result.filesProcessed === 1 ? "" : "s"}, ${result.symbolsProcessed} symbol${result.symbolsProcessed === 1 ? "" : "s"}, ${result.nodesAdded} node${result.nodesAdded === 1 ? "" : "s"}, ${result.edgesAdded} edge${result.edgesAdded === 1 ? "" : "s"}`,
+	);
+}
+
+export function formatReachableFromCall(args: { path?: unknown; line?: unknown; character?: unknown; maxDepth?: unknown }, theme: LectorTheme): string {
+	const base = formatPositionalCall("reachable_from", args, theme);
+	const maxDepth = typeof args.maxDepth === "number" ? args.maxDepth : "?";
+	return `${base} ${theme.fg("dim", `(depth ${maxDepth})`)}`;
+}
+
+export function formatReachableFromResult(symbols: readonly SymbolNode[] | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!symbols || symbols.length === 0) return theme.fg("dim", "Nothing reachable at this position (has the graph been populated for this workspace?).");
+
+	const displayCount = expanded ? symbols.length : Math.min(symbols.length, DEFAULT_VISIBLE_CALLS);
+	const lines = [theme.fg("muted", `${symbols.length} reachable symbol${symbols.length === 1 ? "" : "s"}:`)];
+	for (const symbol of symbols.slice(0, displayCount)) lines.push(`  ${formatCallHierarchyEntry(symbol, theme)}`);
+
+	const remaining = symbols.length - displayCount;
 	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
 	return lines.join("\n");
 }

@@ -1,4 +1,14 @@
-import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, Hover, IncomingCall, OutgoingCall, WorkspaceLocation } from "@danypops/lector";
+import type {
+	CallHierarchyEntry,
+	Diagnostic,
+	DocumentSymbolEntry,
+	Hover,
+	IncomingCall,
+	OutgoingCall,
+	SymbolEdgeKind,
+	SymbolNode,
+	WorkspaceLocation,
+} from "@danypops/lector";
 import { lectorClient, workspaceForPath } from "./lector-client.ts";
 
 /**
@@ -23,6 +33,12 @@ export interface CodeIntelligenceOperations {
 	prepareCallHierarchy(path: string, line: number, character: number): Promise<readonly CallHierarchyEntry[]>;
 	incomingCalls(path: string, line: number, character: number): Promise<readonly IncomingCall[]>;
 	outgoingCalls(path: string, line: number, character: number): Promise<readonly OutgoingCall[]>;
+	populateSymbolGraph(
+		path: string,
+		maxFiles: number,
+		maxSymbolsPerFile: number,
+	): Promise<{ filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number }>;
+	reachableFrom(path: string, line: number, character: number, maxDepth: number, kind?: SymbolEdgeKind): Promise<readonly SymbolNode[]>;
 }
 
 export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperations {
@@ -74,6 +90,17 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 			const { workspaceId } = await workspaceForPath(path);
 			const { calls } = await client.call("workspace.outgoingCalls", { workspaceId, path, line, character });
 			return calls;
+		},
+		async populateSymbolGraph(path, maxFiles, maxSymbolsPerFile) {
+			const client = await lectorClient();
+			const { workspaceId } = await workspaceForPath(path);
+			return client.call("workspace.populateSymbolGraph", { workspaceId, maxFiles, maxSymbolsPerFile });
+		},
+		async reachableFrom(path, line, character, maxDepth, kind) {
+			const client = await lectorClient();
+			const { workspaceId } = await workspaceForPath(path);
+			const { symbols } = await client.call("workspace.reachableFrom", { workspaceId, path, line, character, maxDepth, kind });
+			return symbols;
 		},
 	};
 }

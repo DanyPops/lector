@@ -34,6 +34,10 @@ const USAGE = `Usage:
   lector workspace document-symbols <workspace-id> <path> [--json]
   lector workspace diagnostics <workspace-id> <path> [--json]
   lector workspace call-hierarchy <prepare|incoming|outgoing> <workspace-id> <path> <line> <character> [--json]
+  lector workspace populate-symbol-graph <workspace-id> --max-files <n> --max-symbols-per-file <n> [--json]
+  lector workspace symbol-graph <reachable-from|edges-from|edges-to> <workspace-id> <path> <line> <character>
+    [--max-depth <n>] [--kind <calls|references|contains>] [--json]
+    --max-depth is required for reachable-from, ignored for edges-from/edges-to
 `;
 
 function fail(message: string): never {
@@ -271,6 +275,80 @@ async function runWorkspaceCallHierarchy(
 	fail(USAGE);
 }
 
+function formatSymbolNode(node: { kind: string; name: string; location: { path: string; line: number; character: number } }): string {
+	return `${node.kind} ${node.name} -- ${node.location.path}:${node.location.line}:${node.location.character}`;
+}
+
+function requiredIntFlag(flags: string[], flag: string): number {
+	const raw = flagValue(flags, flag);
+	const parsed = Number(raw);
+	if (raw === undefined || !Number.isInteger(parsed)) fail(`${flag} <n> is required`);
+	return parsed;
+}
+
+async function runWorkspacePopulateSymbolGraph(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const maxFiles = requiredIntFlag(flags, "--max-files");
+	const maxSymbolsPerFile = requiredIntFlag(flags, "--max-symbols-per-file");
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.populateSymbolGraph", { workspaceId, maxFiles, maxSymbolsPerFile });
+	console.log(
+		hasFlag(flags, "--json")
+			? JSON.stringify(result)
+			: `${result.filesProcessed} files, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`,
+	);
+}
+
+function parseSymbolEdgeKind(flags: string[]): "calls" | "references" | "contains" | undefined {
+	const raw = flagValue(flags, "--kind");
+	if (raw === undefined) return undefined;
+	if (raw !== "calls" && raw !== "references" && raw !== "contains") fail(`--kind must be calls, references, or contains; got "${raw}"`);
+	return raw;
+}
+
+async function runWorkspaceSymbolGraphQuery(
+	subcommand: string | undefined,
+	workspaceId: string | undefined,
+	path: string | undefined,
+	rest: string[],
+): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const [lineArg, characterArg, ...flags] = rest;
+	const { line, character } = parsePosition(lineArg, characterArg);
+	const kind = parseSymbolEdgeKind(flags);
+	const client = await connectLectorClient();
+
+	if (subcommand === "reachable-from") {
+		const maxDepth = requiredIntFlag(flags, "--max-depth");
+		const { symbols } = await client.call("workspace.reachableFrom", { workspaceId, path, line, character, maxDepth, kind });
+		if (hasFlag(flags, "--json")) {
+			console.log(JSON.stringify(symbols));
+			return;
+		}
+		if (symbols.length === 0) {
+			console.log("nothing reachable at this position (has the graph been populated for this workspace?)");
+			return;
+		}
+		for (const symbol of symbols) console.log(formatSymbolNode(symbol));
+		return;
+	}
+	if (subcommand === "edges-from" || subcommand === "edges-to") {
+		const operation = subcommand === "edges-from" ? "workspace.symbolEdgesFrom" : "workspace.symbolEdgesTo";
+		const { symbols } = await client.call(operation, { workspaceId, path, line, character, kind });
+		if (hasFlag(flags, "--json")) {
+			console.log(JSON.stringify(symbols));
+			return;
+		}
+		if (symbols.length === 0) {
+			console.log("no edges found (has the graph been populated for this workspace?)");
+			return;
+		}
+		for (const symbol of symbols) console.log(formatSymbolNode(symbol));
+		return;
+	}
+	fail(USAGE);
+}
+
 async function runWorkspaceRead(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !path) fail(USAGE);
 	const client = await connectLectorClient();
@@ -388,6 +466,14 @@ async function main(): Promise<void> {
 		if (action === "call-hierarchy") {
 			const [subcommand, chWorkspaceId, chPath, ...chRest] = actionArgs;
 			return runWorkspaceCallHierarchy(subcommand, chWorkspaceId, chPath, chRest);
+		}
+		if (action === "populate-symbol-graph") {
+			const [psgWorkspaceId, ...psgFlags] = actionArgs;
+			return runWorkspacePopulateSymbolGraph(psgWorkspaceId, psgFlags);
+		}
+		if (action === "symbol-graph") {
+			const [subcommand, sgWorkspaceId, sgPath, ...sgRest] = actionArgs;
+			return runWorkspaceSymbolGraphQuery(subcommand, sgWorkspaceId, sgPath, sgRest);
 		}
 		fail(USAGE);
 	}

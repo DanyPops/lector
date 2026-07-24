@@ -132,4 +132,21 @@ describe("Lector-backed code-intelligence operations", () => {
 		const callees = await ops.outgoingCalls(mathFile, 5, 17);
 		expect(callees.some((call) => call.to.name === "add")).toBe(true);
 	}, 20_000);
+
+	it("populateSymbolGraph and reachableFrom answer a real multi-hop question via a running Lector daemon", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const ops = createLectorCodeIntelligenceOperations();
+		const populateResult = await ops.populateSymbolGraph(mathFile, 100, 50);
+		expect(populateResult.filesProcessed).toBeGreaterThan(0);
+		expect(populateResult.edgesAdded).toBeGreaterThan(0);
+
+		// addTwice (line 5) calls add (line 1) -- one hop.
+		const reachable = await ops.reachableFrom(mathFile, 5, 17, 1, "calls");
+		expect(reachable.some((symbol) => symbol.name === "add")).toBe(true);
+	}, 20_000);
 });
