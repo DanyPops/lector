@@ -3,6 +3,9 @@ import type {
 	CallHierarchyEntry,
 	Diagnostic,
 	DocumentSymbolEntry,
+	GitDiffResult,
+	GitLogEntry,
+	GitStatusSummary,
 	Hover,
 	IncomingCall,
 	OutgoingCall,
@@ -41,6 +44,8 @@ import {
 import { createLectorEditOperations } from "./edit-operations.ts";
 import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts";
 import { formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-rendering.ts";
+import { createLectorGitOperations } from "./git-operations.ts";
+import { formatGitDiffCall, formatGitDiffResult, formatGitLogCall, formatGitLogResult, formatGitStatusCall, formatGitStatusResult } from "./git-rendering.ts";
 import { createLectorReadOperations } from "./read-operations.ts";
 import { createLectorWriteOperations } from "./write-operations.ts";
 
@@ -558,6 +563,117 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { symbols?: readonly SymbolNode[] } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatReachableFromResult(details?.symbols, expanded, theme));
+				return text;
+			},
+		});
+
+		const gitOperations = createLectorGitOperations();
+		pi.registerTool({
+			name: "git_status",
+			label: "Git Status",
+			description:
+				"Working tree status for a real git repository -- modified/staged/untracked/renamed files, plus current branch and ahead/behind tracking. Fails clearly if `directory` is not inside a git repository.",
+			promptSnippet: "Show a repository's working tree status",
+			parameters: Type.Object({
+				directory: Type.String({ description: "Directory inside the repository to check, absolute or relative to the current working directory" }),
+			}),
+			async execute(_toolCallId, params) {
+				const directory = resolve(cwd, params.directory);
+				const summary = await gitOperations.status(directory);
+				return { content: [{ type: "text", text: JSON.stringify(summary) }], details: { summary } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatGitStatusCall(args as { directory?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Checking status..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "git_status failed"), 0, 0);
+				}
+				const details = result.details as { summary?: GitStatusSummary } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatGitStatusResult(details?.summary, expanded, theme));
+				return text;
+			},
+		});
+
+		pi.registerTool({
+			name: "git_log",
+			label: "Git Log",
+			description:
+				"Recent commits for a real git repository, most recent first, bounded to maxCount. Fails clearly if `directory` is not inside a git repository.",
+			promptSnippet: "List a repository's recent commits",
+			parameters: Type.Object({
+				directory: Type.String({ description: "Directory inside the repository to check, absolute or relative to the current working directory" }),
+				maxCount: Type.Number({ description: "Maximum number of commits to return, most recent first" }),
+			}),
+			async execute(_toolCallId, params) {
+				const directory = resolve(cwd, params.directory);
+				const entries = await gitOperations.log(directory, params.maxCount);
+				const text =
+					entries.length === 0 ? "No commits found." : entries.map((e) => `${e.sha.slice(0, 8)} ${e.authoredAt} ${e.authorName} -- ${e.message}`).join("\n");
+				return { content: [{ type: "text", text }], details: { entries } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatGitLogCall(args as { directory?: unknown; maxCount?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Reading log..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "git_log failed"), 0, 0);
+				}
+				const details = result.details as { entries?: readonly GitLogEntry[] } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatGitLogResult(details?.entries, expanded, theme));
+				return text;
+			},
+		});
+
+		pi.registerTool({
+			name: "git_diff",
+			label: "Git Diff",
+			description:
+				"Unified diff of the working tree against `ref` (defaults to HEAD) for a real git repository, bounded to maxBytes. Fails clearly if `directory` is not inside a git repository.",
+			promptSnippet: "Show a repository's working tree diff",
+			parameters: Type.Object({
+				directory: Type.String({ description: "Directory inside the repository to check, absolute or relative to the current working directory" }),
+				ref: Type.Optional(Type.String({ description: "Ref to diff against; defaults to HEAD" })),
+				maxBytes: Type.Number({ description: "Maximum diff size in bytes before truncating" }),
+			}),
+			async execute(_toolCallId, params) {
+				const directory = resolve(cwd, params.directory);
+				const result = await gitOperations.diff(directory, params.ref, params.maxBytes);
+				return { content: [{ type: "text", text: result.diff.length === 0 ? "No differences." : result.diff }], details: { result } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatGitDiffCall(args as { directory?: unknown; ref?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Computing diff..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "git_diff failed"), 0, 0);
+				}
+				const details = result.details as { result?: GitDiffResult } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatGitDiffResult(details?.result, expanded, theme));
 				return text;
 			},
 		});
