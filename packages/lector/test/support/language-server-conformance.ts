@@ -8,6 +8,7 @@ import { rmSync } from "node:fs";
 import { LspSymbolIndex } from "../../src/adapters/lsp/lsp-symbol-index.ts";
 import { measureProcessTreeRssKb } from "../../src/adapters/lsp/process-resource-usage.ts";
 import { documentSymbols } from "../../src/domain/document-symbols.ts";
+import { findWorkspaceSymbols } from "../../src/domain/find-workspace-symbols.ts";
 import { goToDefinition } from "../../src/domain/go-to-definition.ts";
 import type { LanguageServerDescriptor } from "../../src/domain/language-server-descriptor.ts";
 import { findPositionOf } from "./find-position.ts";
@@ -25,6 +26,8 @@ export interface LanguageConformanceFixture {
 	readonly timeoutMs?: number;
 	/** Ceiling for this server's own RSS, including child processes, against a trivial single-file fixture -- catches a real leak/explosion, not a tight regression gate. Measured baselines (packages/lector/benchmarks/language-server-cold-start.ts): typescript ~570MB, rust ~610MB, go ~420MB, python/cpp ~150-160MB, bash/yaml ~95-100MB. */
 	readonly expectedMaxRssMb: number;
+	/** False when the server declares no workspaceSymbolProvider capability at all (confirmed for yaml-language-server) -- an honest capability gap, not a bug to paper over. Defaults to true. */
+	supportsFindWorkspaceSymbols?: boolean;
 }
 
 export function runLanguageServerConformanceSuite(fixture: LanguageConformanceFixture): void {
@@ -59,6 +62,21 @@ export function runLanguageServerConformanceSuite(fixture: LanguageConformanceFi
 			},
 			timeout,
 		);
+
+		if (fixture.supportsFindWorkspaceSymbols ?? true) {
+			it(
+				"findWorkspaceSymbols (workspace/symbol) finds a real declaration, not silently empty",
+				async () => {
+					fixtureRoot = fixture.buildRoot();
+					index = new LspSymbolIndex(fixtureRoot, fixture.descriptor, fixture.seedFile);
+
+					const symbols = await findWorkspaceSymbols(index, fixture.expectedSymbolNames[0] ?? "");
+
+					expect(symbols.find((symbol) => symbol.name === fixture.expectedSymbolNames[0])).toBeDefined();
+				},
+				timeout,
+			);
+		}
 
 		if (fixture.callUsage) {
 			const { substring, offsetWithinSubstring } = fixture.callUsage;

@@ -120,4 +120,7 @@ runLanguageServerConformanceSuite({
 	expectedSymbolNames: ["name", "version", "items"],
 	// YAML keys are not callable -- goToDefinition has no meaningful target to assert here.
 	expectedMaxRssMb: 300,
+	// yaml-language-server declares no workspaceSymbolProvider capability at all -- confirmed
+	// absent from its own bundled source, not a timing issue.
+	supportsFindWorkspaceSymbols: false,
 });

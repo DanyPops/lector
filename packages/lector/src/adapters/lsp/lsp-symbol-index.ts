@@ -279,6 +279,9 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				await proc.request("initialize", {
 					processId: process.pid,
 					rootUri: pathToFileURL(this.cwd).href,
+					// pyright needs this to resolve its own workspace root -- without it, workspace/symbol
+					// silently returns [] forever, even though rootUri alone is enough for tsserver/gopls.
+					workspaceFolders: [{ uri: pathToFileURL(this.cwd).href, name: this.cwd }],
 					capabilities: {
 						textDocument: {
 							documentSymbol: { hierarchicalDocumentSymbolSupport: true },
