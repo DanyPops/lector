@@ -13,10 +13,7 @@ describe("encodeJsonRpcMessage / JsonRpcStreamDecoder", () => {
 
 	it("decodes multiple messages delivered in a single chunk", () => {
 		const decoder = new JsonRpcStreamDecoder();
-		const encoded = Buffer.concat([
-			encodeJsonRpcMessage({ jsonrpc: "2.0", id: 1, method: "a" }),
-			encodeJsonRpcMessage({ jsonrpc: "2.0", id: 2, method: "b" }),
-		]);
+		const encoded = Buffer.concat([encodeJsonRpcMessage({ jsonrpc: "2.0", id: 1, method: "a" }), encodeJsonRpcMessage({ jsonrpc: "2.0", id: 2, method: "b" })]);
 
 		const messages = decoder.push(encoded);
 
@@ -39,9 +36,7 @@ describe("encodeJsonRpcMessage / JsonRpcStreamDecoder", () => {
 		const splitPoint = headerEnd + 5; // lands mid-body
 
 		expect(decoder.push(encoded.subarray(0, splitPoint))).toEqual([]);
-		expect(decoder.push(encoded.subarray(splitPoint))).toEqual([
-			{ jsonrpc: "2.0", id: 1, method: "initialize", params: { a: 1, b: 2, c: 3 } },
-		]);
+		expect(decoder.push(encoded.subarray(splitPoint))).toEqual([{ jsonrpc: "2.0", id: 1, method: "initialize", params: { a: 1, b: 2, c: 3 } }]);
 	});
 
 	it("recovers after a malformed header instead of getting stuck forever", () => {

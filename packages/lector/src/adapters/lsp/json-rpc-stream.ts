@@ -40,14 +40,15 @@ export class JsonRpcStreamDecoder {
 
 			const header = this.buffer.subarray(0, headerEnd).toString("ascii");
 			const match = /Content-Length:\s*(\d+)/i.exec(header);
-			if (!match) {
+			const digits = match?.[1];
+			if (digits === undefined) {
 				// Malformed header we cannot recover a length from: drop through the
 				// terminator and keep going rather than getting stuck on it forever.
 				this.buffer = this.buffer.subarray(headerEnd + 4);
 				continue;
 			}
 
-			const length = Number.parseInt(match[1]!, 10);
+			const length = Number.parseInt(digits, 10);
 			const bodyStart = headerEnd + 4;
 			const bodyEnd = bodyStart + length;
 			if (this.buffer.byteLength < bodyEnd) break; // body split across chunks -- wait for more

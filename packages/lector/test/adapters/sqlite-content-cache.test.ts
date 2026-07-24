@@ -1,10 +1,9 @@
 /**
- * Checklist (task 8c1dedd6's prerequisite -- durable derived-state, before
- * purge ordering is even reachable): SqliteContentCache is Lector's first
- * genuinely durable store. The conformance suite proves correctness; the
- * "survives reopen" test below is the actual durability proof -- a value
- * written by one process/instance is still there after that instance is
- * gone and a fresh one opens the same file.
+ * SqliteContentCache is Lector's first genuinely durable store. The
+ * conformance suite proves correctness; the "survives reopen" test below
+ * is the actual durability proof -- a value written by one
+ * process/instance is still there after that instance is gone and a
+ * fresh one opens the same file.
  */
 import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";

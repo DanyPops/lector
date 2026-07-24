@@ -5,10 +5,11 @@
  * Oculus hit and fixed the identical problem for its own gopls warm pool
  * (TTL eviction, 30-minute default); this is the same fix for Lector.
  */
+
+import { afterEach, describe, expect, it } from "bun:test";
 import { startDaemon } from "@danypops/daemon-kit/daemon";
 import { ensureAuthToken } from "@danypops/daemon-kit/paths";
 import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
-import { afterEach, describe, expect, it } from "bun:test";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { buildLectorApp } from "../src/daemon.ts";
 import { createLectorService, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
@@ -31,7 +32,12 @@ function clientFor(host: string, port: number, token: string) {
 describe("LectorService.reapIdleSymbolIndexes", () => {
 	it("closes and removes an index untouched for longer than maxIdleMs, and reports how many", async () => {
 		let closed = false;
-		const fakeIndex = { findSymbols: async () => [], close: async () => void (closed = true) };
+		const fakeIndex = {
+			findSymbols: async () => [],
+			close: async () => {
+				closed = true;
+			},
+		};
 		const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]), { createSymbolIndex: () => fakeIndex });
 
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: process.cwd() });
@@ -69,51 +75,52 @@ describe("LectorService.reapIdleSymbolIndexes", () => {
 });
 
 describe("daemon's periodic idle-eviction maintenance task", () => {
-	it(
-		"actually reaps a warm index on its own, on a timer, with no test code calling reapIdleSymbolIndexes directly",
-		async () => {
-			// startLectorDaemon doesn't expose a createSymbolIndex override (LectorServiceOptions
-			// isn't part of its public surface), so this drives the daemon-kit primitives directly
-			// with the exact maintenanceTasks entry daemon.ts's own prepare() wires in -- the same
-			// pattern workspace-find-symbols.test.ts already uses for its shutdown-hook test.
-			const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
-			let closed = false;
-			const fakeIndex = { findSymbols: async () => [], close: async () => void (closed = true) };
+	it("actually reaps a warm index on its own, on a timer, with no test code calling reapIdleSymbolIndexes directly", async () => {
+		// startLectorDaemon doesn't expose a createSymbolIndex override (LectorServiceOptions
+		// isn't part of its public surface), so this drives the daemon-kit primitives directly
+		// with the exact maintenanceTasks entry daemon.ts's own prepare() wires in -- the same
+		// pattern workspace-find-symbols.test.ts already uses for its shutdown-hook test.
+		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
+		let closed = false;
+		const fakeIndex = {
+			findSymbols: async () => [],
+			close: async () => {
+				closed = true;
+			},
+		};
 
-			const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]), { createSymbolIndex: () => fakeIndex });
-			const token = ensureAuthToken(paths.token, "Lector");
-			const app = buildLectorApp(service, token);
-			const idleTtlMs = 20;
-			const daemon = startDaemon({
-				daemonLabel: "Lector",
-				handlePath: paths.handle,
-				buildApp: () => app,
-				maintenanceTasks: [
-					{
-						name: "reap-idle-symbol-indexes",
-						intervalMs: 15,
-						run: async () => {
-							await service.reapIdleSymbolIndexes(idleTtlMs);
-						},
+		const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]), { createSymbolIndex: () => fakeIndex });
+		const token = ensureAuthToken(paths.token, "Lector");
+		const app = buildLectorApp(service, token);
+		const idleTtlMs = 20;
+		const daemon = startDaemon({
+			daemonLabel: "Lector",
+			handlePath: paths.handle,
+			buildApp: () => app,
+			maintenanceTasks: [
+				{
+					name: "reap-idle-symbol-indexes",
+					intervalMs: 15,
+					run: async () => {
+						await service.reapIdleSymbolIndexes(idleTtlMs);
 					},
-				],
-			});
-			cleanup = () => {
-				void service.close().then(() => daemon.stop());
-				cleanupPaths();
-			};
+				},
+			],
+		});
+		cleanup = () => {
+			void service.close().then(() => daemon.stop());
+			cleanupPaths();
+		};
 
-			const client = clientFor(daemon.host, daemon.port, token);
-			const { workspaceId } = await client.call("workspace.registerPath", { path: process.cwd() });
-			await client.call("workspace.findSymbols", { workspaceId, query: "anything" });
-			expect(closed).toBe(false);
+		const client = clientFor(daemon.host, daemon.port, token);
+		const { workspaceId } = await client.call("workspace.registerPath", { path: process.cwd() });
+		await client.call("workspace.findSymbols", { workspaceId, query: "anything" });
+		expect(closed).toBe(false);
 
-			// Long enough for the index to go idle (20ms) and for at least one 15ms-interval
-			// sweep to run after that.
-			await sleep(80);
+		// Long enough for the index to go idle (20ms) and for at least one 15ms-interval
+		// sweep to run after that.
+		await sleep(80);
 
-			expect(closed).toBe(true);
-		},
-		5_000,
-	);
+		expect(closed).toBe(true);
+	}, 5_000);
 });
