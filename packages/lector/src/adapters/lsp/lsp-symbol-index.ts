@@ -10,7 +10,7 @@ import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/l
 import type { WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
-import { discoverSeedFile } from "./discover-seed-file.ts";
+import { resolveSeedFile } from "./discover-seed-file.ts";
 import { LanguageServerProcess } from "./language-server-process.ts";
 
 const LSP_SYMBOL_KIND_NAMES: Readonly<Record<number, string>> = {
@@ -294,7 +294,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				});
 				proc.notify("initialized", {});
 
-				const seedFile = this.explicitSeedFile ?? discoverSeedFile(this.cwd, this.descriptor.extensions, this.descriptor.commonSeedCandidates);
+				const seedFile = this.explicitSeedFile ?? resolveSeedFile(this.cwd, this.descriptor);
 				const seedPath = join(this.cwd, seedFile);
 				proc.notify("textDocument/didOpen", {
 					textDocument: {

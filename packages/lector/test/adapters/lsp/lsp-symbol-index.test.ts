@@ -5,7 +5,7 @@
  */
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspSymbolIndex } from "../../../src/adapters/lsp/lsp-symbol-index.ts";
@@ -249,5 +249,38 @@ describe("LspSymbolIndex configured for TypeScript -- diagnostics", () => {
 
 		expect(brokenResults.length).toBeGreaterThan(0);
 		expect(cleanResults).toEqual([]);
+	}, 20_000);
+});
+
+describe("LspSymbolIndex auto-discovered seed file in a monorepo with no root tsconfig", () => {
+	// Reproduces a real bug found live against this project's own repo: registering a monorepo
+	// root (no tsconfig.json at that level) let a bounded, alphabetically-sorted scan pick a
+	// standalone root-level config file as the seed -- a real .ts file, but with no tsconfig
+	// covering it, silently limiting workspace/symbol to an unrelated, near-empty project.
+	let monorepoRoot: string | undefined;
+	afterEach(() => {
+		if (monorepoRoot) rmSync(monorepoRoot, { recursive: true, force: true });
+		monorepoRoot = undefined;
+	});
+
+	function buildMonorepoFixture(): string {
+		const root = mkdtempSync(join(tmpdir(), "lector-monorepo-seed-fixture-"));
+		writeFileSync(join(root, "aaa-root-config.ts"), "export {};\n"); // alphabetically first, no project
+		mkdirSync(join(root, "packages", "app", "src"), { recursive: true });
+		writeFileSync(
+			join(root, "packages", "app", "tsconfig.json"),
+			JSON.stringify({ compilerOptions: { module: "ESNext", target: "ESNext" }, include: ["src"] }),
+		);
+		writeFileSync(join(root, "packages", "app", "src", "index.ts"), "export function realProjectExport() {}\n");
+		return root;
+	}
+
+	it("finds a symbol declared in the real project, not silently empty because a stray root config file won the seed-file scan", async () => {
+		monorepoRoot = buildMonorepoFixture();
+		index = new LspSymbolIndex(monorepoRoot, TYPESCRIPT_DESCRIPTOR); // no explicit seedFile -- exercises real auto-discovery
+
+		const results = await findWorkspaceSymbols(index, "realProjectExport");
+
+		expect(results.some((symbol) => symbol.name === "realProjectExport")).toBe(true);
 	}, 20_000);
 });

@@ -81,4 +81,32 @@ describe("discoverSeedFile", () => {
 
 		expect(discoverSeedFile(dir, [".py"], ["main.py"])).toBe("main.py");
 	});
+
+	it("prefers a candidate with a rootMarker ancestor over an alphabetically-earlier one with none -- a real bug found live against this project's own monorepo (a root-level eslint.config.ts alphabetically outranked every real project file)", () => {
+		const dir = freshRoot();
+		// Alphabetically first, but no tsconfig.json anywhere above it.
+		writeFileSync(join(dir, "aaa-no-project.ts"), "export {};");
+		// Alphabetically later, but has a real tsconfig.json ancestor.
+		mkdirSync(join(dir, "zzz-real-project"), { recursive: true });
+		writeFileSync(join(dir, "zzz-real-project", "tsconfig.json"), "{}");
+		writeFileSync(join(dir, "zzz-real-project", "main.ts"), "export {};");
+
+		expect(discoverSeedFile(dir, TS_EXTENSIONS, TS_COMMON_CANDIDATES, ["tsconfig.json"])).toBe(join("zzz-real-project", "main.ts"));
+	});
+
+	it("falls back to the first alphabetical match when nothing scanned has a rootMarker ancestor", () => {
+		const dir = freshRoot();
+		writeFileSync(join(dir, "aaa.ts"), "export {};");
+		writeFileSync(join(dir, "zzz.ts"), "export {};");
+
+		expect(discoverSeedFile(dir, TS_EXTENSIONS, TS_COMMON_CANDIDATES, ["tsconfig.json"])).toBe("aaa.ts");
+	});
+
+	it("treats rootPath itself having the marker as covering every file under it -- the ordinary single-package case must not regress", () => {
+		const dir = freshRoot();
+		writeFileSync(join(dir, "tsconfig.json"), "{}");
+		writeFileSync(join(dir, "aaa.ts"), "export {};");
+
+		expect(discoverSeedFile(dir, TS_EXTENSIONS, TS_COMMON_CANDIDATES, ["tsconfig.json"])).toBe("aaa.ts");
+	});
 });

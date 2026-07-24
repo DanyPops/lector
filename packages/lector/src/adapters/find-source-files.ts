@@ -1,7 +1,8 @@
 import { type Dirent, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 
-const SKIP_DIRECTORY_NAMES = new Set(["node_modules", ".git", "dist", "build", "out", "coverage"]);
+/** Shared with RipgrepTextSearch -- one skip-list, not two independently-maintained ones. */
+export const SKIP_DIRECTORY_NAMES = new Set(["node_modules", ".git", "dist", "build", "out", "coverage"]);
 
 /** Bounded (entry-count-limited, skips node_modules/.git/build output and hidden dirs) recursive source-file scan. */
 export function findSourceFiles(rootPath: string, isSourceExtension: (extension: string) => boolean, maxFiles: number): string[] {
