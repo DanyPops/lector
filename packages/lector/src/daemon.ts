@@ -1,7 +1,9 @@
+import { dirname, join } from "node:path";
 import { type MaintenanceTask, type RunningDaemon, runDaemonProcess, startDaemon } from "@danypops/daemon-kit/daemon";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/daemon-kit/http";
 import type { Logger } from "@danypops/daemon-kit/logging";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/daemon-kit/paths";
+import { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 import { resolveLectorPaths } from "./constants.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import { createLectorService, type LectorService, type OperationName, type WorkspaceId } from "./service.ts";
@@ -84,11 +86,19 @@ function prepare(options: LectorDaemonOptions): {
 	maintenanceTasks: MaintenanceTask[];
 } {
 	const paths = options.paths ?? resolveLectorPaths();
+	// One SQLite file per workspace (named by its own deterministic workspaceId) under a
+	// sibling directory of the main database -- not the same file, since SqliteSymbolGraph
+	// and any other store sharing paths.database would collide on daemon-kit's single
+	// PRAGMA user_version migration counter, silently skipping one store's own migrations.
+	const symbolGraphDirectory = join(dirname(paths.database), "symbol-graphs");
 	// createLectorService throws synchronously on an empty registry (unless allowDynamicOnly is
 	// explicitly set), before startDaemon/runDaemonProcess ever binds a listener or writes a
 	// handle file -- the daemon fails loudly at construction rather than starting and silently
 	// returning empty/error results per call. (Locus LCS-BUG-88 class.)
-	const service = createLectorService(options.workspaces, { allowDynamicOnly: options.allowDynamicOnly });
+	const service = createLectorService(options.workspaces, {
+		allowDynamicOnly: options.allowDynamicOnly,
+		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
+	});
 	const token = ensureAuthToken(paths.token, "Lector");
 	const idleTtlMs = options.symbolIndexIdleTtlMs ?? DEFAULT_SYMBOL_INDEX_IDLE_TTL_MS;
 	// service.close() stops every warm symbol-index (LSP) subprocess the service spawned --
