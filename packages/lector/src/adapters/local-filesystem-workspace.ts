@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { contentHashOf, type ContentHash } from "../domain/content-hash.ts";
+import { type ContentHash, contentHashOf } from "../domain/content-hash.ts";
 import { StaleExpectedHash } from "../domain/exact-edit.ts";
 import type { WorkspaceEntry, WorkspacePort } from "../ports/workspace-port.ts";
 
@@ -25,19 +25,11 @@ function isEnoent(error: unknown): boolean {
 
 /**
  * LocalFilesystemWorkspace -- a WorkspacePort backed by real files under one
- * root directory. Walking-skeleton step 3
- * (lector-generic-capability-design-kkje): "local filesystem adapter with
- * expected-hash atomic writes."
+ * root directory, with expected-hash-guarded atomic writes.
  *
- * Writes are atomic (write to a same-directory temp file, then rename over
- * the target) and preserve the target's existing permission bits rather than
- * adopting the temp file's default mode -- CodeGraph's sedi() bug (#2097):
- * `mv` replaces the target's inode, silently inheriting mktemp's restrictive
- * 0600 instead of the file's own permissions, and never checked whether the
- * move actually succeeded. Both are fixed here: the temp file's mode is
- * corrected *before* the rename (so the file at its final path never has a
- * window with the wrong permissions), and any failure at any step propagates
- * as a rejection rather than a silently-successful no-op.
+ * Writes go through a same-directory temp file, chmod'd to the target's
+ * existing mode before the rename (temp files default to a more
+ * restrictive mode, which a naive rename would otherwise leave in place).
  */
 export class LocalFilesystemWorkspace implements WorkspacePort {
 	private readonly root: string;
@@ -71,11 +63,7 @@ export class LocalFilesystemWorkspace implements WorkspacePort {
 		}
 	}
 
-	async writeEntry(
-		path: string,
-		expectedHash: ContentHash | null,
-		content: string,
-	): Promise<{ previousHash: ContentHash | null; newHash: ContentHash }> {
+	async writeEntry(path: string, expectedHash: ContentHash | null, content: string): Promise<{ previousHash: ContentHash | null; newHash: ContentHash }> {
 		const absolute = this.resolvePath(path);
 
 		let previousHash: ContentHash | null = null;

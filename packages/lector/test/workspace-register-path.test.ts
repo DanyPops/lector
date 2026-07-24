@@ -1,19 +1,19 @@
 /**
- * Checklist (task 8cc5553f): dynamic path-based workspace registration.
- * Prerequisite for pi-lector: a host adapter knows only "the cwd Pi is
- * running in", not a pre-declared workspaceId, so it needs a way to turn a
- * real directory into a registered workspace at runtime rather than
- * requiring `lector serve` to have known about every project upfront.
+ * Dynamic path-based workspace registration: a host adapter (pi-lector)
+ * knows only "the cwd Pi is running in", not a pre-declared workspaceId, so
+ * it needs a way to turn a real directory into a registered workspace at
+ * runtime rather than requiring `lector serve` to have known about every
+ * project upfront.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
-import { InvalidWorkspaceRoot, createLectorService, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
+import { createLectorService, InvalidWorkspaceRoot, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 let cleanupFns: Array<() => void | Promise<void>> = [];
@@ -61,9 +61,7 @@ describe("workspace.registerPath", () => {
 
 	it("rejects a path that does not exist", async () => {
 		const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]));
-		await expect(service.dispatch("workspace.registerPath", { path: "/does/not/exist/at/all" })).rejects.toBeInstanceOf(
-			InvalidWorkspaceRoot,
-		);
+		await expect(service.dispatch("workspace.registerPath", { path: "/does/not/exist/at/all" })).rejects.toBeInstanceOf(InvalidWorkspaceRoot);
 	});
 
 	it("rejects a path that is a file, not a directory", async () => {
@@ -84,11 +82,9 @@ describe("workspace.registerPath", () => {
 		cleanupFns.push(() => daemon.stop());
 
 		const token = readFileSync(paths.token, "utf8").trim();
-		const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(
-			`http://${daemon.host}:${daemon.port}`,
-			token,
-			{ label: "Lector" },
-		);
+		const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${daemon.host}:${daemon.port}`, token, {
+			label: "Lector",
+		});
 
 		const { workspaceId } = await client.call("workspace.registerPath", { path: projectDir });
 		const read = await client.call("workspace.rawRead", { workspaceId, path: "existing.txt" });
@@ -103,32 +99,25 @@ describe("workspace.registerPath", () => {
 		expect(edit.newHash).toBeTruthy();
 	});
 
-	it(
-		"a daemon started with zero pre-registered workspaces (allowDynamicOnly) still rejects an unregistered id, and still becomes usable once registered -- the mode pi-lector's background daemon actually runs in",
-		async () => {
-			const projectDir = await freshProjectDir();
-			await writeFile(join(projectDir, "existing.txt"), "already on disk");
-			const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
-			cleanupFns.push(cleanupPaths);
-			const daemon = startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
-			cleanupFns.push(() => daemon.stop());
+	it("a daemon started with zero pre-registered workspaces (allowDynamicOnly) still rejects an unregistered id, and still becomes usable once registered -- the mode pi-lector's background daemon actually runs in", async () => {
+		const projectDir = await freshProjectDir();
+		await writeFile(join(projectDir, "existing.txt"), "already on disk");
+		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
+		cleanupFns.push(cleanupPaths);
+		const daemon = startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
+		cleanupFns.push(() => daemon.stop());
 
-			const token = readFileSync(paths.token, "utf8").trim();
-			const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(
-				`http://${daemon.host}:${daemon.port}`,
-				token,
-				{ label: "Lector" },
-			);
+		const token = readFileSync(paths.token, "utf8").trim();
+		const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${daemon.host}:${daemon.port}`, token, {
+			label: "Lector",
+		});
 
-			// No implicit fallback reappears just because the registry started empty: an id nobody
-			// registered still fails loudly, exactly as it would with any statically-seeded registry.
-			await expect(client.call("workspace.rawRead", { workspaceId: "never-registered", path: "existing.txt" })).rejects.toThrow(
-				/UnknownWorkspace/,
-			);
+		// No implicit fallback reappears just because the registry started empty: an id nobody
+		// registered still fails loudly, exactly as it would with any statically-seeded registry.
+		await expect(client.call("workspace.rawRead", { workspaceId: "never-registered", path: "existing.txt" })).rejects.toThrow(/UnknownWorkspace/);
 
-			const { workspaceId } = await client.call("workspace.registerPath", { path: projectDir });
-			const read = await client.call("workspace.rawRead", { workspaceId, path: "existing.txt" });
-			expect(read.content).toBe("already on disk");
-		},
-	);
+		const { workspaceId } = await client.call("workspace.registerPath", { path: projectDir });
+		const read = await client.call("workspace.rawRead", { workspaceId, path: "existing.txt" });
+		expect(read.content).toBe("already on disk");
+	});
 });

@@ -31,9 +31,5 @@ export interface WorkspacePort {
 	 * @throws StaleExpectedHash when the entry's current hash does not match
 	 *   `expectedHash`.
 	 */
-	writeEntry(
-		path: string,
-		expectedHash: ContentHash | null,
-		content: string,
-	): Promise<{ previousHash: ContentHash | null; newHash: ContentHash }>;
+	writeEntry(path: string, expectedHash: ContentHash | null, content: string): Promise<{ previousHash: ContentHash | null; newHash: ContentHash }>;
 }

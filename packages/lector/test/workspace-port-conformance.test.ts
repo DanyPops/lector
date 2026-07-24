@@ -1,7 +1,7 @@
 /**
- * Checklist (task 3aaf70ae): "local-filesystem adapter passes the same
- * conformance suite as InMemoryWorkspace" -- one shared suite, run
- * unmodified against every WorkspacePort implementation.
+ * One shared conformance suite, run unmodified against every
+ * WorkspacePort implementation -- proves LocalFilesystemWorkspace behaves
+ * identically to InMemoryWorkspace for every operation both must support.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

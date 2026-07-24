@@ -1,14 +1,12 @@
 /**
- * Checklist: "no implicit fallback to a prior operation's target identity"
- * (task f3cdc40f). Locus's LCS-BUG-97/LCS-BUG-88 shipped because analysis
- * tools silently fell back to "whatever workspace was used/scanned last".
- * Lector's service has no such fallback: every operation names its
- * workspaceId explicitly, and an unknown id fails closed rather than
- * reusing a previous call's target.
+ * Lector's service has no implicit fallback to a prior operation's target
+ * identity: every operation names its workspaceId explicitly, and an
+ * unknown id fails closed rather than silently reusing whichever
+ * workspace a previous call happened to target.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
-import { startLectorDaemon, type LectorDaemonOptions } from "../src/daemon.ts";
+import { type LectorDaemonOptions, startLectorDaemon } from "../src/daemon.ts";
 import { createLectorService, UnknownWorkspace } from "../src/service.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
@@ -16,9 +14,7 @@ describe("createLectorService", () => {
 	it("rejects an operation naming a workspaceId nothing was registered under", async () => {
 		const service = createLectorService(new Map([["a", new InMemoryWorkspace()]]));
 
-		await expect(service.dispatch("workspace.rawRead", { workspaceId: "b", path: "x.txt" })).rejects.toBeInstanceOf(
-			UnknownWorkspace,
-		);
+		await expect(service.dispatch("workspace.rawRead", { workspaceId: "b", path: "x.txt" })).rejects.toBeInstanceOf(UnknownWorkspace);
 	});
 
 	it("never returns one workspace's data for a different workspace's id", async () => {
@@ -62,9 +58,7 @@ describe("createLectorService", () => {
 
 		// "c" was never registered -- must fail closed, never silently resolve to "a" because
 		// "a" happens to be the only (or most recently used) workspace.
-		await expect(service.dispatch("workspace.rawRead", { workspaceId: "c", path: "x.txt" })).rejects.toBeInstanceOf(
-			UnknownWorkspace,
-		);
+		await expect(service.dispatch("workspace.rawRead", { workspaceId: "c", path: "x.txt" })).rejects.toBeInstanceOf(UnknownWorkspace);
 	});
 });
 

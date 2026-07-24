@@ -12,7 +12,7 @@
  * the session happens to be running.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLectorFindSymbolsOperations } from "../extension/src/find-symbols-operations.ts";
@@ -34,71 +34,60 @@ afterEach(async () => {
 });
 
 describe("Lector-backed find-symbols operation", () => {
-	it(
-		"finds a real symbol via a running Lector daemon with no seedFile given anywhere",
-		async () => {
-			const daemon = startIsolatedLectorDaemon();
-			stopDaemon = daemon.stop;
-			setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+	it("finds a real symbol via a running Lector daemon with no seedFile given anywhere", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
-			projectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-"));
-			mkdirSync(join(projectDir, "src"));
-			writeFileSync(join(projectDir, "src", "index.ts"), "export function greetLoudly(name: string): string {\n\treturn `HELLO ${name}`;\n}\n");
+		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-"));
+		mkdirSync(join(projectDir, "src"));
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: this is TypeScript source text written to a fixture file, not a template literal.
+		writeFileSync(join(projectDir, "src", "index.ts"), "export function greetLoudly(name: string): string {\n\treturn `HELLO ${name}`;\n}\n");
 
-			const ops = createLectorFindSymbolsOperations();
-			const symbols = await ops.findSymbols("greetLoudly", projectDir);
+		const ops = createLectorFindSymbolsOperations();
+		const symbols = await ops.findSymbols("greetLoudly", projectDir);
 
-			const match = symbols.find((symbol) => symbol.name === "greetLoudly");
-			expect(match).toBeDefined();
-			expect(match?.kind).toBe("function");
-		},
-		20_000,
-	);
+		const match = symbols.find((symbol) => symbol.name === "greetLoudly");
+		expect(match).toBeDefined();
+		expect(match?.kind).toBe("function");
+	}, 20_000);
 
-	it(
-		"returns an empty array for a query matching nothing, not an error",
-		async () => {
-			const daemon = startIsolatedLectorDaemon();
-			stopDaemon = daemon.stop;
-			setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+	it("returns an empty array for a query matching nothing, not an error", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
-			projectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-"));
-			writeFileSync(join(projectDir, "index.ts"), "export const x = 1;\n");
+		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-"));
+		writeFileSync(join(projectDir, "index.ts"), "export const x = 1;\n");
 
-			const ops = createLectorFindSymbolsOperations();
-			const symbols = await ops.findSymbols("ThisSymbolDefinitelyDoesNotExistAnywhere", projectDir);
+		const ops = createLectorFindSymbolsOperations();
+		const symbols = await ops.findSymbols("ThisSymbolDefinitelyDoesNotExistAnywhere", projectDir);
 
-			expect(symbols).toEqual([]);
-		},
-		20_000,
-	);
+		expect(symbols).toEqual([]);
+	}, 20_000);
 
-	it(
-		"searches whichever directory is given, and one Operations instance can search different directories across calls",
-		async () => {
-			const daemon = startIsolatedLectorDaemon();
-			stopDaemon = daemon.stop;
-			setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+	it("searches whichever directory is given, and one Operations instance can search different directories across calls", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
-			projectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-default-"));
-			writeFileSync(join(projectDir, "index.ts"), "export function inDefaultProject() {}\n");
+		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-default-"));
+		writeFileSync(join(projectDir, "index.ts"), "export function inDefaultProject() {}\n");
 
-			otherProjectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-other-"));
-			writeFileSync(join(otherProjectDir, "index.ts"), "export function inOtherProject() {}\n");
+		otherProjectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-other-"));
+		writeFileSync(join(otherProjectDir, "index.ts"), "export function inOtherProject() {}\n");
 
-			const ops = createLectorFindSymbolsOperations();
+		const ops = createLectorFindSymbolsOperations();
 
-			const firstResults = await ops.findSymbols("inDefaultProject", projectDir);
-			expect(firstResults.some((symbol) => symbol.name === "inDefaultProject")).toBe(true);
+		const firstResults = await ops.findSymbols("inDefaultProject", projectDir);
+		expect(firstResults.some((symbol) => symbol.name === "inDefaultProject")).toBe(true);
 
-			const secondResults = await ops.findSymbols("inOtherProject", otherProjectDir);
-			expect(secondResults.some((symbol) => symbol.name === "inOtherProject")).toBe(true);
+		const secondResults = await ops.findSymbols("inOtherProject", otherProjectDir);
+		expect(secondResults.some((symbol) => symbol.name === "inOtherProject")).toBe(true);
 
-			// Neither search leaks into the other's project -- these are genuinely separate
-			// workspaces, not a shared search scope with a remembered "current" directory.
-			expect(await ops.findSymbols("inOtherProject", projectDir)).toEqual([]);
-			expect(await ops.findSymbols("inDefaultProject", otherProjectDir)).toEqual([]);
-		},
-		20_000,
-	);
+		// Neither search leaks into the other's project -- these are genuinely separate
+		// workspaces, not a shared search scope with a remembered "current" directory.
+		expect(await ops.findSymbols("inOtherProject", projectDir)).toEqual([]);
+		expect(await ops.findSymbols("inDefaultProject", otherProjectDir)).toEqual([]);
+	}, 20_000);
 });

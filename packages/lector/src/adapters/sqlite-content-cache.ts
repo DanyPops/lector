@@ -1,5 +1,5 @@
-import { openSqliteWithPragmas, type Migration } from "@danypops/daemon-kit/storage";
 import type { Database } from "bun:sqlite";
+import { type Migration, openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
 import type { ContentHash } from "../domain/content-hash.ts";
 import type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "../ports/content-cache-port.ts";
 
@@ -51,17 +51,13 @@ export class SqliteContentCache implements ContentCachePort {
 
 	async putRawContent(hash: ContentHash, content: string): Promise<void> {
 		this.db
-			.query(
-				"INSERT INTO content_cache (hash, raw_content) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET raw_content = excluded.raw_content",
-			)
+			.query("INSERT INTO content_cache (hash, raw_content) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET raw_content = excluded.raw_content")
 			.run(hash, content);
 	}
 
 	async putSymbols(hash: ContentHash, symbols: readonly ContentSymbol[]): Promise<void> {
 		this.db
-			.query(
-				"INSERT INTO content_cache (hash, symbols_json) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET symbols_json = excluded.symbols_json",
-			)
+			.query("INSERT INTO content_cache (hash, symbols_json) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET symbols_json = excluded.symbols_json")
 			.run(hash, JSON.stringify(symbols));
 	}
 

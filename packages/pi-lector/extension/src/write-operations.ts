@@ -1,4 +1,4 @@
-import { remoteErrorIs, type ContentHash } from "@danypops/lector";
+import { type ContentHash, remoteErrorIs } from "@danypops/lector";
 import type { WriteOperations } from "@earendil-works/pi-coding-agent";
 import { lectorClient, workspaceForPath } from "./lector-client.ts";
 import { toWorkspaceRelativePath } from "./workspace-relative-path.ts";

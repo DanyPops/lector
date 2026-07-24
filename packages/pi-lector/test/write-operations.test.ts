@@ -1,14 +1,15 @@
 /**
- * Checklist (task ef213eb1): a write racing against a concurrent external
- * change still lands the write tool's intended content, transparently
- * retried, bounded to a fixed number of attempts -- StaleExpectedHash never
- * surfaces to the caller for `write`, unlike `edit`.
+ * A write racing against a concurrent external change still lands the
+ * write tool's intended content, transparently retried, bounded to a
+ * fixed number of attempts -- StaleExpectedHash never surfaces to the
+ * caller for `write`, unlike `edit`.
  */
-import { remoteErrorIs, type LectorClient } from "@danypops/lector";
+
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type LectorClient, remoteErrorIs } from "@danypops/lector";
 import { resetLectorClientForTests, setLectorClientConnectorForTests } from "../extension/src/lector-client.ts";
 import { createLectorWriteOperations } from "../extension/src/write-operations.ts";
 import { startIsolatedLectorDaemon } from "./support/isolated-lector-daemon.ts";

@@ -40,10 +40,9 @@ ports: WorkspacePort, SymbolIndexPort, ContentCachePort
 adapters: local filesystem, typescript-language-server, tree-sitter (WASM), SQLite
 ```
 
-Follows the same supervised-Bun-daemon shape as `@danypops/papyrus` and
-`@danypops/jittor`, built on `@danypops/daemon-kit`: one process owns the
-database and any subprocesses (language servers); everything else is an
-authenticated client.
+A supervised Bun daemon built on `@danypops/daemon-kit`: one process owns
+the database and any subprocesses (language servers); everything else is
+an authenticated client.
 
 ## Development
 

@@ -1,14 +1,12 @@
 /**
- * Checklist (task 9eac033b): a shared conformance fixture runs the same
- * symbol query against every available backend for a capability (here:
- * LSP-backed TypescriptSymbolIndex vs. tree-sitter-backed
- * TreeSitterSymbolIndex), asserting either identical results or an
- * explicitly documented, tested divergence -- never an untested assumption
- * that "they should agree" (doc 0ed166de-3b18-4aab-ae43-84b0efacff37 §5,
- * CodeGraph's dual-engine parity discipline).
+ * A shared conformance fixture runs the same symbol query against every
+ * available backend for a capability (here: LSP-backed
+ * TypescriptSymbolIndex vs. tree-sitter-backed TreeSitterSymbolIndex),
+ * asserting either identical results or an explicitly documented, tested
+ * divergence -- never an untested assumption that "they should agree."
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TypescriptSymbolIndex } from "../../src/adapters/lsp/typescript-symbol-index.ts";

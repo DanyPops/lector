@@ -6,12 +6,12 @@
  * function calls, since the identifier also has to survive JSON transport.
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
-import { startLectorDaemon, type LectorDaemonOptions } from "../src/daemon.ts";
+import { type LectorDaemonOptions, startLectorDaemon } from "../src/daemon.ts";
 import type { OperationInputs, OperationName, OperationOutputs } from "../src/service.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
-import { readFileSync } from "node:fs";
 
 let cleanup: (() => void) | undefined;
 
@@ -24,11 +24,9 @@ async function bootDaemon(workspaces: LectorDaemonOptions["workspaces"]) {
 	const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
 	const daemon = startLectorDaemon({ workspaces, paths });
 	const token = readFileSync(paths.token, "utf8").trim();
-	const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(
-		`http://${daemon.host}:${daemon.port}`,
-		token,
-		{ label: "Lector" },
-	);
+	const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${daemon.host}:${daemon.port}`, token, {
+		label: "Lector",
+	});
 	cleanup = () => {
 		void daemon.stop();
 		cleanupPaths();

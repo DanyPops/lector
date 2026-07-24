@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, type Dirent } from "node:fs";
+import { type Dirent, readdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Parser from "web-tree-sitter";
@@ -97,28 +97,23 @@ function toWorkspaceSymbols(symbols: readonly ContentSymbol[], relativePath: str
 }
 
 /**
- * SymbolIndexPort backed by tree-sitter (via web-tree-sitter's WASM runtime, not the
- * native `tree-sitter` binding -- that requires node-gyp/a native toolchain to compile
- * from source, which this environment does not have; WASM avoids that fragility
- * entirely, the same trade-off CodeGraph documents for its own native-vs-WASM engines).
+ * SymbolIndexPort backed by tree-sitter, via web-tree-sitter's WASM runtime
+ * (the native `tree-sitter` binding needs node-gyp, unavailable here).
  *
- * No subprocess, no warm server, no "No Project." gotcha: every call parses whatever
- * source files currently exist under the workspace root, so results are always current
- * with no invalidation to reason about -- at the cost of re-scanning and re-parsing the
- * whole tree on every query (doc 38db976d's persisted/cached index question is explicitly
- * not decided yet; this is the uncached, correctness-first version).
+ * No subprocess or warm server: every call parses whatever files currently
+ * exist under the workspace root, so results are always current, at the
+ * cost of re-parsing on every query -- mitigated by the ContentHash-keyed
+ * cache below.
  *
- * `tree-sitter-wasms` bundles pre-built grammars from tree-sitter-cli 0.20.x; `web-tree-sitter`
- * is pinned to the matching 0.20.8 release rather than its current 0.26.x line, which cannot
- * load grammars built against that older WASM ABI (confirmed directly: 0.26.11 threw a
- * dylink-metadata load error against these exact .wasm files).
+ * `web-tree-sitter` is pinned to 0.20.8, matching the WASM ABI
+ * `tree-sitter-wasms`' prebuilt grammars were compiled against; 0.26.x
+ * fails to load them.
  *
- * Per-file results ARE cached, keyed by ContentHash, via an injected ContentCachePort
- * (default: an in-process InMemoryContentCache; pass a SqliteContentCache for durability
- * across restarts, doc 38db976d). A cache hit skips parsing that file's content entirely.
- * Reading a file to check its hash also warms the cache's rawContent lens for that hash
- * (code-intel -> fs warming) even on a symbols cache hit, since the content was read either
- * way to compute the hash.
+ * Per-file results are cached, keyed by ContentHash, via an injected
+ * ContentCachePort (default in-memory; pass SqliteContentCache for
+ * durability). A cache hit skips parsing entirely, and also warms the
+ * cache's rawContent lens for that hash, since the content was already
+ * read to compute it.
  */
 export class TreeSitterSymbolIndex implements SymbolIndexPort {
 	private readonly rootPath: string;

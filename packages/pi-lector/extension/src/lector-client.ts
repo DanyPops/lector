@@ -1,14 +1,14 @@
-import { connectLectorClient, type LectorClient, type WorkspaceId } from "@danypops/lector";
 import { dirname, parse } from "node:path";
+import { connectLectorClient, type LectorClient, type WorkspaceId } from "@danypops/lector";
 import { nearestGitRoot } from "./nearest-workspace-root.ts";
 
 /**
  * Lazily connects to a running Lector daemon and caches, per project root,
  * the workspaceId that root registers under. Never auto-spawns the daemon:
- * consistent with Papyrus's own posture, a clear "start it with
- * `lector serve`"-shaped error is preferable to guessing at a lifecycle
- * the user didn't ask for. A failed connection attempt is not cached, so
- * the very next tool call retries once the daemon is actually running.
+ * a clear "start it with `lector serve`" error is preferable to guessing
+ * at a lifecycle the user didn't ask for. A failed connection attempt is
+ * not cached, so the very next tool call retries once the daemon is
+ * actually running.
  */
 
 type ClientConnector = () => Promise<LectorClient>;

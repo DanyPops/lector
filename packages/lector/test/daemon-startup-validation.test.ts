@@ -1,14 +1,9 @@
 /**
- * Checklist: "daemon fails loudly on misconfiguration instead of degrading
- * silently" (task f3cdc40f). Locus's LCS-BUG-88 shipped because `locus
- * serve` with no workspace defaulted to cwd (which was `/` in the
- * container) and silently ran forever returning empty results, diagnosed
- * only via a debug endpoint someone had to think to add.
- *
  * Lector's daemon has no implicit workspace to fall back to at all: given
  * zero registered workspaces, it must refuse to start -- no listener bound,
- * no handle file written -- rather than come up and answer every operation
- * with UnknownWorkspace forever.
+ * no handle file written -- rather than come up and silently answer every
+ * operation with UnknownWorkspace forever, which would look like a hang
+ * or a misconfigured client rather than the actual root cause.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { readDaemonHandle } from "@danypops/daemon-kit/paths";

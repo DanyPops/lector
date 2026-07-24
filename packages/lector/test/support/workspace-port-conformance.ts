@@ -1,8 +1,7 @@
 /**
- * Shared conformance suite for any WorkspacePort implementation, per
- * lector-generic-capability-design-kkje's "runtime adapters using shared
- * conformance fixtures" walking-skeleton step. Every adapter (InMemoryWorkspace,
- * the local-filesystem adapter, and any future one) must pass this unmodified.
+ * Shared conformance suite for any WorkspacePort implementation. Every
+ * adapter (InMemoryWorkspace, the local-filesystem adapter, and any future
+ * one) must pass this unmodified.
  */
 import { describe, expect, it } from "bun:test";
 import { contentHashOf } from "../../src/domain/content-hash.ts";

@@ -5,9 +5,9 @@
  * received by a real client, is recognized by name on the other side.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
-import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
 import { readFileSync } from "node:fs";
+import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
+import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { remoteErrorIs } from "../src/client.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
 import type { OperationInputs, OperationName, OperationOutputs } from "../src/service.ts";
@@ -28,11 +28,9 @@ describe("remoteErrorIs", () => {
 			cleanupPaths();
 		};
 		const token = readFileSync(paths.token, "utf8").trim();
-		const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(
-			`http://${daemon.host}:${daemon.port}`,
-			token,
-			{ label: "Lector" },
-		);
+		const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${daemon.host}:${daemon.port}`, token, {
+			label: "Lector",
+		});
 		await client.call("workspace.exactEdit", { workspaceId: "main", path: "a.txt", expectedHash: null, content: "hello" });
 
 		let caught: unknown;
@@ -58,11 +56,9 @@ describe("remoteErrorIs", () => {
 			cleanupPaths();
 		};
 		const token = readFileSync(paths.token, "utf8").trim();
-		const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(
-			`http://${daemon.host}:${daemon.port}`,
-			token,
-			{ label: "Lector" },
-		);
+		const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${daemon.host}:${daemon.port}`, token, {
+			label: "Lector",
+		});
 
 		let caught: unknown;
 		try {

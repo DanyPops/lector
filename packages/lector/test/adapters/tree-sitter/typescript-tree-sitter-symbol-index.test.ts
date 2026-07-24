@@ -3,14 +3,14 @@
  * current -- dogfooded against Lector's own source, same as the LSP backend.
  */
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemoryContentCache } from "../../../src/adapters/in-memory-content-cache.ts";
 import { TreeSitterSymbolIndex } from "../../../src/adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import type { ContentHash } from "../../../src/domain/content-hash.ts";
 import { contentHashOf } from "../../../src/domain/content-hash.ts";
 import type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "../../../src/ports/content-cache-port.ts";
-import type { ContentHash } from "../../../src/domain/content-hash.ts";
 
 /** Counts get/putSymbols calls per hash, so a test can observe cache hit vs. miss directly instead of only inferring it from output correctness. */
 class CountingContentCache implements ContentCachePort {
@@ -92,7 +92,7 @@ function mktemp(): string {
 	return mkdtempSync(join(tmpdir(), "lector-tree-sitter-test-"));
 }
 
-describe("TreeSitterSymbolIndex content-addressed caching (doc 38db976d)", () => {
+describe("TreeSitterSymbolIndex content-addressed caching", () => {
 	it("parses a file once, then serves a second query for the same unchanged file from the cache", async () => {
 		const root = mktemp();
 		try {

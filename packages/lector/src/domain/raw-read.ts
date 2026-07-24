@@ -1,5 +1,5 @@
-import { contentHashOf, type ContentHash } from "./content-hash.ts";
 import type { WorkspacePort } from "../ports/workspace-port.ts";
+import { type ContentHash, contentHashOf } from "./content-hash.ts";
 
 /** The result of reading a workspace entry as-is, with no structural interpretation. */
 export interface RawRead {

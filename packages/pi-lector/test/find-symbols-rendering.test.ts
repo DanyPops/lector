@@ -10,7 +10,7 @@
 import { describe, expect, it } from "bun:test";
 import type { WorkspaceSymbol } from "@danypops/lector";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { formatFindSymbolsCall, formatFindSymbolsResult, type FindSymbolsTheme } from "../extension/src/find-symbols-rendering.ts";
+import { type FindSymbolsTheme, formatFindSymbolsCall, formatFindSymbolsResult } from "../extension/src/find-symbols-rendering.ts";
 
 // keyHint() (used for the "... N more, press X to expand" truncation notice) reads pi's
 // global keybinding-config-backed theme singleton, independent of the FindSymbolsTheme fake

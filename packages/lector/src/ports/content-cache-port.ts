@@ -23,7 +23,7 @@ export interface ContentSymbol {
  * One shared, content-addressed cache entry. May hold any subset of the
  * lenses derived from the same immutable content -- raw bytes, extracted
  * symbols, and (later) whatever else is derived from that content -- never
- * two independently-invalidated entries for the same hash (doc 38db976d).
+ * two independently-invalidated entries for the same hash.
  */
 export interface ContentCacheEntry {
 	readonly rawContent?: string;

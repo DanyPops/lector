@@ -1,22 +1,17 @@
 /**
- * Checklist: "dedup/coalescing key includes every input that can change the
- * result" (task f3cdc40f). Oculus's LCS-BUG-77 shipped because a singleflight
- * key omitted an input (the scanner override) that changes the result,
- * silently collapsing two different requests onto one shared answer.
- *
  * Lector's service does not (yet) coalesce concurrent identical calls at
- * all -- doc 38db976d leaves the shared-cache question open for a later
- * step. This is a forward-guarding regression suite: it proves that two
- * concurrent operations differing only in a result-affecting field
- * (expectedHash, or workspaceId) are never merged or cross-contaminated
- * *today*, so that whenever coalescing is introduced, a dedup key that
- * forgets one of these fields will fail this suite immediately instead of
- * shipping silently.
+ * all -- that question is left open for later. This is a forward-guarding
+ * regression suite: it proves that two concurrent operations differing
+ * only in a result-affecting field (expectedHash, or workspaceId) are
+ * never merged or cross-contaminated *today*, so that whenever coalescing
+ * is introduced, a dedup key that omits one of these fields (and so would
+ * incorrectly collapse two different requests onto one shared answer)
+ * fails this suite immediately instead of shipping silently.
  */
 import { describe, expect, it } from "bun:test";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { contentHashOf } from "../src/domain/content-hash.ts";
-import { StaleExpectedHash, createLectorService } from "../src/service.ts";
+import { createLectorService, StaleExpectedHash } from "../src/service.ts";
 
 describe("concurrent operations differing in a result-affecting field are never coalesced", () => {
 	it("two concurrent edits racing on the same path with different expectedHash settle independently, not merged", async () => {

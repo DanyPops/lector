@@ -1,10 +1,10 @@
 /**
- * Shared conformance suite for any ContentCachePort implementation (doc
- * 38db976d). Every adapter (InMemoryContentCache, SqliteContentCache, and
- * any future one) must pass this unmodified. Covers the round-trip
- * obligation from doc 0ed166de §1 (a hash stored under K must be retrieved
- * under the same K) and the "one shared entry, not two stores kept in
- * sync" property that is the entire point of this port.
+ * Shared conformance suite for any ContentCachePort implementation. Every
+ * adapter (InMemoryContentCache, SqliteContentCache, and any future one)
+ * must pass this unmodified. Covers the round-trip obligation (a value
+ * stored under a hash must be retrieved under that same hash) and the
+ * "one shared entry, not two stores kept in sync" property that is the
+ * entire point of this port.
  */
 import { describe, expect, it } from "bun:test";
 import { contentHashOf } from "../../src/domain/content-hash.ts";

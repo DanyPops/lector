@@ -1,7 +1,7 @@
-import { runDaemonProcess, startDaemon, type MaintenanceTask, type RunningDaemon } from "@danypops/daemon-kit/daemon";
+import { type MaintenanceTask, type RunningDaemon, runDaemonProcess, startDaemon } from "@danypops/daemon-kit/daemon";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/daemon-kit/http";
 import type { Logger } from "@danypops/daemon-kit/logging";
-import { ensureAuthToken, type DaemonPaths } from "@danypops/daemon-kit/paths";
+import { type DaemonPaths, ensureAuthToken } from "@danypops/daemon-kit/paths";
 import { resolveLectorPaths } from "./constants.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import { createLectorService, type LectorService, type OperationName, type WorkspaceId } from "./service.ts";

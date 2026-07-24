@@ -1,6 +1,6 @@
-import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
-import { readDaemonHandle, type DaemonPaths } from "@danypops/daemon-kit/paths";
 import { readFileSync } from "node:fs";
+import { type DaemonPaths, readDaemonHandle } from "@danypops/daemon-kit/paths";
+import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
 import { resolveLectorPaths } from "./constants.ts";
 import type { OperationInputs, OperationName, OperationOutputs } from "./service.ts";
 
@@ -24,11 +24,9 @@ export async function connectLectorClient(options: ConnectLectorClientOptions = 
 		throw new Error("Lector daemon token is unreadable; restart it with `lector serve`");
 	}
 
-	const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(
-		`http://${handle.host}:${handle.port}`,
-		token,
-		{ label: "Lector" },
-	);
+	const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${handle.host}:${handle.port}`, token, {
+		label: "Lector",
+	});
 	try {
 		await client.health();
 	} catch {

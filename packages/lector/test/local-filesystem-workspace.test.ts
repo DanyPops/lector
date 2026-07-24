@@ -1,12 +1,11 @@
 /**
- * Checklist (task 3aaf70ae): atomic-write permission preservation and
- * failure surfacing, derived from doc 0ed166de-3b18-4aab-ae43-84b0efacff37
- * §6 -- CodeGraph's sedi() bug (#2097): `mv` silently adopted a temp file's
- * restrictive mode instead of the target's own permissions, and a failed
- * move was never checked, so it reported success while the edit never
- * landed. Also covers path-traversal safety, a natural requirement for any
- * real filesystem adapter (not itself one of the researched bugs, but the
- * same class GitNexus's sanitizeRepoName guards against).
+ * Atomic-write permission preservation and failure surfacing: a
+ * write-via-rename must preserve the target file's own permissions rather
+ * than adopting the temp file's (a freshly created temp file typically
+ * gets a more restrictive default mode), and a failed rename must be
+ * surfaced as an error rather than reported as success while the edit
+ * never actually landed. Also covers path-traversal safety, a natural
+ * requirement for any real filesystem adapter.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { chmod, mkdtemp, readFile, rm, stat } from "node:fs/promises";
@@ -59,9 +58,7 @@ describe("LocalFilesystemWorkspace atomic writes", () => {
 		// Make the directory read-only so the rename step cannot complete, simulating a failed write.
 		await chmod(dir, 0o500);
 		try {
-			await expect(
-				exactEdit(workspace, { path: "a.txt", expectedHash: created.newHash, content: "should not land" }),
-			).rejects.toThrow();
+			await expect(exactEdit(workspace, { path: "a.txt", expectedHash: created.newHash, content: "should not land" })).rejects.toThrow();
 		} finally {
 			await chmod(dir, 0o700); // restore so afterEach's rm can clean up
 		}
@@ -75,9 +72,9 @@ describe("LocalFilesystemWorkspace atomic writes", () => {
 		const workspace = new LocalFilesystemWorkspace(dir);
 
 		await expect(rawRead(workspace, "../../etc/passwd")).rejects.toBeInstanceOf(PathEscapesWorkspaceRoot);
-		await expect(
-			exactEdit(workspace, { path: "../outside.txt", expectedHash: null, content: "escape attempt" }),
-		).rejects.toBeInstanceOf(PathEscapesWorkspaceRoot);
+		await expect(exactEdit(workspace, { path: "../outside.txt", expectedHash: null, content: "escape attempt" })).rejects.toBeInstanceOf(
+			PathEscapesWorkspaceRoot,
+		);
 	});
 
 	it(

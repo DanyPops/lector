@@ -1,16 +1,14 @@
 /**
- * Checklist (task ef213eb1, revised after a real, shipped bug fix): a
- * project's workspace is registered exactly once and reused, but --
- * unlike the original version of this test suite -- registration is keyed
- * by each path's *own* nearest git root, never a single fixed session cwd.
- * Two files under different repos must resolve to two different
- * workspaces in the very same running session.
+ * A project's workspace is registered exactly once and reused. Registration
+ * is keyed by each path's *own* nearest git root, never a single fixed
+ * session cwd: two files under different repos must resolve to two
+ * different workspaces in the very same running session.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { connectLectorClient, resolveLectorPaths, type LectorClient } from "@danypops/lector";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connectLectorClient, type LectorClient, resolveLectorPaths } from "@danypops/lector";
 import { resetLectorClientForTests, setLectorClientConnectorForTests, workspaceForDirectory, workspaceForPath } from "../extension/src/lector-client.ts";
 import { startIsolatedLectorDaemon } from "./support/isolated-lector-daemon.ts";
 

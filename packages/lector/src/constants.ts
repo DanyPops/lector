@@ -1,4 +1,4 @@
-import { resolveDaemonPaths, type DaemonPathNames, type DaemonPaths, type PathEnvironment } from "@danypops/daemon-kit/paths";
+import { type DaemonPathNames, type DaemonPaths, type PathEnvironment, resolveDaemonPaths } from "@danypops/daemon-kit/paths";
 
 export const DAEMON_LABEL = "Lector";
 

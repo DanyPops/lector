@@ -1,7 +1,7 @@
 /**
- * Checklist (task ef213eb1): an edit whose file changed on disk between
- * readFile and writeFile fails with a clear error, and the file's on-disk
- * content reflects the interposing change, not a blind overwrite.
+ * An edit whose file changed on disk between readFile and writeFile fails
+ * with a clear error, and the file's on-disk content reflects the
+ * interposing change, not a blind overwrite.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

@@ -1,5 +1,5 @@
-import type { ContentHash } from "./content-hash.ts";
 import type { WorkspacePort } from "../ports/workspace-port.ts";
+import type { ContentHash } from "./content-hash.ts";
 
 /**
  * An edit intent: write `content` to `path`, guarded by the hash the caller

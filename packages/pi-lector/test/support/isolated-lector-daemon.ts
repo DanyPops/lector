@@ -1,13 +1,7 @@
-import {
-	InMemoryWorkspace,
-	connectLectorClientAt,
-	resolveLectorPaths,
-	startLectorDaemon,
-	type LectorClient,
-} from "@danypops/lector";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connectLectorClientAt, InMemoryWorkspace, type LectorClient, resolveLectorPaths, startLectorDaemon } from "@danypops/lector";
 
 /**
  * Boots a real, isolated Lector daemon (own XDG root, own port) for

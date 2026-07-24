@@ -1,18 +1,18 @@
-import type { ReadOperations } from "@earendil-works/pi-coding-agent";
 import { constants } from "node:fs";
 import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
+import type { ReadOperations } from "@earendil-works/pi-coding-agent";
 import { lectorClient, workspaceForPath } from "./lector-client.ts";
 import { toWorkspaceRelativePath } from "./workspace-relative-path.ts";
 
 /**
  * Lector's core domain (RawRead/ExpectedHashEdit) is deliberately text-only
- * for this pass -- binary content is an open, not-yet-decided design
- * question (doc 38db976d). Images are the one case pi's built-in read tool
- * must still handle correctly, so they read directly from the local
- * filesystem, bypassing Lector entirely, rather than corrupting binary
- * bytes through a text round-trip. Extension-based, not content-sniffed:
- * good enough to match pi's own defaultReadOperations behavior for the
- * common case without depending on pi-coding-agent's internal detector.
+ * for now -- binary content is an open design question. Images are the one
+ * case pi's built-in read tool must still handle correctly, so they read
+ * directly from the local filesystem, bypassing Lector entirely, rather
+ * than corrupting binary bytes through a text round-trip. Extension-based,
+ * not content-sniffed: good enough to match pi's own defaultReadOperations
+ * behavior for the common case without depending on pi-coding-agent's
+ * internal detector.
  */
 const IMAGE_MIME_TYPES_BY_EXTENSION: Record<string, string> = {
 	".jpg": "image/jpeg",

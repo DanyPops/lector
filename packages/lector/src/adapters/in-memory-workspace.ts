@@ -1,4 +1,4 @@
-import { contentHashOf, type ContentHash } from "../domain/content-hash.ts";
+import { type ContentHash, contentHashOf } from "../domain/content-hash.ts";
 import { StaleExpectedHash } from "../domain/exact-edit.ts";
 import type { WorkspaceEntry, WorkspacePort } from "../ports/workspace-port.ts";
 
@@ -16,11 +16,7 @@ export class InMemoryWorkspace implements WorkspacePort {
 		return content === undefined ? { exists: false } : { exists: true, content };
 	}
 
-	async writeEntry(
-		path: string,
-		expectedHash: ContentHash | null,
-		content: string,
-	): Promise<{ previousHash: ContentHash | null; newHash: ContentHash }> {
+	async writeEntry(path: string, expectedHash: ContentHash | null, content: string): Promise<{ previousHash: ContentHash | null; newHash: ContentHash }> {
 		const existing = this.entries.get(path);
 		const previousHash = existing === undefined ? null : contentHashOf(existing);
 		if (previousHash !== expectedHash) {

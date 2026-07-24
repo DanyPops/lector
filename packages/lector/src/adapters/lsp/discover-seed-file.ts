@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, type Dirent } from "node:fs";
+import { type Dirent, existsSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 
 const COMMON_SEED_CANDIDATES = ["src/index.ts", "index.ts", "src/main.ts", "main.ts", "src/index.tsx", "index.tsx", "src/index.js", "index.js"];
