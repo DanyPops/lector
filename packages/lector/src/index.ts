@@ -1,3 +1,4 @@
+export { GitRepoFetcher, type GitRepoFetcherOptions } from "./adapters/git-repo-fetcher.ts";
 export { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
 export { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 export { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
@@ -9,6 +10,7 @@ export {
 	LanguageServerRequestTimedOut,
 } from "./adapters/lsp/language-server-process.ts";
 export { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
+export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
 export { SqliteContentCache } from "./adapters/sqlite-content-cache.ts";
 export { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 export { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
@@ -22,6 +24,8 @@ export {
 export { resolveLectorPaths } from "./constants.ts";
 export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
 export { assertSafeGitArgument, UnsafeGitArgument } from "./domain/assert-safe-git-argument.ts";
+export { assertSafePathSegment, UnsafePathSegment } from "./domain/assert-safe-path-segment.ts";
+export { assertSafeRepoReference } from "./domain/assert-safe-repo-reference.ts";
 export type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 export type { CodeRange } from "./domain/code-range.ts";
 export { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
@@ -57,6 +61,8 @@ export { type PopulateSymbolGraphResult, populateSymbolGraph } from "./domain/po
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 export { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
+export { RepoFetchFailed, type RepoFetchResult } from "./domain/repo-fetch-result.ts";
+export type { RepoReference } from "./domain/repo-reference.ts";
 export { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 export { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 export { deriveSymbolNodeId, type SymbolNodeId } from "./domain/symbol-node-id.ts";
@@ -64,6 +70,7 @@ export type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symb
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
 export type { GitPort } from "./ports/git-port.ts";
+export type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 export type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
@@ -79,6 +86,7 @@ export {
 	type OperationInputs,
 	type OperationName,
 	type OperationOutputs,
+	RepoFetcherNotConfigured,
 	SymbolQueryUnavailable,
 	UnknownWorkspace,
 	type WorkspaceId,

@@ -3,6 +3,7 @@ import { type MaintenanceTask, type RunningDaemon, runDaemonProcess, startDaemon
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/daemon-kit/http";
 import type { Logger } from "@danypops/daemon-kit/logging";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/daemon-kit/paths";
+import { GitRepoFetcher } from "./adapters/git-repo-fetcher.ts";
 import { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 import { resolveLectorPaths } from "./constants.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
@@ -91,6 +92,10 @@ function prepare(options: LectorDaemonOptions): {
 	// and any other store sharing paths.database would collide on daemon-kit's single
 	// PRAGMA user_version migration counter, silently skipping one store's own migrations.
 	const symbolGraphDirectory = join(dirname(paths.database), "symbol-graphs");
+	// One GitRepoFetcher for the whole daemon (not per-workspace, unlike symbol graphs) -- it
+	// manages its own disk-bounded LRU cache of fetched external repos under a sibling
+	// directory of the main database, independent of any single registered workspace.
+	const reposDirectory = join(dirname(paths.database), "repos");
 	// createLectorService throws synchronously on an empty registry (unless allowDynamicOnly is
 	// explicitly set), before startDaemon/runDaemonProcess ever binds a listener or writes a
 	// handle file -- the daemon fails loudly at construction rather than starting and silently
@@ -98,6 +103,7 @@ function prepare(options: LectorDaemonOptions): {
 	const service = createLectorService(options.workspaces, {
 		allowDynamicOnly: options.allowDynamicOnly,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
+		createRepoFetcher: () => new GitRepoFetcher(reposDirectory),
 	});
 	const token = ensureAuthToken(paths.token, "Lector");
 	const idleTtlMs = options.symbolIndexIdleTtlMs ?? DEFAULT_SYMBOL_INDEX_IDLE_TTL_MS;

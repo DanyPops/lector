@@ -7,6 +7,7 @@ import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.
 import { LocalGit } from "./adapters/local-git.ts";
 import { discoverWorkspaceDescriptor } from "./adapters/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
+import { ReadOnlyWorkspace } from "./adapters/read-only-workspace.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
 import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
@@ -29,12 +30,15 @@ import { populateSymbolGraph as populateSymbolGraphQuery } from "./domain/popula
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
 import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 import { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
+import type { RepoFetchResult } from "./domain/repo-fetch-result.ts";
+import type { RepoReference } from "./domain/repo-reference.ts";
 import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
 import type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 import type { GitPort } from "./ports/git-port.ts";
+import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
@@ -106,6 +110,14 @@ export class CodeIntelligenceUnavailable extends Error {
 	}
 }
 
+/** Raised when repo.fetch is called on a service constructed without a createRepoFetcher option -- fetching an external repo needs a real disk location a host must explicitly provide, unlike e.g. createSymbolGraph's safe in-memory default. */
+export class RepoFetcherNotConfigured extends Error {
+	constructor() {
+		super("repo.fetch requires a service constructed with options.createRepoFetcher");
+		this.name = "RepoFetcherNotConfigured";
+	}
+}
+
 export type OperationName =
 	| "workspace.rawRead"
 	| "workspace.exactEdit"
@@ -127,7 +139,8 @@ export type OperationName =
 	| "workspace.hasWarmIndex"
 	| "workspace.gitStatus"
 	| "workspace.gitLog"
-	| "workspace.gitDiff";
+	| "workspace.gitDiff"
+	| "repo.fetch";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
@@ -151,6 +164,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.gitStatus",
 	"workspace.gitLog",
 	"workspace.gitDiff",
+	"repo.fetch",
 ];
 
 /** A single position within a file already registered under `workspaceId`, 1-indexed. */
@@ -183,6 +197,7 @@ export interface OperationInputs {
 	"workspace.gitStatus": { workspaceId: WorkspaceId };
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
+	"repo.fetch": RepoReference;
 }
 
 export interface OperationOutputs {
@@ -207,6 +222,7 @@ export interface OperationOutputs {
 	"workspace.gitStatus": GitStatusSummary;
 	"workspace.gitLog": { entries: readonly GitLogEntry[] };
 	"workspace.gitDiff": GitDiffResult;
+	"repo.fetch": RepoFetchResult & { workspaceId: WorkspaceId };
 }
 
 /**
@@ -265,6 +281,8 @@ export interface LectorServiceOptions {
 	createSymbolGraph?: (workspaceId: WorkspaceId) => SymbolGraphPort;
 	/** Factory for the git port backing workspace.gitStatus/gitLog/gitDiff. Defaults to LocalGit, the real `git` CLI. Cheap to construct -- never cached, unlike symbol indexes. */
 	createGitPort?: (rootPath: string) => GitPort;
+	/** Factory for the port backing repo.fetch. No default -- unlike createSymbolGraph's safe in-memory fallback, fetching a real external repo always needs a real disk location only a host (daemon.ts) can supply. Called once at construction and reused, not per-call. */
+	createRepoFetcher?: () => RepoFetcherPort;
 }
 
 function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): WorkspacePort {
@@ -349,6 +367,10 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	}
 
 	const createGitPort = options.createGitPort ?? ((rootPath: string) => new LocalGit(rootPath));
+	// Constructed once, not per-call -- reconstructing would rehydrate the same on-disk index
+	// every time, wastefully, and would risk losing the in-memory LRU's recency ordering
+	// between calls for no benefit (the index itself is what makes rehydration correct at all).
+	const repoFetcher = options.createRepoFetcher?.();
 
 	/** Never cached: cheap to construct, and a stale-git-repo check would be wrong to memoize across a repo that could be git-init'd or removed mid-session. */
 	async function requireGitRepository(workspaceId: WorkspaceId): Promise<GitPort> {
@@ -373,6 +395,18 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	async function gitDiffHandler(_registry: MutableRegistry, input: OperationInputs["workspace.gitDiff"]): Promise<OperationOutputs["workspace.gitDiff"]> {
 		const git = await requireGitRepository(input.workspaceId);
 		return git.diff(input.ref, input.maxBytes);
+	}
+
+	/** Fetches (or reuses a cached clone of) an external repo and registers it read-only -- the same registry every other operation already reads from, so find_symbols/go_to_definition/git status etc. work on it unchanged once fetched. */
+	async function repoFetchHandler(registry: MutableRegistry, input: OperationInputs["repo.fetch"]): Promise<OperationOutputs["repo.fetch"]> {
+		if (!repoFetcher) throw new RepoFetcherNotConfigured();
+		const result = await repoFetcher.fetch(input);
+		const absolutePath = resolve(result.path);
+		const workspaceId = deriveWorkspaceId(absolutePath);
+		if (!registry.has(workspaceId)) {
+			registry.set(workspaceId, { port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)), rootPath: absolutePath });
+		}
+		return { workspaceId, ...result };
 	}
 
 	/** Resolves which descriptor a call targets: path/seedFile's own extension, per-file like every mainstream editor -- never a guess about "the workspace's language" -- except findSymbols with neither, which has no anchor file at all. */
@@ -594,6 +628,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.gitStatus": gitStatusHandler,
 		"workspace.gitLog": gitLogHandler,
 		"workspace.gitDiff": gitDiffHandler,
+		"repo.fetch": repoFetchHandler,
 	};
 
 	return {
