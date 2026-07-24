@@ -41,6 +41,9 @@ const USAGE = `Usage:
     --max-depth is required for reachable-from, ignored for edges-from/edges-to
   lector workspace has-warm-index <workspace-id> [--json]
     never spawns a symbol index -- reports whether one is already warm
+  lector workspace git-status <workspace-id> [--json]
+  lector workspace git-log <workspace-id> --max-count <n> [--json]
+  lector workspace git-diff <workspace-id> [--ref <ref>] --max-bytes <n> [--json]
 `;
 
 function fail(message: string): never {
@@ -326,6 +329,53 @@ async function runWorkspaceHasWarmIndex(workspaceId: string | undefined, flags: 
 	console.log(hasFlag(flags, "--json") ? JSON.stringify({ warm }) : warm ? "warm" : "not warm");
 }
 
+async function runWorkspaceGitStatus(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const client = await connectLectorClient();
+	const summary = await client.call("workspace.gitStatus", { workspaceId });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(summary));
+		return;
+	}
+	const branch = summary.current ?? "(detached)";
+	const tracking = summary.tracking ? `, tracking ${summary.tracking} (+${summary.ahead}/-${summary.behind})` : "";
+	console.log(`On branch ${branch}${tracking}`);
+	if (summary.files.length === 0) {
+		console.log("working tree clean");
+		return;
+	}
+	for (const file of summary.files) {
+		const code = `${file.indexStatus}${file.workingDirStatus}`;
+		console.log(file.renamedFrom ? `${code} ${file.renamedFrom} -> ${file.path}` : `${code} ${file.path}`);
+	}
+}
+
+async function runWorkspaceGitLog(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const maxCount = requiredIntFlag(flags, "--max-count");
+	const client = await connectLectorClient();
+	const { entries } = await client.call("workspace.gitLog", { workspaceId, maxCount });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(entries));
+		return;
+	}
+	for (const entry of entries) console.log(`${entry.sha.slice(0, 8)} ${entry.authoredAt} ${entry.authorName} -- ${entry.message}`);
+}
+
+async function runWorkspaceGitDiff(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const ref = flagValue(flags, "--ref");
+	const maxBytes = requiredIntFlag(flags, "--max-bytes");
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.gitDiff", { workspaceId, ref, maxBytes });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	console.log(result.diff);
+	if (result.truncated) console.log("... (truncated)");
+}
+
 function parseSymbolEdgeKind(flags: string[]): "calls" | "references" | "contains" | undefined {
 	const raw = flagValue(flags, "--kind");
 	if (raw === undefined) return undefined;
@@ -506,6 +556,15 @@ async function main(): Promise<void> {
 		if (action === "has-warm-index") {
 			const [hwiWorkspaceId, ...hwiFlags] = actionArgs;
 			return runWorkspaceHasWarmIndex(hwiWorkspaceId, hwiFlags);
+		}
+		if (action === "git-status" || action === "git-log" || action === "git-diff") {
+			// None of these take a <path> positional -- the generic [workspaceId, path, ...flags]
+			// destructure above would misparse the first flag as path (the exact bug
+			// populate-symbol-graph's own CLI wiring hit).
+			const [gitWorkspaceId, ...gitFlags] = actionArgs;
+			if (action === "git-status") return runWorkspaceGitStatus(gitWorkspaceId, gitFlags);
+			if (action === "git-log") return runWorkspaceGitLog(gitWorkspaceId, gitFlags);
+			return runWorkspaceGitDiff(gitWorkspaceId, gitFlags);
 		}
 		fail(USAGE);
 	}

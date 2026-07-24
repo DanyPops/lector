@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { findSourceFiles } from "./adapters/find-source-files.ts";
 import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
+import { LocalGit } from "./adapters/local-git.ts";
 import { discoverWorkspaceDescriptor } from "./adapters/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
@@ -14,6 +15,9 @@ import { documentSymbols as documentSymbolsQuery } from "./domain/document-symbo
 import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash } from "./domain/exact-edit.ts";
 import { findReferences as findReferencesQuery } from "./domain/find-references.ts";
 import { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
+import type { GitDiffResult } from "./domain/git-diff-result.ts";
+import type { GitLogEntry } from "./domain/git-log-entry.ts";
+import type { GitStatusSummary } from "./domain/git-status.ts";
 import { goToDefinition as goToDefinitionQuery } from "./domain/go-to-definition.ts";
 import { goToImplementation as goToImplementationQuery } from "./domain/go-to-implementation.ts";
 import type { Hover } from "./domain/hover.ts";
@@ -30,6 +34,7 @@ import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
 import type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
+import type { GitPort } from "./ports/git-port.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
@@ -66,6 +71,14 @@ export class SymbolQueryUnavailable extends Error {
 	constructor(readonly workspaceId: WorkspaceId) {
 		super(`workspace "${workspaceId}" has no known root path; symbol queries require a workspace registered via workspace.registerPath`);
 		this.name = "SymbolQueryUnavailable";
+	}
+}
+
+/** Raised when a git operation targets a workspace whose root is not inside a git repository -- a real, expected case, not every registered workspace is one. */
+export class NotAGitRepository extends Error {
+	constructor(readonly workspaceId: WorkspaceId) {
+		super(`workspace "${workspaceId}" is not inside a git repository`);
+		this.name = "NotAGitRepository";
 	}
 }
 
@@ -111,7 +124,10 @@ export type OperationName =
 	| "workspace.reachableFrom"
 	| "workspace.symbolEdgesFrom"
 	| "workspace.symbolEdgesTo"
-	| "workspace.hasWarmIndex";
+	| "workspace.hasWarmIndex"
+	| "workspace.gitStatus"
+	| "workspace.gitLog"
+	| "workspace.gitDiff";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
@@ -132,6 +148,9 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.symbolEdgesFrom",
 	"workspace.symbolEdgesTo",
 	"workspace.hasWarmIndex",
+	"workspace.gitStatus",
+	"workspace.gitLog",
+	"workspace.gitDiff",
 ];
 
 /** A single position within a file already registered under `workspaceId`, 1-indexed. */
@@ -161,6 +180,9 @@ export interface OperationInputs {
 	"workspace.symbolEdgesFrom": WorkspacePosition & { kind?: SymbolEdgeKind };
 	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind };
 	"workspace.hasWarmIndex": { workspaceId: WorkspaceId; path?: string };
+	"workspace.gitStatus": { workspaceId: WorkspaceId };
+	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
+	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
 }
 
 export interface OperationOutputs {
@@ -182,6 +204,9 @@ export interface OperationOutputs {
 	"workspace.symbolEdgesFrom": { symbols: readonly SymbolNode[] };
 	"workspace.symbolEdgesTo": { symbols: readonly SymbolNode[] };
 	"workspace.hasWarmIndex": { warm: boolean };
+	"workspace.gitStatus": GitStatusSummary;
+	"workspace.gitLog": { entries: readonly GitLogEntry[] };
+	"workspace.gitDiff": GitDiffResult;
 }
 
 /**
@@ -238,6 +263,8 @@ export interface LectorServiceOptions {
 	allowDynamicOnly?: boolean;
 	/** Factory for the graph backing workspace.populateSymbolGraph/reachableFrom/symbolEdgesFrom/symbolEdgesTo. Defaults to an in-memory graph (not durable across a restart). */
 	createSymbolGraph?: (workspaceId: WorkspaceId) => SymbolGraphPort;
+	/** Factory for the git port backing workspace.gitStatus/gitLog/gitDiff. Defaults to LocalGit, the real `git` CLI. Cheap to construct -- never cached, unlike symbol indexes. */
+	createGitPort?: (rootPath: string) => GitPort;
 }
 
 function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): WorkspacePort {
@@ -319,6 +346,33 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			symbolGraphs.set(workspaceId, graph);
 		}
 		return graph;
+	}
+
+	const createGitPort = options.createGitPort ?? ((rootPath: string) => new LocalGit(rootPath));
+
+	/** Never cached: cheap to construct, and a stale-git-repo check would be wrong to memoize across a repo that could be git-init'd or removed mid-session. */
+	async function requireGitRepository(workspaceId: WorkspaceId): Promise<GitPort> {
+		const entry = registry.get(workspaceId);
+		if (!entry) throw new UnknownWorkspace(workspaceId);
+		if (!entry.rootPath) throw new SymbolQueryUnavailable(workspaceId);
+		const git = createGitPort(entry.rootPath);
+		if (!(await git.isGitRepository())) throw new NotAGitRepository(workspaceId);
+		return git;
+	}
+
+	async function gitStatusHandler(_registry: MutableRegistry, input: OperationInputs["workspace.gitStatus"]): Promise<OperationOutputs["workspace.gitStatus"]> {
+		const git = await requireGitRepository(input.workspaceId);
+		return git.status();
+	}
+
+	async function gitLogHandler(_registry: MutableRegistry, input: OperationInputs["workspace.gitLog"]): Promise<OperationOutputs["workspace.gitLog"]> {
+		const git = await requireGitRepository(input.workspaceId);
+		return { entries: await git.log(input.maxCount) };
+	}
+
+	async function gitDiffHandler(_registry: MutableRegistry, input: OperationInputs["workspace.gitDiff"]): Promise<OperationOutputs["workspace.gitDiff"]> {
+		const git = await requireGitRepository(input.workspaceId);
+		return git.diff(input.ref, input.maxBytes);
 	}
 
 	/** Resolves which descriptor a call targets: path/seedFile's own extension, per-file like every mainstream editor -- never a guess about "the workspace's language" -- except findSymbols with neither, which has no anchor file at all. */
@@ -537,6 +591,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.symbolEdgesFrom": symbolEdgesFromHandler,
 		"workspace.symbolEdgesTo": symbolEdgesToHandler,
 		"workspace.hasWarmIndex": hasWarmIndex,
+		"workspace.gitStatus": gitStatusHandler,
+		"workspace.gitLog": gitLogHandler,
+		"workspace.gitDiff": gitDiffHandler,
 	};
 
 	return {

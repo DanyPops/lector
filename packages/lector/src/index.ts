@@ -2,6 +2,7 @@ export { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
 export { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 export { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./adapters/local-filesystem-workspace.ts";
+export { LocalGit } from "./adapters/local-git.ts";
 export {
 	LanguageServerProcess,
 	LanguageServerProcessExited,
@@ -20,6 +21,7 @@ export {
 } from "./client.ts";
 export { resolveLectorPaths } from "./constants.ts";
 export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
+export { assertSafeGitArgument, UnsafeGitArgument } from "./domain/assert-safe-git-argument.ts";
 export type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 export type { CodeRange } from "./domain/code-range.ts";
 export { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
@@ -35,6 +37,9 @@ export {
 } from "./domain/exact-edit.ts";
 export { findReferences } from "./domain/find-references.ts";
 export { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
+export type { GitDiffResult } from "./domain/git-diff-result.ts";
+export type { GitLogEntry } from "./domain/git-log-entry.ts";
+export type { GitStatusEntry, GitStatusSummary } from "./domain/git-status.ts";
 export { goToDefinition } from "./domain/go-to-definition.ts";
 export { goToImplementation } from "./domain/go-to-implementation.ts";
 export type { Hover } from "./domain/hover.ts";
@@ -58,6 +63,7 @@ export { deriveSymbolNodeId, type SymbolNodeId } from "./domain/symbol-node-id.t
 export type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
+export type { GitPort } from "./ports/git-port.ts";
 export type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
@@ -68,6 +74,7 @@ export {
 	InvalidWorkspaceRoot,
 	type LectorService,
 	type LectorServiceOptions,
+	NotAGitRepository,
 	OPERATION_NAMES,
 	type OperationInputs,
 	type OperationName,
