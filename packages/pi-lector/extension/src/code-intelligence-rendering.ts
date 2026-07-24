@@ -51,6 +51,14 @@ export function formatGoToDefinitionResult(locations: readonly WorkspaceLocation
 	return formatLocationList(locations, "No definition found.", expanded, theme);
 }
 
+export function formatGoToImplementationCall(args: { path?: unknown; line?: unknown; character?: unknown }, theme: LectorTheme): string {
+	return formatPositionalCall("go_to_implementation", args, theme);
+}
+
+export function formatGoToImplementationResult(locations: readonly WorkspaceLocation[] | undefined, expanded: boolean, theme: LectorTheme): string {
+	return formatLocationList(locations, "No implementation found.", expanded, theme);
+}
+
 export function formatFindReferencesCall(args: { path?: unknown; line?: unknown; character?: unknown }, theme: LectorTheme): string {
 	return formatPositionalCall("find_references", args, theme);
 }

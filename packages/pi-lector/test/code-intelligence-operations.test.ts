@@ -97,6 +97,26 @@ describe("Lector-backed code-intelligence operations", () => {
 		expect(references.some((location) => location.path === mathFile)).toBe(true);
 	}, 20_000);
 
+	it("goToImplementation crosses an interface/implementation boundary that goToDefinition cannot", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root } = buildProjectFixture();
+		projectDir = root;
+		const greeterFile = join(root, "src", "greeter.ts");
+		writeFileSync(
+			greeterFile,
+			'interface Greeter {\n\tgreet(): string;\n}\n\nclass EnglishGreeter implements Greeter {\n\tgreet(): string {\n\t\treturn "hello";\n\t}\n}\n',
+		);
+
+		const ops = createLectorCodeIntelligenceOperations();
+		// Position on "greet" in "greet(): string;" (the interface member).
+		const implementations = await ops.goToImplementation(greeterFile, 2, 2);
+
+		expect(implementations.length).toBeGreaterThan(0);
+		expect(implementations.every((location) => location.path === greeterFile)).toBe(true);
+	}, 20_000);
+
 	it("diagnostics reports a real type error via a running Lector daemon", async () => {
 		const daemon = startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
@@ -148,5 +168,20 @@ describe("Lector-backed code-intelligence operations", () => {
 		// addTwice (line 5) calls add (line 1) -- one hop.
 		const reachable = await ops.reachableFrom(mathFile, 5, 17, 1, "calls");
 		expect(reachable.some((symbol) => symbol.name === "add")).toBe(true);
+	}, 20_000);
+
+	it("hasWarmIndex reports false before any query and true after, without itself causing a spawn", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const ops = createLectorCodeIntelligenceOperations();
+		expect(await ops.hasWarmIndex(mathFile)).toBe(false);
+
+		await ops.documentSymbols(mathFile);
+
+		expect(await ops.hasWarmIndex(mathFile)).toBe(true);
 	}, 20_000);
 });

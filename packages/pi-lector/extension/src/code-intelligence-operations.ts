@@ -26,6 +26,7 @@ import { lectorClient, withWorkspace, workspaceForPath } from "./lector-client.t
  */
 export interface CodeIntelligenceOperations {
 	goToDefinition(path: string, line: number, character: number): Promise<readonly WorkspaceLocation[]>;
+	goToImplementation(path: string, line: number, character: number): Promise<readonly WorkspaceLocation[]>;
 	findReferences(path: string, line: number, character: number, includeDeclaration: boolean): Promise<readonly WorkspaceLocation[]>;
 	hover(path: string, line: number, character: number): Promise<Hover | undefined>;
 	documentSymbols(path: string): Promise<readonly DocumentSymbolEntry[]>;
@@ -39,6 +40,8 @@ export interface CodeIntelligenceOperations {
 		maxSymbolsPerFile: number,
 	): Promise<{ filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number }>;
 	reachableFrom(path: string, line: number, character: number, maxDepth: number, kind?: SymbolEdgeKind): Promise<readonly SymbolNode[]>;
+	/** Never spawns a symbol index -- safe to call opportunistically (e.g. before deciding whether to enrich a result). */
+	hasWarmIndex(path: string): Promise<boolean>;
 }
 
 export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperations {
@@ -49,6 +52,16 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { locations } = await client.call("workspace.goToDefinition", { workspaceId, path, line, character });
+					return locations;
+				},
+			);
+		},
+		async goToImplementation(path, line, character) {
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { locations } = await client.call("workspace.goToImplementation", { workspaceId, path, line, character });
 					return locations;
 				},
 			);
@@ -139,6 +152,16 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 					const client = await lectorClient();
 					const { symbols } = await client.call("workspace.reachableFrom", { workspaceId, path, line, character, maxDepth, kind });
 					return symbols;
+				},
+			);
+		},
+		async hasWarmIndex(path) {
+			return withWorkspace(
+				() => workspaceForPath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					const { warm } = await client.call("workspace.hasWarmIndex", { workspaceId });
+					return warm;
 				},
 			);
 		},

@@ -23,6 +23,8 @@ import {
 	formatFindReferencesResult,
 	formatGoToDefinitionCall,
 	formatGoToDefinitionResult,
+	formatGoToImplementationCall,
+	formatGoToImplementationResult,
 	formatHoverCall,
 	formatHoverResult,
 	formatIncomingCallsCall,
@@ -157,6 +159,43 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { locations?: readonly WorkspaceLocation[] } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatGoToDefinitionResult(details?.locations, expanded, theme));
+				return text;
+			},
+		});
+
+		pi.registerTool({
+			name: "go_to_implementation",
+			label: "Go to Implementation",
+			description:
+				"Find every concrete implementation of the interface/abstract member at an exact file position -- crosses a port/interface boundary that go_to_definition cannot, since that resolves statically to the interface declaration itself.",
+			promptSnippet: "Jump from an interface/port member to its concrete implementation(s)",
+			promptGuidelines: [
+				"Use go_to_implementation, not go_to_definition, when the position is an interface or abstract member and you need the concrete adapter's real code, not the interface declaration.",
+			],
+			parameters: Type.Object(positionParameters),
+			async execute(_toolCallId, params) {
+				const path = resolve(cwd, params.path);
+				const locations = await codeIntelligenceOperations.goToImplementation(path, params.line, params.character);
+				const text = locations.length === 0 ? "No implementation found." : locations.map((l) => `${l.path}:${l.line}:${l.character}`).join("\n");
+				return { content: [{ type: "text", text }], details: { locations } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatGoToImplementationCall(args as { path?: unknown; line?: unknown; character?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Looking up implementations..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "go_to_implementation failed"), 0, 0);
+				}
+				const details = result.details as { locations?: readonly WorkspaceLocation[] } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatGoToImplementationResult(details?.locations, expanded, theme));
 				return text;
 			},
 		});
