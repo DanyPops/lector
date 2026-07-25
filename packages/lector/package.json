@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/lector",
-	"version": "0.1.0",
+	"version": "0.0.0",
 	"description": "Platform-neutral filesystem & code-intelligence capability: core, service, and driven adapters",
 	"license": "MIT",
 	"type": "module",
