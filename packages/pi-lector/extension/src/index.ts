@@ -13,6 +13,7 @@ import type {
 	SymbolNode,
 	TextSearchResult,
 	WorkspaceLocation,
+	WorkspaceQueryOutcome,
 	WorkspaceSymbol,
 } from "@danypops/lector";
 import { createEditToolDefinition, createReadToolDefinition, createWriteToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -43,6 +44,8 @@ import {
 	formatReachableFromCall,
 	formatReachableFromResult,
 } from "./code-intelligence-rendering.ts";
+import { createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-search-operations.ts";
+import { formatCrossWorkspaceCall, formatFindSymbolsAcrossProjectsResult, formatSearchTextAcrossProjectsResult } from "./cross-workspace-search-rendering.ts";
 import { createLectorEditOperations } from "./edit-operations.ts";
 import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts";
 import { formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-rendering.ts";
@@ -759,6 +762,83 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { result?: RepoFetchResult & { workspaceId: string } } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatRepoFetchResult(details?.result, theme));
+				return text;
+			},
+		});
+
+		const crossWorkspaceSearchOperations = createLectorCrossWorkspaceSearchOperations();
+		pi.registerTool({
+			name: "find_symbols_across_projects",
+			label: "Find Symbols Across Projects",
+			description:
+				"Fans out a symbol-name search across several explicitly-named project directories at once (e.g. several fetched repos, or a handful of related local projects) and reports one outcome per project -- ready with real results, loading (a project's language server is still cold-starting; retry shortly), or error. Directories are required and explicit -- never every project this daemon happens to have registered, which can include unrelated projects from other concurrent sessions.",
+			promptSnippet: "Search for a symbol name across several projects at once",
+			parameters: Type.Object({
+				directories: Type.Array(Type.String(), { description: "Project directories to search, each absolute or relative to the current working directory" }),
+				query: Type.String({ description: "Symbol name (or substring) to search for" }),
+				timeoutMs: Type.Optional(Type.Number({ description: "How long to wait per project before reporting it as still-loading; defaults to 3000" })),
+			}),
+			async execute(_toolCallId, params) {
+				const directories = params.directories.map((directory) => resolve(cwd, directory));
+				const results = await crossWorkspaceSearchOperations.findSymbols(params.query, directories, params.timeoutMs);
+				return { content: [{ type: "text", text: JSON.stringify(results) }], details: { results } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatCrossWorkspaceCall(args as { directories?: unknown; query?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Searching across projects..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "find_symbols_across_projects failed"), 0, 0);
+				}
+				const details = result.details as { results?: readonly WorkspaceQueryOutcome<{ symbols: readonly WorkspaceSymbol[] }>[] } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatFindSymbolsAcrossProjectsResult(details?.results, expanded, theme));
+				return text;
+			},
+		});
+
+		pi.registerTool({
+			name: "search_code_across_projects",
+			label: "Search Code Across Projects",
+			description:
+				"Fans out a ripgrep-backed text/regex search across several explicitly-named project directories at once and reports one outcome per project. Directories are required and explicit -- never every project this daemon happens to have registered, which can include unrelated projects from other concurrent sessions.",
+			promptSnippet: "Search for a pattern across several projects at once",
+			parameters: Type.Object({
+				directories: Type.Array(Type.String(), { description: "Project directories to search, each absolute or relative to the current working directory" }),
+				query: Type.String({ description: "Text or regex pattern to search for" }),
+				maxMatches: Type.Number({ description: "Maximum number of matches to return per project before truncating" }),
+				maxBytes: Type.Number({ description: "Maximum total bytes of matched line text to return per project before truncating" }),
+				timeoutMs: Type.Optional(Type.Number({ description: "How long to wait per project before reporting it as still-loading; defaults to 3000" })),
+			}),
+			async execute(_toolCallId, params) {
+				const directories = params.directories.map((directory) => resolve(cwd, directory));
+				const results = await crossWorkspaceSearchOperations.searchText(params.query, directories, params.maxMatches, params.maxBytes, params.timeoutMs);
+				return { content: [{ type: "text", text: JSON.stringify(results) }], details: { results } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatCrossWorkspaceCall(args as { directories?: unknown; query?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Searching across projects..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "search_code_across_projects failed"), 0, 0);
+				}
+				const details = result.details as { results?: readonly WorkspaceQueryOutcome<TextSearchResult>[] } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatSearchTextAcrossProjectsResult(details?.results, expanded, theme));
 				return text;
 			},
 		});
