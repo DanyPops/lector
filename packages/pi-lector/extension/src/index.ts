@@ -9,7 +9,9 @@ import type {
 	Hover,
 	IncomingCall,
 	OutgoingCall,
+	RepoFetchResult,
 	SymbolNode,
+	TextSearchResult,
 	WorkspaceLocation,
 	WorkspaceSymbol,
 } from "@danypops/lector";
@@ -47,6 +49,10 @@ import { formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-r
 import { createLectorGitOperations } from "./git-operations.ts";
 import { formatGitDiffCall, formatGitDiffResult, formatGitLogCall, formatGitLogResult, formatGitStatusCall, formatGitStatusResult } from "./git-rendering.ts";
 import { createLectorReadOperations } from "./read-operations.ts";
+import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
+import { formatRepoFetchCall, formatRepoFetchResult } from "./repo-fetch-rendering.ts";
+import { createLectorSearchOperations } from "./search-operations.ts";
+import { formatSearchCall, formatSearchResult } from "./search-rendering.ts";
 import { createLectorWriteOperations } from "./write-operations.ts";
 
 /**
@@ -674,6 +680,85 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { result?: GitDiffResult } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatGitDiffResult(details?.result, expanded, theme));
+				return text;
+			},
+		});
+
+		const searchOperations = createLectorSearchOperations();
+		pi.registerTool({
+			name: "search_code",
+			label: "Search Code",
+			description:
+				"Multi-file text/regex search scoped to a real project directory, backed by ripgrep -- respects .gitignore, skips node_modules/.git/build output. Bounded by maxMatches and maxBytes; results are cached.",
+			promptSnippet: "Search a project's files for a pattern",
+			parameters: Type.Object({
+				directory: Type.String({ description: "Directory inside the project to search, absolute or relative to the current working directory" }),
+				query: Type.String({ description: "Text or regex pattern to search for" }),
+				maxMatches: Type.Number({ description: "Maximum number of matches to return before truncating" }),
+				maxBytes: Type.Number({ description: "Maximum total bytes of matched line text before truncating" }),
+			}),
+			async execute(_toolCallId, params) {
+				const directory = resolve(cwd, params.directory);
+				const result = await searchOperations.search(params.query, directory, params.maxMatches, params.maxBytes);
+				const text =
+					result.matches.length === 0 ? "No matches found." : result.matches.map((m) => `${m.path}:${m.lineNumber}: ${m.line.replace(/\n$/, "")}`).join("\n");
+				return { content: [{ type: "text", text }], details: { result } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatSearchCall(args as { directory?: unknown; query?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Searching..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "search_code failed"), 0, 0);
+				}
+				const details = result.details as { result?: TextSearchResult } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatSearchResult(details?.result, expanded, theme));
+				return text;
+			},
+		});
+
+		const repoFetchOperations = createLectorRepoFetchOperations();
+		pi.registerTool({
+			name: "repo_fetch",
+			label: "Repo Fetch",
+			description:
+				"Shallow-clones an external repository into a disk-bounded cache and registers it as a read-only project -- every other tool (search_code, find_symbols, go_to_definition, ...) then works on it unchanged. Explicit owner/repo[@ref] only, no discovery/search -- use web_fetch to find candidates first.",
+			promptSnippet: "Fetch an external open-source repo to search or analyze",
+			parameters: Type.Object({
+				owner: Type.String({ description: "Repository owner or organization" }),
+				repo: Type.String({ description: "Repository name" }),
+				ref: Type.Optional(Type.String({ description: "Branch, tag, or commit to fetch; defaults to the repository's default branch" })),
+				host: Type.Optional(Type.String({ description: "Git host; defaults to github.com" })),
+			}),
+			async execute(_toolCallId, params) {
+				const result = await repoFetchOperations.fetch(params.host ?? "github.com", params.owner, params.repo, params.ref ?? null);
+				return { content: [{ type: "text", text: JSON.stringify(result) }], details: { result } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatRepoFetchCall(args as { owner?: unknown; repo?: unknown; ref?: unknown; host?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Fetching repository..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "repo_fetch failed"), 0, 0);
+				}
+				const details = result.details as { result?: RepoFetchResult & { workspaceId: string } } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatRepoFetchResult(details?.result, theme));
 				return text;
 			},
 		});
