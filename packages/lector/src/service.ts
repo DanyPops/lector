@@ -30,6 +30,7 @@ import { descriptorForPath, LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDesc
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
 import { populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
+import { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 import { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
 import type { RepoFetchResult } from "./domain/repo-fetch-result.ts";
@@ -39,6 +40,7 @@ import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
 import type { TextSearchResult } from "./domain/text-search-result.ts";
+import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts";
 import type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 import type { GitPort } from "./ports/git-port.ts";
@@ -147,7 +149,9 @@ export type OperationName =
 	| "workspace.gitLog"
 	| "workspace.gitDiff"
 	| "repo.fetch"
-	| "workspace.searchText";
+	| "workspace.searchText"
+	| "search.symbols"
+	| "search.text";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
@@ -173,6 +177,8 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.gitDiff",
 	"repo.fetch",
 	"workspace.searchText",
+	"search.symbols",
+	"search.text",
 ];
 
 /** A single position within a file already registered under `workspaceId`, 1-indexed. */
@@ -207,6 +213,17 @@ export interface OperationInputs {
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
 	"repo.fetch": RepoReference;
 	"workspace.searchText": { workspaceId: WorkspaceId; query: string; maxMatches: number; maxBytes: number };
+	/**
+	 * No single workspaceId -- fans out across several at once, unlike every other findSymbols-
+	 * shaped operation. `workspaceIds`, when given, restricts the fan-out to exactly those
+	 * (each validated -- an unknown id is reported per-entry, not silently dropped). Omitted
+	 * defaults to every currently-registered workspace -- found live, not assumed: this daemon is
+	 * a shared, system-wide service, so "every registered workspace" can include projects an
+	 * entirely different, concurrent Pi session registered, not just this caller's own. A caller
+	 * that means "my own current projects" must say so explicitly.
+	 */
+	"search.symbols": { query: string; workspaceIds?: readonly WorkspaceId[]; timeoutMs?: number };
+	"search.text": { query: string; maxMatches: number; maxBytes: number; workspaceIds?: readonly WorkspaceId[]; timeoutMs?: number };
 }
 
 export interface OperationOutputs {
@@ -233,6 +250,8 @@ export interface OperationOutputs {
 	"workspace.gitDiff": GitDiffResult;
 	"repo.fetch": RepoFetchResult & { workspaceId: WorkspaceId };
 	"workspace.searchText": TextSearchResult;
+	"search.symbols": { results: readonly WorkspaceQueryOutcome<{ symbols: readonly WorkspaceSymbol[] }>[] };
+	"search.text": { results: readonly WorkspaceQueryOutcome<TextSearchResult>[] };
 }
 
 /**
@@ -336,6 +355,14 @@ async function registerPath(registry: MutableRegistry, input: OperationInputs["w
 }
 
 /**
+ * How long search.symbols/search.text wait for one workspace's own query before reporting it as
+ * "loading" and moving on -- generous enough for typical cold-start (TypeScript/Python/Go/C++/
+ * Bash/YAML all settle well under 3s; only rust-analyzer's own measured ~2.5s worst case comes
+ * close), bounded so one slow workspace can't stall every other workspace's real results.
+ */
+const DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS = 3000;
+
+/**
  * Create the Lector service over an explicit initial registry of workspaces.
  * Refuses to start with zero registered workspaces -- fails loudly at
  * construction (before the daemon ever binds a listener) rather than
@@ -433,6 +460,78 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
 		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 		return searchTextQuery(textSearch, searchCache, entry.rootPath, input.workspaceId, input.query, { maxMatches: input.maxMatches, maxBytes: input.maxBytes });
+	}
+
+	/** Every workspace with a known root -- the same precondition workspace.findSymbols/searchText already require individually, applied to all of them at once. */
+	function registeredWorkspaceIds(registry: MutableRegistry): readonly WorkspaceId[] {
+		return Array.from(registry.entries())
+			.filter(([, entry]) => entry.rootPath !== undefined)
+			.map(([workspaceId]) => workspaceId);
+	}
+
+	/**
+	 * `explicitIds` given: validates each one (an unknown id or one with no root path becomes an
+	 * immediate "error" outcome, not a silent drop) and searches exactly that set -- nothing more.
+	 * `explicitIds` omitted: every registered workspace, daemon-wide. This is the one place that
+	 * default is genuinely risky: found live, this daemon is a shared, system-wide service, and
+	 * "every registered workspace" can include a project an entirely different, concurrent Pi
+	 * session registered. A caller that means "just my own current projects" must pass
+	 * explicitIds -- pi-lector's own tools always do.
+	 */
+	function resolveCrossWorkspaceTargets(
+		registry: MutableRegistry,
+		explicitIds: readonly WorkspaceId[] | undefined,
+	): { targets: readonly WorkspaceId[]; immediateErrors: readonly { workspaceId: WorkspaceId; status: "error"; message: string }[] } {
+		if (!explicitIds) return { targets: registeredWorkspaceIds(registry), immediateErrors: [] };
+		const targets: WorkspaceId[] = [];
+		const immediateErrors: { workspaceId: WorkspaceId; status: "error"; message: string }[] = [];
+		for (const workspaceId of explicitIds) {
+			const entry = registry.get(workspaceId);
+			if (!entry) {
+				immediateErrors.push({ workspaceId, status: "error", message: `no workspace registered under id "${workspaceId}"` });
+			} else if (!entry.rootPath) {
+				immediateErrors.push({
+					workspaceId,
+					status: "error",
+					message: `workspace "${workspaceId}" has no known root path -- cross-workspace search requires workspace.registerPath or repo.fetch`,
+				});
+			} else {
+				targets.push(workspaceId);
+			}
+		}
+		return { targets, immediateErrors };
+	}
+
+	async function crossFindSymbols(registry: MutableRegistry, input: OperationInputs["search.symbols"]): Promise<OperationOutputs["search.symbols"]> {
+		const timeoutMs = input.timeoutMs ?? DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS;
+		const { targets, immediateErrors } = resolveCrossWorkspaceTargets(registry, input.workspaceIds);
+		const results = await Promise.all(
+			targets.map((workspaceId) =>
+				raceWorkspaceQuery(
+					workspaceId,
+					() => findSymbols(registry, { workspaceId, query: input.query }),
+					timeoutMs,
+					"this workspace's symbol index is still warming up (a cold-starting language server) -- its data may exist once it finishes; retry shortly",
+				),
+			),
+		);
+		return { results: [...immediateErrors, ...results] };
+	}
+
+	async function crossSearchText(registry: MutableRegistry, input: OperationInputs["search.text"]): Promise<OperationOutputs["search.text"]> {
+		const timeoutMs = input.timeoutMs ?? DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS;
+		const { targets, immediateErrors } = resolveCrossWorkspaceTargets(registry, input.workspaceIds);
+		const results = await Promise.all(
+			targets.map((workspaceId) =>
+				raceWorkspaceQuery(
+					workspaceId,
+					() => searchTextHandler(registry, { workspaceId, query: input.query, maxMatches: input.maxMatches, maxBytes: input.maxBytes }),
+					timeoutMs,
+					"this workspace's search is still running -- its data may exist once it finishes; retry shortly",
+				),
+			),
+		);
+		return { results: [...immediateErrors, ...results] };
 	}
 
 	/** Resolves which descriptor a call targets: path/seedFile's own extension, per-file like every mainstream editor -- never a guess about "the workspace's language" -- except findSymbols with neither, which has no anchor file at all. */
@@ -656,6 +755,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.gitDiff": gitDiffHandler,
 		"repo.fetch": repoFetchHandler,
 		"workspace.searchText": searchTextHandler,
+		"search.symbols": crossFindSymbols,
+		"search.text": crossSearchText,
 	};
 
 	return {

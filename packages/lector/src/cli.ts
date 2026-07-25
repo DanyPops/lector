@@ -47,6 +47,14 @@ const USAGE = `Usage:
   lector workspace repo-fetch <owner>/<repo>[@ref] [--host <host>] [--json]
     shallow-clones an external repo into a disk-bounded cache and registers it read-only
   lector workspace search-text <workspace-id> <query> --max-matches <n> --max-bytes <n> [--json]
+  lector search symbols <query> [--workspace <id>]... [--timeout-ms <n>] [--json]
+  lector search text <query> --max-matches <n> --max-bytes <n> [--workspace <id>]... [--timeout-ms <n>] [--json]
+    fans out across the given --workspace id(s); with none given, every currently-registered
+    workspace, daemon-wide -- this daemon is a shared service, so that default can include a
+    project a different, concurrent Pi session registered. Prefer explicit --workspace when you
+    mean "my own current projects".
+    a workspace whose language server is still cold-starting is reported as "loading", not
+    silently omitted and not blocking every other workspace's real results
 `;
 
 function fail(message: string): never {
@@ -419,6 +427,85 @@ async function runWorkspaceSearchText(workspaceId: string | undefined, query: st
 	if (result.truncated) console.log("... (truncated)");
 }
 
+async function runSearchSymbols(query: string | undefined, flags: string[]): Promise<void> {
+	if (!query) fail(USAGE);
+	const timeoutMs = flagValue(flags, "--timeout-ms");
+	const workspaceIds = collectFlagValues(flags, "--workspace");
+	const client = await connectLectorClient();
+	const { results } = await client.call("search.symbols", {
+		query,
+		workspaceIds: workspaceIds.length === 0 ? undefined : workspaceIds,
+		timeoutMs: timeoutMs === undefined ? undefined : Number(timeoutMs),
+	});
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(results));
+		return;
+	}
+	if (results.length === 0) {
+		console.log("no workspaces registered with a known root to search");
+		return;
+	}
+	for (const outcome of results) {
+		if (outcome.status === "loading") {
+			console.log(`${outcome.workspaceId}: still loading -- ${outcome.message}`);
+			continue;
+		}
+		if (outcome.status === "error") {
+			console.log(`${outcome.workspaceId}: error -- ${outcome.message}`);
+			continue;
+		}
+		if (outcome.result.symbols.length === 0) {
+			console.log(`${outcome.workspaceId}: no symbols matched "${query}"`);
+			continue;
+		}
+		for (const symbol of outcome.result.symbols) {
+			console.log(`${outcome.workspaceId}: ${symbol.kind} ${symbol.name} -- ${symbol.location.path}:${symbol.location.line}:${symbol.location.character}`);
+		}
+	}
+}
+
+async function runSearchText(query: string | undefined, flags: string[]): Promise<void> {
+	if (!query) fail(USAGE);
+	const maxMatches = requiredIntFlag(flags, "--max-matches");
+	const maxBytes = requiredIntFlag(flags, "--max-bytes");
+	const timeoutMs = flagValue(flags, "--timeout-ms");
+	const workspaceIds = collectFlagValues(flags, "--workspace");
+	const client = await connectLectorClient();
+	const { results } = await client.call("search.text", {
+		query,
+		maxMatches,
+		maxBytes,
+		workspaceIds: workspaceIds.length === 0 ? undefined : workspaceIds,
+		timeoutMs: timeoutMs === undefined ? undefined : Number(timeoutMs),
+	});
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(results));
+		return;
+	}
+	if (results.length === 0) {
+		console.log("no workspaces registered with a known root to search");
+		return;
+	}
+	for (const outcome of results) {
+		if (outcome.status === "loading") {
+			console.log(`${outcome.workspaceId}: still loading -- ${outcome.message}`);
+			continue;
+		}
+		if (outcome.status === "error") {
+			console.log(`${outcome.workspaceId}: error -- ${outcome.message}`);
+			continue;
+		}
+		if (outcome.result.matches.length === 0) {
+			console.log(`${outcome.workspaceId}: no matches for "${query}"`);
+			continue;
+		}
+		for (const match of outcome.result.matches) {
+			console.log(`${outcome.workspaceId}: ${match.path}:${match.lineNumber}: ${match.line.replace(/\n$/, "")}`);
+		}
+		if (outcome.result.truncated) console.log(`${outcome.workspaceId}: ... (truncated)`);
+	}
+}
+
 function parseSymbolEdgeKind(flags: string[]): "calls" | "references" | "contains" | undefined {
 	const raw = flagValue(flags, "--kind");
 	if (raw === undefined) return undefined;
@@ -567,6 +654,13 @@ async function main(): Promise<void> {
 
 	if (command === "serve") return runServe(rest);
 	if (command === "service") return runService(rest[0]);
+
+	if (command === "search") {
+		const [action, query, ...searchFlags] = rest;
+		if (action === "symbols") return runSearchSymbols(query, searchFlags);
+		if (action === "text") return runSearchText(query, searchFlags);
+		fail(USAGE);
+	}
 
 	if (command === "workspace") {
 		const [action, ...actionArgs] = rest;

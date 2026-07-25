@@ -64,6 +64,7 @@ export {
 export { outgoingCalls } from "./domain/outgoing-calls.ts";
 export { type PopulateSymbolGraphResult, populateSymbolGraph } from "./domain/populate-symbol-graph.ts";
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
+export { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 export { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
 export { RepoFetchFailed, type RepoFetchResult } from "./domain/repo-fetch-result.ts";
@@ -74,6 +75,7 @@ export { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 export { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 export { deriveSymbolNodeId, type SymbolNodeId } from "./domain/symbol-node-id.ts";
 export type { TextSearchMatch, TextSearchResult } from "./domain/text-search-result.ts";
+export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";
 export type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";

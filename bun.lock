@@ -19,7 +19,7 @@
         "lector": "src/cli.ts",
       },
       "dependencies": {
-        "@danypops/daemon-kit": "^0.2.0",
+        "@danypops/daemon-kit": "^0.3.2",
         "graphology": "^0.26.0",
         "lru-cache": "^11.5.2",
         "simple-git": "^3.36.0",
@@ -127,7 +127,7 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.5", "", { "os": "win32", "cpu": "x64" }, "sha512-bIBFo+n6MIxdNcVFy5CrurbKiZQiUciK3bt8+O9I4wjFZNTfXLpi+giq47522eXqW5NBc9ulx7dR1SlZKi2J5g=="],
 
-    "@danypops/daemon-kit": ["@danypops/daemon-kit@0.2.1", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "typescript": "^5" } }, "sha512-lnH45H8zUc6hea2vbywr/PiL5YBiwOuWfSGYrEAX48ebD8LzV1qrDQGY0e9vH5/B1Jp39LN8ONgMQ1yjKPQyZA=="],
+    "@danypops/daemon-kit": ["@danypops/daemon-kit@0.3.2", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "typescript": "^5" } }, "sha512-M9/XJ/rzxpaYcf8RwSURpRifezx4CLBYW4wmmJgEL7Bigu8RRw+SQ9gmW8HvL+7hch43AVIFmMpV5FlBaMMOsQ=="],
 
     "@danypops/lector": ["@danypops/lector@workspace:packages/lector"],
 
