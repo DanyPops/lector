@@ -1,0 +1,97 @@
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+import { assertSafeSearchQuery } from "../domain/assert-safe-search-query.ts";
+import type { TextSearchMatch, TextSearchResult } from "../domain/text-search-result.ts";
+import type { TextSearchOptions, TextSearchPort } from "../ports/text-search-port.ts";
+import { SKIP_DIRECTORY_NAMES } from "./find-source-files.ts";
+
+// ripgrep only skips a directory automatically when a real .gitignore names it -- verified
+// empirically (a fixture with no .gitignore let a bare `rg` search node_modules freely).
+// Explicit globs make the same bound findSourceFiles already enforces hold here too, regardless
+// of whether the target repo's own .gitignore happens to list these directories.
+const EXCLUDE_GLOBS = Array.from(SKIP_DIRECTORY_NAMES, (name) => ["--glob", `!${name}/`]).flat();
+
+interface RipgrepMatchEvent {
+	readonly type: "match";
+	readonly data: {
+		readonly path: { readonly text: string };
+		readonly lines: { readonly text: string };
+		readonly line_number: number;
+		readonly submatches: readonly { readonly start: number; readonly end: number }[];
+	};
+}
+
+function isMatchEvent(value: unknown): value is RipgrepMatchEvent {
+	return typeof value === "object" && value !== null && (value as { type?: unknown }).type === "match";
+}
+
+/**
+ * TextSearchPort backed by real ripgrep (`rg --json`), streamed line-by-line via readline
+ * rather than buffered wholesale (execFile's default maxBuffer would either truncate or throw
+ * on a search producing megabytes of matches). The moment a bound is hit the child process is
+ * killed outright, not just stopped-reading-from -- a search over a huge monorepo must not keep
+ * scanning to completion just because this adapter already has enough matches.
+ *
+ * ripgrep already respects a real .gitignore and skips hidden/binary files by default, but a
+ * repo with no .gitignore listing node_modules gets searched into it freely -- explicit
+ * --glob exclusions (the same skip-list findSourceFiles uses) make that bound unconditional.
+ */
+export class RipgrepTextSearch implements TextSearchPort {
+	async search(rootPath: string, query: string, options: TextSearchOptions): Promise<TextSearchResult> {
+		assertSafeSearchQuery(query);
+		// `--` marks the end of flags -- defense in depth beyond assertSafeSearchQuery, the same
+		// two-layer approach local-git.ts already uses for git's diff ref.
+		const child = spawn("rg", ["--json", ...EXCLUDE_GLOBS, "--", query], { cwd: rootPath, stdio: ["ignore", "pipe", "pipe"] });
+
+		// Registered before draining stdout, not after: an 'exit' event fired while this adapter
+		// was still reading matches would otherwise be missed entirely, hanging the process-exit
+		// wait forever.
+		const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+			child.once("exit", (code, signal) => resolve({ code, signal }));
+			child.once("error", reject);
+		});
+
+		const matches: TextSearchMatch[] = [];
+		let bytesUsed = 0;
+		let truncated = false;
+
+		const rl = createInterface({ input: child.stdout });
+		for await (const line of rl) {
+			let event: unknown;
+			try {
+				event = JSON.parse(line);
+			} catch {
+				continue;
+			}
+			if (!isMatchEvent(event)) continue;
+
+			const lineText = event.data.lines.text;
+			const submatch = event.data.submatches[0];
+			matches.push({
+				path: event.data.path.text.replace(/^\.\//, ""),
+				lineNumber: event.data.line_number,
+				line: lineText,
+				matchStart: submatch?.start ?? 0,
+				matchEnd: submatch?.end ?? 0,
+			});
+			bytesUsed += Buffer.byteLength(lineText, "utf8");
+
+			if (matches.length >= options.maxMatches || bytesUsed >= options.maxBytes) {
+				truncated = true;
+				child.kill();
+				break;
+			}
+		}
+		rl.close();
+
+		const { code } = await exited;
+		// rg's own exit codes: 0 = matches found, 1 = no matches, 2 = a real error (e.g. an
+		// invalid regex). A kill this adapter itself issued is expected and never an error,
+		// whatever exit code/signal it produced.
+		if (!truncated && code !== 0 && code !== 1) {
+			throw new Error(`rg exited with code ${code}`);
+		}
+
+		return { matches, truncated };
+	}
+}
