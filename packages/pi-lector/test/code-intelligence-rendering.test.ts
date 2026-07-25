@@ -253,12 +253,52 @@ describe("formatPopulateSymbolGraphCall/Result", () => {
 		expect(text).toContain("src");
 	});
 
-	it("shows the real counts from the result", () => {
-		const text = formatPopulateSymbolGraphResult({ filesProcessed: 3, symbolsProcessed: 12, nodesAdded: 10, edgesAdded: 7 }, plainTheme);
+	it("shows the real counts from a succeeded job", () => {
+		const text = formatPopulateSymbolGraphResult(
+			{
+				id: "job-1",
+				operation: "workspace.populateSymbolGraph",
+				priority: "local",
+				submittedAt: 1,
+				startedAt: 2,
+				finishedAt: 3,
+				status: "succeeded",
+				result: { filesProcessed: 3, symbolsProcessed: 12, nodesAdded: 10, edgesAdded: 7 },
+			},
+			plainTheme,
+		);
 		expect(text).toContain("3 files");
 		expect(text).toContain("12 symbols");
 		expect(text).toContain("10 nodes");
 		expect(text).toContain("7 edges");
+	});
+
+	it("shows an actionable still-loading state with the job id instead of an empty result", () => {
+		const text = formatPopulateSymbolGraphResult(
+			{ id: "job-7", operation: "workspace.populateSymbolGraph", priority: "local", submittedAt: 1, startedAt: 2, status: "running" },
+			plainTheme,
+		);
+		expect(text).toContain("still loading");
+		expect(text).toContain("job-7");
+		expect(text).toContain("job_status");
+	});
+
+	it("shows the bounded failure code and message", () => {
+		const text = formatPopulateSymbolGraphResult(
+			{
+				id: "job-9",
+				operation: "workspace.populateSymbolGraph",
+				priority: "local",
+				submittedAt: 1,
+				startedAt: 2,
+				finishedAt: 3,
+				status: "failed",
+				error: { code: "LanguageServerProcessExited", message: "server exited" },
+			},
+			plainTheme,
+		);
+		expect(text).toContain("LanguageServerProcessExited");
+		expect(text).toContain("server exited");
 	});
 });
 

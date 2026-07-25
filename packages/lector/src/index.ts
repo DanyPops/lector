@@ -31,6 +31,15 @@ export { assertSafeGitArgument, UnsafeGitArgument } from "./domain/assert-safe-g
 export { assertSafePathSegment, UnsafePathSegment } from "./domain/assert-safe-path-segment.ts";
 export { assertSafeRepoReference } from "./domain/assert-safe-repo-reference.ts";
 export { assertSafeSearchQuery, UnsafeSearchQuery } from "./domain/assert-safe-search-query.ts";
+export {
+	BoundedJobExecutor,
+	type BoundedJobExecutorOptions,
+	JobCapacityExceeded,
+	JobExecutorClosed,
+	JobNotFound,
+	type JobPriority,
+	type JobSnapshot,
+} from "./domain/bounded-job-executor.ts";
 export type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 export type { CodeRange } from "./domain/code-range.ts";
 export { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
@@ -90,7 +99,9 @@ export {
 	type ClosableSymbolIndex,
 	CodeIntelligenceUnavailable,
 	createLectorService,
+	InvalidJobInput,
 	InvalidWorkspaceRoot,
+	JobWaitTooLong,
 	type LectorService,
 	type LectorServiceOptions,
 	NotAGitRepository,
@@ -101,6 +112,7 @@ export {
 	RepoFetcherNotConfigured,
 	SymbolQueryUnavailable,
 	UnknownWorkspace,
+	UnsupportedJobOperation,
 	type WorkspaceId,
 } from "./service.ts";
 export { lectorVersion } from "./version.ts";

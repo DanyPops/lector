@@ -1,4 +1,15 @@
-import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, Hover, IncomingCall, OutgoingCall, SymbolNode, WorkspaceLocation } from "@danypops/lector";
+import type {
+	CallHierarchyEntry,
+	Diagnostic,
+	DocumentSymbolEntry,
+	Hover,
+	IncomingCall,
+	JobSnapshot,
+	OutgoingCall,
+	PopulateSymbolGraphResult,
+	SymbolNode,
+	WorkspaceLocation,
+} from "@danypops/lector";
 import { keyHint, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { colorForKind, formatLocation, type LectorTheme } from "./lector-tui-theme.ts";
 
@@ -193,15 +204,18 @@ export function formatPopulateSymbolGraphCall(args: { path?: unknown; maxFiles?:
 	return `${theme.fg("toolTitle", theme.bold("populate_symbol_graph"))} ${theme.fg("accent", path)}`;
 }
 
-export function formatPopulateSymbolGraphResult(
-	result: { filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number } | undefined,
-	theme: LectorTheme,
-): string {
-	if (!result) return theme.fg("dim", "No result.");
-	return theme.fg(
-		"muted",
-		`${result.filesProcessed} file${result.filesProcessed === 1 ? "" : "s"}, ${result.symbolsProcessed} symbol${result.symbolsProcessed === 1 ? "" : "s"}, ${result.nodesAdded} node${result.nodesAdded === 1 ? "" : "s"}, ${result.edgesAdded} edge${result.edgesAdded === 1 ? "" : "s"}`,
-	);
+export function describePopulateSymbolGraphJob(job: JobSnapshot<PopulateSymbolGraphResult>): string {
+	if (job.status === "queued") return `Source workspace is registered; symbol graph is queued and still loading (job ${job.id}). Poll job_status.`;
+	if (job.status === "running") return `Source workspace is registered; symbol graph is still loading (job ${job.id}). Poll job_status.`;
+	if (job.status === "failed") return `Job ${job.id} failed [${job.error.code}] -- ${job.error.message}`;
+	const result = job.result;
+	return `Job ${job.id} cached ${result.filesProcessed} file${result.filesProcessed === 1 ? "" : "s"}, ${result.symbolsProcessed} symbol${result.symbolsProcessed === 1 ? "" : "s"}, ${result.nodesAdded} node${result.nodesAdded === 1 ? "" : "s"}, ${result.edgesAdded} edge${result.edgesAdded === 1 ? "" : "s"}`;
+}
+
+export function formatPopulateSymbolGraphResult(job: JobSnapshot<PopulateSymbolGraphResult> | undefined, theme: LectorTheme): string {
+	if (!job) return theme.fg("dim", "No job result.");
+	const color = job.status === "failed" ? "error" : job.status === "succeeded" ? "muted" : "warning";
+	return theme.fg(color, describePopulateSymbolGraphJob(job));
 }
 
 export function formatReachableFromCall(args: { path?: unknown; line?: unknown; character?: unknown; maxDepth?: unknown }, theme: LectorTheme): string {

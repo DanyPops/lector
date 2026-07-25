@@ -8,7 +8,9 @@ import type {
 	GitStatusSummary,
 	Hover,
 	IncomingCall,
+	JobSnapshot,
 	OutgoingCall,
+	PopulateSymbolGraphResult,
 	RepoFetchResult,
 	SymbolNode,
 	TextSearchResult,
@@ -21,6 +23,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { createLectorCodeIntelligenceOperations } from "./code-intelligence-operations.ts";
 import {
+	describePopulateSymbolGraphJob,
 	formatDiagnosticsCall,
 	formatDiagnosticsResult,
 	formatDocumentSymbolsCall,
@@ -483,24 +486,21 @@ export default function (pi: ExtensionAPI) {
 			promptSnippet: "Populate a workspace's symbol graph for multi-hop queries",
 			promptGuidelines: [
 				"Run populate_symbol_graph once for a workspace before using reachable_from against it; an unpopulated workspace's graph is empty, not an error.",
+				"populate_symbol_graph waits briefly, then returns a job id with an explicit still-loading state instead of blocking the turn. Use job_status later; do not spin in a blind polling loop.",
 				"maxFiles and maxSymbolsPerFile are both required and bound the scan explicitly -- a symbol-dense file (many interfaces/properties) can easily exceed a small maxSymbolsPerFile before reaching the functions/methods that actually matter.",
 			],
 			parameters: Type.Object({
 				path: Type.String({ description: "Any absolute or cwd-relative path inside the workspace to populate" }),
 				maxFiles: Type.Number({ description: "Maximum number of source files to scan" }),
 				maxSymbolsPerFile: Type.Number({ description: "Maximum number of declarations to process per file" }),
+				initialWaitMs: Type.Optional(Type.Number({ description: "Bounded initial wait before returning a still-loading job; defaults to 500, maximum 30000" })),
 			}),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const result = await codeIntelligenceOperations.populateSymbolGraph(path, params.maxFiles, params.maxSymbolsPerFile);
+				const job = await codeIntelligenceOperations.populateSymbolGraph(path, params.maxFiles, params.maxSymbolsPerFile, params.initialWaitMs);
 				return {
-					content: [
-						{
-							type: "text",
-							text: `${result.filesProcessed} files, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`,
-						},
-					],
-					details: { result },
+					content: [{ type: "text", text: describePopulateSymbolGraphJob(job) }],
+					details: { job },
 				};
 			},
 			renderCall(args, theme, context) {
@@ -517,13 +517,44 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "populate_symbol_graph failed"), 0, 0);
 				}
-				const details = result.details as
-					| {
-							result?: { filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number };
-					  }
-					| undefined;
+				const details = result.details as { job?: JobSnapshot<PopulateSymbolGraphResult> } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatPopulateSymbolGraphResult(details?.result, theme));
+				text.setText(formatPopulateSymbolGraphResult(details?.job, theme));
+				return text;
+			},
+		});
+
+		pi.registerTool({
+			name: "job_status",
+			label: "Job Status",
+			description:
+				"Poll one process-lifetime Lector background job. Returns queued/running with an actionable still-loading state, succeeded with the bounded result, or failed with a stable error code and message. Jobs are bounded and do not survive daemon restart; an unknown id explains expiry/restart rather than returning empty data.",
+			promptSnippet: "Poll a Lector background job by id",
+			parameters: Type.Object({
+				jobId: Type.String({ description: "Job id returned by populate_symbol_graph" }),
+			}),
+			async execute(_toolCallId, params) {
+				const job = await codeIntelligenceOperations.jobStatus(params.jobId);
+				return { content: [{ type: "text", text: describePopulateSymbolGraphJob(job) }], details: { job } };
+			},
+			renderCall(args, theme, context) {
+				const jobId = typeof args.jobId === "string" ? args.jobId : "";
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(`${theme.fg("toolTitle", theme.bold("job_status"))} ${theme.fg("accent", jobId)}`);
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Checking background job..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "job_status failed"), 0, 0);
+				}
+				const details = result.details as { job?: JobSnapshot<PopulateSymbolGraphResult> } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatPopulateSymbolGraphResult(details?.job, theme));
 				return text;
 			},
 		});

@@ -9,6 +9,7 @@ import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.
 import { connectLectorClient } from "./client.ts";
 import { LECTOR_PATH_NAMES } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
+import type { JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { ContentHash } from "./domain/content-hash.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import type { WorkspaceId } from "./service.ts";
@@ -35,7 +36,10 @@ const USAGE = `Usage:
   lector workspace document-symbols <workspace-id> <path> [--json]
   lector workspace diagnostics <workspace-id> <path> [--json]
   lector workspace call-hierarchy <prepare|incoming|outgoing> <workspace-id> <path> <line> <character> [--json]
-  lector workspace populate-symbol-graph <workspace-id> --max-files <n> --max-symbols-per-file <n> [--json]
+  lector workspace populate-symbol-graph <workspace-id> --max-files <n> --max-symbols-per-file <n>
+    [--background] [--wait-ms <n>] [--json]
+    --background submits a bounded process-lifetime job; --wait-ms waits briefly for a fast result
+  lector job status <job-id> [--json]
   lector workspace symbol-graph <reachable-from|edges-from|edges-to> <workspace-id> <path> <line> <character>
     [--max-depth <n>] [--kind <calls|references|contains>] [--json]
     --max-depth is required for reachable-from, ignored for edges-from/edges-to
@@ -320,17 +324,42 @@ function requiredIntFlag(flags: string[], flag: string): number {
 	return parsed;
 }
 
+function formatJobSnapshot(job: JobSnapshot<{ filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number }>): string {
+	if (job.status === "queued") return `${job.id}: queued (${job.operation}); poll with: lector job status ${job.id}`;
+	if (job.status === "running") return `${job.id}: still running (${job.operation}); poll with: lector job status ${job.id}`;
+	if (job.status === "failed") return `${job.id}: failed [${job.error.code}] -- ${job.error.message}`;
+	return `${job.id}: succeeded -- ${job.result.filesProcessed} files, ${job.result.symbolsProcessed} symbols, ${job.result.nodesAdded} nodes, ${job.result.edgesAdded} edges`;
+}
+
 async function runWorkspacePopulateSymbolGraph(workspaceId: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId) fail(USAGE);
 	const maxFiles = requiredIntFlag(flags, "--max-files");
 	const maxSymbolsPerFile = requiredIntFlag(flags, "--max-symbols-per-file");
 	const client = await connectLectorClient();
+	if (hasFlag(flags, "--background")) {
+		const waitMsRaw = flagValue(flags, "--wait-ms");
+		const waitMs = waitMsRaw === undefined ? 0 : Number(waitMsRaw);
+		const { job } = await client.call("job.submit", {
+			operation: "workspace.populateSymbolGraph",
+			input: { workspaceId, maxFiles, maxSymbolsPerFile },
+			waitMs,
+		});
+		console.log(hasFlag(flags, "--json") ? JSON.stringify(job) : formatJobSnapshot(job));
+		return;
+	}
 	const result = await client.call("workspace.populateSymbolGraph", { workspaceId, maxFiles, maxSymbolsPerFile });
 	console.log(
 		hasFlag(flags, "--json")
 			? JSON.stringify(result)
 			: `${result.filesProcessed} files, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`,
 	);
+}
+
+async function runJobStatus(jobId: string | undefined, flags: string[]): Promise<void> {
+	if (!jobId) fail(USAGE);
+	const client = await connectLectorClient();
+	const { job } = await client.call("job.status", { jobId });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(job) : formatJobSnapshot(job));
 }
 
 async function runWorkspaceHasWarmIndex(workspaceId: string | undefined, flags: string[]): Promise<void> {
@@ -659,6 +688,12 @@ async function main(): Promise<void> {
 		const [action, query, ...searchFlags] = rest;
 		if (action === "symbols") return runSearchSymbols(query, searchFlags);
 		if (action === "text") return runSearchText(query, searchFlags);
+		fail(USAGE);
+	}
+
+	if (command === "job") {
+		const [action, jobId, ...jobFlags] = rest;
+		if (action === "status") return runJobStatus(jobId, jobFlags);
 		fail(USAGE);
 	}
 

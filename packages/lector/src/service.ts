@@ -10,6 +10,7 @@ import { discoverWorkspaceDescriptor } from "./adapters/lsp/discover-seed-file.t
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
 import { ReadOnlyWorkspace } from "./adapters/read-only-workspace.ts";
 import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
+import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
 import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
@@ -28,7 +29,7 @@ import { hoverAt } from "./domain/hover-at.ts";
 import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts";
 import { descriptorForPath, LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./domain/language-server-descriptor.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
-import { populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
+import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
 import { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
@@ -126,6 +127,30 @@ export class RepoFetcherNotConfigured extends Error {
 	}
 }
 
+export class UnsupportedJobOperation extends Error {
+	constructor(readonly operation: string) {
+		super(`operation "${operation}" cannot run as a background job; supported operations: workspace.populateSymbolGraph`);
+		this.name = "UnsupportedJobOperation";
+	}
+}
+
+export class InvalidJobInput extends Error {
+	constructor(reason: string) {
+		super(`invalid background job input: ${reason}`);
+		this.name = "InvalidJobInput";
+	}
+}
+
+export class JobWaitTooLong extends Error {
+	constructor(
+		readonly waitMs: number,
+		readonly maxWaitMs: number,
+	) {
+		super(`background job initial wait ${waitMs}ms exceeds the ${maxWaitMs}ms service bound; submit with a shorter wait and poll job.status`);
+		this.name = "JobWaitTooLong";
+	}
+}
+
 export type OperationName =
 	| "workspace.rawRead"
 	| "workspace.exactEdit"
@@ -151,7 +176,9 @@ export type OperationName =
 	| "repo.fetch"
 	| "workspace.searchText"
 	| "search.symbols"
-	| "search.text";
+	| "search.text"
+	| "job.submit"
+	| "job.status";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
@@ -179,6 +206,8 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.searchText",
 	"search.symbols",
 	"search.text",
+	"job.submit",
+	"job.status",
 ];
 
 /** A single position within a file already registered under `workspaceId`, 1-indexed. */
@@ -224,6 +253,13 @@ export interface OperationInputs {
 	 */
 	"search.symbols": { query: string; workspaceIds?: readonly WorkspaceId[]; timeoutMs?: number };
 	"search.text": { query: string; maxMatches: number; maxBytes: number; workspaceIds?: readonly WorkspaceId[]; timeoutMs?: number };
+	"job.submit": {
+		operation: "workspace.populateSymbolGraph";
+		input: { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
+		/** Bounded wait before returning the current snapshot. Zero/omitted always returns immediately. */
+		waitMs?: number;
+	};
+	"job.status": { jobId: string };
 }
 
 export interface OperationOutputs {
@@ -252,6 +288,8 @@ export interface OperationOutputs {
 	"workspace.searchText": TextSearchResult;
 	"search.symbols": { results: readonly WorkspaceQueryOutcome<{ symbols: readonly WorkspaceSymbol[] }>[] };
 	"search.text": { results: readonly WorkspaceQueryOutcome<TextSearchResult>[] };
+	"job.submit": { job: JobSnapshot<PopulateSymbolGraphResult> };
+	"job.status": { job: JobSnapshot<PopulateSymbolGraphResult> };
 }
 
 /**
@@ -285,6 +323,8 @@ interface RegisteredWorkspace {
 	readonly port: WorkspacePort;
 	/** Present only for workspaces registered via workspace.registerPath -- required for symbol queries. */
 	readonly rootPath?: string;
+	/** Local work always outranks disposable fetched-repo work in the bounded job queue. */
+	readonly origin: "local" | "remote";
 }
 
 type MutableRegistry = Map<WorkspaceId, RegisteredWorkspace>;
@@ -316,6 +356,8 @@ export interface LectorServiceOptions {
 	createTextSearch?: () => TextSearchPort;
 	/** Factory for workspace.searchText's result cache. Defaults to an in-memory-only InMemorySearchCache -- safe, no disk dependency. A host wanting the disk-backed tier too (surviving a restart) supplies a TieredSearchCache here. Called once at construction and reused. */
 	createSearchCache?: () => SearchCachePort;
+	/** Process-lifetime background executor. Tests inject deterministic ids and tighter bounds. */
+	createJobExecutor?: () => BoundedJobExecutor<PopulateSymbolGraphResult>;
 }
 
 function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): WorkspacePort {
@@ -350,7 +392,7 @@ async function registerPath(registry: MutableRegistry, input: OperationInputs["w
 		throw new InvalidWorkspaceRoot(absolutePath, "path is not a directory");
 	}
 
-	registry.set(workspaceId, { port: new LocalFilesystemWorkspace(absolutePath), rootPath: absolutePath });
+	registry.set(workspaceId, { port: new LocalFilesystemWorkspace(absolutePath), rootPath: absolutePath, origin: "local" });
 	return { workspaceId, created: true };
 }
 
@@ -361,6 +403,7 @@ async function registerPath(registry: MutableRegistry, input: OperationInputs["w
  * close), bounded so one slow workspace can't stall every other workspace's real results.
  */
 const DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS = 3000;
+const MAX_INITIAL_JOB_WAIT_MS = 30_000;
 
 /**
  * Create the Lector service over an explicit initial registry of workspaces.
@@ -378,7 +421,17 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 				"(pass options.allowDynamicOnly if this daemon intentionally registers workspaces only via workspace.registerPath at runtime)",
 		);
 	}
-	const registry: MutableRegistry = new Map(Array.from(workspaces, ([id, port]) => [id, { port }]));
+	const registry: MutableRegistry = new Map(Array.from(workspaces, ([id, port]) => [id, { port, origin: "local" as const }]));
+	let nextJobId = 0;
+	const jobs =
+		options.createJobExecutor?.() ??
+		new BoundedJobExecutor<PopulateSymbolGraphResult>({
+			maxConcurrent: 2,
+			maxQueued: 32,
+			maxRetained: 128,
+			retentionMs: 10 * 60 * 1000,
+			createId: () => `job-${Date.now().toString(36)}-${(++nextJobId).toString(36)}`,
+		});
 
 	// One warm symbol index per (workspace, language) actually queried, reused across calls --
 	// a fresh process per query would pay a fork+initialize cost every time. A polyglot
@@ -447,7 +500,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		const absolutePath = resolve(result.path);
 		const workspaceId = deriveWorkspaceId(absolutePath);
 		if (!registry.has(workspaceId)) {
-			registry.set(workspaceId, { port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)), rootPath: absolutePath });
+			registry.set(workspaceId, { port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)), rootPath: absolutePath, origin: "remote" });
 		}
 		return { workspaceId, ...result };
 	}
@@ -698,6 +751,46 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return populateSymbolGraphQuery(index, graph, files, input.maxSymbolsPerFile);
 	}
 
+	function isRecord(value: unknown): value is Record<string, unknown> {
+		return typeof value === "object" && value !== null;
+	}
+
+	async function submitJobHandler(_registry: MutableRegistry, request: OperationInputs["job.submit"]): Promise<OperationOutputs["job.submit"]> {
+		const rawRequest: unknown = request;
+		if (!isRecord(rawRequest)) throw new InvalidJobInput("request must be an object");
+		const operation = rawRequest.operation;
+		if (operation !== "workspace.populateSymbolGraph") throw new UnsupportedJobOperation(String(operation));
+		const rawInput = rawRequest.input;
+		if (!isRecord(rawInput)) throw new InvalidJobInput("input must be an object");
+		const { workspaceId, maxFiles, maxSymbolsPerFile } = rawInput;
+		if (typeof workspaceId !== "string" || workspaceId.length === 0) throw new InvalidJobInput("workspaceId must be a non-empty string");
+		if (typeof maxFiles !== "number" || !Number.isSafeInteger(maxFiles) || maxFiles < 1) throw new InvalidJobInput("maxFiles must be a positive safe integer");
+		if (typeof maxSymbolsPerFile !== "number" || !Number.isSafeInteger(maxSymbolsPerFile) || maxSymbolsPerFile < 1) {
+			throw new InvalidJobInput("maxSymbolsPerFile must be a positive safe integer");
+		}
+		const rawWaitMs = rawRequest.waitMs;
+		const waitMs = rawWaitMs ?? 0;
+		if (typeof waitMs !== "number" || !Number.isSafeInteger(waitMs) || waitMs < 0) throw new InvalidJobInput("waitMs must be a non-negative safe integer");
+		if (waitMs > MAX_INITIAL_JOB_WAIT_MS) throw new JobWaitTooLong(waitMs, MAX_INITIAL_JOB_WAIT_MS);
+		const workspace = registry.get(workspaceId);
+		if (!workspace) throw new UnknownWorkspace(workspaceId);
+		const input = { workspaceId, maxFiles, maxSymbolsPerFile };
+		const submitted = jobs.submit({
+			operation,
+			priority: workspace.origin,
+			run: () => populateSymbolGraphHandler(registry, input),
+		});
+		return { job: waitMs === 0 ? submitted : await jobs.wait(submitted.id, waitMs) };
+	}
+
+	function jobStatusHandler(_registry: MutableRegistry, input: OperationInputs["job.status"]): Promise<OperationOutputs["job.status"]> {
+		const rawInput: unknown = input;
+		if (!isRecord(rawInput) || typeof rawInput.jobId !== "string" || rawInput.jobId.length === 0) {
+			return Promise.reject(new InvalidJobInput("jobId must be a non-empty string"));
+		}
+		return Promise.resolve({ job: jobs.status(rawInput.jobId) });
+	}
+
 	async function reachableFromHandler(
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.reachableFrom"],
@@ -757,6 +850,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.searchText": searchTextHandler,
 		"search.symbols": crossFindSymbols,
 		"search.text": crossSearchText,
+		"job.submit": submitJobHandler,
+		"job.status": jobStatusHandler,
 	};
 
 	return {
@@ -772,6 +867,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			return handler(registry, input);
 		},
 		async close(): Promise<void> {
+			jobs.close();
 			const entries = Array.from(symbolIndexes.values());
 			symbolIndexes.clear();
 			const graphs = Array.from(symbolGraphs.values());
@@ -788,4 +884,5 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	};
 }
 
+export { JobCapacityExceeded, JobNotFound } from "./domain/bounded-job-executor.ts";
 export { StaleExpectedHash, WorkspaceEntryNotFound };

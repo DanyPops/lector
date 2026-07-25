@@ -30,7 +30,14 @@ lector workspace register <dir>
 lector workspace read <workspace-id> <path>
 lector workspace edit <workspace-id> <path> --content <text> (--create | --expected-hash <hash>)
 lector workspace symbols <workspace-id> <query>
+lector workspace populate-symbol-graph <workspace-id> --max-files <n> --max-symbols-per-file <n> --background --wait-ms 500
+lector job status <job-id>
 ```
+
+Background jobs are process-lifetime and bounded. A daemon restart or retention
+expiry makes an old id unavailable; `job status` reports that explicitly. A running
+scan returns its job id and an actionable still-loading state instead of blocking
+the caller.
 
 `exactEdit` requires either `--create` (the entry must not already exist) or
 `--expected-hash <hash>` (the entry must currently match that hash) — a write never

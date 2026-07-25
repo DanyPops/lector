@@ -161,13 +161,29 @@ describe("Lector-backed code-intelligence operations", () => {
 		projectDir = root;
 
 		const ops = createLectorCodeIntelligenceOperations();
-		const populateResult = await ops.populateSymbolGraph(mathFile, 100, 50);
-		expect(populateResult.filesProcessed).toBeGreaterThan(0);
-		expect(populateResult.edgesAdded).toBeGreaterThan(0);
+		const populateJob = await ops.populateSymbolGraph(mathFile, 100, 50, 20_000);
+		expect(populateJob.status).toBe("succeeded");
+		if (populateJob.status !== "succeeded") throw new Error(`expected succeeded job, got ${populateJob.status}`);
+		expect(populateJob.result.filesProcessed).toBeGreaterThan(0);
+		expect(populateJob.result.edgesAdded).toBeGreaterThan(0);
 
 		// addTwice (line 5) calls add (line 1) -- one hop.
 		const reachable = await ops.reachableFrom(mathFile, 5, 17, 1, "calls");
 		expect(reachable.some((symbol) => symbol.name === "add")).toBe(true);
+	}, 20_000);
+
+	it("populateSymbolGraph returns a pollable job immediately instead of blocking on a cold language server", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const ops = createLectorCodeIntelligenceOperations();
+		const submitted = await ops.populateSymbolGraph(mathFile, 100, 50, 0);
+		expect(["queued", "running"]).toContain(submitted.status);
+		const final = await ops.jobStatus(submitted.id);
+		expect(["running", "succeeded"]).toContain(final.status);
 	}, 20_000);
 
 	it("hasWarmIndex reports false before any query and true after, without itself causing a spawn", async () => {

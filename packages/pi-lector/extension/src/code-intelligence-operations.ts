@@ -4,7 +4,9 @@ import type {
 	DocumentSymbolEntry,
 	Hover,
 	IncomingCall,
+	JobSnapshot,
 	OutgoingCall,
+	PopulateSymbolGraphResult,
 	SymbolEdgeKind,
 	SymbolNode,
 	WorkspaceLocation,
@@ -34,11 +36,8 @@ export interface CodeIntelligenceOperations {
 	prepareCallHierarchy(path: string, line: number, character: number): Promise<readonly CallHierarchyEntry[]>;
 	incomingCalls(path: string, line: number, character: number): Promise<readonly IncomingCall[]>;
 	outgoingCalls(path: string, line: number, character: number): Promise<readonly OutgoingCall[]>;
-	populateSymbolGraph(
-		path: string,
-		maxFiles: number,
-		maxSymbolsPerFile: number,
-	): Promise<{ filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number }>;
+	populateSymbolGraph(path: string, maxFiles: number, maxSymbolsPerFile: number, waitMs?: number): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
+	jobStatus(jobId: string): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
 	reachableFrom(path: string, line: number, character: number, maxDepth: number, kind?: SymbolEdgeKind): Promise<readonly SymbolNode[]>;
 	/** Never spawns a symbol index -- safe to call opportunistically (e.g. before deciding whether to enrich a result). */
 	hasWarmIndex(path: string): Promise<boolean>;
@@ -136,14 +135,24 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				},
 			);
 		},
-		async populateSymbolGraph(path, maxFiles, maxSymbolsPerFile) {
+		async populateSymbolGraph(path, maxFiles, maxSymbolsPerFile, waitMs = 500) {
 			return withWorkspace(
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					return client.call("workspace.populateSymbolGraph", { workspaceId, maxFiles, maxSymbolsPerFile });
+					const { job } = await client.call("job.submit", {
+						operation: "workspace.populateSymbolGraph",
+						input: { workspaceId, maxFiles, maxSymbolsPerFile },
+						waitMs,
+					});
+					return job;
 				},
 			);
+		},
+		async jobStatus(jobId) {
+			const client = await lectorClient();
+			const { job } = await client.call("job.status", { jobId });
+			return job;
 		},
 		async reachableFrom(path, line, character, maxDepth, kind) {
 			return withWorkspace(
