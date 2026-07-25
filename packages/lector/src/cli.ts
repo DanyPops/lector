@@ -44,6 +44,9 @@ const USAGE = `Usage:
   lector workspace git-status <workspace-id> [--json]
   lector workspace git-log <workspace-id> --max-count <n> [--json]
   lector workspace git-diff <workspace-id> [--ref <ref>] --max-bytes <n> [--json]
+  lector workspace repo-fetch <owner>/<repo>[@ref] [--host <host>] [--json]
+    shallow-clones an external repo into a disk-bounded cache and registers it read-only
+  lector workspace search-text <workspace-id> <query> --max-matches <n> --max-bytes <n> [--json]
 `;
 
 function fail(message: string): never {
@@ -376,6 +379,46 @@ async function runWorkspaceGitDiff(workspaceId: string | undefined, flags: strin
 	if (result.truncated) console.log("... (truncated)");
 }
 
+/** Parses "owner/repo[@ref]" into the explicit fields repo.fetch expects; --host overrides the "github.com" default. */
+function parseRepoSpec(spec: string, host: string): { host: string; owner: string; repo: string; ref: string | null } {
+	const [ownerRepo, ref] = spec.split("@");
+	const [owner, repo] = (ownerRepo ?? "").split("/");
+	if (!owner || !repo) fail(`repo spec must be "<owner>/<repo>[@ref]", got "${spec}"`);
+	return { host, owner, repo, ref: ref ?? null };
+}
+
+async function runWorkspaceRepoFetch(spec: string | undefined, flags: string[]): Promise<void> {
+	if (!spec) fail(USAGE);
+	const host = flagValue(flags, "--host") ?? "github.com";
+	const reference = parseRepoSpec(spec, host);
+	const client = await connectLectorClient();
+	const result = await client.call("repo.fetch", reference);
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	console.log(`${result.workspaceId} ${result.fromCache ? "(from cache)" : "(fetched)"} -- ${result.path}`);
+	if (result.refFallbackOccurred) console.log(`note: requested ref not found, fell back to the default branch (resolved: ${result.resolvedRef})`);
+}
+
+async function runWorkspaceSearchText(workspaceId: string | undefined, query: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !query) fail(USAGE);
+	const maxMatches = requiredIntFlag(flags, "--max-matches");
+	const maxBytes = requiredIntFlag(flags, "--max-bytes");
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.searchText", { workspaceId, query, maxMatches, maxBytes });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	if (result.matches.length === 0) {
+		console.log(`no matches for "${query}"`);
+		return;
+	}
+	for (const match of result.matches) console.log(`${match.path}:${match.lineNumber}: ${match.line.replace(/\n$/, "")}`);
+	if (result.truncated) console.log("... (truncated)");
+}
+
 function parseSymbolEdgeKind(flags: string[]): "calls" | "references" | "contains" | undefined {
 	const raw = flagValue(flags, "--kind");
 	if (raw === undefined) return undefined;
@@ -535,6 +578,7 @@ async function main(): Promise<void> {
 		if (action === "read") return runWorkspaceRead(workspaceId, path, flags);
 		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
 		if (action === "symbols") return runWorkspaceSymbols(workspaceId, path, flags);
+		if (action === "search-text") return runWorkspaceSearchText(workspaceId, path, flags);
 		if (action === "definition") return runWorkspaceDefinition(workspaceId, path, flags);
 		if (action === "implementation") return runWorkspaceImplementation(workspaceId, path, flags);
 		if (action === "references") return runWorkspaceReferences(workspaceId, path, flags);
@@ -565,6 +609,10 @@ async function main(): Promise<void> {
 			if (action === "git-status") return runWorkspaceGitStatus(gitWorkspaceId, gitFlags);
 			if (action === "git-log") return runWorkspaceGitLog(gitWorkspaceId, gitFlags);
 			return runWorkspaceGitDiff(gitWorkspaceId, gitFlags);
+		}
+		if (action === "repo-fetch") {
+			const [spec, ...repoFlags] = actionArgs;
+			return runWorkspaceRepoFetch(spec, repoFlags);
 		}
 		fail(USAGE);
 	}

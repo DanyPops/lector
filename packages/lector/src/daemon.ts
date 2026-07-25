@@ -4,8 +4,12 @@ import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBear
 import type { Logger } from "@danypops/daemon-kit/logging";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/daemon-kit/paths";
 import { GitRepoFetcher } from "./adapters/git-repo-fetcher.ts";
+import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
+import { SqliteSearchCache } from "./adapters/sqlite-search-cache.ts";
 import { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
+import { TieredSearchCache } from "./adapters/tiered-search-cache.ts";
 import { resolveLectorPaths } from "./constants.ts";
+import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import { createLectorService, type LectorService, type OperationName, type WorkspaceId } from "./service.ts";
 import { lectorVersion } from "./version.ts";
@@ -78,6 +82,8 @@ export interface LectorDaemonOptions {
 	symbolIndexIdleTtlMs?: number;
 	/** Override how often the idle-eviction sweep runs. */
 	symbolIndexReapIntervalMs?: number;
+	/** Override the repo.fetch backend (tests inject a GitRepoFetcher pointed at a local fixture repo, avoiding live network). Defaults to a real GitRepoFetcher under this daemon's own data directory. */
+	createRepoFetcher?: () => RepoFetcherPort;
 }
 
 function prepare(options: LectorDaemonOptions): {
@@ -103,7 +109,12 @@ function prepare(options: LectorDaemonOptions): {
 	const service = createLectorService(options.workspaces, {
 		allowDynamicOnly: options.allowDynamicOnly,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
-		createRepoFetcher: () => new GitRepoFetcher(reposDirectory),
+		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),
+		// The real production shape the SearchCachePort design was for: an in-memory tier for
+		// speed plus a disk-backed tier so repeated searches survive a daemon restart -- a single
+		// SearchCachePort adapter can only be one or the other, service.ts's own safe default is
+		// in-memory-only.
+		createSearchCache: () => new TieredSearchCache(new InMemorySearchCache(), new SqliteSearchCache(join(dirname(paths.database), "search-cache.db"))),
 	});
 	const token = ensureAuthToken(paths.token, "Lector");
 	const idleTtlMs = options.symbolIndexIdleTtlMs ?? DEFAULT_SYMBOL_INDEX_IDLE_TTL_MS;

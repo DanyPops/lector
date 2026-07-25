@@ -16,6 +16,7 @@ export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { SqliteContentCache } from "./adapters/sqlite-content-cache.ts";
 export { SqliteSearchCache, type SqliteSearchCacheOptions } from "./adapters/sqlite-search-cache.ts";
 export { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
+export { TieredSearchCache } from "./adapters/tiered-search-cache.ts";
 export { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 export {
 	type ConnectLectorClientOptions,

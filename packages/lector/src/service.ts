@@ -2,12 +2,14 @@ import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { findSourceFiles } from "./adapters/find-source-files.ts";
+import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
 import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { LocalGit } from "./adapters/local-git.ts";
 import { discoverWorkspaceDescriptor } from "./adapters/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
 import { ReadOnlyWorkspace } from "./adapters/read-only-workspace.ts";
+import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
 import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
@@ -32,15 +34,19 @@ import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read
 import { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
 import type { RepoFetchResult } from "./domain/repo-fetch-result.ts";
 import type { RepoReference } from "./domain/repo-reference.ts";
+import { searchText as searchTextQuery } from "./domain/search-text.ts";
 import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
+import type { TextSearchResult } from "./domain/text-search-result.ts";
 import type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 import type { GitPort } from "./ports/git-port.ts";
 import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
+import type { SearchCachePort } from "./ports/search-cache-port.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
+import type { TextSearchPort } from "./ports/text-search-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 
 /**
@@ -140,7 +146,8 @@ export type OperationName =
 	| "workspace.gitStatus"
 	| "workspace.gitLog"
 	| "workspace.gitDiff"
-	| "repo.fetch";
+	| "repo.fetch"
+	| "workspace.searchText";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
@@ -165,6 +172,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.gitLog",
 	"workspace.gitDiff",
 	"repo.fetch",
+	"workspace.searchText",
 ];
 
 /** A single position within a file already registered under `workspaceId`, 1-indexed. */
@@ -198,6 +206,7 @@ export interface OperationInputs {
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
 	"repo.fetch": RepoReference;
+	"workspace.searchText": { workspaceId: WorkspaceId; query: string; maxMatches: number; maxBytes: number };
 }
 
 export interface OperationOutputs {
@@ -223,6 +232,7 @@ export interface OperationOutputs {
 	"workspace.gitLog": { entries: readonly GitLogEntry[] };
 	"workspace.gitDiff": GitDiffResult;
 	"repo.fetch": RepoFetchResult & { workspaceId: WorkspaceId };
+	"workspace.searchText": TextSearchResult;
 }
 
 /**
@@ -283,6 +293,10 @@ export interface LectorServiceOptions {
 	createGitPort?: (rootPath: string) => GitPort;
 	/** Factory for the port backing repo.fetch. No default -- unlike createSymbolGraph's safe in-memory fallback, fetching a real external repo always needs a real disk location only a host (daemon.ts) can supply. Called once at construction and reused, not per-call. */
 	createRepoFetcher?: () => RepoFetcherPort;
+	/** Factory for the port backing workspace.searchText. Defaults to RipgrepTextSearch -- cheap to construct, no disk dependency, safe like createGitPort's default. Called once at construction and reused. */
+	createTextSearch?: () => TextSearchPort;
+	/** Factory for workspace.searchText's result cache. Defaults to an in-memory-only InMemorySearchCache -- safe, no disk dependency. A host wanting the disk-backed tier too (surviving a restart) supplies a TieredSearchCache here. Called once at construction and reused. */
+	createSearchCache?: () => SearchCachePort;
 }
 
 function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): WorkspacePort {
@@ -371,6 +385,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	// every time, wastefully, and would risk losing the in-memory LRU's recency ordering
 	// between calls for no benefit (the index itself is what makes rehydration correct at all).
 	const repoFetcher = options.createRepoFetcher?.();
+	const textSearch = options.createTextSearch?.() ?? new RipgrepTextSearch();
+	const searchCache = options.createSearchCache?.() ?? new InMemorySearchCache();
 
 	/** Never cached: cheap to construct, and a stale-git-repo check would be wrong to memoize across a repo that could be git-init'd or removed mid-session. */
 	async function requireGitRepository(workspaceId: WorkspaceId): Promise<GitPort> {
@@ -407,6 +423,16 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			registry.set(workspaceId, { port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)), rootPath: absolutePath });
 		}
 		return { workspaceId, ...result };
+	}
+
+	async function searchTextHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.searchText"],
+	): Promise<OperationOutputs["workspace.searchText"]> {
+		const entry = registry.get(input.workspaceId);
+		if (!entry) throw new UnknownWorkspace(input.workspaceId);
+		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
+		return searchTextQuery(textSearch, searchCache, entry.rootPath, input.workspaceId, input.query, { maxMatches: input.maxMatches, maxBytes: input.maxBytes });
 	}
 
 	/** Resolves which descriptor a call targets: path/seedFile's own extension, per-file like every mainstream editor -- never a guess about "the workspace's language" -- except findSymbols with neither, which has no anchor file at all. */
@@ -629,6 +655,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.gitLog": gitLogHandler,
 		"workspace.gitDiff": gitDiffHandler,
 		"repo.fetch": repoFetchHandler,
+		"workspace.searchText": searchTextHandler,
 	};
 
 	return {
