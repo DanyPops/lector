@@ -32,6 +32,7 @@ lector workspace edit <workspace-id> <path> --content <text> (--create | --expec
 lector workspace symbols <workspace-id> <query>
 lector workspace populate-symbol-graph <workspace-id> --max-files <n> --max-symbols-per-file <n> --background --wait-ms 500
 lector job status <job-id>
+lector workspace cache-status <workspace-id> --max-files <n> --max-symbols-per-file <n>
 ```
 
 Background jobs are process-lifetime and bounded. A daemon restart or retention

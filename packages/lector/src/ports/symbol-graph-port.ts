@@ -1,3 +1,4 @@
+import type { SymbolGraphGeneration } from "../domain/symbol-graph-generation.ts";
 import type { SymbolNodeId } from "../domain/symbol-node-id.ts";
 import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
 
@@ -28,5 +29,7 @@ export interface SymbolGraphPort {
 	edgesTo(id: SymbolNodeId, kind?: SymbolEdgeKind): Promise<readonly SymbolNodeId[]>;
 	/** Every node reachable from `id` by following out-edges, up to `maxDepth` hops, excluding `id` itself. */
 	reachableFrom(id: SymbolNodeId, options: { maxDepth: number; kind?: SymbolEdgeKind }): Promise<readonly SymbolNodeId[]>;
+	getGeneration(): Promise<SymbolGraphGeneration | undefined>;
+	setGeneration(generation: SymbolGraphGeneration): Promise<void>;
 	close(): Promise<void>;
 }

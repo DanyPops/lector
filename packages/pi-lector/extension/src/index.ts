@@ -54,11 +54,13 @@ import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts"
 import { formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-rendering.ts";
 import { createLectorGitOperations } from "./git-operations.ts";
 import { formatGitDiffCall, formatGitDiffResult, formatGitLogCall, formatGitLogResult, formatGitStatusCall, formatGitStatusResult } from "./git-rendering.ts";
+import { nearestGitRoot } from "./nearest-workspace-root.ts";
 import { createLectorReadOperations } from "./read-operations.ts";
 import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
 import { formatRepoFetchCall, formatRepoFetchResult } from "./repo-fetch-rendering.ts";
 import { createLectorSearchOperations } from "./search-operations.ts";
 import { formatSearchCall, formatSearchResult } from "./search-rendering.ts";
+import { type CachePresentationState, createWorkspaceCacheOperations, monitorWorkspaceCache } from "./workspace-cache-operations.ts";
 import { createLectorWriteOperations } from "./write-operations.ts";
 
 /**
@@ -80,8 +82,72 @@ import { createLectorWriteOperations } from "./write-operations.ts";
  * "start it with `lector serve`" error if none is reachable.
  */
 export default function (pi: ExtensionAPI) {
+	const cacheOperations = createWorkspaceCacheOperations();
+	let cacheRun = 0;
+	let cacheState: CachePresentationState | undefined;
+	let lastInjectedCacheState: string | undefined;
+
+	function describeCacheState(state: CachePresentationState): string {
+		if (state.status === "not-cached") return `not cached (${state.reason})`;
+		if (state.status === "caching") return `caching (job ${state.jobId})`;
+		if (state.status === "finished-caching") return `finished caching (job ${state.job.id})`;
+		return "cached";
+	}
+
+	pi.on("before_agent_start", () => {
+		if (!cacheState) return;
+		const description = describeCacheState(cacheState);
+		if (description === lastInjectedCacheState) return;
+		lastInjectedCacheState = description;
+		return {
+			message: {
+				customType: "lector-cache-status",
+				content: `Lector workspace cache: ${description}. A caching graph is still loading; use live code-intelligence operations until it becomes cached.`,
+				display: false,
+			},
+		};
+	});
+
+	pi.on("session_shutdown", (_event, ctx) => {
+		cacheRun++;
+		cacheState = undefined;
+		lastInjectedCacheState = undefined;
+		ctx.ui.setStatus("lector-cache", undefined);
+	});
+
 	pi.on("session_start", (_event, ctx) => {
 		const { cwd } = ctx;
+		const projectRoot = nearestGitRoot(cwd);
+		const thisRun = ++cacheRun;
+		cacheState = undefined;
+		lastInjectedCacheState = undefined;
+		if (projectRoot) {
+			void monitorWorkspaceCache(cacheOperations, {
+				directory: projectRoot,
+				maxFiles: 500,
+				maxSymbolsPerFile: 100,
+				pollIntervalMs: 1_000,
+				maxPolls: 300,
+				shouldContinue: () => cacheRun === thisRun,
+				onState: (state) => {
+					cacheState = state;
+					if (state.status === "finished-caching") {
+						if (ctx.hasUI) ctx.ui.notify(`Lector finished caching ${projectRoot}`, "info");
+						return;
+					}
+					const color = state.status === "cached" ? "success" : state.status === "caching" ? "accent" : "warning";
+					ctx.ui.setStatus("lector-cache", ctx.ui.theme.fg(color, `Lector: ${describeCacheState(state)}`));
+				},
+			}).catch((error: unknown) => {
+				if (cacheRun !== thisRun) return;
+				const message = error instanceof Error ? error.message : String(error);
+				ctx.ui.setStatus("lector-cache", ctx.ui.theme.fg("error", "Lector: cache error"));
+				if (ctx.hasUI) ctx.ui.notify(`Lector cache failed: ${message}`, "error");
+			});
+		} else {
+			ctx.ui.setStatus("lector-cache", undefined);
+		}
+
 		pi.registerTool(createReadToolDefinition(cwd, { operations: createLectorReadOperations() }));
 		pi.registerTool(createWriteToolDefinition(cwd, { operations: createLectorWriteOperations() }));
 		pi.registerTool(createEditToolDefinition(cwd, { operations: createLectorEditOperations() }));

@@ -71,8 +71,16 @@ describe("lector CLI background-job parity", () => {
 		expect(["queued", "running"]).toContain(submitted.status);
 		expect(submitted.id.length).toBeGreaterThan(0);
 
-		const polled = JSON.parse(await runCli(["job", "status", submitted.id, "--json"])) as JobSnapshot<PopulateSymbolGraphResult>;
+		let polled = JSON.parse(await runCli(["job", "status", submitted.id, "--json"])) as JobSnapshot<PopulateSymbolGraphResult>;
+		for (let attempt = 0; attempt < 100 && polled.status !== "succeeded"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			polled = JSON.parse(await runCli(["job", "status", submitted.id, "--json"])) as JobSnapshot<PopulateSymbolGraphResult>;
+		}
 		expect(polled.id).toBe(submitted.id);
-		expect(["queued", "running", "succeeded"]).toContain(polled.status);
+		expect(polled.status).toBe("succeeded");
+		const cacheStatus = JSON.parse(
+			await runCli(["workspace", "cache-status", registered.workspaceId, "--max-files", "10", "--max-symbols-per-file", "10", "--json"]),
+		) as { status: string };
+		expect(cacheStatus.status).toBe("cached");
 	}, 20_000);
 });

@@ -47,6 +47,7 @@ describe("symbol graph persistence across a real daemon restart", () => {
 
 		const beforeRestart = await firstClient.call("workspace.reachableFrom", { workspaceId, path: chainFile, line: 1, character: 17, maxDepth: 2 });
 		expect(beforeRestart.symbols.map((s) => s.name)).toContain("inner");
+		expect((await firstClient.call("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 50 })).status).toBe("cached");
 
 		await firstDaemon.stop();
 
@@ -70,5 +71,8 @@ describe("symbol graph persistence across a real daemon restart", () => {
 			maxDepth: 2,
 		});
 		expect(afterRestart.symbols.map((s) => s.name)).toContain("inner");
+		expect((await secondClient.call("workspace.cacheStatus", { workspaceId: workspaceIdAfterRestart, maxFiles: 10, maxSymbolsPerFile: 50 })).status).toBe(
+			"cached",
+		);
 	}, 30_000);
 });

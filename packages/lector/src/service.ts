@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { findSourceFiles } from "./adapters/find-source-files.ts";
+import { resolve } from "node:path";
 import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
 import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
@@ -10,6 +9,7 @@ import { discoverWorkspaceDescriptor } from "./adapters/lsp/discover-seed-file.t
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
 import { ReadOnlyWorkspace } from "./adapters/read-only-workspace.ts";
 import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
+import { deriveSourceManifest } from "./adapters/source-manifest.ts";
 import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
@@ -39,6 +39,7 @@ import type { RepoReference } from "./domain/repo-reference.ts";
 import { searchText as searchTextQuery } from "./domain/search-text.ts";
 import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
+import type { WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
 import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
 import type { TextSearchResult } from "./domain/text-search-result.ts";
 import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts";
@@ -141,6 +142,15 @@ export class InvalidJobInput extends Error {
 	}
 }
 
+export class WorkspaceChangedDuringPopulation extends Error {
+	constructor(readonly workspaceId: WorkspaceId) {
+		super(
+			`workspace "${workspaceId}" changed while its symbol graph was being populated; no cached generation was recorded -- retry against a stable source tree`,
+		);
+		this.name = "WorkspaceChangedDuringPopulation";
+	}
+}
+
 export class JobWaitTooLong extends Error {
 	constructor(
 		readonly waitMs: number,
@@ -170,6 +180,7 @@ export type OperationName =
 	| "workspace.symbolEdgesFrom"
 	| "workspace.symbolEdgesTo"
 	| "workspace.hasWarmIndex"
+	| "workspace.cacheStatus"
 	| "workspace.gitStatus"
 	| "workspace.gitLog"
 	| "workspace.gitDiff"
@@ -199,6 +210,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.symbolEdgesFrom",
 	"workspace.symbolEdgesTo",
 	"workspace.hasWarmIndex",
+	"workspace.cacheStatus",
 	"workspace.gitStatus",
 	"workspace.gitLog",
 	"workspace.gitDiff",
@@ -237,6 +249,7 @@ export interface OperationInputs {
 	"workspace.symbolEdgesFrom": WorkspacePosition & { kind?: SymbolEdgeKind };
 	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind };
 	"workspace.hasWarmIndex": { workspaceId: WorkspaceId; path?: string };
+	"workspace.cacheStatus": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
 	"workspace.gitStatus": { workspaceId: WorkspaceId };
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
@@ -281,6 +294,7 @@ export interface OperationOutputs {
 	"workspace.symbolEdgesFrom": { symbols: readonly SymbolNode[] };
 	"workspace.symbolEdgesTo": { symbols: readonly SymbolNode[] };
 	"workspace.hasWarmIndex": { warm: boolean };
+	"workspace.cacheStatus": WorkspaceCacheStatus;
 	"workspace.gitStatus": GitStatusSummary;
 	"workspace.gitLog": { entries: readonly GitLogEntry[] };
 	"workspace.gitDiff": GitDiffResult;
@@ -404,6 +418,7 @@ async function registerPath(registry: MutableRegistry, input: OperationInputs["w
  */
 const DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS = 3000;
 const MAX_INITIAL_JOB_WAIT_MS = 30_000;
+const MAX_SOURCE_MANIFEST_BYTES = 50 * 1024 * 1024;
 
 /**
  * Create the Lector service over an explicit initial registry of workspaces.
@@ -449,6 +464,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	// actually invoked -- unlike symbolIndexes, there is no idle-eviction TTL here: a graph
 	// is inert data, not a warm subprocess with a real resource cost while sitting unused.
 	const symbolGraphs = new Map<WorkspaceId, SymbolGraphPort>();
+	const activePopulationJobByWorkspace = new Map<WorkspaceId, string>();
 	const createSymbolGraph = options.createSymbolGraph ?? (() => new InMemorySymbolGraph());
 
 	function ensureSymbolGraph(workspaceId: WorkspaceId): SymbolGraphPort {
@@ -745,10 +761,49 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		const entry = registry.get(input.workspaceId);
 		if (!entry?.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 		const rootPath = entry.rootPath;
-		const relativeFiles = findSourceFiles(rootPath, (extension) => descriptor.extensions.includes(extension), input.maxFiles);
-		const files = relativeFiles.map((relativePath) => join(rootPath, relativePath));
+		const before = await deriveSourceManifest(rootPath, descriptor.extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		const graph = ensureSymbolGraph(input.workspaceId);
-		return populateSymbolGraphQuery(index, graph, files, input.maxSymbolsPerFile);
+		const result = await populateSymbolGraphQuery(index, graph, before.absoluteFiles, input.maxSymbolsPerFile);
+		const after = await deriveSourceManifest(rootPath, descriptor.extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
+		if (after.fingerprint !== before.fingerprint) throw new WorkspaceChangedDuringPopulation(input.workspaceId);
+		await graph.setGeneration({
+			sourceFingerprint: after.fingerprint,
+			maxFiles: input.maxFiles,
+			maxSymbolsPerFile: input.maxSymbolsPerFile,
+			completedAt: Date.now(),
+			result,
+		});
+		return result;
+	}
+
+	async function cacheStatusHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.cacheStatus"],
+	): Promise<OperationOutputs["workspace.cacheStatus"]> {
+		const entry = registry.get(input.workspaceId);
+		if (!entry) throw new UnknownWorkspace(input.workspaceId);
+		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
+		const activeJobId = activePopulationJobByWorkspace.get(input.workspaceId);
+		if (activeJobId) {
+			const snapshot = jobs.status(activeJobId);
+			if (snapshot.status === "queued" || snapshot.status === "running") return { status: "caching", jobId: activeJobId };
+			activePopulationJobByWorkspace.delete(input.workspaceId);
+		}
+		const graph = ensureSymbolGraph(input.workspaceId);
+		const generation = await graph.getGeneration();
+		if (!generation) return { status: "not-cached", reason: "no-completed-generation" };
+		if (generation.maxFiles !== input.maxFiles || generation.maxSymbolsPerFile !== input.maxSymbolsPerFile) {
+			return { status: "not-cached", reason: "bounds-changed" };
+		}
+		const { descriptor } = resolveDescriptor(entry.rootPath, {});
+		let currentFingerprint: string;
+		try {
+			currentFingerprint = (await deriveSourceManifest(entry.rootPath, descriptor.extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES)).fingerprint;
+		} catch {
+			return { status: "not-cached", reason: "source-changed" };
+		}
+		if (currentFingerprint !== generation.sourceFingerprint) return { status: "not-cached", reason: "source-changed" };
+		return { status: "cached", generation };
 	}
 
 	function isRecord(value: unknown): value is Record<string, unknown> {
@@ -774,12 +829,29 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (waitMs > MAX_INITIAL_JOB_WAIT_MS) throw new JobWaitTooLong(waitMs, MAX_INITIAL_JOB_WAIT_MS);
 		const workspace = registry.get(workspaceId);
 		if (!workspace) throw new UnknownWorkspace(workspaceId);
+		const existingJobId = activePopulationJobByWorkspace.get(workspaceId);
+		if (existingJobId) {
+			const existing = jobs.status(existingJobId);
+			if (existing.status === "queued" || existing.status === "running") {
+				return { job: waitMs === 0 ? existing : await jobs.wait(existing.id, waitMs) };
+			}
+			activePopulationJobByWorkspace.delete(workspaceId);
+		}
 		const input = { workspaceId, maxFiles, maxSymbolsPerFile };
+		let submittedJobId = "";
 		const submitted = jobs.submit({
 			operation,
 			priority: workspace.origin,
-			run: () => populateSymbolGraphHandler(registry, input),
+			run: async () => {
+				try {
+					return await populateSymbolGraphHandler(registry, input);
+				} finally {
+					if (activePopulationJobByWorkspace.get(workspaceId) === submittedJobId) activePopulationJobByWorkspace.delete(workspaceId);
+				}
+			},
 		});
+		submittedJobId = submitted.id;
+		activePopulationJobByWorkspace.set(workspaceId, submitted.id);
 		return { job: waitMs === 0 ? submitted : await jobs.wait(submitted.id, waitMs) };
 	}
 
@@ -843,6 +915,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.symbolEdgesFrom": symbolEdgesFromHandler,
 		"workspace.symbolEdgesTo": symbolEdgesToHandler,
 		"workspace.hasWarmIndex": hasWarmIndex,
+		"workspace.cacheStatus": cacheStatusHandler,
 		"workspace.gitStatus": gitStatusHandler,
 		"workspace.gitLog": gitLogHandler,
 		"workspace.gitDiff": gitDiffHandler,

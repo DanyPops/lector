@@ -45,6 +45,7 @@ const USAGE = `Usage:
     --max-depth is required for reachable-from, ignored for edges-from/edges-to
   lector workspace has-warm-index <workspace-id> [--json]
     never spawns a symbol index -- reports whether one is already warm
+  lector workspace cache-status <workspace-id> --max-files <n> --max-symbols-per-file <n> [--json]
   lector workspace git-status <workspace-id> [--json]
   lector workspace git-log <workspace-id> --max-count <n> [--json]
   lector workspace git-diff <workspace-id> [--ref <ref>] --max-bytes <n> [--json]
@@ -360,6 +361,21 @@ async function runJobStatus(jobId: string | undefined, flags: string[]): Promise
 	const client = await connectLectorClient();
 	const { job } = await client.call("job.status", { jobId });
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(job) : formatJobSnapshot(job));
+}
+
+async function runWorkspaceCacheStatus(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const maxFiles = requiredIntFlag(flags, "--max-files");
+	const maxSymbolsPerFile = requiredIntFlag(flags, "--max-symbols-per-file");
+	const client = await connectLectorClient();
+	const status = await client.call("workspace.cacheStatus", { workspaceId, maxFiles, maxSymbolsPerFile });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(status));
+		return;
+	}
+	if (status.status === "not-cached") console.log(`not cached -- ${status.reason}`);
+	else if (status.status === "caching") console.log(`caching -- job ${status.jobId}`);
+	else console.log(`cached -- completed ${new Date(status.generation.completedAt).toISOString()}`);
 }
 
 async function runWorkspaceHasWarmIndex(workspaceId: string | undefined, flags: string[]): Promise<void> {
@@ -729,6 +745,10 @@ async function main(): Promise<void> {
 		if (action === "has-warm-index") {
 			const [hwiWorkspaceId, ...hwiFlags] = actionArgs;
 			return runWorkspaceHasWarmIndex(hwiWorkspaceId, hwiFlags);
+		}
+		if (action === "cache-status") {
+			const [cacheWorkspaceId, ...cacheFlags] = actionArgs;
+			return runWorkspaceCacheStatus(cacheWorkspaceId, cacheFlags);
 		}
 		if (action === "git-status" || action === "git-log" || action === "git-diff") {
 			// None of these take a <path> positional -- the generic [workspaceId, path, ...flags]

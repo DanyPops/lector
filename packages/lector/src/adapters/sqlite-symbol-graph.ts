@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { type Migration, openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
+import type { SymbolGraphGeneration } from "../domain/symbol-graph-generation.ts";
 import type { SymbolNodeId } from "../domain/symbol-node-id.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "../ports/symbol-graph-port.ts";
 
@@ -14,6 +15,14 @@ const MIGRATIONS: Migration[] = [
 			db.exec("CREATE INDEX symbol_edges_to_idx ON symbol_edges (to_id, kind)");
 		},
 	},
+	{
+		version: 2,
+		up: (db) => {
+			db.exec(
+				"CREATE TABLE symbol_graph_generation (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), source_fingerprint TEXT NOT NULL, max_files INTEGER NOT NULL, max_symbols_per_file INTEGER NOT NULL, completed_at INTEGER NOT NULL, files_processed INTEGER NOT NULL, symbols_processed INTEGER NOT NULL, nodes_added INTEGER NOT NULL, edges_added INTEGER NOT NULL)",
+			);
+		},
+	},
 ];
 
 interface NodeRow {
@@ -22,6 +31,17 @@ interface NodeRow {
 	path: string;
 	line: number;
 	character: number;
+}
+
+interface GenerationRow {
+	source_fingerprint: string;
+	max_files: number;
+	max_symbols_per_file: number;
+	completed_at: number;
+	files_processed: number;
+	symbols_processed: number;
+	nodes_added: number;
+	edges_added: number;
 }
 
 /**
@@ -88,6 +108,44 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 		if (options.kind) params["$kind"] = options.kind;
 		const rows = this.db.query(sql).all(params) as { id: string }[];
 		return rows.map((row) => row.id).filter((reachedId) => reachedId !== id);
+	}
+
+	async getGeneration(): Promise<SymbolGraphGeneration | undefined> {
+		const row = this.db
+			.query(
+				"SELECT source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added FROM symbol_graph_generation WHERE singleton = 1",
+			)
+			.get() as GenerationRow | null;
+		if (!row) return undefined;
+		return {
+			sourceFingerprint: row.source_fingerprint,
+			maxFiles: row.max_files,
+			maxSymbolsPerFile: row.max_symbols_per_file,
+			completedAt: row.completed_at,
+			result: {
+				filesProcessed: row.files_processed,
+				symbolsProcessed: row.symbols_processed,
+				nodesAdded: row.nodes_added,
+				edgesAdded: row.edges_added,
+			},
+		};
+	}
+
+	async setGeneration(generation: SymbolGraphGeneration): Promise<void> {
+		this.db
+			.query(
+				"INSERT INTO symbol_graph_generation (singleton, source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(singleton) DO UPDATE SET source_fingerprint = excluded.source_fingerprint, max_files = excluded.max_files, max_symbols_per_file = excluded.max_symbols_per_file, completed_at = excluded.completed_at, files_processed = excluded.files_processed, symbols_processed = excluded.symbols_processed, nodes_added = excluded.nodes_added, edges_added = excluded.edges_added",
+			)
+			.run(
+				generation.sourceFingerprint,
+				generation.maxFiles,
+				generation.maxSymbolsPerFile,
+				generation.completedAt,
+				generation.result.filesProcessed,
+				generation.result.symbolsProcessed,
+				generation.result.nodesAdded,
+				generation.result.edgesAdded,
+			);
 	}
 
 	async close(): Promise<void> {

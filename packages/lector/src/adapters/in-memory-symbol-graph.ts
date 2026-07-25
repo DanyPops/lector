@@ -1,4 +1,5 @@
 import Graph from "graphology";
+import type { SymbolGraphGeneration } from "../domain/symbol-graph-generation.ts";
 import type { SymbolNodeId } from "../domain/symbol-node-id.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "../ports/symbol-graph-port.ts";
 
@@ -11,6 +12,7 @@ import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "../ports/symbo
 export class InMemorySymbolGraph implements SymbolGraphPort {
 	private readonly graph = new Graph({ type: "directed", multi: true, allowSelfLoops: true });
 	private readonly nodes = new Map<SymbolNodeId, SymbolNode>();
+	private generation: SymbolGraphGeneration | undefined;
 
 	async addNode(node: SymbolNode): Promise<void> {
 		this.nodes.set(node.id, node);
@@ -62,8 +64,17 @@ export class InMemorySymbolGraph implements SymbolGraphPort {
 		return Array.from(reached);
 	}
 
+	async getGeneration(): Promise<SymbolGraphGeneration | undefined> {
+		return this.generation;
+	}
+
+	async setGeneration(generation: SymbolGraphGeneration): Promise<void> {
+		this.generation = generation;
+	}
+
 	async close(): Promise<void> {
 		this.graph.clear();
 		this.nodes.clear();
+		this.generation = undefined;
 	}
 }

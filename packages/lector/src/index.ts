@@ -13,6 +13,7 @@ export {
 export { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
 export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
+export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
 export { SqliteContentCache } from "./adapters/sqlite-content-cache.ts";
 export { SqliteSearchCache, type SqliteSearchCacheOptions } from "./adapters/sqlite-search-cache.ts";
 export { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
@@ -82,6 +83,7 @@ export { deriveSearchCacheKey, type SearchCacheKey } from "./domain/search-cache
 export { searchText } from "./domain/search-text.ts";
 export { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 export { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
+export type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
 export { deriveSymbolNodeId, type SymbolNodeId } from "./domain/symbol-node-id.ts";
 export type { TextSearchMatch, TextSearchResult } from "./domain/text-search-result.ts";
 export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";
@@ -113,6 +115,7 @@ export {
 	SymbolQueryUnavailable,
 	UnknownWorkspace,
 	UnsupportedJobOperation,
+	WorkspaceChangedDuringPopulation,
 	type WorkspaceId,
 } from "./service.ts";
 export { lectorVersion } from "./version.ts";

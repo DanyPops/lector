@@ -80,7 +80,12 @@ describe("createLectorService background jobs", () => {
 			createJobExecutor: testExecutor,
 			createSymbolIndex: () => new DelayedCodeIndex(documents.promise),
 		});
-		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixture() });
+		const projectRoot = fixture();
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: projectRoot });
+		expect(await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 })).toEqual({
+			status: "not-cached",
+			reason: "no-completed-generation",
+		});
 
 		const submitted = await service.dispatch("job.submit", {
 			operation: "workspace.populateSymbolGraph",
@@ -88,6 +93,10 @@ describe("createLectorService background jobs", () => {
 			waitMs: 0,
 		});
 		expect(submitted.job).toMatchObject({ id: "test-job-1", status: "running", operation: "workspace.populateSymbolGraph", priority: "local" });
+		expect(await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 })).toEqual({
+			status: "caching",
+			jobId: submitted.job.id,
+		});
 
 		documents.resolve([]);
 		let status = await service.dispatch("job.status", { jobId: submitted.job.id });
@@ -96,6 +105,44 @@ describe("createLectorService background jobs", () => {
 			status = await service.dispatch("job.status", { jobId: submitted.job.id });
 		}
 		expect(status.job).toMatchObject({ status: "succeeded", result: { filesProcessed: 1, symbolsProcessed: 0, nodesAdded: 0, edgesAdded: 0 } });
+		const cached = await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 });
+		expect(cached.status).toBe("cached");
+		writeFileSync(join(projectRoot, "index.ts"), "export function answer() { return 43; }\n");
+		expect(await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 })).toEqual({
+			status: "not-cached",
+			reason: "source-changed",
+		});
+	});
+
+	it("does not record a cached generation when source files change during population", async () => {
+		const documents = deferred<readonly DocumentSymbolEntry[]>();
+		const populationStarted = deferred<void>();
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createJobExecutor: testExecutor,
+			createSymbolIndex: () => new DelayedCodeIndex(documents.promise, () => populationStarted.resolve()),
+		});
+		const projectRoot = fixture();
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: projectRoot });
+		const { job } = await service.dispatch("job.submit", {
+			operation: "workspace.populateSymbolGraph",
+			input: { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 },
+			waitMs: 0,
+		});
+		await populationStarted.promise;
+		writeFileSync(join(projectRoot, "index.ts"), "export function changed() { return 99; }\n");
+		documents.resolve([]);
+
+		let final = await service.dispatch("job.status", { jobId: job.id });
+		for (let attempt = 0; attempt < 20 && final.job.status !== "failed"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			final = await service.dispatch("job.status", { jobId: job.id });
+		}
+		expect(final.job).toMatchObject({ status: "failed", error: { code: "WorkspaceChangedDuringPopulation" } });
+		expect(await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 })).toEqual({
+			status: "not-cached",
+			reason: "no-completed-generation",
+		});
 	});
 
 	it("bounded initial wait returns a completed fast job without forcing a poll", async () => {

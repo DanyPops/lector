@@ -134,6 +134,24 @@ export function runSymbolGraphPortConformanceSuite(name: string, harness: Symbol
 				expect(await graph.reachableFrom("a", { maxDepth: 0 })).toEqual([]);
 			}));
 
+		it("returns no completed generation before a successful population records one", () =>
+			withGraph(async (graph) => {
+				expect(await graph.getGeneration()).toBeUndefined();
+			}));
+
+		it("round-trips completed generation metadata independently of graph nodes", () =>
+			withGraph(async (graph) => {
+				const generation = {
+					sourceFingerprint: "abc123",
+					maxFiles: 100,
+					maxSymbolsPerFile: 50,
+					completedAt: 123456,
+					result: { filesProcessed: 4, symbolsProcessed: 12, nodesAdded: 10, edgesAdded: 8 },
+				};
+				await graph.setGeneration(generation);
+				expect(await graph.getGeneration()).toEqual(generation);
+			}));
+
 		it("does not let edges/nodes touching one graph affect a separately created one", () =>
 			withGraph(async (graphA) => {
 				await withGraph(async (graphB) => {
