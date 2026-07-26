@@ -72,6 +72,25 @@ export {
 	TYPESCRIPT_DESCRIPTOR,
 } from "./domain/language-server-descriptor.ts";
 export { outgoingCalls } from "./domain/outgoing-calls.ts";
+export type {
+	AmbiguousPackageSource,
+	MismatchedPackageSource,
+	OversizedPackageSource,
+	PackageCoordinateRequest,
+	PackageEcosystem,
+	PackageRepositoryIdentity,
+	PackageSourceBounds,
+	PackageSourceCandidate,
+	PackageSourceOutcome,
+	PackageSourceRequest,
+	PackageSourceVerification,
+	PackageSourceVerificationMethod,
+	PackageSourceWorkspace,
+	ResolvedPackageCoordinate,
+	UnauthenticatedPackageSource,
+	UnavailablePackageSource,
+	VerifiedPackageSource,
+} from "./domain/package-source.ts";
 export { type PopulateSymbolGraphResult, populateSymbolGraph } from "./domain/populate-symbol-graph.ts";
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
 export { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
@@ -79,6 +98,7 @@ export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read
 export { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
 export { RepoFetchFailed, type RepoFetchResult } from "./domain/repo-fetch-result.ts";
 export type { RepoReference } from "./domain/repo-reference.ts";
+export { InvalidPackageSourceContract, resolvePackageSource } from "./domain/resolve-package-source.ts";
 export { deriveSearchCacheKey, type SearchCacheKey } from "./domain/search-cache-key.ts";
 export { searchText } from "./domain/search-text.ts";
 export { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
@@ -91,6 +111,7 @@ export type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symb
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
 export type { GitPort } from "./ports/git-port.ts";
+export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 export type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 export type { SearchCachePort } from "./ports/search-cache-port.ts";
 export type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
