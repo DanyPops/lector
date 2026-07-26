@@ -9,7 +9,7 @@ the overall architecture and how `packages/pi-lector` fits in.
 Requires Bun and systemd user services on Linux.
 
 ```bash
-npm install --global @danypops/lector
+bun add --global @danypops/lector
 lector service install
 ```
 
