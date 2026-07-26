@@ -134,11 +134,13 @@ async function runWorkspaceSymbols(workspaceId: string | undefined, query: strin
 	if (!workspaceId || !query) fail(USAGE);
 	const seedFile = flagValue(flags, "--seed-file"); // omit to auto-discover one
 	const client = await connectLectorClient();
-	const { symbols } = await client.call("workspace.findSymbols", { workspaceId, query, seedFile });
+	const result = await client.call("workspace.findSymbols", { workspaceId, query, seedFile });
 	if (hasFlag(flags, "--json")) {
-		console.log(JSON.stringify(symbols));
+		console.log(JSON.stringify(result));
 		return;
 	}
+	const { symbols, provenance, truncated } = result;
+	console.log(`${provenance.fidelity} via ${provenance.backend}${truncated ? " (truncated)" : ""}`);
 	if (symbols.length === 0) {
 		console.log(`no symbols matched "${query}"`);
 		return;
@@ -157,16 +159,22 @@ function parsePosition(line: string | undefined, character: string | undefined):
 	return { line: parsedLine, character: parsedCharacter };
 }
 
+function formatIntelligenceSource(provenance: { fidelity: string; backend: string }): string {
+	return `${provenance.fidelity} via ${provenance.backend}`;
+}
+
 async function runWorkspaceDefinition(workspaceId: string | undefined, path: string | undefined, rest: string[]): Promise<void> {
 	if (!workspaceId || !path) fail(USAGE);
 	const [lineArg, characterArg, ...flags] = rest;
 	const { line, character } = parsePosition(lineArg, characterArg);
 	const client = await connectLectorClient();
-	const { locations } = await client.call("workspace.goToDefinition", { workspaceId, path, line, character });
+	const result = await client.call("workspace.goToDefinition", { workspaceId, path, line, character });
 	if (hasFlag(flags, "--json")) {
-		console.log(JSON.stringify(locations));
+		console.log(JSON.stringify(result));
 		return;
 	}
+	const { locations, provenance } = result;
+	console.log(formatIntelligenceSource(provenance));
 	if (locations.length === 0) {
 		console.log("no definition found");
 		return;
@@ -179,11 +187,13 @@ async function runWorkspaceImplementation(workspaceId: string | undefined, path:
 	const [lineArg, characterArg, ...flags] = rest;
 	const { line, character } = parsePosition(lineArg, characterArg);
 	const client = await connectLectorClient();
-	const { locations } = await client.call("workspace.goToImplementation", { workspaceId, path, line, character });
+	const result = await client.call("workspace.goToImplementation", { workspaceId, path, line, character });
 	if (hasFlag(flags, "--json")) {
-		console.log(JSON.stringify(locations));
+		console.log(JSON.stringify(result));
 		return;
 	}
+	const { locations, provenance } = result;
+	console.log(formatIntelligenceSource(provenance));
 	if (locations.length === 0) {
 		console.log("no implementation found");
 		return;
@@ -197,11 +207,13 @@ async function runWorkspaceReferences(workspaceId: string | undefined, path: str
 	const { line, character } = parsePosition(lineArg, characterArg);
 	const includeDeclaration = hasFlag(flags, "--include-declaration");
 	const client = await connectLectorClient();
-	const { locations } = await client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration });
+	const result = await client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration });
 	if (hasFlag(flags, "--json")) {
-		console.log(JSON.stringify(locations));
+		console.log(JSON.stringify(result));
 		return;
 	}
+	const { locations, provenance } = result;
+	console.log(formatIntelligenceSource(provenance));
 	if (locations.length === 0) {
 		console.log("no references found");
 		return;
@@ -214,22 +226,25 @@ async function runWorkspaceHover(workspaceId: string | undefined, path: string |
 	const [lineArg, characterArg, ...flags] = rest;
 	const { line, character } = parsePosition(lineArg, characterArg);
 	const client = await connectLectorClient();
-	const { hover } = await client.call("workspace.hover", { workspaceId, path, line, character });
+	const result = await client.call("workspace.hover", { workspaceId, path, line, character });
 	if (hasFlag(flags, "--json")) {
-		console.log(JSON.stringify(hover ?? null));
+		console.log(JSON.stringify(result));
 		return;
 	}
-	console.log(hover ? hover.contents : "no hover information available");
+	console.log(formatIntelligenceSource(result.provenance));
+	console.log(result.hover ? result.hover.contents : "no hover information available");
 }
 
 async function runWorkspaceDocumentSymbols(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !path) fail(USAGE);
 	const client = await connectLectorClient();
-	const { symbols } = await client.call("workspace.documentSymbols", { workspaceId, path });
+	const result = await client.call("workspace.documentSymbols", { workspaceId, path });
 	if (hasFlag(flags, "--json")) {
-		console.log(JSON.stringify(symbols));
+		console.log(JSON.stringify(result));
 		return;
 	}
+	const { symbols, provenance } = result;
+	console.log(formatIntelligenceSource(provenance));
 	if (symbols.length === 0) {
 		console.log("no symbols found");
 		return;
@@ -244,11 +259,13 @@ async function runWorkspaceDocumentSymbols(workspaceId: string | undefined, path
 async function runWorkspaceDiagnostics(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !path) fail(USAGE);
 	const client = await connectLectorClient();
-	const { diagnostics } = await client.call("workspace.diagnostics", { workspaceId, path });
+	const result = await client.call("workspace.diagnostics", { workspaceId, path });
 	if (hasFlag(flags, "--json")) {
-		console.log(JSON.stringify(diagnostics));
+		console.log(JSON.stringify(result));
 		return;
 	}
+	const { diagnostics, provenance } = result;
+	console.log(formatIntelligenceSource(provenance));
 	if (diagnostics.length === 0) {
 		console.log("no diagnostics");
 		return;
@@ -276,11 +293,13 @@ async function runWorkspaceCallHierarchy(
 	const client = await connectLectorClient();
 
 	if (subcommand === "prepare") {
-		const { items } = await client.call("workspace.prepareCallHierarchy", { workspaceId, path, line, character });
+		const result = await client.call("workspace.prepareCallHierarchy", { workspaceId, path, line, character });
 		if (hasFlag(flags, "--json")) {
-			console.log(JSON.stringify(items));
+			console.log(JSON.stringify(result));
 			return;
 		}
+		const { items, provenance } = result;
+		console.log(formatIntelligenceSource(provenance));
 		if (items.length === 0) {
 			console.log("no call-hierarchy root at this position");
 			return;
@@ -289,11 +308,13 @@ async function runWorkspaceCallHierarchy(
 		return;
 	}
 	if (subcommand === "incoming") {
-		const { calls } = await client.call("workspace.incomingCalls", { workspaceId, path, line, character });
+		const result = await client.call("workspace.incomingCalls", { workspaceId, path, line, character });
 		if (hasFlag(flags, "--json")) {
-			console.log(JSON.stringify(calls));
+			console.log(JSON.stringify(result));
 			return;
 		}
+		const { calls, provenance } = result;
+		console.log(formatIntelligenceSource(provenance));
 		if (calls.length === 0) {
 			console.log("no incoming calls found");
 			return;
@@ -302,11 +323,13 @@ async function runWorkspaceCallHierarchy(
 		return;
 	}
 	if (subcommand === "outgoing") {
-		const { calls } = await client.call("workspace.outgoingCalls", { workspaceId, path, line, character });
+		const result = await client.call("workspace.outgoingCalls", { workspaceId, path, line, character });
 		if (hasFlag(flags, "--json")) {
-			console.log(JSON.stringify(calls));
+			console.log(JSON.stringify(result));
 			return;
 		}
+		const { calls, provenance } = result;
+		console.log(formatIntelligenceSource(provenance));
 		if (calls.length === 0) {
 			console.log("no outgoing calls found");
 			return;

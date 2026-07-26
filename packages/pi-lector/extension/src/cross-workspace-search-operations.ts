@@ -1,4 +1,4 @@
-import type { TextSearchResult, WorkspaceQueryOutcome, WorkspaceSymbol } from "@danypops/lector";
+import type { SymbolSearchResult, TextSearchResult, WorkspaceQueryOutcome } from "@danypops/lector";
 import { lectorClient, workspaceForDirectory } from "./lector-client.ts";
 
 /**
@@ -10,11 +10,7 @@ import { lectorClient, workspaceForDirectory } from "./lector-client.ts";
  * required, same "no implicit fallback" convention as find_symbols/search_code.
  */
 export interface CrossWorkspaceSearchOperations {
-	findSymbols(
-		query: string,
-		directories: readonly string[],
-		timeoutMs?: number,
-	): Promise<readonly WorkspaceQueryOutcome<{ symbols: readonly WorkspaceSymbol[] }>[]>;
+	findSymbols(query: string, directories: readonly string[], timeoutMs?: number): Promise<readonly WorkspaceQueryOutcome<SymbolSearchResult>[]>;
 	searchText(
 		query: string,
 		directories: readonly string[],

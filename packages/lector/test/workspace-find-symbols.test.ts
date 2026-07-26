@@ -13,6 +13,7 @@ import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
 import { buildLectorApp, startLectorDaemon } from "../src/daemon.ts";
 import { createLectorService, type LectorServiceOptions, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
+import { symbolSearchResult, TEST_SEMANTIC_PROVENANCE } from "./support/intelligence-provenance.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 const LECTOR_ROOT = new URL("..", import.meta.url).pathname;
@@ -77,6 +78,7 @@ describe("workspace.findSymbols", () => {
 		const second = await client.call("workspace.findSymbols", { workspaceId, seedFile: "src/index.ts", query: "rawRead" });
 
 		expect(first.symbols.some((symbol) => symbol.name === "exactEdit")).toBe(true);
+		expect(first.provenance).toMatchObject({ fidelity: "semantic", backend: "typescript-language-server" });
 		expect(second.symbols.some((symbol) => symbol.name === "rawRead")).toBe(true);
 		expect(spawnCount).toBe(1); // one warm index served both queries
 	}, 20_000);
@@ -110,7 +112,8 @@ describe("workspace.findSymbols", () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
 		let closed = false;
 		const fakeIndex = {
-			findSymbols: async () => [],
+			provenance: TEST_SEMANTIC_PROVENANCE,
+			findSymbols: async () => symbolSearchResult(),
 			close: async () => {
 				closed = true;
 			},

@@ -8,7 +8,7 @@
  * it's the same shape the real Theme class's fg/bold already have.
  */
 import { describe, expect, it } from "bun:test";
-import type { WorkspaceSymbol } from "@danypops/lector";
+import type { SymbolSearchResult, WorkspaceSymbol } from "@danypops/lector";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { type FindSymbolsTheme, formatFindSymbolsCall, formatFindSymbolsResult } from "../extension/src/find-symbols-rendering.ts";
 
@@ -28,6 +28,21 @@ function symbol(overrides: Partial<WorkspaceSymbol> = {}): WorkspaceSymbol {
 		kind: "function",
 		location: { path: "src/domain/exact-edit.ts", line: 12, character: 1 },
 		...overrides,
+	};
+}
+
+function result(symbols: readonly WorkspaceSymbol[], truncated = false): SymbolSearchResult {
+	return {
+		symbols,
+		truncated,
+		provenance: {
+			fidelity: "semantic",
+			backend: "typescript-language-server",
+			languageId: "typescript",
+			authority: "language-server",
+			freshness: "live-process",
+			limitations: [],
+		},
 	};
 }
 
@@ -51,14 +66,14 @@ describe("formatFindSymbolsCall", () => {
 
 describe("formatFindSymbolsResult", () => {
 	it("shows a clear, distinct message when nothing matched -- not blank, not an error", () => {
-		const text = formatFindSymbolsResult([], "NoSuchSymbol", false, plainTheme);
+		const text = formatFindSymbolsResult(result([]), "NoSuchSymbol", false, plainTheme);
 		expect(text).toContain("No symbols found");
 		expect(text).toContain("NoSuchSymbol");
 	});
 
 	it("shows every symbol's kind, name, and location", () => {
 		const symbols = [symbol({ name: "exactEdit", kind: "function" }), symbol({ name: "InMemoryWorkspace", kind: "class" })];
-		const text = formatFindSymbolsResult(symbols, "e", false, plainTheme);
+		const text = formatFindSymbolsResult(result(symbols), "e", false, plainTheme);
 		expect(text).toContain("function");
 		expect(text).toContain("exactEdit");
 		expect(text).toContain("class");
@@ -68,7 +83,7 @@ describe("formatFindSymbolsResult", () => {
 
 	it("truncates to the default visible count when not expanded, and says how many more remain", () => {
 		const symbols = Array.from({ length: 12 }, (_, i) => symbol({ name: `symbol${i}` }));
-		const text = formatFindSymbolsResult(symbols, "symbol", false, plainTheme);
+		const text = formatFindSymbolsResult(result(symbols), "symbol", false, plainTheme);
 
 		expect(text).toContain("symbol0");
 		expect(text).not.toContain("symbol11"); // beyond the default visible count
@@ -77,7 +92,7 @@ describe("formatFindSymbolsResult", () => {
 
 	it("shows every result when expanded, with no truncation notice", () => {
 		const symbols = Array.from({ length: 12 }, (_, i) => symbol({ name: `symbol${i}` }));
-		const text = formatFindSymbolsResult(symbols, "symbol", true, plainTheme);
+		const text = formatFindSymbolsResult(result(symbols), "symbol", true, plainTheme);
 
 		expect(text).toContain("symbol0");
 		expect(text).toContain("symbol11");
@@ -86,7 +101,7 @@ describe("formatFindSymbolsResult", () => {
 
 	it("does not show a truncation notice when the result count is already within the default visible count", () => {
 		const symbols = [symbol()];
-		const text = formatFindSymbolsResult(symbols, "exactEdit", false, plainTheme);
+		const text = formatFindSymbolsResult(result(symbols), "exactEdit", false, plainTheme);
 		expect(text).not.toContain("more");
 	});
 });

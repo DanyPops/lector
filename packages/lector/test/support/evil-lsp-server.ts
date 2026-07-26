@@ -13,6 +13,7 @@
  *                          (simulates a crash after a request is already pending)
  *   sends-notification    responds to `initialize`, then pushes a fake
  *                          textDocument/publishDiagnostics notification
+ *   oversized-response    responds after initialize with a deliberately large body
  */
 import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/adapters/lsp/json-rpc-stream.ts";
 
@@ -50,6 +51,10 @@ function handle(message: JsonRpcMessage): void {
 	}
 
 	if (mode === "hang-on-request") return;
+	if (mode === "oversized-response") {
+		respond(message.id, "x".repeat(4_096));
+		return;
+	}
 	respond(message.id, []); // generic empty-array response -- good enough for workspace/symbol-shaped requests
 }
 

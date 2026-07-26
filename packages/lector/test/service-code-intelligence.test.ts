@@ -45,7 +45,7 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 			allowDynamicOnly: true,
 			createSymbolIndex: (rootPath): ClosableSymbolIndex => {
 				const index = new TreeSitterSymbolIndex(rootPath);
-				return { findSymbols: (query) => index.findSymbols(query), close: () => index.close() };
+				return { provenance: index.provenance, findSymbols: (query, bounds) => index.findSymbols(query, bounds), close: () => index.close() };
 			},
 		});
 		// A workspace's rootPath (required for any symbol/code-intelligence query) is only set
@@ -54,6 +54,9 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 		// "lector workspace register" already differ.
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
 		const at = { workspaceId, path: join(fixtureRoot, "src/math.ts"), line: 1, character: 17 };
+		const fallback = await service.dispatch("workspace.findSymbols", { workspaceId, query: "add", maxResults: 10 });
+		expect(fallback.provenance).toMatchObject({ fidelity: "structural", authority: "parser" });
+		expect(fallback.provenance.limitations).toContain("no cross-file identity");
 
 		await expect(service.dispatch("workspace.goToDefinition", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.goToImplementation", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);

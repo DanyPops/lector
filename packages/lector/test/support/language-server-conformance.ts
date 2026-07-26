@@ -72,7 +72,7 @@ export function runLanguageServerConformanceSuite(fixture: LanguageConformanceFi
 
 					const symbols = await findWorkspaceSymbols(index, fixture.expectedSymbolNames[0] ?? "");
 
-					expect(symbols.find((symbol) => symbol.name === fixture.expectedSymbolNames[0])).toBeDefined();
+					expect(symbols.symbols.find((symbol) => symbol.name === fixture.expectedSymbolNames[0])).toBeDefined();
 				},
 				timeout,
 			);

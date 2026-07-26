@@ -12,6 +12,7 @@ import type { WorkspaceQueryOutcome } from "../src/domain/workspace-query-outcom
 import type { WorkspaceSymbol } from "../src/domain/workspace-symbol.ts";
 import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";
 import { createLectorService } from "../src/service.ts";
+import { symbolSearchResult, TEST_SEMANTIC_PROVENANCE } from "./support/intelligence-provenance.ts";
 
 function expectReady<T>(outcome: WorkspaceQueryOutcome<T> | undefined, workspaceId: string): T {
 	if (!outcome) throw new Error(`no outcome for workspace ${workspaceId}`);
@@ -37,16 +38,18 @@ function buildDir(fileName: string, content: string): string {
 }
 
 class InstantSymbolIndex implements ClosableSymbolIndex {
+	readonly provenance = TEST_SEMANTIC_PROVENANCE;
 	constructor(private readonly symbol: WorkspaceSymbol) {}
-	async findSymbols(): Promise<WorkspaceSymbol[]> {
-		return [this.symbol];
+	async findSymbols() {
+		return symbolSearchResult([this.symbol]);
 	}
 	async close(): Promise<void> {}
 }
 
 class NeverSettlesSymbolIndex implements ClosableSymbolIndex {
-	async findSymbols(): Promise<WorkspaceSymbol[]> {
-		return new Promise(() => {}); // deliberately never resolves within any test's own budget
+	readonly provenance = TEST_SEMANTIC_PROVENANCE;
+	async findSymbols() {
+		return new Promise<never>(() => {}); // deliberately never resolves within any test's own budget
 	}
 	async close(): Promise<void> {}
 }

@@ -10,6 +10,8 @@ pi install npm:@danypops/pi-lector
 
 `package_source` resolves an installed npm package through its lockfile and registry metadata, verifies an exact Git commit, and registers the package source read-only for `search_code`, `find_symbols`, and the semantic tools.
 
+Symbol and semantic tool results identify their backend and fidelity. `typescript-language-server` results are semantic; compiler or parser fallback results are structural and list their limitations.
+
 `populate_symbol_graph` submits bounded background work and waits briefly. If the
 graph is still loading, it returns a job id immediately; `job_status` polls that id
 later without forcing the agent into a blocking or blind polling loop.

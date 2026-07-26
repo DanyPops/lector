@@ -8,7 +8,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { LanguageServerProcess, LanguageServerProcessExited, LanguageServerRequestTimedOut } from "../../../src/adapters/lsp/language-server-process.ts";
+import { JsonRpcMessageLimitExceeded } from "../../../src/adapters/lsp/json-rpc-stream.ts";
+import {
+	LanguageServerCapacityExceeded,
+	LanguageServerProcess,
+	LanguageServerProcessExited,
+	LanguageServerRequestTimedOut,
+} from "../../../src/adapters/lsp/language-server-process.ts";
 
 const EVIL_SERVER_PATH = fileURLToPath(new URL("../../support/evil-lsp-server.ts", import.meta.url));
 
@@ -22,7 +28,7 @@ afterEach(async () => {
 	cwd = undefined;
 });
 
-function spawnEvil(mode: string, requestTimeoutMs?: number): LanguageServerProcess {
+function spawnEvil(mode: string, requestTimeoutMs?: number, bounds: { maxPendingRequests?: number; maxMessageBytes?: number } = {}): LanguageServerProcess {
 	cwd = mkdtempSync(join(tmpdir(), "lector-evil-lsp-"));
 	server = LanguageServerProcess.spawnProcess({
 		command: "bun",
@@ -30,6 +36,7 @@ function spawnEvil(mode: string, requestTimeoutMs?: number): LanguageServerProce
 		cwd,
 		env: { EVIL_LSP_MODE: mode },
 		requestTimeoutMs,
+		...bounds,
 	});
 	return server;
 }
@@ -102,6 +109,33 @@ describe("LanguageServerProcess against a hostile mock -- timeouts", () => {
 		const started = Date.now();
 		await proc.stop(200);
 		expect(Date.now() - started).toBeLessThan(200 * 4);
+	});
+});
+
+describe("LanguageServerProcess resource bounds", () => {
+	it("rejects excess concurrent requests instead of growing the pending map without bound", async () => {
+		const proc = spawnEvil("hang-on-request", 100, { maxPendingRequests: 1 });
+		await proc.request("initialize", {});
+		const pending = proc.request("workspace/symbol", {});
+
+		await expect(proc.request("workspace/symbol", {})).rejects.toBeInstanceOf(LanguageServerCapacityExceeded);
+		await expect(pending).rejects.toBeInstanceOf(LanguageServerRequestTimedOut);
+	});
+
+	it("rejects an outbound request or notification beyond the message bound before writing it", async () => {
+		const proc = spawnEvil("normal", 1_000, { maxMessageBytes: 512 });
+		await proc.request("initialize", {});
+
+		await expect(proc.request("workspace/symbol", { query: "x".repeat(1_000) })).rejects.toBeInstanceOf(JsonRpcMessageLimitExceeded);
+		expect(() => proc.notify("textDocument/didOpen", { text: "x".repeat(1_000) })).toThrow(JsonRpcMessageLimitExceeded);
+	});
+
+	it("fails closed and kills a server whose response exceeds the message bound", async () => {
+		const proc = spawnEvil("oversized-response", 1_000, { maxMessageBytes: 1_024 });
+		await proc.request("initialize", {});
+
+		await expect(proc.request("workspace/symbol", {})).rejects.toBeInstanceOf(JsonRpcMessageLimitExceeded);
+		await expect(proc.request("workspace/symbol", {})).rejects.toBeInstanceOf(JsonRpcMessageLimitExceeded);
 	});
 });
 

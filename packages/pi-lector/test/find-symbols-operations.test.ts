@@ -47,7 +47,7 @@ describe("Lector-backed find-symbols operation", () => {
 		const ops = createLectorFindSymbolsOperations();
 		const symbols = await ops.findSymbols("greetLoudly", projectDir);
 
-		const match = symbols.find((symbol) => symbol.name === "greetLoudly");
+		const match = symbols.symbols.find((symbol) => symbol.name === "greetLoudly");
 		expect(match).toBeDefined();
 		expect(match?.kind).toBe("function");
 	}, 20_000);
@@ -63,7 +63,7 @@ describe("Lector-backed find-symbols operation", () => {
 		const ops = createLectorFindSymbolsOperations();
 		const symbols = await ops.findSymbols("ThisSymbolDefinitelyDoesNotExistAnywhere", projectDir);
 
-		expect(symbols).toEqual([]);
+		expect(symbols.symbols).toEqual([]);
 	}, 20_000);
 
 	it("searches whichever directory is given, and one Operations instance can search different directories across calls", async () => {
@@ -80,14 +80,14 @@ describe("Lector-backed find-symbols operation", () => {
 		const ops = createLectorFindSymbolsOperations();
 
 		const firstResults = await ops.findSymbols("inDefaultProject", projectDir);
-		expect(firstResults.some((symbol) => symbol.name === "inDefaultProject")).toBe(true);
+		expect(firstResults.symbols.some((symbol) => symbol.name === "inDefaultProject")).toBe(true);
 
 		const secondResults = await ops.findSymbols("inOtherProject", otherProjectDir);
-		expect(secondResults.some((symbol) => symbol.name === "inOtherProject")).toBe(true);
+		expect(secondResults.symbols.some((symbol) => symbol.name === "inOtherProject")).toBe(true);
 
 		// Neither search leaks into the other's project -- these are genuinely separate
 		// workspaces, not a shared search scope with a remembered "current" directory.
-		expect(await ops.findSymbols("inOtherProject", projectDir)).toEqual([]);
-		expect(await ops.findSymbols("inDefaultProject", otherProjectDir)).toEqual([]);
+		expect((await ops.findSymbols("inOtherProject", projectDir)).symbols).toEqual([]);
+		expect((await ops.findSymbols("inDefaultProject", otherProjectDir)).symbols).toEqual([]);
 	}, 20_000);
 });

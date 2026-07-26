@@ -1,4 +1,4 @@
-import type { WorkspaceSymbol } from "@danypops/lector";
+import type { SymbolSearchResult, WorkspaceSymbol } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { colorForKind, formatLocation, type LectorTheme } from "./lector-tui-theme.ts";
 
@@ -32,14 +32,17 @@ function formatSymbolLine(symbol: WorkspaceSymbol, theme: FindSymbolsTheme, kind
 	return `${kind}  ${name}  ${location}`;
 }
 
-export function formatFindSymbolsResult(symbols: readonly WorkspaceSymbol[] | undefined, query: string, expanded: boolean, theme: FindSymbolsTheme): string {
-	if (!symbols || symbols.length === 0) {
-		return theme.fg("dim", `No symbols found matching "${query}".`);
+export function formatFindSymbolsResult(result: SymbolSearchResult | undefined, query: string, expanded: boolean, theme: FindSymbolsTheme): string {
+	if (!result) return theme.fg("dim", `No symbols found matching "${query}".`);
+	const { symbols, provenance, truncated } = result;
+	const source = `${provenance.fidelity} via ${provenance.backend}${truncated ? " (truncated)" : ""}`;
+	if (symbols.length === 0) {
+		return `${theme.fg("muted", source)}\n${theme.fg("dim", `No symbols found matching "${query}".`)}`;
 	}
 
 	const kindColumnWidth = Math.max(...symbols.map((symbol) => symbol.kind.length));
 	const displayCount = expanded ? symbols.length : Math.min(symbols.length, DEFAULT_VISIBLE_RESULTS);
-	const lines = [theme.fg("muted", `${symbols.length} symbol${symbols.length === 1 ? "" : "s"} matching "${query}":`)];
+	const lines = [theme.fg("muted", source), theme.fg("muted", `${symbols.length} symbol${symbols.length === 1 ? "" : "s"} matching "${query}":`)];
 
 	for (const symbol of symbols.slice(0, displayCount)) {
 		lines.push(formatSymbolLine(symbol, theme, kindColumnWidth));

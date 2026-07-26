@@ -47,7 +47,7 @@ describe("LspSymbolIndex configured for TypeScript", () => {
 		// is the barrel's re-export binding (kind "variable"), not exact-edit.ts's original
 		// `function` declaration -- tsserver never independently opened that file. Still a
 		// materially useful result: it correctly names and locates the symbol.
-		const match = results.find((symbol) => symbol.name === "exactEdit");
+		const match = results.symbols.find((symbol) => symbol.name === "exactEdit");
 		expect(match).toBeDefined();
 		expect(match?.location.path).toContain("lector");
 		expect(match?.location.line).toBeGreaterThan(0);
@@ -58,7 +58,7 @@ describe("LspSymbolIndex configured for TypeScript", () => {
 
 		const results = await findWorkspaceSymbols(index, "ThisSymbolDefinitelyDoesNotExistAnywhere");
 
-		expect(results).toEqual([]);
+		expect(results.symbols).toEqual([]);
 	}, 20_000);
 
 	it("goToDefinition navigates a method-access usage to the interface member that declares it", async () => {
@@ -70,7 +70,7 @@ describe("LspSymbolIndex configured for TypeScript", () => {
 		// into the exporting module (typescript-language-server has no standard-LSP way to force
 		// the deeper "go to source definition" hop editors like VS Code offer as an extra command);
 		// a member-access call like this one does cross files correctly.
-		const usage = findPositionOf(FIND_WORKSPACE_SYMBOLS_FILE, ".findSymbols(query)");
+		const usage = findPositionOf(FIND_WORKSPACE_SYMBOLS_FILE, ".findSymbols(query, bounds)");
 
 		const locations = await goToDefinition(index, { path: FIND_WORKSPACE_SYMBOLS_FILE, line: usage.line, character: usage.character + 2 });
 
@@ -281,6 +281,6 @@ describe("LspSymbolIndex auto-discovered seed file in a monorepo with no root ts
 
 		const results = await findWorkspaceSymbols(index, "realProjectExport");
 
-		expect(results.some((symbol) => symbol.name === "realProjectExport")).toBe(true);
+		expect(results.symbols.some((symbol) => symbol.name === "realProjectExport")).toBe(true);
 	}, 20_000);
 });

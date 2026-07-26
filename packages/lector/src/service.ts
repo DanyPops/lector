@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
 import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
@@ -13,6 +14,8 @@ import { NpmRegistryClient } from "./adapters/npm-registry-client.ts";
 import { ReadOnlyWorkspace } from "./adapters/read-only-workspace.ts";
 import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "./adapters/source-manifest.ts";
+import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { TypeScriptCompilerSymbolIndex } from "./adapters/typescript-compiler-symbol-index.ts";
 import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
@@ -30,6 +33,7 @@ import { goToImplementation as goToImplementationQuery } from "./domain/go-to-im
 import type { Hover } from "./domain/hover.ts";
 import { hoverAt } from "./domain/hover-at.ts";
 import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts";
+import type { IntelligenceProvenance } from "./domain/intelligence-provenance.ts";
 import { descriptorForPath, LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./domain/language-server-descriptor.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
 import type { PackageSourceBounds, PackageSourceOperationResult, PackageSourceRequest } from "./domain/package-source.ts";
@@ -46,9 +50,10 @@ import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 import type { WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
 import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
+import { assertBoundedSymbolQuery } from "./domain/symbol-query.ts";
 import type { TextSearchResult } from "./domain/text-search-result.ts";
 import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts";
-import type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
+import type { SymbolSearchResult, WorkspaceLocation } from "./domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 import type { GitPort } from "./ports/git-port.ts";
 import type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
@@ -249,7 +254,7 @@ export interface OperationInputs {
 	"workspace.rawRead": { workspaceId: WorkspaceId; path: string };
 	"workspace.exactEdit": { workspaceId: WorkspaceId } & ExpectedHashEdit;
 	"workspace.registerPath": { path: string };
-	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string };
+	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string; maxResults?: number };
 	"workspace.goToDefinition": WorkspacePosition;
 	"workspace.goToImplementation": WorkspacePosition;
 	"workspace.findReferences": WorkspacePosition & { includeDeclaration: boolean };
@@ -291,20 +296,22 @@ export interface OperationInputs {
 	"job.status": { jobId: string };
 }
 
+type Provenanced<T> = T & { readonly provenance: IntelligenceProvenance };
+
 export interface OperationOutputs {
 	"workspace.rawRead": RawRead;
 	"workspace.exactEdit": EditOutcome;
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
-	"workspace.findSymbols": { symbols: readonly WorkspaceSymbol[] };
-	"workspace.goToDefinition": { locations: readonly WorkspaceLocation[] };
-	"workspace.goToImplementation": { locations: readonly WorkspaceLocation[] };
-	"workspace.findReferences": { locations: readonly WorkspaceLocation[] };
-	"workspace.hover": { hover: Hover | undefined };
-	"workspace.documentSymbols": { symbols: readonly DocumentSymbolEntry[] };
-	"workspace.diagnostics": { diagnostics: readonly Diagnostic[] };
-	"workspace.prepareCallHierarchy": { items: readonly CallHierarchyEntry[] };
-	"workspace.incomingCalls": { calls: readonly IncomingCall[] };
-	"workspace.outgoingCalls": { calls: readonly OutgoingCall[] };
+	"workspace.findSymbols": SymbolSearchResult;
+	"workspace.goToDefinition": Provenanced<{ locations: readonly WorkspaceLocation[] }>;
+	"workspace.goToImplementation": Provenanced<{ locations: readonly WorkspaceLocation[] }>;
+	"workspace.findReferences": Provenanced<{ locations: readonly WorkspaceLocation[] }>;
+	"workspace.hover": Provenanced<{ hover: Hover | undefined }>;
+	"workspace.documentSymbols": Provenanced<{ symbols: readonly DocumentSymbolEntry[] }>;
+	"workspace.diagnostics": Provenanced<{ diagnostics: readonly Diagnostic[] }>;
+	"workspace.prepareCallHierarchy": Provenanced<{ items: readonly CallHierarchyEntry[] }>;
+	"workspace.incomingCalls": Provenanced<{ calls: readonly IncomingCall[] }>;
+	"workspace.outgoingCalls": Provenanced<{ calls: readonly OutgoingCall[] }>;
 	"workspace.populateSymbolGraph": { filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number };
 	"workspace.reachableFrom": { symbols: readonly SymbolNode[] };
 	"workspace.symbolEdgesFrom": { symbols: readonly SymbolNode[] };
@@ -317,7 +324,7 @@ export interface OperationOutputs {
 	"repo.fetch": RepoFetchResult & { workspaceId: WorkspaceId };
 	"package.resolveSource": PackageSourceOperationResult;
 	"workspace.searchText": TextSearchResult;
-	"search.symbols": { results: readonly WorkspaceQueryOutcome<{ symbols: readonly WorkspaceSymbol[] }>[] };
+	"search.symbols": { results: readonly WorkspaceQueryOutcome<SymbolSearchResult>[] };
 	"search.text": { results: readonly WorkspaceQueryOutcome<TextSearchResult>[] };
 	"job.submit": { job: JobSnapshot<PopulateSymbolGraphResult> };
 	"job.status": { job: JobSnapshot<PopulateSymbolGraphResult> };
@@ -437,6 +444,7 @@ async function registerPath(registry: MutableRegistry, input: OperationInputs["w
  */
 const DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS = 3000;
 const MAX_INITIAL_JOB_WAIT_MS = 30_000;
+const MAX_SYMBOL_RESULTS = 5_000;
 const MAX_SOURCE_MANIFEST_BYTES = 50 * 1024 * 1024;
 
 /**
@@ -474,7 +482,11 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const symbolIndexes = new Map<string, { index: ClosableSymbolIndex; workspaceId: WorkspaceId; lastUsedAt: number }>();
 	const createSymbolIndex =
 		options.createSymbolIndex ??
-		((rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => new LspSymbolIndex(rootPath, descriptor, seedFile));
+		((rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => {
+			const semantic = new LspSymbolIndex(rootPath, descriptor, seedFile);
+			if (descriptor.languageId !== "typescript") return semantic;
+			return new FallbackCodeIntelligenceIndex(semantic, [new TypeScriptCompilerSymbolIndex(rootPath), new TreeSitterSymbolIndex(rootPath)]);
+		});
 	function symbolIndexKey(workspaceId: WorkspaceId, languageId: string): string {
 		return `${workspaceId}:${languageId}`;
 	}
@@ -706,9 +718,13 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	}
 
 	async function findSymbols(_registry: MutableRegistry, input: OperationInputs["workspace.findSymbols"]): Promise<OperationOutputs["workspace.findSymbols"]> {
+		assertBoundedSymbolQuery(input.query);
+		const maxResults = input.maxResults ?? 1_000;
+		if (!Number.isSafeInteger(maxResults) || maxResults < 1 || maxResults > MAX_SYMBOL_RESULTS) {
+			throw new TypeError(`maxResults must be a positive safe integer no greater than ${MAX_SYMBOL_RESULTS}`);
+		}
 		const { index } = await ensureWarmIndex(input);
-		const symbols = await findWorkspaceSymbols(index, input.query);
-		return { symbols };
+		return findWorkspaceSymbols(index, input.query, { maxResults });
 	}
 
 	async function requireCodeIntelligence(input: {
@@ -727,7 +743,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	): Promise<OperationOutputs["workspace.goToDefinition"]> {
 		const { index } = await requireCodeIntelligence(input);
 		const locations = await goToDefinitionQuery(index, { path: input.path, line: input.line, character: input.character });
-		return { locations };
+		return { locations, provenance: index.provenance };
 	}
 
 	async function goToImplementation(
@@ -736,7 +752,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	): Promise<OperationOutputs["workspace.goToImplementation"]> {
 		const { index } = await requireCodeIntelligence(input);
 		const locations = await goToImplementationQuery(index, { path: input.path, line: input.line, character: input.character });
-		return { locations };
+		return { locations, provenance: index.provenance };
 	}
 
 	async function findReferences(
@@ -745,13 +761,13 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	): Promise<OperationOutputs["workspace.findReferences"]> {
 		const { index } = await requireCodeIntelligence(input);
 		const locations = await findReferencesQuery(index, { path: input.path, line: input.line, character: input.character }, input.includeDeclaration);
-		return { locations };
+		return { locations, provenance: index.provenance };
 	}
 
 	async function hover(_registry: MutableRegistry, input: OperationInputs["workspace.hover"]): Promise<OperationOutputs["workspace.hover"]> {
 		const { index } = await requireCodeIntelligence(input);
 		const hover = await hoverAt(index, { path: input.path, line: input.line, character: input.character });
-		return { hover };
+		return { hover, provenance: index.provenance };
 	}
 
 	async function documentSymbolsHandler(
@@ -760,7 +776,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	): Promise<OperationOutputs["workspace.documentSymbols"]> {
 		const { index } = await requireCodeIntelligence(input);
 		const symbols = await documentSymbolsQuery(index, input.path);
-		return { symbols };
+		return { symbols, provenance: index.provenance };
 	}
 
 	async function diagnosticsHandler(
@@ -769,7 +785,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	): Promise<OperationOutputs["workspace.diagnostics"]> {
 		const { index } = await requireCodeIntelligence(input);
 		const diagnostics = await diagnosticsQuery(index, input.path);
-		return { diagnostics };
+		return { diagnostics, provenance: index.provenance };
 	}
 
 	async function prepareCallHierarchyHandler(
@@ -778,7 +794,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	): Promise<OperationOutputs["workspace.prepareCallHierarchy"]> {
 		const { index } = await requireCodeIntelligence(input);
 		const items = await prepareCallHierarchyQuery(index, { path: input.path, line: input.line, character: input.character });
-		return { items };
+		return { items, provenance: index.provenance };
 	}
 
 	async function incomingCallsHandler(
@@ -787,7 +803,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	): Promise<OperationOutputs["workspace.incomingCalls"]> {
 		const { index } = await requireCodeIntelligence(input);
 		const calls = await incomingCallsQuery(index, { path: input.path, line: input.line, character: input.character });
-		return { calls };
+		return { calls, provenance: index.provenance };
 	}
 
 	async function outgoingCallsHandler(
@@ -796,7 +812,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	): Promise<OperationOutputs["workspace.outgoingCalls"]> {
 		const { index } = await requireCodeIntelligence(input);
 		const calls = await outgoingCallsQuery(index, { path: input.path, line: input.line, character: input.character });
-		return { calls };
+		return { calls, provenance: index.provenance };
 	}
 
 	async function populateSymbolGraphHandler(
@@ -817,6 +833,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			maxFiles: input.maxFiles,
 			maxSymbolsPerFile: input.maxSymbolsPerFile,
 			completedAt: Date.now(),
+			provenance: index.provenance,
 			result,
 		});
 		return result;

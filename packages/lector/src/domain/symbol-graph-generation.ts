@@ -1,3 +1,4 @@
+import type { IntelligenceProvenance } from "./intelligence-provenance.ts";
 import type { PopulateSymbolGraphResult } from "./populate-symbol-graph.ts";
 
 export interface SymbolGraphGeneration {
@@ -5,6 +6,8 @@ export interface SymbolGraphGeneration {
 	readonly maxFiles: number;
 	readonly maxSymbolsPerFile: number;
 	readonly completedAt: number;
+	/** Absent only for generations persisted before provenance was recorded. */
+	readonly provenance?: IntelligenceProvenance;
 	readonly result: PopulateSymbolGraphResult;
 }
 

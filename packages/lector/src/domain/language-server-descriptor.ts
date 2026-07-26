@@ -13,7 +13,10 @@ export type LanguageServerLaunch = { readonly kind: "npm-module"; readonly entry
 
 export interface LanguageServerDescriptor {
 	readonly languageId: string;
+	readonly backendId: string;
 	readonly extensions: readonly string[];
+	/** Per-extension document language ids when one server owns a language family. */
+	readonly documentLanguageIds?: Readonly<Record<string, string>>;
 	readonly launch: LanguageServerLaunch;
 	readonly args: readonly string[];
 	/** Checked nearest-first; closest match wins over a more distant one -- a monorepo subproject with its own root marker resolves to itself, not the outer repo. */
@@ -30,7 +33,16 @@ export const DEFAULT_SETTLE_MS = 1000;
 
 export const TYPESCRIPT_DESCRIPTOR: LanguageServerDescriptor = {
 	languageId: "typescript",
+	backendId: "typescript-language-server",
 	extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+	documentLanguageIds: {
+		".ts": "typescript",
+		".tsx": "typescriptreact",
+		".js": "javascript",
+		".jsx": "javascriptreact",
+		".mjs": "javascript",
+		".cjs": "javascript",
+	},
 	launch: { kind: "npm-module", entryModule: "typescript-language-server/lib/cli.mjs" },
 	args: ["--stdio"],
 	rootMarkers: ["tsconfig.json", "jsconfig.json", "package.json"],
@@ -43,6 +55,7 @@ export const TYPESCRIPT_DESCRIPTOR: LanguageServerDescriptor = {
 
 export const PYTHON_DESCRIPTOR: LanguageServerDescriptor = {
 	languageId: "python",
+	backendId: "pyright",
 	extensions: [".py", ".pyi"],
 	launch: { kind: "npm-module", entryModule: "pyright/langserver.index.js" },
 	args: ["--stdio"],
@@ -52,6 +65,7 @@ export const PYTHON_DESCRIPTOR: LanguageServerDescriptor = {
 
 export const GO_DESCRIPTOR: LanguageServerDescriptor = {
 	languageId: "go",
+	backendId: "gopls",
 	extensions: [".go"],
 	// gopls ships via `go install`, not npm.
 	launch: { kind: "system-binary", command: "gopls" },
@@ -62,6 +76,7 @@ export const GO_DESCRIPTOR: LanguageServerDescriptor = {
 
 export const RUST_DESCRIPTOR: LanguageServerDescriptor = {
 	languageId: "rust",
+	backendId: "rust-analyzer",
 	extensions: [".rs"],
 	// rust-analyzer ships via rustup, not npm.
 	launch: { kind: "system-binary", command: "rust-analyzer" },
@@ -73,6 +88,7 @@ export const RUST_DESCRIPTOR: LanguageServerDescriptor = {
 
 export const CPP_DESCRIPTOR: LanguageServerDescriptor = {
 	languageId: "cpp",
+	backendId: "clangd",
 	extensions: [".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"],
 	// clangd ships via LLVM's system packaging, not npm.
 	launch: { kind: "system-binary", command: "clangd" },
@@ -83,6 +99,7 @@ export const CPP_DESCRIPTOR: LanguageServerDescriptor = {
 
 export const BASH_DESCRIPTOR: LanguageServerDescriptor = {
 	languageId: "shellscript",
+	backendId: "bash-language-server",
 	extensions: [".sh", ".bash"],
 	launch: { kind: "npm-module", entryModule: "bash-language-server/out/cli.js" },
 	args: ["start"],
@@ -92,6 +109,7 @@ export const BASH_DESCRIPTOR: LanguageServerDescriptor = {
 
 export const YAML_DESCRIPTOR: LanguageServerDescriptor = {
 	languageId: "yaml",
+	backendId: "yaml-language-server",
 	extensions: [".yaml", ".yml"],
 	launch: { kind: "npm-module", entryModule: "yaml-language-server/bin/yaml-language-server" },
 	args: ["--stdio"],

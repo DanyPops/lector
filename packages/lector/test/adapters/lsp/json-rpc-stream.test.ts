@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { encodeJsonRpcMessage, JsonRpcStreamDecoder } from "../../../src/adapters/lsp/json-rpc-stream.ts";
+import { encodeJsonRpcMessage, JsonRpcMessageLimitExceeded, JsonRpcStreamDecoder } from "../../../src/adapters/lsp/json-rpc-stream.ts";
 
 describe("encodeJsonRpcMessage / JsonRpcStreamDecoder", () => {
 	it("round-trips a single message fed as one chunk", () => {
@@ -47,6 +47,19 @@ describe("encodeJsonRpcMessage / JsonRpcStreamDecoder", () => {
 		const messages = decoder.push(Buffer.concat([malformed, valid]));
 
 		expect(messages).toEqual([{ jsonrpc: "2.0", id: 7, method: "ok" }]);
+	});
+
+	it("rejects an unterminated header beyond the configured byte bound", () => {
+		const decoder = new JsonRpcStreamDecoder({ maxHeaderBytes: 16 });
+
+		expect(() => decoder.push(Buffer.from("X".repeat(17)))).toThrow(JsonRpcMessageLimitExceeded);
+	});
+
+	it("rejects a declared message body beyond the configured byte bound", () => {
+		const decoder = new JsonRpcStreamDecoder({ maxMessageBytes: 64 });
+		const encoded = encodeJsonRpcMessage({ jsonrpc: "2.0", id: 1, result: "x".repeat(128) });
+
+		expect(() => decoder.push(encoded)).toThrow(JsonRpcMessageLimitExceeded);
 	});
 
 	it("skips an unparseable body without crashing the stream", () => {

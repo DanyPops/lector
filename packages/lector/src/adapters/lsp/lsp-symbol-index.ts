@@ -1,17 +1,48 @@
 import { readFileSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../domain/call-hierarchy.ts";
 import type { CodeRange } from "../../domain/code-range.ts";
 import type { Diagnostic, DiagnosticSeverity } from "../../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../../domain/document-symbol.ts";
 import type { Hover } from "../../domain/hover.ts";
+import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
 import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
-import type { WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
+import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
+import { TypeScriptCompilerSymbolIndex } from "../typescript-compiler-symbol-index.ts";
 import { resolveSeedFile } from "./discover-seed-file.ts";
 import { LanguageServerProcess } from "./language-server-process.ts";
+
+const DEFAULT_MAX_SYMBOL_RESULTS = 1_000;
+const DEFAULT_MAX_OPEN_FILES = 256;
+const DEFAULT_MAX_FILE_BYTES = 4 * 1024 * 1024;
+const MAX_SETTLE_MS = 30_000;
+
+export interface LspSymbolIndexOptions {
+	readonly maxOpenFiles?: number;
+	readonly maxFileBytes?: number;
+	readonly maxRefreshBytes?: number;
+	readonly maxFallbackSeedFiles?: number;
+}
+
+export class LanguageFileLimitExceeded extends Error {
+	constructor(
+		readonly limit: "open-files" | "file-bytes" | "refresh-bytes",
+		readonly max: number,
+		readonly observed: number,
+	) {
+		super(`language intelligence ${limit} limit exceeded: ${observed} > ${max}`);
+		this.name = "LanguageFileLimitExceeded";
+	}
+}
+
+function positiveLimit(value: number | undefined, fallback: number, field: string): number {
+	const result = value ?? fallback;
+	if (!Number.isSafeInteger(result) || result < 1) throw new TypeError(`${field} must be a positive safe integer`);
+	return result;
+}
 
 const LSP_SYMBOL_KIND_NAMES: Readonly<Record<number, string>> = {
 	1: "file",
@@ -237,19 +268,40 @@ function normalizeDocumentSymbol(path: string, item: LspDocumentSymbol | LspSymb
  * actually loaded -- open a file first to guarantee its usages are included.
  */
 export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
+	readonly provenance: IntelligenceProvenance;
 	private readonly cwd: string;
 	private readonly descriptor: LanguageServerDescriptor;
 	private readonly explicitSeedFile: string | undefined;
-	private readonly openedFiles = new Set<string>();
+	private fallbackSeedFile: string | undefined;
+	private readonly maxOpenFiles: number;
+	private readonly maxFileBytes: number;
+	private readonly maxRefreshBytes: number;
+	private readonly maxFallbackSeedFiles: number;
+	private readonly openedFiles = new Map<string, { version: number; content: string }>();
 	private readonly latestDiagnostics = new Map<string, Diagnostic[]>();
 	private readonly diagnosticsWaiters = new Map<string, Array<() => void>>();
 	private process: LanguageServerProcess | undefined;
 	private initializing: Promise<LanguageServerProcess> | undefined;
 
-	constructor(cwd: string, descriptor: LanguageServerDescriptor, seedFile?: string) {
+	constructor(cwd: string, descriptor: LanguageServerDescriptor, seedFile?: string, options: LspSymbolIndexOptions = {}) {
 		this.cwd = cwd;
 		this.descriptor = descriptor;
 		this.explicitSeedFile = seedFile;
+		this.maxOpenFiles = positiveLimit(options.maxOpenFiles, DEFAULT_MAX_OPEN_FILES, "maxOpenFiles");
+		this.maxFileBytes = positiveLimit(options.maxFileBytes, DEFAULT_MAX_FILE_BYTES, "maxFileBytes");
+		this.maxRefreshBytes = positiveLimit(options.maxRefreshBytes, 50 * 1024 * 1024, "maxRefreshBytes");
+		this.maxFallbackSeedFiles = positiveLimit(options.maxFallbackSeedFiles, 8, "maxFallbackSeedFiles");
+		const settleMs = descriptor.settleMs ?? DEFAULT_SETTLE_MS;
+		if (!Number.isSafeInteger(settleMs) || settleMs < 0 || settleMs > MAX_SETTLE_MS)
+			throw new TypeError(`settleMs must be an integer from 0 through ${MAX_SETTLE_MS}`);
+		this.provenance = {
+			fidelity: "semantic",
+			backend: descriptor.backendId,
+			languageId: descriptor.languageId,
+			authority: "language-server",
+			freshness: "live-process",
+			limitations: [],
+		};
 	}
 
 	/** Undefined before the server process has been spawned (first real query). */
@@ -260,11 +312,13 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private async ensureInitialized(): Promise<LanguageServerProcess> {
 		if (this.process) return this.process;
 		if (!this.initializing) {
+			let spawned: LanguageServerProcess | undefined;
 			this.initializing = (async () => {
 				const proc = LanguageServerProcess.spawnProcess({
 					...resolveLanguageServerCommand(this.descriptor),
 					cwd: this.cwd,
 				});
+				spawned = proc;
 				proc.onNotification("textDocument/publishDiagnostics", (params) => {
 					const { uri, diagnostics } = params as LspPublishDiagnosticsParams;
 					const path = fileURLToPath(uri);
@@ -296,24 +350,13 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				});
 				proc.notify("initialized", {});
 
-				const seedFile = this.explicitSeedFile ?? resolveSeedFile(this.cwd, this.descriptor);
-				const seedPath = join(this.cwd, seedFile);
-				proc.notify("textDocument/didOpen", {
-					textDocument: {
-						uri: pathToFileURL(seedPath).href,
-						languageId: this.descriptor.languageId,
-						version: 1,
-						text: readFileSync(seedPath, "utf-8"),
-					},
-				});
-				this.openedFiles.add(seedPath);
-				// No server signals "project loaded"; must match ensureFileOpen's wait below,
-				// since the seed file is often the first file a caller queries.
-				await new Promise((resolve) => setTimeout(resolve, this.descriptor.settleMs ?? DEFAULT_SETTLE_MS));
+				const seedFile = this.fallbackSeedFile ?? this.explicitSeedFile ?? resolveSeedFile(this.cwd, this.descriptor);
+				await this.ensureFileOpen(proc, join(this.cwd, seedFile));
 
 				this.process = proc;
 				return proc;
-			})().catch((error: unknown) => {
+			})().catch(async (error: unknown) => {
+				await spawned?.stop();
 				// A failed initialize must not permanently poison this workspace's index --
 				// the next call retries fresh rather than replaying the same rejection forever.
 				this.initializing = undefined;
@@ -323,13 +366,37 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		return this.initializing;
 	}
 
-	/** Opens `path` with the server if not already open, then waits for it to settle. A no-op past the first call for a given path. */
+	private readBoundedFile(path: string): string {
+		const content = readFileSync(path);
+		if (content.byteLength > this.maxFileBytes) throw new LanguageFileLimitExceeded("file-bytes", this.maxFileBytes, content.byteLength);
+		return content.toString("utf-8");
+	}
+
+	/** Opens a file or sends a monotonic full-document change when its disk content changed since the prior query. */
 	private async ensureFileOpen(proc: LanguageServerProcess, path: string): Promise<void> {
-		if (this.openedFiles.has(path)) return;
-		proc.notify("textDocument/didOpen", {
-			textDocument: { uri: pathToFileURL(path).href, languageId: this.descriptor.languageId, version: 1, text: readFileSync(path, "utf-8") },
-		});
-		this.openedFiles.add(path);
+		const content = this.readBoundedFile(path);
+		const opened = this.openedFiles.get(path);
+		if (opened?.content === content) return;
+		if (!opened) {
+			if (this.openedFiles.size >= this.maxOpenFiles) throw new LanguageFileLimitExceeded("open-files", this.maxOpenFiles, this.openedFiles.size + 1);
+			proc.notify("textDocument/didOpen", {
+				textDocument: {
+					uri: pathToFileURL(path).href,
+					languageId: this.descriptor.documentLanguageIds?.[extname(path)] ?? this.descriptor.languageId,
+					version: 1,
+					text: content,
+				},
+			});
+			this.openedFiles.set(path, { version: 1, content });
+		} else {
+			const version = opened.version + 1;
+			this.latestDiagnostics.delete(path);
+			proc.notify("textDocument/didChange", {
+				textDocument: { uri: pathToFileURL(path).href, version },
+				contentChanges: [{ text: content }],
+			});
+			this.openedFiles.set(path, { version, content });
+		}
 		await new Promise((resolve) => setTimeout(resolve, this.descriptor.settleMs ?? DEFAULT_SETTLE_MS));
 	}
 
@@ -346,10 +413,39 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		});
 	}
 
-	async findSymbols(query: string): Promise<WorkspaceSymbol[]> {
-		const proc = await this.ensureInitialized();
-		const results = (await proc.request<LspSymbolInformation[] | null>("workspace/symbol", { query })) ?? [];
-		return results.map((symbol) => ({
+	private async restartForSeed(seedFile: string): Promise<LanguageServerProcess> {
+		await this.process?.stop();
+		this.process = undefined;
+		this.initializing = undefined;
+		this.openedFiles.clear();
+		this.latestDiagnostics.clear();
+		this.diagnosticsWaiters.clear();
+		this.fallbackSeedFile = seedFile;
+		return this.ensureInitialized();
+	}
+
+	async findSymbols(query: string, bounds: SymbolSearchBounds = { maxResults: DEFAULT_MAX_SYMBOL_RESULTS }): Promise<SymbolSearchResult> {
+		if (!Number.isSafeInteger(bounds.maxResults) || bounds.maxResults < 1) throw new TypeError("maxResults must be a positive safe integer");
+		let proc = await this.ensureInitialized();
+		let refreshedBytes = 0;
+		for (const path of this.openedFiles.keys()) {
+			await this.ensureFileOpen(proc, path);
+			refreshedBytes += Buffer.byteLength(this.openedFiles.get(path)?.content ?? "", "utf-8");
+			if (refreshedBytes > this.maxRefreshBytes) throw new LanguageFileLimitExceeded("refresh-bytes", this.maxRefreshBytes, refreshedBytes);
+		}
+		let results = (await proc.request<LspSymbolInformation[] | null>("workspace/symbol", { query })) ?? [];
+		if (results.length === 0 && this.descriptor.languageId === "typescript") {
+			const candidates = await new TypeScriptCompilerSymbolIndex(this.cwd, { maxResults: this.maxFallbackSeedFiles }).findSymbols(query, {
+				maxResults: this.maxFallbackSeedFiles,
+			});
+			const candidate = candidates.symbols[0];
+			if (candidate) {
+				proc = await this.restartForSeed(candidate.location.path);
+				results = (await proc.request<LspSymbolInformation[] | null>("workspace/symbol", { query })) ?? [];
+			}
+		}
+		const truncated = results.length > bounds.maxResults;
+		const symbols: WorkspaceSymbol[] = results.slice(0, bounds.maxResults).map((symbol) => ({
 			name: symbol.name,
 			kind: LSP_SYMBOL_KIND_NAMES[symbol.kind] ?? "unknown",
 			location: {
@@ -359,6 +455,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			},
 			containerName: symbol.containerName,
 		}));
+		return { symbols, truncated, provenance: this.provenance };
 	}
 
 	async goToDefinition(at: WorkspaceLocation): Promise<WorkspaceLocation[]> {
@@ -462,7 +559,9 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	async close(): Promise<void> {
-		await this.process?.stop();
+		const initializing = this.initializing;
+		const process = this.process ?? (initializing ? await initializing.catch(() => undefined) : undefined);
+		await process?.stop();
 		this.process = undefined;
 		this.initializing = undefined;
 		this.openedFiles.clear();

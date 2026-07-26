@@ -1,15 +1,32 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Parser from "web-tree-sitter";
 import { contentHashOf } from "../../domain/content-hash.ts";
-import type { WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
+import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
+import type { SymbolSearchResult, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { ContentCachePort, ContentSymbol } from "../../ports/content-cache-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
 import { findSourceFiles } from "../find-source-files.ts";
 import { InMemoryContentCache } from "../in-memory-content-cache.ts";
 
-const MAX_FILES_SCANNED = 5_000;
+const DEFAULT_MAX_FILES = 5_000;
+const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
+const DEFAULT_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
+const DEFAULT_MAX_RESULTS = 1_000;
+
+export interface TreeSitterSymbolIndexOptions {
+	readonly maxFiles?: number;
+	readonly maxFileBytes?: number;
+	readonly maxTotalBytes?: number;
+	readonly maxResults?: number;
+}
+
+function positiveLimit(value: number | undefined, fallback: number, field: string): number {
+	const result = value ?? fallback;
+	if (!Number.isSafeInteger(result) || result < 1) throw new TypeError(`${field} must be a positive safe integer`);
+	return result;
+}
 
 interface DeclarationKind {
 	readonly nodeType: string;
@@ -86,13 +103,29 @@ function toWorkspaceSymbols(symbols: readonly ContentSymbol[], relativePath: str
  * read to compute it.
  */
 export class TreeSitterSymbolIndex implements SymbolIndexPort {
+	readonly provenance: IntelligenceProvenance = {
+		fidelity: "structural",
+		backend: "tree-sitter-typescript-javascript",
+		languageId: "typescript-javascript",
+		authority: "parser",
+		freshness: "content-hash",
+		limitations: ["no cross-file identity", "no type information", "syntax recovery may include malformed declarations"],
+	};
 	private readonly rootPath: string;
 	private readonly contentCache: ContentCachePort;
+	private readonly maxFiles: number;
+	private readonly maxFileBytes: number;
+	private readonly maxTotalBytes: number;
+	private readonly maxResults: number;
 	private readonly parsersByWasmPath = new Map<string, Parser>();
 
-	constructor(rootPath: string, contentCache: ContentCachePort = new InMemoryContentCache()) {
+	constructor(rootPath: string, contentCache: ContentCachePort = new InMemoryContentCache(), options: TreeSitterSymbolIndexOptions = {}) {
 		this.rootPath = rootPath;
 		this.contentCache = contentCache;
+		this.maxFiles = positiveLimit(options.maxFiles, DEFAULT_MAX_FILES, "maxFiles");
+		this.maxFileBytes = positiveLimit(options.maxFileBytes, DEFAULT_MAX_FILE_BYTES, "maxFileBytes");
+		this.maxTotalBytes = positiveLimit(options.maxTotalBytes, DEFAULT_MAX_TOTAL_BYTES, "maxTotalBytes");
+		this.maxResults = positiveLimit(options.maxResults, DEFAULT_MAX_RESULTS, "maxResults");
 	}
 
 	private async parserFor(wasmPath: string): Promise<Parser> {
@@ -106,7 +139,7 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 		return parser;
 	}
 
-	private async contentSymbolsFor(relativePath: string, wasmPath: string, content: string): Promise<ContentSymbol[]> {
+	private async contentSymbolsFor(wasmPath: string, content: string): Promise<ContentSymbol[]> {
 		const hash = contentHashOf(content);
 
 		// Reading the file already required reading its content -- warm the fs lens for this
@@ -125,28 +158,45 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 		return symbols;
 	}
 
-	async findSymbols(query: string): Promise<WorkspaceSymbol[]> {
+	async findSymbols(query: string, bounds: SymbolSearchBounds = { maxResults: this.maxResults }): Promise<SymbolSearchResult> {
+		const maxResults = Math.min(positiveLimit(bounds.maxResults, this.maxResults, "maxResults"), this.maxResults);
 		const lowerQuery = query.toLowerCase();
 		const results: WorkspaceSymbol[] = [];
+		const files = findSourceFiles(this.rootPath, (extension) => wasmPathFor(extension) !== undefined, this.maxFiles);
+		let totalBytes = 0;
+		let truncated = files.length === this.maxFiles;
 
-		for (const relativePath of findSourceFiles(this.rootPath, (extension) => wasmPathFor(extension) !== undefined, MAX_FILES_SCANNED)) {
+		for (const relativePath of files) {
 			const wasmPath = wasmPathFor(extname(relativePath));
 			if (!wasmPath) continue;
 
 			let content: string;
 			try {
-				content = readFileSync(join(this.rootPath, relativePath), "utf-8");
+				const absolutePath = join(this.rootPath, relativePath);
+				const size = statSync(absolutePath).size;
+				if (size > this.maxFileBytes || totalBytes + size > this.maxTotalBytes) {
+					truncated = true;
+					continue;
+				}
+				totalBytes += size;
+				content = readFileSync(absolutePath, "utf-8");
 			} catch {
 				continue;
 			}
 
-			const contentSymbols = await this.contentSymbolsFor(relativePath, wasmPath, content);
+			const contentSymbols = await this.contentSymbolsFor(wasmPath, content);
 			for (const symbol of toWorkspaceSymbols(contentSymbols, relativePath)) {
-				if (symbol.name.toLowerCase().includes(lowerQuery)) results.push(symbol);
+				if (!symbol.name.toLowerCase().includes(lowerQuery)) continue;
+				if (results.length === maxResults) {
+					truncated = true;
+					break;
+				}
+				results.push(symbol);
 			}
+			if (results.length === maxResults) break;
 		}
 
-		return results;
+		return { symbols: results, truncated, provenance: this.provenance };
 	}
 
 	async close(): Promise<void> {

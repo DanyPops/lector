@@ -13,6 +13,7 @@ import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { buildLectorApp } from "../src/daemon.ts";
 import { createLectorService, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
+import { symbolSearchResult, TEST_SEMANTIC_PROVENANCE } from "./support/intelligence-provenance.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 let cleanup: (() => void | Promise<void>) | undefined;
@@ -33,7 +34,8 @@ describe("LectorService.reapIdleSymbolIndexes", () => {
 	it("closes and removes an index untouched for longer than maxIdleMs, and reports how many", async () => {
 		let closed = false;
 		const fakeIndex = {
-			findSymbols: async () => [],
+			provenance: TEST_SEMANTIC_PROVENANCE,
+			findSymbols: async () => symbolSearchResult(),
 			close: async () => {
 				closed = true;
 			},
@@ -58,7 +60,7 @@ describe("LectorService.reapIdleSymbolIndexes", () => {
 		const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]), {
 			createSymbolIndex: () => {
 				spawnCount++;
-				return { findSymbols: async () => [], close: async () => {} };
+				return { provenance: TEST_SEMANTIC_PROVENANCE, findSymbols: async () => symbolSearchResult(), close: async () => {} };
 			},
 		});
 
@@ -83,7 +85,8 @@ describe("daemon's periodic idle-eviction maintenance task", () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
 		let closed = false;
 		const fakeIndex = {
-			findSymbols: async () => [],
+			provenance: TEST_SEMANTIC_PROVENANCE,
+			findSymbols: async () => symbolSearchResult(),
 			close: async () => {
 				closed = true;
 			},

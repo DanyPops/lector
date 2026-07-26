@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { BoundedJobExecutor } from "../src/domain/bounded-job-executor.ts";
 import type { DocumentSymbolEntry } from "../src/domain/document-symbol.ts";
 import type { PopulateSymbolGraphResult } from "../src/domain/populate-symbol-graph.ts";
-import type { WorkspaceLocation, WorkspaceSymbol } from "../src/domain/workspace-symbol.ts";
+import type { WorkspaceLocation } from "../src/domain/workspace-symbol.ts";
 import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";
 import { createLectorService, JobNotFound, JobWaitTooLong } from "../src/service.ts";
+import { symbolSearchResult, TEST_SEMANTIC_PROVENANCE } from "./support/intelligence-provenance.ts";
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -18,12 +19,14 @@ function deferred<T>() {
 }
 
 class DelayedCodeIndex implements ClosableSymbolIndex {
+	readonly provenance = TEST_SEMANTIC_PROVENANCE;
+
 	constructor(
 		private readonly documents: Promise<readonly DocumentSymbolEntry[]>,
 		private readonly onDocumentSymbols: () => void = () => {},
 	) {}
-	findSymbols(_query: string): Promise<WorkspaceSymbol[]> {
-		return Promise.resolve([]);
+	findSymbols() {
+		return Promise.resolve(symbolSearchResult());
 	}
 	goToDefinition(_location: WorkspaceLocation): Promise<readonly WorkspaceLocation[]> {
 		return Promise.resolve([]);

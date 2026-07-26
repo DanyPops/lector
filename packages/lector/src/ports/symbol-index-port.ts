@@ -1,4 +1,5 @@
-import type { WorkspaceSymbol } from "../domain/workspace-symbol.ts";
+import type { IntelligenceProvenance, SymbolSearchBounds } from "../domain/intelligence-provenance.ts";
+import type { SymbolSearchResult } from "../domain/workspace-symbol.ts";
 
 /**
  * SymbolIndexPort -- the role a driven adapter plays for symbol queries:
@@ -7,5 +8,6 @@ import type { WorkspaceSymbol } from "../domain/workspace-symbol.ts";
  * this same interface.
  */
 export interface SymbolIndexPort {
-	findSymbols(query: string): Promise<WorkspaceSymbol[]>;
+	readonly provenance: IntelligenceProvenance;
+	findSymbols(query: string, bounds?: SymbolSearchBounds): Promise<SymbolSearchResult>;
 }

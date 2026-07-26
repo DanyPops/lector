@@ -40,7 +40,7 @@ describe("TreeSitterSymbolIndex against Lector's own source", () => {
 		const index = new TreeSitterSymbolIndex(LECTOR_ROOT);
 		const results = await index.findSymbols("exactEdit");
 
-		const match = results.find((symbol) => symbol.name === "exactEdit" && symbol.kind === "function");
+		const match = results.symbols.find((symbol) => symbol.name === "exactEdit" && symbol.kind === "function");
 		expect(match).toBeDefined();
 		expect(match?.location.path).toContain("exact-edit.ts");
 		expect(match?.location.line).toBeGreaterThan(0);
@@ -50,7 +50,7 @@ describe("TreeSitterSymbolIndex against Lector's own source", () => {
 		const index = new TreeSitterSymbolIndex(LECTOR_ROOT);
 		const results = await index.findSymbols("InMemoryWorkspace");
 
-		const match = results.find((symbol) => symbol.name === "InMemoryWorkspace" && symbol.kind === "class");
+		const match = results.symbols.find((symbol) => symbol.name === "InMemoryWorkspace" && symbol.kind === "class");
 		expect(match).toBeDefined();
 		expect(match?.location.path).toContain("in-memory-workspace.ts");
 	});
@@ -58,17 +58,31 @@ describe("TreeSitterSymbolIndex against Lector's own source", () => {
 	it("matches case-insensitively and by substring", async () => {
 		const index = new TreeSitterSymbolIndex(LECTOR_ROOT);
 		const results = await index.findSymbols("exactedit");
-		expect(results.some((symbol) => symbol.name === "exactEdit")).toBe(true);
+		expect(results.symbols.some((symbol) => symbol.name === "exactEdit")).toBe(true);
 	});
 
 	it("returns an empty array for a query matching nothing, not an error", async () => {
 		const index = new TreeSitterSymbolIndex(LECTOR_ROOT);
 		const results = await index.findSymbols("ThisSymbolDefinitelyDoesNotExistAnywhere");
-		expect(results).toEqual([]);
+		expect(results.symbols).toEqual([]);
 	});
 });
 
 describe("TreeSitterSymbolIndex bounded scan", () => {
+	it("selects files deterministically when the file bound truncates the scan", async () => {
+		const root = mktemp();
+		try {
+			writeFileSync(join(root, "z.ts"), "export function fromZ() {}");
+			writeFileSync(join(root, "a.ts"), "export function fromA() {}");
+			const index = new TreeSitterSymbolIndex(root, undefined, { maxFiles: 1 });
+
+			expect((await index.findSymbols("fromA")).symbols).toHaveLength(1);
+			expect((await index.findSymbols("fromZ")).symbols).toHaveLength(0);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	it("skips node_modules and hidden directories", async () => {
 		const root = mktemp();
 		try {
@@ -80,8 +94,8 @@ describe("TreeSitterSymbolIndex bounded scan", () => {
 			const foundResults = await index.findSymbols("shouldBeFound");
 			const skippedResults = await index.findSymbols("shouldNotBeFound");
 
-			expect(foundResults).toHaveLength(1);
-			expect(skippedResults).toHaveLength(0);
+			expect(foundResults.symbols).toHaveLength(1);
+			expect(skippedResults.symbols).toHaveLength(0);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
@@ -145,7 +159,7 @@ describe("TreeSitterSymbolIndex content-addressed caching", () => {
 			const index = new TreeSitterSymbolIndex(root, cache);
 			const results = await index.findSymbols("sharedName");
 
-			const paths = results.map((symbol) => symbol.location.path).sort();
+			const paths = results.symbols.map((symbol) => symbol.location.path).sort();
 			expect(paths).toEqual([join("first", "a.ts"), join("second", "a.ts")].sort());
 		} finally {
 			rmSync(root, { recursive: true, force: true });

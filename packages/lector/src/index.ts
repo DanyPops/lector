@@ -1,3 +1,4 @@
+export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 export { GitRepoFetcher, type GitRepoFetcherOptions } from "./adapters/git-repo-fetcher.ts";
 export { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
 export { InMemorySearchCache, type InMemorySearchCacheOptions } from "./adapters/in-memory-search-cache.ts";
@@ -6,11 +7,12 @@ export { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./adapters/local-filesystem-workspace.ts";
 export { LocalGit } from "./adapters/local-git.ts";
 export {
+	LanguageServerCapacityExceeded,
 	LanguageServerProcess,
 	LanguageServerProcessExited,
 	LanguageServerRequestTimedOut,
 } from "./adapters/lsp/language-server-process.ts";
-export { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
+export { LanguageFileLimitExceeded, LspSymbolIndex, type LspSymbolIndexOptions } from "./adapters/lsp/lsp-symbol-index.ts";
 export { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } from "./adapters/npm-lockfile-version-resolver.ts";
 export { NpmPackageSourceResolver, type NpmPackageSourceResolverOptions } from "./adapters/npm-package-source-resolver.ts";
 export {
@@ -31,7 +33,8 @@ export { SqliteContentCache } from "./adapters/sqlite-content-cache.ts";
 export { SqliteSearchCache, type SqliteSearchCacheOptions } from "./adapters/sqlite-search-cache.ts";
 export { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 export { TieredSearchCache } from "./adapters/tiered-search-cache.ts";
-export { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./adapters/typescript-compiler-symbol-index.ts";
 export {
 	type ConnectLectorClientOptions,
 	connectLectorClient,
@@ -89,6 +92,7 @@ export type {
 	ResolvedInstalledPackageVersion,
 	UnavailableInstalledPackageVersion,
 } from "./domain/installed-package-version.ts";
+export type { IntelligenceFidelity, IntelligenceProvenance, ProvenancedResult, SymbolSearchBounds } from "./domain/intelligence-provenance.ts";
 export {
 	descriptorForExtension,
 	LANGUAGE_SERVER_DESCRIPTORS,
@@ -133,9 +137,10 @@ export { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 export { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 export type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
 export { deriveSymbolNodeId, type SymbolNodeId } from "./domain/symbol-node-id.ts";
+export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./domain/symbol-query.ts";
 export type { TextSearchMatch, TextSearchResult } from "./domain/text-search-result.ts";
 export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";
-export type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
+export type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
 export type { GitPort } from "./ports/git-port.ts";

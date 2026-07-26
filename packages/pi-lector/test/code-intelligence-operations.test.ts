@@ -60,7 +60,8 @@ describe("Lector-backed code-intelligence operations", () => {
 		const ops = createLectorCodeIntelligenceOperations();
 		const symbols = await ops.documentSymbols(mathFile);
 
-		const match = symbols.find((symbol) => symbol.name === "add");
+		const match = symbols.symbols.find((symbol) => symbol.name === "add");
+		expect(symbols.provenance).toMatchObject({ fidelity: "semantic", backend: "typescript-language-server" });
 		expect(match).toBeDefined();
 		expect(match?.kind).toBe("function");
 	}, 20_000);
@@ -76,8 +77,9 @@ describe("Lector-backed code-intelligence operations", () => {
 		// Position on "add" in "export function add(...)" (0-indexed 16, 1-indexed 17).
 		const hover = await ops.hover(mathFile, 1, 17);
 
-		expect(hover).toBeDefined();
-		expect(hover?.contents).toContain("add");
+		expect(hover.hover).toBeDefined();
+		expect(hover.hover?.contents).toContain("add");
+		expect(hover.provenance.fidelity).toBe("semantic");
 	}, 20_000);
 
 	it("goToDefinition and findReferences resolve real positions, not placeholders", async () => {
@@ -91,10 +93,10 @@ describe("Lector-backed code-intelligence operations", () => {
 		const definitions = await ops.goToDefinition(mathFile, 1, 17);
 		const references = await ops.findReferences(mathFile, 1, 17, true);
 
-		expect(definitions.length).toBeGreaterThan(0);
-		expect(definitions[0]?.path).toBe(mathFile);
-		expect(references.length).toBeGreaterThan(0);
-		expect(references.some((location) => location.path === mathFile)).toBe(true);
+		expect(definitions.locations.length).toBeGreaterThan(0);
+		expect(definitions.locations[0]?.path).toBe(mathFile);
+		expect(references.locations.length).toBeGreaterThan(0);
+		expect(references.locations.some((location) => location.path === mathFile)).toBe(true);
 	}, 20_000);
 
 	it("goToImplementation crosses an interface/implementation boundary that goToDefinition cannot", async () => {
@@ -113,8 +115,8 @@ describe("Lector-backed code-intelligence operations", () => {
 		// Position on "greet" in "greet(): string;" (the interface member).
 		const implementations = await ops.goToImplementation(greeterFile, 2, 2);
 
-		expect(implementations.length).toBeGreaterThan(0);
-		expect(implementations.every((location) => location.path === greeterFile)).toBe(true);
+		expect(implementations.locations.length).toBeGreaterThan(0);
+		expect(implementations.locations.every((location) => location.path === greeterFile)).toBe(true);
 	}, 20_000);
 
 	it("diagnostics reports a real type error via a running Lector daemon", async () => {
@@ -127,9 +129,9 @@ describe("Lector-backed code-intelligence operations", () => {
 		const ops = createLectorCodeIntelligenceOperations();
 		const diagnostics = await ops.diagnostics(brokenFile);
 
-		expect(diagnostics.length).toBeGreaterThan(0);
-		expect(diagnostics[0]?.severity).toBe("error");
-		expect(diagnostics[0]?.range.path).toBe(brokenFile);
+		expect(diagnostics.diagnostics.length).toBeGreaterThan(0);
+		expect(diagnostics.diagnostics[0]?.severity).toBe("error");
+		expect(diagnostics.diagnostics[0]?.range.path).toBe(brokenFile);
 	}, 20_000);
 
 	it("prepareCallHierarchy, incomingCalls, and outgoingCalls resolve a real call relationship via a running Lector daemon", async () => {
@@ -142,15 +144,15 @@ describe("Lector-backed code-intelligence operations", () => {
 		const ops = createLectorCodeIntelligenceOperations();
 		// Position on "add" in "export function add(...)" (0-indexed 16, 1-indexed 17).
 		const roots = await ops.prepareCallHierarchy(mathFile, 1, 17);
-		expect(roots.length).toBeGreaterThan(0);
-		expect(roots[0]?.name).toBe("add");
+		expect(roots.items.length).toBeGreaterThan(0);
+		expect(roots.items[0]?.name).toBe("add");
 
 		const callers = await ops.incomingCalls(mathFile, 1, 17);
-		expect(callers.some((call) => call.from.name === "addTwice")).toBe(true);
+		expect(callers.calls.some((call) => call.from.name === "addTwice")).toBe(true);
 
 		// Position on "addTwice" in "export function addTwice(...)" (line 5: line 4 is the blank separator line).
 		const callees = await ops.outgoingCalls(mathFile, 5, 17);
-		expect(callees.some((call) => call.to.name === "add")).toBe(true);
+		expect(callees.calls.some((call) => call.to.name === "add")).toBe(true);
 	}, 20_000);
 
 	it("populateSymbolGraph and reachableFrom answer a real multi-hop question via a running Lector daemon", async () => {

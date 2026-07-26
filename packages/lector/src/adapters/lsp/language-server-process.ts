@@ -1,5 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "./json-rpc-stream.ts";
+import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcMessageLimitExceeded, JsonRpcStreamDecoder } from "./json-rpc-stream.ts";
 
 export interface LanguageServerProcessOptions {
 	command: string;
@@ -9,6 +9,10 @@ export interface LanguageServerProcessOptions {
 	env?: Readonly<Record<string, string | undefined>>;
 	/** Per-request timeout. Default 10s. */
 	requestTimeoutMs?: number;
+	/** Maximum simultaneous requests. Default 64. */
+	maxPendingRequests?: number;
+	/** Maximum decoded server message size. Default 8 MiB. */
+	maxMessageBytes?: number;
 }
 
 /** Raised when a request is sent (or was pending) after the server process already exited. */
@@ -20,6 +24,13 @@ export class LanguageServerProcessExited extends Error {
 }
 
 /** Raised when a request does not receive a response within its timeout. */
+export class LanguageServerCapacityExceeded extends Error {
+	constructor(readonly maxPendingRequests: number) {
+		super(`language server request capacity reached (${maxPendingRequests} pending)`);
+		this.name = "LanguageServerCapacityExceeded";
+	}
+}
+
 export class LanguageServerRequestTimedOut extends Error {
 	constructor(
 		readonly method: string,
@@ -51,23 +62,34 @@ type NotificationHandler = (params: unknown) => void;
  */
 export class LanguageServerProcess {
 	private readonly child: ChildProcessWithoutNullStreams;
-	private readonly decoder = new JsonRpcStreamDecoder();
+	private readonly decoder: JsonRpcStreamDecoder;
 	private readonly pending = new Map<number, PendingRequest>();
 	private readonly notificationHandlers = new Map<string, Set<NotificationHandler>>();
 	private readonly requestTimeoutMs: number;
+	private readonly maxPendingRequests: number;
+	private readonly maxMessageBytes: number;
 	private nextId = 1;
 	private processExited = false;
 	private exitError: Error;
 
-	private constructor(child: ChildProcessWithoutNullStreams, label: string, requestTimeoutMs: number) {
+	private constructor(child: ChildProcessWithoutNullStreams, label: string, requestTimeoutMs: number, maxPendingRequests: number, maxMessageBytes: number) {
 		this.child = child;
 		this.requestTimeoutMs = requestTimeoutMs;
+		this.maxPendingRequests = maxPendingRequests;
+		this.maxMessageBytes = maxMessageBytes;
+		this.decoder = new JsonRpcStreamDecoder({ maxMessageBytes });
 		this.exitError = new LanguageServerProcessExited(label);
+		this.child.stderr.resume();
 
 		this.child.stdout.on("data", (chunk: Buffer) => {
-			for (const message of this.decoder.push(chunk)) this.dispatch(message);
+			try {
+				for (const message of this.decoder.push(chunk)) this.dispatch(message);
+			} catch (error) {
+				this.fail(error instanceof Error ? error : new Error(String(error)));
+			}
 		});
 
+		this.child.once("error", (error) => this.fail(error));
 		this.child.once("exit", () => {
 			this.processExited = true;
 			for (const [id, request] of this.pending) {
@@ -84,14 +106,18 @@ export class LanguageServerProcess {
 	}
 
 	static spawnProcess(options: LanguageServerProcessOptions): LanguageServerProcess {
+		const maxPendingRequests = options.maxPendingRequests ?? 64;
+		const maxMessageBytes = options.maxMessageBytes ?? 8 * 1024 * 1024;
+		if (!Number.isSafeInteger(maxPendingRequests) || maxPendingRequests < 1) throw new TypeError("maxPendingRequests must be a positive safe integer");
+		if (!Number.isSafeInteger(maxMessageBytes) || maxMessageBytes < 1) throw new TypeError("maxMessageBytes must be a positive safe integer");
 		const child = spawn(options.command, [...(options.args ?? [])], {
 			cwd: options.cwd,
 			env: { ...process.env, ...options.env },
 			stdio: ["pipe", "pipe", "pipe"],
 			// Own process group on POSIX so stop() can kill every descendant as a unit.
 			detached: process.platform !== "win32",
-		}) as ChildProcessWithoutNullStreams;
-		return new LanguageServerProcess(child, options.command, options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+		});
+		return new LanguageServerProcess(child, options.command, options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS, maxPendingRequests, maxMessageBytes);
 	}
 
 	private dispatch(message: JsonRpcMessage): void {
@@ -120,20 +146,25 @@ export class LanguageServerProcess {
 
 	async request<T>(method: string, params: unknown): Promise<T> {
 		if (this.processExited) throw this.exitError;
+		if (this.pending.size >= this.maxPendingRequests) throw new LanguageServerCapacityExceeded(this.maxPendingRequests);
 		const id = this.nextId++;
+		const message = encodeJsonRpcMessage({ jsonrpc: "2.0", id, method, params });
+		if (message.byteLength > this.maxMessageBytes) throw new JsonRpcMessageLimitExceeded("message-bytes", this.maxMessageBytes, message.byteLength);
 		return new Promise<T>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.pending.delete(id);
 				reject(new LanguageServerRequestTimedOut(method, this.requestTimeoutMs));
 			}, this.requestTimeoutMs);
 			this.pending.set(id, { resolve: resolve as (result: unknown) => void, reject, timer });
-			this.child.stdin.write(encodeJsonRpcMessage({ jsonrpc: "2.0", id, method, params }));
+			this.child.stdin.write(message);
 		});
 	}
 
 	notify(method: string, params: unknown): void {
 		if (this.processExited) return;
-		this.child.stdin.write(encodeJsonRpcMessage({ jsonrpc: "2.0", method, params }));
+		const message = encodeJsonRpcMessage({ jsonrpc: "2.0", method, params });
+		if (message.byteLength > this.maxMessageBytes) throw new JsonRpcMessageLimitExceeded("message-bytes", this.maxMessageBytes, message.byteLength);
+		this.child.stdin.write(message);
 	}
 
 	/**
@@ -142,6 +173,18 @@ export class LanguageServerProcess {
 	 * graceful path hung, errored, or the process simply ignored it -- kills
 	 * the entire process group so no descendant is left running.
 	 */
+	private fail(error: Error): void {
+		if (this.processExited) return;
+		this.processExited = true;
+		this.exitError = error;
+		for (const [id, request] of this.pending) {
+			clearTimeout(request.timer);
+			request.reject(error);
+			this.pending.delete(id);
+		}
+		this.killProcessGroup();
+	}
+
 	async stop(stopTimeoutMs = DEFAULT_STOP_TIMEOUT_MS): Promise<void> {
 		if (this.processExited) return;
 
@@ -172,8 +215,9 @@ export class LanguageServerProcess {
 
 	private killProcessGroup(): void {
 		try {
-			if (process.platform !== "win32" && this.child.pid) {
-				process.kill(-this.child.pid, "SIGKILL"); // negative pid == the whole process group
+			const pid = this.child.pid;
+			if (process.platform !== "win32" && pid !== undefined) {
+				process.kill(-pid, "SIGKILL"); // negative pid == the whole process group
 			} else {
 				this.child.kill("SIGKILL");
 			}

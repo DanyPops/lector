@@ -1,16 +1,4 @@
-import type {
-	CallHierarchyEntry,
-	Diagnostic,
-	DocumentSymbolEntry,
-	Hover,
-	IncomingCall,
-	JobSnapshot,
-	OutgoingCall,
-	PopulateSymbolGraphResult,
-	SymbolEdgeKind,
-	SymbolNode,
-	WorkspaceLocation,
-} from "@danypops/lector";
+import type { JobSnapshot, OperationOutputs, PopulateSymbolGraphResult, SymbolEdgeKind, SymbolNode } from "@danypops/lector";
 import { lectorClient, withWorkspace, workspaceForCodeIntelligencePath } from "./lector-client.ts";
 
 /**
@@ -27,15 +15,15 @@ import { lectorClient, withWorkspace, workspaceForCodeIntelligencePath } from ".
  * unlike read/write/edit) -- never a value captured once at session start.
  */
 export interface CodeIntelligenceOperations {
-	goToDefinition(path: string, line: number, character: number): Promise<readonly WorkspaceLocation[]>;
-	goToImplementation(path: string, line: number, character: number): Promise<readonly WorkspaceLocation[]>;
-	findReferences(path: string, line: number, character: number, includeDeclaration: boolean): Promise<readonly WorkspaceLocation[]>;
-	hover(path: string, line: number, character: number): Promise<Hover | undefined>;
-	documentSymbols(path: string): Promise<readonly DocumentSymbolEntry[]>;
-	diagnostics(path: string): Promise<readonly Diagnostic[]>;
-	prepareCallHierarchy(path: string, line: number, character: number): Promise<readonly CallHierarchyEntry[]>;
-	incomingCalls(path: string, line: number, character: number): Promise<readonly IncomingCall[]>;
-	outgoingCalls(path: string, line: number, character: number): Promise<readonly OutgoingCall[]>;
+	goToDefinition(path: string, line: number, character: number): Promise<OperationOutputs["workspace.goToDefinition"]>;
+	goToImplementation(path: string, line: number, character: number): Promise<OperationOutputs["workspace.goToImplementation"]>;
+	findReferences(path: string, line: number, character: number, includeDeclaration: boolean): Promise<OperationOutputs["workspace.findReferences"]>;
+	hover(path: string, line: number, character: number): Promise<OperationOutputs["workspace.hover"]>;
+	documentSymbols(path: string): Promise<OperationOutputs["workspace.documentSymbols"]>;
+	diagnostics(path: string): Promise<OperationOutputs["workspace.diagnostics"]>;
+	prepareCallHierarchy(path: string, line: number, character: number): Promise<OperationOutputs["workspace.prepareCallHierarchy"]>;
+	incomingCalls(path: string, line: number, character: number): Promise<OperationOutputs["workspace.incomingCalls"]>;
+	outgoingCalls(path: string, line: number, character: number): Promise<OperationOutputs["workspace.outgoingCalls"]>;
 	populateSymbolGraph(path: string, maxFiles: number, maxSymbolsPerFile: number, waitMs?: number): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
 	jobStatus(jobId: string): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
 	reachableFrom(path: string, line: number, character: number, maxDepth: number, kind?: SymbolEdgeKind): Promise<readonly SymbolNode[]>;
@@ -50,8 +38,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					const { locations } = await client.call("workspace.goToDefinition", { workspaceId, path, line, character });
-					return locations;
+					return client.call("workspace.goToDefinition", { workspaceId, path, line, character });
 				},
 			);
 		},
@@ -60,8 +47,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					const { locations } = await client.call("workspace.goToImplementation", { workspaceId, path, line, character });
-					return locations;
+					return client.call("workspace.goToImplementation", { workspaceId, path, line, character });
 				},
 			);
 		},
@@ -70,8 +56,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					const { locations } = await client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration });
-					return locations;
+					return client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration });
 				},
 			);
 		},
@@ -80,8 +65,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					const { hover } = await client.call("workspace.hover", { workspaceId, path, line, character });
-					return hover;
+					return client.call("workspace.hover", { workspaceId, path, line, character });
 				},
 			);
 		},
@@ -90,8 +74,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					const { symbols } = await client.call("workspace.documentSymbols", { workspaceId, path });
-					return symbols;
+					return client.call("workspace.documentSymbols", { workspaceId, path });
 				},
 			);
 		},
@@ -100,8 +83,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					const { diagnostics } = await client.call("workspace.diagnostics", { workspaceId, path });
-					return diagnostics;
+					return client.call("workspace.diagnostics", { workspaceId, path });
 				},
 			);
 		},
@@ -110,8 +92,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					const { items } = await client.call("workspace.prepareCallHierarchy", { workspaceId, path, line, character });
-					return items;
+					return client.call("workspace.prepareCallHierarchy", { workspaceId, path, line, character });
 				},
 			);
 		},
@@ -120,8 +101,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					const { calls } = await client.call("workspace.incomingCalls", { workspaceId, path, line, character });
-					return calls;
+					return client.call("workspace.incomingCalls", { workspaceId, path, line, character });
 				},
 			);
 		},
@@ -130,8 +110,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					const { calls } = await client.call("workspace.outgoingCalls", { workspaceId, path, line, character });
-					return calls;
+					return client.call("workspace.outgoingCalls", { workspaceId, path, line, character });
 				},
 			);
 		},

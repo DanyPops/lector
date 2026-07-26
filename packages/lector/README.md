@@ -58,12 +58,11 @@ silently overwrites content it didn't know about.
 
 ## Symbol backends
 
-Two independent `SymbolIndexPort` implementations, exercised against a shared
-conformance fixture so they're proven to agree (or documented where they don't),
-not assumed to:
+Three independent `SymbolIndexPort` implementations use one result DTO with explicit provenance and truncation:
 
-- **`typescript-language-server`** (default) — a warm, real `tsserver` process per
-  workspace, most accurate when it has a loaded project.
-- **tree-sitter** (via `web-tree-sitter`, WASM — no native toolchain required) — no
-  subprocess, always current, results cached per file under a content-addressed key.
+- **`typescript-language-server`** is semantic authority for identity, definitions, references, implementations, hover, diagnostics, symbols, and calls.
+- **TypeScript compiler** extracts bounded structural declarations from cold, malformed, or partially configured projects. It does not claim cross-file identity.
+- **tree-sitter** extracts bounded structural declarations and caches them by content hash. It does not claim type or language-server identity.
+
+Symbol results report `fidelity`, `backend`, `authority`, `freshness`, `limitations`, and `truncated`. Language-server messages, pending requests, opened files, file bytes, settling, parser files, parser nodes, parser bytes, and returned symbols are bounded.
 

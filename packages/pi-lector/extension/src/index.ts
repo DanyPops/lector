@@ -8,16 +8,17 @@ import type {
 	GitStatusSummary,
 	Hover,
 	IncomingCall,
+	IntelligenceProvenance,
 	JobSnapshot,
 	OutgoingCall,
 	PackageSourceOperationResult,
 	PopulateSymbolGraphResult,
 	RepoFetchResult,
 	SymbolNode,
+	SymbolSearchResult,
 	TextSearchResult,
 	WorkspaceLocation,
 	WorkspaceQueryOutcome,
-	WorkspaceSymbol,
 } from "@danypops/lector";
 import { createEditToolDefinition, createReadToolDefinition, createWriteToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
@@ -65,6 +66,14 @@ import { createLectorSearchOperations } from "./search-operations.ts";
 import { formatSearchCall, formatSearchResult } from "./search-rendering.ts";
 import { type CachePresentationState, createWorkspaceCacheOperations, monitorWorkspaceCache } from "./workspace-cache-operations.ts";
 import { createLectorWriteOperations } from "./write-operations.ts";
+
+function describeIntelligenceSource(provenance: IntelligenceProvenance): string {
+	return `${provenance.fidelity} via ${provenance.backend}`;
+}
+
+function renderIntelligenceSource(body: string, provenance: IntelligenceProvenance | undefined, theme: { fg(color: "muted", text: string): string }): string {
+	return provenance ? `${theme.fg("muted", describeIntelligenceSource(provenance))}\n${body}` : body;
+}
 
 /**
  * pi-lector -- the thin Pi host adapter for Lector. Overrides the built-in
@@ -163,7 +172,7 @@ export default function (pi: ExtensionAPI) {
 				"Search a workspace for functions, classes, interfaces, types, enums, and methods by name " +
 				"(case-insensitive substring match). Returns each match's kind and file location. `directory` " +
 				"selects which project to search -- pass the current working directory to search it, or any " +
-				"other project's directory to get code intelligence there without needing to be in it.",
+				"other project's directory to get code intelligence there without needing to be in it. Results identify semantic language-server authority or structural compiler/parser fallback.",
 			promptSnippet: "Search a workspace for a symbol (function, class, etc.) by name",
 			promptGuidelines: [
 				"Use find_symbols to locate where a function, class, interface, type, enum, or method is declared by name, instead of grepping for it.",
@@ -175,14 +184,16 @@ export default function (pi: ExtensionAPI) {
 			}),
 			async execute(_toolCallId, params) {
 				const directory = resolve(cwd, params.directory);
-				const symbols = await findSymbolsOperations.findSymbols(params.query, directory);
+				const result = await findSymbolsOperations.findSymbols(params.query, directory);
+				const { symbols, provenance, truncated } = result;
+				const source = `${provenance.fidelity} via ${provenance.backend}${truncated ? " (truncated)" : ""}`;
 				const text =
 					symbols.length === 0
-						? `No symbols found matching "${params.query}".`
-						: symbols
+						? `${source}\nNo symbols found matching "${params.query}".`
+						: `${source}\n${symbols
 								.map((symbol) => `${symbol.kind} ${symbol.name} -- ${symbol.location.path}:${symbol.location.line}:${symbol.location.character}`)
-								.join("\n");
-				return { content: [{ type: "text", text }], details: { symbols } };
+								.join("\n")}`;
+				return { content: [{ type: "text", text }], details: result };
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -200,10 +211,10 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "find_symbols failed"), 0, 0);
 				}
-				const details = result.details as { symbols?: readonly WorkspaceSymbol[] } | undefined;
+				const details = result.details as SymbolSearchResult | undefined;
 				const query = typeof context.args?.query === "string" ? context.args.query : "";
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatFindSymbolsResult(details?.symbols, query, expanded, theme));
+				text.setText(formatFindSymbolsResult(details, query, expanded, theme));
 				return text;
 			},
 		});
@@ -224,9 +235,9 @@ export default function (pi: ExtensionAPI) {
 			parameters: Type.Object(positionParameters),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const locations = await codeIntelligenceOperations.goToDefinition(path, params.line, params.character);
-				const text = locations.length === 0 ? "No definition found." : locations.map((l) => `${l.path}:${l.line}:${l.character}`).join("\n");
-				return { content: [{ type: "text", text }], details: { locations } };
+				const details = await codeIntelligenceOperations.goToDefinition(path, params.line, params.character);
+				const text = details.locations.length === 0 ? "No definition found." : details.locations.map((l) => `${l.path}:${l.line}:${l.character}`).join("\n");
+				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -242,9 +253,9 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "go_to_definition failed"), 0, 0);
 				}
-				const details = result.details as { locations?: readonly WorkspaceLocation[] } | undefined;
+				const details = result.details as { locations?: readonly WorkspaceLocation[]; provenance?: IntelligenceProvenance } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGoToDefinitionResult(details?.locations, expanded, theme));
+				text.setText(renderIntelligenceSource(formatGoToDefinitionResult(details?.locations, expanded, theme), details?.provenance, theme));
 				return text;
 			},
 		});
@@ -261,9 +272,10 @@ export default function (pi: ExtensionAPI) {
 			parameters: Type.Object(positionParameters),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const locations = await codeIntelligenceOperations.goToImplementation(path, params.line, params.character);
-				const text = locations.length === 0 ? "No implementation found." : locations.map((l) => `${l.path}:${l.line}:${l.character}`).join("\n");
-				return { content: [{ type: "text", text }], details: { locations } };
+				const details = await codeIntelligenceOperations.goToImplementation(path, params.line, params.character);
+				const text =
+					details.locations.length === 0 ? "No implementation found." : details.locations.map((l) => `${l.path}:${l.line}:${l.character}`).join("\n");
+				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -279,9 +291,9 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "go_to_implementation failed"), 0, 0);
 				}
-				const details = result.details as { locations?: readonly WorkspaceLocation[] } | undefined;
+				const details = result.details as { locations?: readonly WorkspaceLocation[]; provenance?: IntelligenceProvenance } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGoToImplementationResult(details?.locations, expanded, theme));
+				text.setText(renderIntelligenceSource(formatGoToImplementationResult(details?.locations, expanded, theme), details?.provenance, theme));
 				return text;
 			},
 		});
@@ -301,9 +313,9 @@ export default function (pi: ExtensionAPI) {
 			}),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const locations = await codeIntelligenceOperations.findReferences(path, params.line, params.character, params.includeDeclaration);
-				const text = locations.length === 0 ? "No references found." : locations.map((l) => `${l.path}:${l.line}:${l.character}`).join("\n");
-				return { content: [{ type: "text", text }], details: { locations } };
+				const details = await codeIntelligenceOperations.findReferences(path, params.line, params.character, params.includeDeclaration);
+				const text = details.locations.length === 0 ? "No references found." : details.locations.map((l) => `${l.path}:${l.line}:${l.character}`).join("\n");
+				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -319,9 +331,9 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "find_references failed"), 0, 0);
 				}
-				const details = result.details as { locations?: readonly WorkspaceLocation[] } | undefined;
+				const details = result.details as { locations?: readonly WorkspaceLocation[]; provenance?: IntelligenceProvenance } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatFindReferencesResult(details?.locations, expanded, theme));
+				text.setText(renderIntelligenceSource(formatFindReferencesResult(details?.locations, expanded, theme), details?.provenance, theme));
 				return text;
 			},
 		});
@@ -337,8 +349,13 @@ export default function (pi: ExtensionAPI) {
 			parameters: Type.Object(positionParameters),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const hover = await codeIntelligenceOperations.hover(path, params.line, params.character);
-				return { content: [{ type: "text", text: hover?.contents ?? "No hover information available." }], details: { hover } };
+				const details = await codeIntelligenceOperations.hover(path, params.line, params.character);
+				return {
+					content: [
+						{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${details.hover?.contents ?? "No hover information available."}` },
+					],
+					details,
+				};
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -354,9 +371,9 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "hover failed"), 0, 0);
 				}
-				const details = result.details as { hover?: Hover } | undefined;
+				const details = result.details as { hover?: Hover; provenance?: IntelligenceProvenance } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatHoverResult(details?.hover, expanded, theme));
+				text.setText(renderIntelligenceSource(formatHoverResult(details?.hover, expanded, theme), details?.provenance, theme));
 				return text;
 			},
 		});
@@ -370,9 +387,9 @@ export default function (pi: ExtensionAPI) {
 			parameters: Type.Object({ path: Type.String({ description: "Absolute or cwd-relative path to the file" }) }),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const symbols = await codeIntelligenceOperations.documentSymbols(path);
-				const text = symbols.length === 0 ? "No symbols found." : symbols.map((s) => `${s.kind} ${s.name}`).join("\n");
-				return { content: [{ type: "text", text }], details: { symbols } };
+				const details = await codeIntelligenceOperations.documentSymbols(path);
+				const text = details.symbols.length === 0 ? "No symbols found." : details.symbols.map((s) => `${s.kind} ${s.name}`).join("\n");
+				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -388,9 +405,9 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "document_symbols failed"), 0, 0);
 				}
-				const details = result.details as { symbols?: readonly DocumentSymbolEntry[] } | undefined;
+				const details = result.details as { symbols?: readonly DocumentSymbolEntry[]; provenance?: IntelligenceProvenance } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatDocumentSymbolsResult(details?.symbols, expanded, theme));
+				text.setText(renderIntelligenceSource(formatDocumentSymbolsResult(details?.symbols, expanded, theme), details?.provenance, theme));
 				return text;
 			},
 		});
@@ -404,12 +421,12 @@ export default function (pi: ExtensionAPI) {
 			parameters: Type.Object({ path: Type.String({ description: "Absolute or cwd-relative path to the file" }) }),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const diagnostics = await codeIntelligenceOperations.diagnostics(path);
+				const details = await codeIntelligenceOperations.diagnostics(path);
 				const text =
-					diagnostics.length === 0
+					details.diagnostics.length === 0
 						? "No diagnostics."
-						: diagnostics.map((d) => `${d.severity} ${d.range.path}:${d.range.start.line}:${d.range.start.character} -- ${d.message}`).join("\n");
-				return { content: [{ type: "text", text }], details: { diagnostics } };
+						: details.diagnostics.map((d) => `${d.severity} ${d.range.path}:${d.range.start.line}:${d.range.start.character} -- ${d.message}`).join("\n");
+				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -425,9 +442,9 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "diagnostics failed"), 0, 0);
 				}
-				const details = result.details as { diagnostics?: readonly Diagnostic[] } | undefined;
+				const details = result.details as { diagnostics?: readonly Diagnostic[]; provenance?: IntelligenceProvenance } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatDiagnosticsResult(details?.diagnostics, expanded, theme));
+				text.setText(renderIntelligenceSource(formatDiagnosticsResult(details?.diagnostics, expanded, theme), details?.provenance, theme));
 				return text;
 			},
 		});
@@ -443,12 +460,12 @@ export default function (pi: ExtensionAPI) {
 			parameters: Type.Object(positionParameters),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const items = await codeIntelligenceOperations.prepareCallHierarchy(path, params.line, params.character);
+				const details = await codeIntelligenceOperations.prepareCallHierarchy(path, params.line, params.character);
 				const text =
-					items.length === 0
+					details.items.length === 0
 						? "No call-hierarchy root at this position."
-						: items.map((i) => `${i.kind} ${i.name} -- ${i.location.path}:${i.location.line}:${i.location.character}`).join("\n");
-				return { content: [{ type: "text", text }], details: { items } };
+						: details.items.map((i) => `${i.kind} ${i.name} -- ${i.location.path}:${i.location.line}:${i.location.character}`).join("\n");
+				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -464,9 +481,9 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "prepare_call_hierarchy failed"), 0, 0);
 				}
-				const details = result.details as { items?: readonly CallHierarchyEntry[] } | undefined;
+				const details = result.details as { items?: readonly CallHierarchyEntry[]; provenance?: IntelligenceProvenance } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatPrepareCallHierarchyResult(details?.items, theme));
+				text.setText(renderIntelligenceSource(formatPrepareCallHierarchyResult(details?.items, theme), details?.provenance, theme));
 				return text;
 			},
 		});
@@ -482,12 +499,14 @@ export default function (pi: ExtensionAPI) {
 			parameters: Type.Object(positionParameters),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const calls = await codeIntelligenceOperations.incomingCalls(path, params.line, params.character);
+				const details = await codeIntelligenceOperations.incomingCalls(path, params.line, params.character);
 				const text =
-					calls.length === 0
+					details.calls.length === 0
 						? "No incoming calls found."
-						: calls.map((c) => `${c.from.kind} ${c.from.name} -- ${c.from.location.path}:${c.from.location.line}:${c.from.location.character}`).join("\n");
-				return { content: [{ type: "text", text }], details: { calls } };
+						: details.calls
+								.map((c) => `${c.from.kind} ${c.from.name} -- ${c.from.location.path}:${c.from.location.line}:${c.from.location.character}`)
+								.join("\n");
+				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -503,9 +522,9 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "incoming_calls failed"), 0, 0);
 				}
-				const details = result.details as { calls?: readonly IncomingCall[] } | undefined;
+				const details = result.details as { calls?: readonly IncomingCall[]; provenance?: IntelligenceProvenance } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatIncomingCallsResult(details?.calls, expanded, theme));
+				text.setText(renderIntelligenceSource(formatIncomingCallsResult(details?.calls, expanded, theme), details?.provenance, theme));
 				return text;
 			},
 		});
@@ -519,12 +538,12 @@ export default function (pi: ExtensionAPI) {
 			parameters: Type.Object(positionParameters),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const calls = await codeIntelligenceOperations.outgoingCalls(path, params.line, params.character);
+				const details = await codeIntelligenceOperations.outgoingCalls(path, params.line, params.character);
 				const text =
-					calls.length === 0
+					details.calls.length === 0
 						? "No outgoing calls found."
-						: calls.map((c) => `${c.to.kind} ${c.to.name} -- ${c.to.location.path}:${c.to.location.line}:${c.to.location.character}`).join("\n");
-				return { content: [{ type: "text", text }], details: { calls } };
+						: details.calls.map((c) => `${c.to.kind} ${c.to.name} -- ${c.to.location.path}:${c.to.location.line}:${c.to.location.character}`).join("\n");
+				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -540,9 +559,9 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "outgoing_calls failed"), 0, 0);
 				}
-				const details = result.details as { calls?: readonly OutgoingCall[] } | undefined;
+				const details = result.details as { calls?: readonly OutgoingCall[]; provenance?: IntelligenceProvenance } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatOutgoingCallsResult(details?.calls, expanded, theme));
+				text.setText(renderIntelligenceSource(formatOutgoingCallsResult(details?.calls, expanded, theme), details?.provenance, theme));
 				return text;
 			},
 		});
@@ -936,7 +955,7 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "find_symbols_across_projects failed"), 0, 0);
 				}
-				const details = result.details as { results?: readonly WorkspaceQueryOutcome<{ symbols: readonly WorkspaceSymbol[] }>[] } | undefined;
+				const details = result.details as { results?: readonly WorkspaceQueryOutcome<SymbolSearchResult>[] } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatFindSymbolsAcrossProjectsResult(details?.results, expanded, theme));
 				return text;

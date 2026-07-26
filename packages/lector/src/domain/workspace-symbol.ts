@@ -1,3 +1,5 @@
+import type { IntelligenceProvenance } from "./intelligence-provenance.ts";
+
 /** A location within a workspace file: 1-indexed line and character, matching how humans and CLIs present positions. */
 export interface WorkspaceLocation {
 	readonly path: string;
@@ -11,4 +13,10 @@ export interface WorkspaceSymbol {
 	readonly kind: string;
 	readonly location: WorkspaceLocation;
 	readonly containerName?: string;
+}
+
+export interface SymbolSearchResult {
+	readonly symbols: readonly WorkspaceSymbol[];
+	readonly truncated: boolean;
+	readonly provenance: IntelligenceProvenance;
 }

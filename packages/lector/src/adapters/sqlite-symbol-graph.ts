@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { type Migration, openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
+import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
 import type { SymbolGraphGeneration } from "../domain/symbol-graph-generation.ts";
 import type { SymbolNodeId } from "../domain/symbol-node-id.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "../ports/symbol-graph-port.ts";
@@ -23,6 +24,10 @@ const MIGRATIONS: Migration[] = [
 			);
 		},
 	},
+	{
+		version: 3,
+		up: (db) => db.exec("ALTER TABLE symbol_graph_generation ADD COLUMN provenance_json TEXT"),
+	},
 ];
 
 interface NodeRow {
@@ -42,6 +47,42 @@ interface GenerationRow {
 	symbols_processed: number;
 	nodes_added: number;
 	edges_added: number;
+	provenance_json: string | null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function parseProvenance(json: string | null): IntelligenceProvenance | undefined {
+	if (!json) return undefined;
+	let value: unknown;
+	try {
+		value = JSON.parse(json);
+	} catch {
+		return undefined;
+	}
+	if (!isRecord(value)) return undefined;
+	const candidate = value;
+	if (
+		(candidate.fidelity !== "semantic" && candidate.fidelity !== "structural") ||
+		typeof candidate.backend !== "string" ||
+		typeof candidate.languageId !== "string" ||
+		(candidate.authority !== "language-server" && candidate.authority !== "parser" && candidate.authority !== "compiler") ||
+		(candidate.freshness !== "live-process" && candidate.freshness !== "content-hash" && candidate.freshness !== "filesystem-snapshot") ||
+		!Array.isArray(candidate.limitations) ||
+		!candidate.limitations.every((item) => typeof item === "string")
+	) {
+		return undefined;
+	}
+	return {
+		fidelity: candidate.fidelity,
+		backend: candidate.backend,
+		languageId: candidate.languageId,
+		authority: candidate.authority,
+		freshness: candidate.freshness,
+		limitations: candidate.limitations,
+	};
 }
 
 /**
@@ -105,7 +146,7 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 			SELECT DISTINCT id FROM reachable
 		`;
 		const params: Record<string, string | number> = { $id: id, $maxDepth: options.maxDepth };
-		if (options.kind) params["$kind"] = options.kind;
+		if (options.kind) params.$kind = options.kind;
 		const rows = this.db.query(sql).all(params) as { id: string }[];
 		return rows.map((row) => row.id).filter((reachedId) => reachedId !== id);
 	}
@@ -113,15 +154,17 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 	async getGeneration(): Promise<SymbolGraphGeneration | undefined> {
 		const row = this.db
 			.query(
-				"SELECT source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added FROM symbol_graph_generation WHERE singleton = 1",
+				"SELECT source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added, provenance_json FROM symbol_graph_generation WHERE singleton = 1",
 			)
 			.get() as GenerationRow | null;
 		if (!row) return undefined;
+		const provenance = parseProvenance(row.provenance_json);
 		return {
 			sourceFingerprint: row.source_fingerprint,
 			maxFiles: row.max_files,
 			maxSymbolsPerFile: row.max_symbols_per_file,
 			completedAt: row.completed_at,
+			...(provenance ? { provenance } : {}),
 			result: {
 				filesProcessed: row.files_processed,
 				symbolsProcessed: row.symbols_processed,
@@ -134,7 +177,7 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 	async setGeneration(generation: SymbolGraphGeneration): Promise<void> {
 		this.db
 			.query(
-				"INSERT INTO symbol_graph_generation (singleton, source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(singleton) DO UPDATE SET source_fingerprint = excluded.source_fingerprint, max_files = excluded.max_files, max_symbols_per_file = excluded.max_symbols_per_file, completed_at = excluded.completed_at, files_processed = excluded.files_processed, symbols_processed = excluded.symbols_processed, nodes_added = excluded.nodes_added, edges_added = excluded.edges_added",
+				"INSERT INTO symbol_graph_generation (singleton, source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added, provenance_json) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(singleton) DO UPDATE SET source_fingerprint = excluded.source_fingerprint, max_files = excluded.max_files, max_symbols_per_file = excluded.max_symbols_per_file, completed_at = excluded.completed_at, files_processed = excluded.files_processed, symbols_processed = excluded.symbols_processed, nodes_added = excluded.nodes_added, edges_added = excluded.edges_added, provenance_json = excluded.provenance_json",
 			)
 			.run(
 				generation.sourceFingerprint,
@@ -145,6 +188,7 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 				generation.result.symbolsProcessed,
 				generation.result.nodesAdded,
 				generation.result.edgesAdded,
+				generation.provenance ? JSON.stringify(generation.provenance) : null,
 			);
 	}
 

@@ -1,4 +1,4 @@
-import type { TextSearchResult, WorkspaceQueryOutcome, WorkspaceSymbol } from "@danypops/lector";
+import type { SymbolSearchResult, TextSearchResult, WorkspaceQueryOutcome } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import type { LectorTheme } from "./lector-tui-theme.ts";
 
@@ -17,7 +17,7 @@ function formatOutcomeHeader(outcome: WorkspaceQueryOutcome<unknown>, theme: Lec
 }
 
 export function formatFindSymbolsAcrossProjectsResult(
-	results: readonly WorkspaceQueryOutcome<{ symbols: readonly WorkspaceSymbol[] }>[] | undefined,
+	results: readonly WorkspaceQueryOutcome<SymbolSearchResult>[] | undefined,
 	expanded: boolean,
 	theme: LectorTheme,
 ): string {
@@ -26,6 +26,9 @@ export function formatFindSymbolsAcrossProjectsResult(
 	for (const outcome of results) {
 		lines.push(formatOutcomeHeader(outcome, theme));
 		if (outcome.status !== "ready") continue;
+		lines.push(
+			theme.fg("muted", `  ${outcome.result.provenance.fidelity} via ${outcome.result.provenance.backend}${outcome.result.truncated ? " (truncated)" : ""}`),
+		);
 		if (outcome.result.symbols.length === 0) {
 			lines.push(theme.fg("dim", "  no symbols matched"));
 			continue;

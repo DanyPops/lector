@@ -17,7 +17,7 @@ export function findSourceFiles(rootPath: string, isSourceExtension: (extension:
 		} catch {
 			return;
 		}
-		for (const entry of entries) {
+		for (const entry of [...entries].sort((left, right) => left.name.localeCompare(right.name))) {
 			if (scanned >= maxFiles) return;
 			const relativePath = relativeDir ? join(relativeDir, entry.name) : entry.name;
 			if (entry.isDirectory()) {

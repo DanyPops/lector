@@ -43,8 +43,8 @@ describe("backend parity: LSP vs. tree-sitter symbol queries", () => {
 
 		const [lspResults, treeSitterResults] = await Promise.all([lspIndex.findSymbols("add"), treeSitterIndex.findSymbols("add")]);
 
-		const lspMatch = lspResults.find((symbol) => symbol.name === "add");
-		const treeSitterMatch = treeSitterResults.find((symbol) => symbol.name === "add");
+		const lspMatch = lspResults.symbols.find((symbol) => symbol.name === "add");
+		const treeSitterMatch = treeSitterResults.symbols.find((symbol) => symbol.name === "add");
 
 		expect(lspMatch).toBeDefined();
 		expect(treeSitterMatch).toBeDefined();
@@ -66,8 +66,8 @@ describe("backend parity: LSP vs. tree-sitter symbol queries", () => {
 
 		const [lspResults, treeSitterResults] = await Promise.all([lspIndex.findSymbols("add"), treeSitterIndex.findSymbols("add")]);
 
-		const lspMatch = lspResults.find((symbol) => symbol.name === "add");
-		const treeSitterMatch = treeSitterResults.find((symbol) => symbol.name === "add");
+		const lspMatch = lspResults.symbols.find((symbol) => symbol.name === "add");
+		const treeSitterMatch = treeSitterResults.symbols.find((symbol) => symbol.name === "add");
 
 		// Both still agree the symbol *exists* under that name -- this is not a case where
 		// one backend silently found nothing.

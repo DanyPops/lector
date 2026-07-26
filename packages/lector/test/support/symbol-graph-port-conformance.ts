@@ -6,6 +6,7 @@
  * actual point of this port over a flat edge list.
  */
 import { describe, expect, it } from "bun:test";
+import type { SymbolGraphGeneration } from "../../src/domain/symbol-graph-generation.ts";
 import type { SymbolGraphPort, SymbolNode } from "../../src/ports/symbol-graph-port.ts";
 
 export interface SymbolGraphConformanceHarness {
@@ -141,11 +142,19 @@ export function runSymbolGraphPortConformanceSuite(name: string, harness: Symbol
 
 		it("round-trips completed generation metadata independently of graph nodes", () =>
 			withGraph(async (graph) => {
-				const generation = {
+				const generation: SymbolGraphGeneration = {
 					sourceFingerprint: "abc123",
 					maxFiles: 100,
 					maxSymbolsPerFile: 50,
 					completedAt: 123456,
+					provenance: {
+						fidelity: "semantic",
+						backend: "test-language-server",
+						languageId: "test",
+						authority: "language-server",
+						freshness: "live-process",
+						limitations: [],
+					},
 					result: { filesProcessed: 4, symbolsProcessed: 12, nodesAdded: 10, edgesAdded: 8 },
 				};
 				await graph.setGeneration(generation);
