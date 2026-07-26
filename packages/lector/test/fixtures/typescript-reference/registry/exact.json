@@ -1,0 +1,11 @@
+{
+  "name": "@fixture/dependency",
+  "version": "1.2.3",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fixture/dependency.git",
+    "directory": "packages/dependency"
+  },
+  "gitHead": "1111111111111111111111111111111111111111",
+  "dist": { "integrity": "sha512-fixture123" }
+}

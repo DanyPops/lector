@@ -1,0 +1,6 @@
+{
+  "name": "@fixture/typescript-reference",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"]
+}

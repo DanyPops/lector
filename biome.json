@@ -16,6 +16,6 @@
 		"lineWidth": 160
 	},
 	"files": {
-		"includes": ["packages/*/src/**/*.ts", "packages/*/extension/src/**/*.ts", "packages/*/test/**/*.ts", "!**/node_modules"]
+		"includes": ["packages/*/src/**/*.ts", "packages/*/extension/src/**/*.ts", "packages/*/test/**/*.ts", "!packages/*/test/fixtures", "!**/node_modules"]
 	}
 }

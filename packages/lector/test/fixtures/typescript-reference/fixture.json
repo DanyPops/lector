@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "languages": ["typescript", "javascript", "tsx", "jsx"],
+  "packageManagers": ["npm", "pnpm", "yarn", "bun"],
+  "requiredPaths": [
+    "package.json",
+    "tsconfig.json",
+    "packages/contracts/src/payment.ts",
+    "packages/contracts/src/index.ts",
+    "packages/app/src/stripe.ts",
+    "packages/app/src/checkout.ts",
+    "packages/app/src/view.tsx",
+    "packages/app/src/type-error.ts",
+    "packages/app/src/raw-text.ts",
+    "packages/legacy/src/gateway.cjs",
+    "packages/legacy/src/client.mjs",
+    "packages/legacy/src/widget.jsx",
+    "broken/syntax-error.ts",
+    "generated/client.ts",
+    "ignored/raw-text.ts",
+    "locks/npm/package-lock.json",
+    "locks/pnpm/pnpm-lock.yaml",
+    "locks/yarn/yarn.lock",
+    "locks/bun/bun.lock",
+    "registry/exact.json",
+    "registry/missing-repository.json",
+    "registry/mismatched-tag.json",
+    "registry/private.json",
+    "history/v1/payment.ts",
+    "history/v2/payment.ts"
+  ],
+  "expectedSymbols": [
+    { "name": "PaymentProcessor", "kind": "interface", "path": "packages/contracts/src/payment.ts" },
+    { "name": "StripeProcessor", "kind": "class", "path": "packages/app/src/stripe.ts" },
+    { "name": "runCheckout", "kind": "function", "path": "packages/app/src/checkout.ts" },
+    { "name": "LegacyGateway", "kind": "class", "path": "packages/legacy/src/gateway.cjs" }
+  ],
+  "diagnostic": {
+    "path": "packages/app/src/type-error.ts",
+    "messageIncludes": "not assignable"
+  },
+  "lexicalMarker": "FIXTURE_RAW_TEXT_ONLY"
+}

@@ -1,0 +1,12 @@
+lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      '@fixture/dependency':
+        specifier: 1.2.3
+        version: 1.2.3
+packages:
+  '@fixture/dependency@1.2.3':
+    resolution: {integrity: sha512-fixture123}
+  '@fixture/dependency@2.0.0':
+    resolution: {integrity: sha512-fixture200}

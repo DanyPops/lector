@@ -1,0 +1,14 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "dependencies": {
+        "@fixture/dependency": "1.2.3"
+      }
+    }
+  },
+  "packages": {
+    "@fixture/dependency": ["@fixture/dependency@1.2.3", "", {}, "sha512-fixture123"],
+    "@fixture/dependency@2": ["@fixture/dependency@2.0.0", "", {}, "sha512-fixture200"]
+  }
+}

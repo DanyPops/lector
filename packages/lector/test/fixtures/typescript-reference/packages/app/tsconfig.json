@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "paths": { "@fixture/contracts": ["../contracts/src/index.ts"] },
+    "strict": true,
+    "target": "ES2022"
+  },
+  "include": ["src"],
+  "references": [{ "path": "../contracts" }]
+}

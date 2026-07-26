@@ -1,0 +1,5 @@
+{
+  "name": "@fixture/no-source",
+  "version": "1.0.0",
+  "dist": { "integrity": "sha512-nosource" }
+}

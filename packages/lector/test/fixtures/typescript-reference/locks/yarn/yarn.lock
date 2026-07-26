@@ -1,0 +1,11 @@
+# yarn lockfile v1
+
+"@fixture/dependency@1.2.3":
+  version "1.2.3"
+  resolved "https://registry.example/@fixture/dependency/-/dependency-1.2.3.tgz"
+  integrity sha512-fixture123
+
+"@fixture/dependency@2.0.0":
+  version "2.0.0"
+  resolved "https://registry.example/@fixture/dependency/-/dependency-2.0.0.tgz"
+  integrity sha512-fixture200
