@@ -1,5 +1,6 @@
 import type { SymbolSearchResult, TextSearchResult, WorkspaceQueryOutcome } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
+import { describeFindSymbolSources } from "./find-symbols-rendering.ts";
 import type { LectorTheme } from "./lector-tui-theme.ts";
 
 const DEFAULT_VISIBLE_PER_WORKSPACE = 10;
@@ -29,6 +30,7 @@ export function formatFindSymbolsAcrossProjectsResult(
 		lines.push(
 			theme.fg("muted", `  ${outcome.result.provenance.fidelity} via ${outcome.result.provenance.backend}${outcome.result.truncated ? " (truncated)" : ""}`),
 		);
+		for (const source of describeFindSymbolSources(outcome.result)) lines.push(theme.fg("muted", `  ${source}`));
 		if (outcome.result.symbols.length === 0) {
 			lines.push(theme.fg("dim", "  no symbols matched"));
 			continue;

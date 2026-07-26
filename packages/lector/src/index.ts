@@ -12,7 +12,7 @@ export {
 	LanguageServerProcessExited,
 	LanguageServerRequestTimedOut,
 } from "./adapters/lsp/language-server-process.ts";
-export { LanguageFileLimitExceeded, LspSymbolIndex, type LspSymbolIndexOptions } from "./adapters/lsp/lsp-symbol-index.ts";
+export { LanguageFileLimitExceeded, LanguageFileOutsideWorkspace, LspSymbolIndex, type LspSymbolIndexOptions } from "./adapters/lsp/lsp-symbol-index.ts";
 export { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } from "./adapters/npm-lockfile-version-resolver.ts";
 export { NpmPackageSourceResolver, type NpmPackageSourceResolverOptions } from "./adapters/npm-package-source-resolver.ts";
 export {
@@ -26,6 +26,7 @@ export {
 	NpmRegistryResponseLimitExceeded,
 	NpmVersionNotFound,
 } from "./adapters/npm-registry-client.ts";
+export { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "./adapters/polyglot-code-intelligence-index.ts";
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
 export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
@@ -92,7 +93,13 @@ export type {
 	ResolvedInstalledPackageVersion,
 	UnavailableInstalledPackageVersion,
 } from "./domain/installed-package-version.ts";
-export type { IntelligenceFidelity, IntelligenceProvenance, ProvenancedResult, SymbolSearchBounds } from "./domain/intelligence-provenance.ts";
+export type {
+	IntelligenceFidelity,
+	IntelligenceProvenance,
+	IntelligenceSourceOutcome,
+	ProvenancedResult,
+	SymbolSearchBounds,
+} from "./domain/intelligence-provenance.ts";
 export {
 	descriptorForExtension,
 	LANGUAGE_SERVER_DESCRIPTORS,

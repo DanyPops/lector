@@ -75,12 +75,14 @@ describe("workspace.findSymbols", () => {
 		const { workspaceId } = await client.call("workspace.registerPath", { path: LECTOR_ROOT });
 
 		const first = await client.call("workspace.findSymbols", { workspaceId, seedFile: "src/index.ts", query: "exactEdit" });
+		const firstSpawnCount = spawnCount;
 		const second = await client.call("workspace.findSymbols", { workspaceId, seedFile: "src/index.ts", query: "rawRead" });
 
 		expect(first.symbols.some((symbol) => symbol.name === "exactEdit")).toBe(true);
 		expect(first.provenance).toMatchObject({ fidelity: "semantic", backend: "typescript-language-server" });
 		expect(second.symbols.some((symbol) => symbol.name === "rawRead")).toBe(true);
-		expect(spawnCount).toBe(1); // one warm index served both queries
+		expect(firstSpawnCount).toBeGreaterThan(0);
+		expect(spawnCount).toBe(firstSpawnCount); // every detected language index was reused
 	}, 20_000);
 
 	it("finds a real symbol with no seedFile given at all, via bounded auto-discovery", async () => {

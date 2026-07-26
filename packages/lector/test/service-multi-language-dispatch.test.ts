@@ -11,6 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
+import { SqliteSymbolGraph } from "../src/adapters/sqlite-symbol-graph.ts";
 import { createLectorService, type LectorService, UnsupportedLanguage } from "../src/service.ts";
 
 let fixtureRoot: string | undefined;
@@ -36,21 +37,30 @@ function buildMonoglotGo(): string {
 	return root;
 }
 
-function buildPolyglot(): { root: string; tsFile: string; pyFile: string } {
+function buildPolyglot(): { root: string; tsFile: string; pyFile: string; goFile: string } {
 	const root = mkdtempSync(join(tmpdir(), "lector-polyglot-"));
 
 	const tsRoot = join(root, "frontend");
 	mkdirSync(tsRoot);
 	writeFileSync(join(tsRoot, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true } }));
 	const tsFile = join(tsRoot, "main.ts");
-	writeFileSync(tsFile, "export function tsOnly(a: number, b: number): number {\n\treturn a + b;\n}\n");
+	writeFileSync(
+		tsFile,
+		"export function tsLeaf(value: number): number { return value; }\nexport function tsOnly(a: number, b: number): number { return tsLeaf(a + b); }\n",
+	);
 
 	const pyRoot = join(root, "backend");
 	mkdirSync(pyRoot);
 	const pyFile = join(pyRoot, "main.py");
-	writeFileSync(pyFile, "def python_only(a: int, b: int) -> int:\n    return a + b\n");
+	writeFileSync(pyFile, "def python_leaf(value: int) -> int:\n    return value\n\ndef python_only(a: int, b: int) -> int:\n    return python_leaf(a + b)\n");
 
-	return { root, tsFile, pyFile };
+	const goRoot = join(root, "worker");
+	mkdirSync(goRoot);
+	writeFileSync(join(goRoot, "go.mod"), "module fixture/worker\n\ngo 1.22\n");
+	const goFile = join(goRoot, "main.go");
+	writeFileSync(goFile, "package worker\n\nfunc goLeaf(value int) int { return value }\n\nfunc goOnly(a int, b int) int { return goLeaf(a + b) }\n");
+
+	return { root, tsFile, pyFile, goFile };
 }
 
 describe("multi-language dispatch: monoglot workspaces auto-detect with no seedFile at all", () => {
@@ -86,20 +96,22 @@ describe("multi-language dispatch: monoglot workspaces auto-detect with no seedF
 });
 
 describe("multi-language dispatch: a polyglot workspace holds one independent warm index per language", () => {
-	it("a TypeScript file and a Python file in the same workspace each resolve through their own correct language, automatically, from path alone", async () => {
-		const { root, tsFile, pyFile } = buildPolyglot();
+	it("TypeScript, Python, and Go files in the same workspace each resolve through their own language from path alone", async () => {
+		const { root, tsFile, pyFile, goFile } = buildPolyglot();
 		fixtureRoot = root;
 		service = createLectorService(new Map(), { allowDynamicOnly: true });
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
 
 		const { symbols: tsSymbols } = await service.dispatch("workspace.documentSymbols", { workspaceId, path: tsFile });
 		const { symbols: pySymbols } = await service.dispatch("workspace.documentSymbols", { workspaceId, path: pyFile });
+		const { symbols: goSymbols } = await service.dispatch("workspace.documentSymbols", { workspaceId, path: goFile });
 
 		expect(tsSymbols.map((s) => s.name)).toContain("tsOnly");
 		expect(pySymbols.map((s) => s.name)).toContain("python_only");
-		// No cross-contamination: neither server ever saw the other language's symbol.
+		expect(goSymbols.map((s) => s.name)).toContain("goOnly");
 		expect(tsSymbols.map((s) => s.name)).not.toContain("python_only");
-		expect(pySymbols.map((s) => s.name)).not.toContain("tsOnly");
+		expect(pySymbols.map((s) => s.name)).not.toContain("goOnly");
+		expect(goSymbols.map((s) => s.name)).not.toContain("tsOnly");
 	}, 30_000);
 
 	it("hasWarmIndex distinguishes per-language warmth within the same workspace, not just per-workspace", async () => {
@@ -145,16 +157,88 @@ describe("multi-language dispatch: a polyglot workspace holds one independent wa
 		expect(tsSpawnCount).toBe(1); // the Python query never touched the TypeScript index
 	}, 30_000);
 
-	it("populateSymbolGraph, given no path/seedFile, processes only the auto-detected primary language -- a known, honest scope, not silently mixing both", async () => {
+	it("workspace symbol search merges every detected language with per-backend provenance", async () => {
+		const { root } = buildPolyglot();
+		fixtureRoot = root;
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
+
+		const result = await service.dispatch("workspace.findSymbols", { workspaceId, query: "only" });
+
+		expect(result.symbols.map((symbol) => symbol.name)).toEqual(expect.arrayContaining(["tsOnly", "python_only", "goOnly"]));
+		expect(result.provenance).toMatchObject({ languageId: "polyglot", backend: "polyglot-language-servers" });
+		expect(result.sources?.map((source) => [source.provenance.languageId, source.status])).toEqual([
+			["typescript", "ready"],
+			["python", "ready"],
+			["go", "ready"],
+		]);
+	}, 30_000);
+
+	it("populateSymbolGraph processes every detected language instead of one arbitrary primary language", async () => {
 		const { root } = buildPolyglot();
 		fixtureRoot = root;
 		service = createLectorService(new Map(), { allowDynamicOnly: true });
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
 
 		const result = await service.dispatch("workspace.populateSymbolGraph", { workspaceId, maxFiles: 50, maxSymbolsPerFile: 50 });
+		const status = await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 50, maxSymbolsPerFile: 50 });
 
-		// TypeScript is checked before Python in LANGUAGE_SERVER_DESCRIPTORS' declared order, and its
-		// own bounded scan finds frontend/main.ts -- deterministic, exactly one language's files.
-		expect(result.filesProcessed).toBe(1);
-	}, 20_000);
+		expect(result.filesProcessed).toBe(3);
+		expect(status.status).toBe("cached");
+		if (status.status === "cached") {
+			expect(status.generation.provenance).toMatchObject({ languageId: "polyglot", backend: "polyglot-language-servers" });
+			expect(status.generation.sources?.map((source) => source.languageId)).toEqual(["typescript", "python", "go"]);
+		}
+	}, 30_000);
+
+	it("keeps each language's call edges and source provenance after a graph reopen", async () => {
+		const { root, tsFile, pyFile, goFile } = buildPolyglot();
+		fixtureRoot = root;
+		const graphPath = join(root, "polyglot-graph.db");
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolGraph: () => new SqliteSymbolGraph(graphPath),
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
+		await service.dispatch("workspace.populateSymbolGraph", { workspaceId, maxFiles: 50, maxSymbolsPerFile: 50 });
+		await service.close();
+		service = undefined;
+
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolGraph: () => new SqliteSymbolGraph(graphPath),
+		});
+		await service.dispatch("workspace.registerPath", { path: root });
+		const tsReachable = await service.dispatch("workspace.reachableFrom", {
+			workspaceId,
+			path: tsFile,
+			line: 2,
+			character: 17,
+			maxDepth: 1,
+			kind: "calls",
+		});
+		const pythonReachable = await service.dispatch("workspace.reachableFrom", {
+			workspaceId,
+			path: pyFile,
+			line: 4,
+			character: 5,
+			maxDepth: 1,
+			kind: "calls",
+		});
+		const goReachable = await service.dispatch("workspace.reachableFrom", {
+			workspaceId,
+			path: goFile,
+			line: 5,
+			character: 6,
+			maxDepth: 1,
+			kind: "calls",
+		});
+		const status = await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 50, maxSymbolsPerFile: 50 });
+
+		expect(tsReachable.symbols.map((symbol) => symbol.name)).toContain("tsLeaf");
+		expect(pythonReachable.symbols.map((symbol) => symbol.name)).toContain("python_leaf");
+		expect(goReachable.symbols.map((symbol) => symbol.name)).toContain("goLeaf");
+		expect(status.status).toBe("cached");
+		if (status.status === "cached") expect(status.generation.sources?.map((source) => source.languageId)).toEqual(["typescript", "python", "go"]);
+	}, 30_000);
 });

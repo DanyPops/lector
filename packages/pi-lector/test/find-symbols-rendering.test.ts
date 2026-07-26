@@ -99,6 +99,29 @@ describe("formatFindSymbolsResult", () => {
 		expect(text).not.toContain("more");
 	});
 
+	it("shows each polyglot backend and keeps a partial failure actionable", () => {
+		const semantic = result([symbol()]).provenance;
+		const composite: SymbolSearchResult = {
+			symbols: [symbol({ provenance: semantic })],
+			truncated: false,
+			provenance: { ...semantic, backend: "polyglot-language-servers", languageId: "polyglot" },
+			completeness: "partial",
+			sources: [
+				{ provenance: semantic, status: "ready", symbolCount: 1, truncated: false },
+				{
+					provenance: { ...semantic, backend: "pyright", languageId: "python" },
+					status: "failed",
+					symbolCount: 0,
+					error: { code: "LanguageServerProcessExited", message: "server exited" },
+				},
+			],
+		};
+
+		const text = formatFindSymbolsResult(composite, "exactEdit", false, plainTheme);
+		expect(text).toContain("typescript: ready via typescript-language-server (1 symbol)");
+		expect(text).toContain("python: failed via pyright [LanguageServerProcessExited] server exited");
+	});
+
 	it("does not show a truncation notice when the result count is already within the default visible count", () => {
 		const symbols = [symbol()];
 		const text = formatFindSymbolsResult(result(symbols), "exactEdit", false, plainTheme);

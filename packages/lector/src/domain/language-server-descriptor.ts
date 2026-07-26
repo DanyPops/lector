@@ -23,6 +23,8 @@ export interface LanguageServerDescriptor {
 	readonly rootMarkers: readonly string[];
 	/** Tried before the bounded directory scan when picking a file to warm the server with (e.g. a language's usual entry-point names). */
 	readonly commonSeedCandidates: readonly string[];
+	/** Excludes unsafe or unusually expensive servers from automatic workspace-wide fan-out while preserving explicit file operations. */
+	readonly workspaceDiscovery?: "enabled" | "explicit-only";
 	/** Extra textDocument/workspace capabilities this specific server gates real features behind (e.g. typescript-language-server withholds diagnostics/callHierarchy unless declared). */
 	readonly extraCapabilities?: Record<string, unknown>;
 	/** Milliseconds to wait after opening a file before trusting the server's answers -- no server signals "project loaded". Default 1000ms; rust-analyzer needs more (see RUST_DESCRIPTOR). */
@@ -101,6 +103,7 @@ export const BASH_DESCRIPTOR: LanguageServerDescriptor = {
 	languageId: "shellscript",
 	backendId: "bash-language-server",
 	extensions: [".sh", ".bash"],
+	workspaceDiscovery: "explicit-only",
 	launch: { kind: "npm-module", entryModule: "bash-language-server/out/cli.js" },
 	args: ["start"],
 	rootMarkers: [],
@@ -111,6 +114,7 @@ export const YAML_DESCRIPTOR: LanguageServerDescriptor = {
 	languageId: "yaml",
 	backendId: "yaml-language-server",
 	extensions: [".yaml", ".yml"],
+	workspaceDiscovery: "explicit-only",
 	launch: { kind: "npm-module", entryModule: "yaml-language-server/bin/yaml-language-server" },
 	args: ["--stdio"],
 	rootMarkers: [],

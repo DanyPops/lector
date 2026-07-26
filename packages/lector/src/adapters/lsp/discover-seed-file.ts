@@ -6,6 +6,7 @@ import { refineTypescriptSeedFile } from "./typescript-project-files.ts";
 const SKIP_DIRECTORY_NAMES = new Set(["node_modules", "dist", "build", "out", "coverage"]);
 const MAX_SCAN_DEPTH = 4;
 const MAX_ENTRIES_SCANNED = 2_000;
+const MAX_WORKSPACE_DESCRIPTORS = 32;
 
 /** Raised when no matching source file could be found to warm a language server with. */
 export class NoSeedFileFound extends Error {
@@ -110,21 +111,28 @@ export function resolveSeedFile(rootPath: string, descriptor: LanguageServerDesc
 	return descriptor.languageId === "typescript" ? refineTypescriptSeedFile(rootPath, candidate) : candidate;
 }
 
-/**
- * For workspace.findSymbols called with no seedFile -- no anchor file to pick a language from.
- * Tries each descriptor's own discoverSeedFile in declared order; first real match wins.
- */
-export function discoverWorkspaceDescriptor(
+/** Detects every auto-enabled language in descriptor order; each language keeps the same bounded seed scan. */
+export function discoverWorkspaceDescriptors(
 	rootPath: string,
 	descriptors: readonly LanguageServerDescriptor[],
-): { descriptor: LanguageServerDescriptor; seedFile: string } | undefined {
+): readonly { descriptor: LanguageServerDescriptor; seedFile: string }[] {
+	if (descriptors.length > MAX_WORKSPACE_DESCRIPTORS) throw new TypeError(`workspace descriptor count exceeds ${MAX_WORKSPACE_DESCRIPTORS}`);
+	const discovered: { descriptor: LanguageServerDescriptor; seedFile: string }[] = [];
 	for (const descriptor of descriptors) {
+		if (descriptor.workspaceDiscovery === "explicit-only") continue;
 		try {
-			const seedFile = resolveSeedFile(rootPath, descriptor);
-			return { descriptor, seedFile };
+			discovered.push({ descriptor, seedFile: resolveSeedFile(rootPath, descriptor) });
 		} catch (error) {
 			if (!(error instanceof NoSeedFileFound)) throw error;
 		}
 	}
-	return undefined;
+	return discovered;
+}
+
+/** Compatibility helper for callers that still need one deterministic primary language. */
+export function discoverWorkspaceDescriptor(
+	rootPath: string,
+	descriptors: readonly LanguageServerDescriptor[],
+): { descriptor: LanguageServerDescriptor; seedFile: string } | undefined {
+	return discoverWorkspaceDescriptors(rootPath, descriptors)[0];
 }

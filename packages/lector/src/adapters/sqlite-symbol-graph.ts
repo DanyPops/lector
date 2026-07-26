@@ -28,6 +28,10 @@ const MIGRATIONS: Migration[] = [
 		version: 3,
 		up: (db) => db.exec("ALTER TABLE symbol_graph_generation ADD COLUMN provenance_json TEXT"),
 	},
+	{
+		version: 4,
+		up: (db) => db.exec("ALTER TABLE symbol_graph_generation ADD COLUMN sources_json TEXT"),
+	},
 ];
 
 interface NodeRow {
@@ -48,20 +52,14 @@ interface GenerationRow {
 	nodes_added: number;
 	edges_added: number;
 	provenance_json: string | null;
+	sources_json: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
-function parseProvenance(json: string | null): IntelligenceProvenance | undefined {
-	if (!json) return undefined;
-	let value: unknown;
-	try {
-		value = JSON.parse(json);
-	} catch {
-		return undefined;
-	}
+function asProvenance(value: unknown): IntelligenceProvenance | undefined {
 	if (!isRecord(value)) return undefined;
 	const candidate = value;
 	if (
@@ -83,6 +81,26 @@ function parseProvenance(json: string | null): IntelligenceProvenance | undefine
 		freshness: candidate.freshness,
 		limitations: candidate.limitations,
 	};
+}
+
+function parseJson(json: string | null): unknown {
+	if (!json) return undefined;
+	try {
+		return JSON.parse(json);
+	} catch {
+		return undefined;
+	}
+}
+
+function parseProvenance(json: string | null): IntelligenceProvenance | undefined {
+	return asProvenance(parseJson(json));
+}
+
+function parseSources(json: string | null): readonly IntelligenceProvenance[] | undefined {
+	const value = parseJson(json);
+	if (!Array.isArray(value)) return undefined;
+	const sources = value.map(asProvenance);
+	return sources.every((source) => source !== undefined) ? sources : undefined;
 }
 
 /**
@@ -154,17 +172,19 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 	async getGeneration(): Promise<SymbolGraphGeneration | undefined> {
 		const row = this.db
 			.query(
-				"SELECT source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added, provenance_json FROM symbol_graph_generation WHERE singleton = 1",
+				"SELECT source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added, provenance_json, sources_json FROM symbol_graph_generation WHERE singleton = 1",
 			)
 			.get() as GenerationRow | null;
 		if (!row) return undefined;
 		const provenance = parseProvenance(row.provenance_json);
+		const sources = parseSources(row.sources_json);
 		return {
 			sourceFingerprint: row.source_fingerprint,
 			maxFiles: row.max_files,
 			maxSymbolsPerFile: row.max_symbols_per_file,
 			completedAt: row.completed_at,
 			...(provenance ? { provenance } : {}),
+			...(sources ? { sources } : {}),
 			result: {
 				filesProcessed: row.files_processed,
 				symbolsProcessed: row.symbols_processed,
@@ -177,7 +197,7 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 	async setGeneration(generation: SymbolGraphGeneration): Promise<void> {
 		this.db
 			.query(
-				"INSERT INTO symbol_graph_generation (singleton, source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added, provenance_json) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(singleton) DO UPDATE SET source_fingerprint = excluded.source_fingerprint, max_files = excluded.max_files, max_symbols_per_file = excluded.max_symbols_per_file, completed_at = excluded.completed_at, files_processed = excluded.files_processed, symbols_processed = excluded.symbols_processed, nodes_added = excluded.nodes_added, edges_added = excluded.edges_added, provenance_json = excluded.provenance_json",
+				"INSERT INTO symbol_graph_generation (singleton, source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added, provenance_json, sources_json) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(singleton) DO UPDATE SET source_fingerprint = excluded.source_fingerprint, max_files = excluded.max_files, max_symbols_per_file = excluded.max_symbols_per_file, completed_at = excluded.completed_at, files_processed = excluded.files_processed, symbols_processed = excluded.symbols_processed, nodes_added = excluded.nodes_added, edges_added = excluded.edges_added, provenance_json = excluded.provenance_json, sources_json = excluded.sources_json",
 			)
 			.run(
 				generation.sourceFingerprint,
@@ -189,6 +209,7 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 				generation.result.nodesAdded,
 				generation.result.edgesAdded,
 				generation.provenance ? JSON.stringify(generation.provenance) : null,
+				generation.sources ? JSON.stringify(generation.sources) : null,
 			);
 	}
 

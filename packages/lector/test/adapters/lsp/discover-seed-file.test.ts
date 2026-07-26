@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverSeedFile, NoSeedFileFound } from "../../../src/adapters/lsp/discover-seed-file.ts";
+import { discoverSeedFile, discoverWorkspaceDescriptors, NoSeedFileFound } from "../../../src/adapters/lsp/discover-seed-file.ts";
+import { BASH_DESCRIPTOR, PYTHON_DESCRIPTOR, TYPESCRIPT_DESCRIPTOR, YAML_DESCRIPTOR } from "../../../src/domain/language-server-descriptor.ts";
 
 const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
 const TS_COMMON_CANDIDATES = ["src/index.ts", "index.ts", "src/main.ts", "main.ts", "src/index.tsx", "index.tsx", "src/index.js", "index.js"];
@@ -17,6 +18,22 @@ function freshRoot(): string {
 	root = mkdtempSync(join(tmpdir(), "lector-discover-seed-"));
 	return root;
 }
+
+describe("discoverWorkspaceDescriptors", () => {
+	it("detects every enabled language and leaves explicit-only servers out of automatic fan-out", () => {
+		const dir = freshRoot();
+		writeFileSync(join(dir, "main.ts"), "export const value = 1;");
+		writeFileSync(join(dir, "main.py"), "value = 1\n");
+		writeFileSync(join(dir, "main.sh"), "echo ready\n");
+		writeFileSync(join(dir, "data.yaml"), "ready: true\n");
+
+		expect(
+			discoverWorkspaceDescriptors(dir, [TYPESCRIPT_DESCRIPTOR, PYTHON_DESCRIPTOR, BASH_DESCRIPTOR, YAML_DESCRIPTOR]).map(
+				({ descriptor }) => descriptor.languageId,
+			),
+		).toEqual(["typescript", "python"]);
+	});
+});
 
 describe("discoverSeedFile", () => {
 	it("prefers a common entry-point candidate over an arbitrary scanned file", () => {

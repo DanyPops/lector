@@ -6,11 +6,12 @@ import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
 import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { LocalGit } from "./adapters/local-git.ts";
-import { discoverWorkspaceDescriptor } from "./adapters/lsp/discover-seed-file.ts";
+import { discoverWorkspaceDescriptor, discoverWorkspaceDescriptors } from "./adapters/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
 import { NpmLockfileVersionResolver } from "./adapters/npm-lockfile-version-resolver.ts";
 import { NpmPackageSourceResolver } from "./adapters/npm-package-source-resolver.ts";
 import { NpmRegistryClient } from "./adapters/npm-registry-client.ts";
+import { PolyglotCodeIntelligenceIndex } from "./adapters/polyglot-code-intelligence-index.ts";
 import { ReadOnlyWorkspace } from "./adapters/read-only-workspace.ts";
 import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "./adapters/source-manifest.ts";
@@ -408,7 +409,7 @@ function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): 
 
 /** True when a warm SymbolIndexPort is also a real CodeIntelligencePort (currently: any LspSymbolIndex, never TreeSitterSymbolIndex). */
 function supportsCodeIntelligence(index: SymbolIndexPort): index is SymbolIndexPort & CodeIntelligencePort {
-	return typeof (index as Partial<CodeIntelligencePort>).goToDefinition === "function";
+	return "goToDefinition" in index && typeof index.goToDefinition === "function";
 }
 
 type OperationHandlers = {
@@ -677,6 +678,18 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return { descriptor: discovered.descriptor, seedFile: discovered.seedFile };
 	}
 
+	function ensureLanguageIndex(workspaceId: WorkspaceId, rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string): ClosableSymbolIndex {
+		const key = symbolIndexKey(workspaceId, descriptor.languageId);
+		let entryIndex = symbolIndexes.get(key);
+		if (!entryIndex) {
+			entryIndex = { index: createSymbolIndex(rootPath, descriptor, seedFile), workspaceId, lastUsedAt: Date.now() };
+			symbolIndexes.set(key, entryIndex);
+		} else {
+			entryIndex.lastUsedAt = Date.now();
+		}
+		return entryIndex.index;
+	}
+
 	async function ensureWarmIndex(input: {
 		workspaceId: WorkspaceId;
 		path?: string;
@@ -685,18 +698,45 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		const entry = registry.get(input.workspaceId);
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
 		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
-		const rootPath = entry.rootPath;
+		const { descriptor, seedFile } = resolveDescriptor(entry.rootPath, input);
+		return { index: ensureLanguageIndex(input.workspaceId, entry.rootPath, descriptor, seedFile), descriptor };
+	}
 
-		const { descriptor, seedFile } = resolveDescriptor(rootPath, input);
-		const key = symbolIndexKey(input.workspaceId, descriptor.languageId);
-		let entryIndex = symbolIndexes.get(key);
-		if (!entryIndex) {
-			entryIndex = { index: createSymbolIndex(rootPath, descriptor, seedFile), workspaceId: input.workspaceId, lastUsedAt: Date.now() };
-			symbolIndexes.set(key, entryIndex);
-		} else {
-			entryIndex.lastUsedAt = Date.now();
+	function ensureWorkspaceIndex(
+		workspaceId: WorkspaceId,
+		preferredSeedFile?: string,
+	): {
+		index: SymbolIndexPort;
+		descriptors: readonly LanguageServerDescriptor[];
+		sources: readonly IntelligenceProvenance[];
+	} {
+		const entry = registry.get(workspaceId);
+		if (!entry) throw new UnknownWorkspace(workspaceId);
+		if (!entry.rootPath) throw new SymbolQueryUnavailable(workspaceId);
+		const rootPath = entry.rootPath;
+		const preferredDescriptor = preferredSeedFile ? descriptorForPath(preferredSeedFile) : undefined;
+		if (preferredSeedFile && !preferredDescriptor) throw new UnsupportedLanguage(preferredSeedFile);
+		const discovered = [...discoverWorkspaceDescriptors(rootPath, LANGUAGE_SERVER_DESCRIPTORS)];
+		if (preferredDescriptor && preferredSeedFile && !discovered.some(({ descriptor }) => descriptor.languageId === preferredDescriptor.languageId)) {
+			discovered.push({ descriptor: preferredDescriptor, seedFile: preferredSeedFile });
 		}
-		return { index: entryIndex.index, descriptor };
+		if (discovered.length === 0) throw new UnsupportedLanguage(rootPath);
+		const indexes = discovered.map(({ descriptor, seedFile }) => ({
+			descriptor,
+			index: ensureLanguageIndex(workspaceId, rootPath, descriptor, preferredDescriptor?.languageId === descriptor.languageId ? preferredSeedFile : seedFile),
+		}));
+		const first = indexes[0];
+		let index: SymbolIndexPort;
+		if (indexes.length === 1 && first) {
+			index = first.index;
+		} else {
+			index = new PolyglotCodeIntelligenceIndex(indexes);
+		}
+		return { index, descriptors: discovered.map(({ descriptor }) => descriptor), sources: indexes.map(({ index: source }) => source.provenance) };
+	}
+
+	function workspaceSourceExtensions(descriptors: readonly LanguageServerDescriptor[]): readonly string[] {
+		return Array.from(new Set(descriptors.flatMap((descriptor) => descriptor.extensions)));
 	}
 
 	/** Never spawns -- a caller deciding whether to enrich a result with LSP-backed info must not pay a cold-start cost just to check. With a path, checks that file's own language; without one, whether anything is warm for the workspace at all. */
@@ -723,7 +763,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (!Number.isSafeInteger(maxResults) || maxResults < 1 || maxResults > MAX_SYMBOL_RESULTS) {
 			throw new TypeError(`maxResults must be a positive safe integer no greater than ${MAX_SYMBOL_RESULTS}`);
 		}
-		const { index } = await ensureWarmIndex(input);
+		const { index } = ensureWorkspaceIndex(input.workspaceId, input.seedFile);
 		return findWorkspaceSymbols(index, input.query, { maxResults });
 	}
 
@@ -819,21 +859,24 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.populateSymbolGraph"],
 	): Promise<OperationOutputs["workspace.populateSymbolGraph"]> {
-		const { index, descriptor } = await requireCodeIntelligence(input);
+		const workspaceIndex = ensureWorkspaceIndex(input.workspaceId);
+		if (!supportsCodeIntelligence(workspaceIndex.index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
 		const entry = registry.get(input.workspaceId);
 		if (!entry?.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 		const rootPath = entry.rootPath;
-		const before = await deriveSourceManifest(rootPath, descriptor.extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
+		const extensions = workspaceSourceExtensions(workspaceIndex.descriptors);
+		const before = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		const graph = ensureSymbolGraph(input.workspaceId);
-		const result = await populateSymbolGraphQuery(index, graph, before.absoluteFiles, input.maxSymbolsPerFile);
-		const after = await deriveSourceManifest(rootPath, descriptor.extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
+		const result = await populateSymbolGraphQuery(workspaceIndex.index, graph, before.absoluteFiles, input.maxSymbolsPerFile);
+		const after = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		if (after.fingerprint !== before.fingerprint) throw new WorkspaceChangedDuringPopulation(input.workspaceId);
 		await graph.setGeneration({
 			sourceFingerprint: after.fingerprint,
 			maxFiles: input.maxFiles,
 			maxSymbolsPerFile: input.maxSymbolsPerFile,
 			completedAt: Date.now(),
-			provenance: index.provenance,
+			provenance: workspaceIndex.index.provenance,
+			sources: workspaceIndex.sources,
 			result,
 		});
 		return result;
@@ -858,10 +901,12 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (generation.maxFiles !== input.maxFiles || generation.maxSymbolsPerFile !== input.maxSymbolsPerFile) {
 			return { status: "not-cached", reason: "bounds-changed" };
 		}
-		const { descriptor } = resolveDescriptor(entry.rootPath, {});
+		const discovered = discoverWorkspaceDescriptors(entry.rootPath, LANGUAGE_SERVER_DESCRIPTORS);
+		if (discovered.length === 0) return { status: "not-cached", reason: "source-changed" };
+		const extensions = workspaceSourceExtensions(discovered.map(({ descriptor }) => descriptor));
 		let currentFingerprint: string;
 		try {
-			currentFingerprint = (await deriveSourceManifest(entry.rootPath, descriptor.extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES)).fingerprint;
+			currentFingerprint = (await deriveSourceManifest(entry.rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES)).fingerprint;
 		} catch {
 			return { status: "not-cached", reason: "source-changed" };
 		}

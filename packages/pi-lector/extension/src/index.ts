@@ -53,7 +53,7 @@ import { createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-se
 import { formatCrossWorkspaceCall, formatFindSymbolsAcrossProjectsResult, formatSearchTextAcrossProjectsResult } from "./cross-workspace-search-rendering.ts";
 import { createLectorEditOperations } from "./edit-operations.ts";
 import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts";
-import { formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-rendering.ts";
+import { describeFindSymbolSources, formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-rendering.ts";
 import { createLectorGitOperations } from "./git-operations.ts";
 import { formatGitDiffCall, formatGitDiffResult, formatGitLogCall, formatGitLogResult, formatGitStatusCall, formatGitStatusResult } from "./git-rendering.ts";
 import { nearestGitRoot } from "./nearest-workspace-root.ts";
@@ -186,10 +186,12 @@ export default function (pi: ExtensionAPI) {
 				const result = await findSymbolsOperations.findSymbols(params.query, directory);
 				const { symbols, provenance, truncated } = result;
 				const source = `${provenance.fidelity} via ${provenance.backend}${truncated ? " (truncated)" : ""}`;
+				const sourceDetails = describeFindSymbolSources(result);
+				const heading = [source, ...sourceDetails].join("\n");
 				const text =
 					symbols.length === 0
-						? `${source}\nNo symbols found matching "${params.query}".`
-						: `${source}\n${symbols
+						? `${heading}\nNo symbols found matching "${params.query}".`
+						: `${heading}\n${symbols
 								.map((symbol) => `${symbol.kind} ${symbol.name} -- ${symbol.location.path}:${symbol.location.line}:${symbol.location.character}`)
 								.join("\n")}`;
 				return { content: [{ type: "text", text }], details: result };

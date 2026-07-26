@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LspSymbolIndex } from "../../../src/adapters/lsp/lsp-symbol-index.ts";
+import { LanguageFileOutsideWorkspace, LspSymbolIndex } from "../../../src/adapters/lsp/lsp-symbol-index.ts";
 import { diagnostics } from "../../../src/domain/diagnostics.ts";
 import { documentSymbols } from "../../../src/domain/document-symbols.ts";
 import { findReferences } from "../../../src/domain/find-references.ts";
@@ -250,6 +250,76 @@ describe("LspSymbolIndex configured for TypeScript -- diagnostics", () => {
 		expect(brokenResults.length).toBeGreaterThan(0);
 		expect(cleanResults).toEqual([]);
 	}, 20_000);
+});
+
+describe("LspSymbolIndex cold target-document seeding", () => {
+	it("opens a requested file beyond the workspace discovery bound before scanning for an unrelated seed", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-cold-target-"));
+		const targetDirectory = join(root, "a", "b", "c", "d", "e");
+		const target = join(targetDirectory, "target.ts");
+		mkdirSync(targetDirectory, { recursive: true });
+		writeFileSync(target, "export function deepTarget(): string { return 'ready'; }\n");
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR);
+		try {
+			const symbols = await documentSymbols(index, target);
+			expect(symbols.some((symbol) => symbol.name === "deepTarget")).toBe(true);
+		} finally {
+			await index.close();
+			index = undefined;
+			rmSync(root, { recursive: true, force: true });
+		}
+	}, 20_000);
+
+	it("uses the target seed for every cold file-position operation", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-cold-operations-"));
+		const targetDirectory = join(root, "a", "b", "c", "d", "e");
+		const target = join(targetDirectory, "target.ts");
+		mkdirSync(targetDirectory, { recursive: true });
+		writeFileSync(target, "export function leaf(): number { return 1; }\nexport function caller(): number { return leaf(); }\n");
+		const leafDeclaration = findPositionOf(target, "leaf():");
+		const leafCall = findPositionOf(target, "leaf();");
+		const callerDeclaration = findPositionOf(target, "caller():");
+		const operations: readonly [string, (cold: LspSymbolIndex) => Promise<unknown>][] = [
+			["definition", (cold) => goToDefinition(cold, { path: target, line: leafCall.line, character: leafCall.character })],
+			["implementation", (cold) => goToImplementation(cold, { path: target, line: leafDeclaration.line, character: leafDeclaration.character })],
+			["references", (cold) => findReferences(cold, { path: target, line: leafDeclaration.line, character: leafDeclaration.character }, true)],
+			["hover", (cold) => hoverAt(cold, { path: target, line: leafDeclaration.line, character: leafDeclaration.character })],
+			["document symbols", (cold) => documentSymbols(cold, target)],
+			["diagnostics", (cold) => diagnostics(cold, target)],
+			["prepare call hierarchy", (cold) => prepareCallHierarchy(cold, { path: target, line: callerDeclaration.line, character: callerDeclaration.character })],
+			["incoming calls", (cold) => incomingCalls(cold, { path: target, line: leafDeclaration.line, character: leafDeclaration.character })],
+			["outgoing calls", (cold) => outgoingCalls(cold, { path: target, line: callerDeclaration.line, character: callerDeclaration.character })],
+		];
+		try {
+			for (const [, operation] of operations) {
+				const cold = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR);
+				try {
+					expect(await operation(cold)).toBeDefined();
+				} finally {
+					await cold.close();
+				}
+			}
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	it("rejects a requested seed outside the workspace before spawning a server", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-seed-root-"));
+		const outsideRoot = mkdtempSync(join(tmpdir(), "lector-seed-outside-"));
+		const target = join(outsideRoot, "target.ts");
+		writeFileSync(target, "export const outside = true;\n");
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR);
+		try {
+			await expect(documentSymbols(index, target)).rejects.toBeInstanceOf(LanguageFileOutsideWorkspace);
+			expect(index.processId).toBeUndefined();
+		} finally {
+			await index.close();
+			index = undefined;
+			rmSync(root, { recursive: true, force: true });
+			rmSync(outsideRoot, { recursive: true, force: true });
+		}
+	});
 });
 
 describe("LspSymbolIndex auto-discovered seed file in a monorepo with no root tsconfig", () => {

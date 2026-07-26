@@ -41,6 +41,44 @@ describe("SqliteSymbolGraph durability", () => {
 		}
 	});
 
+	it("keeps every polyglot generation source after reopen", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "lector-sqlite-symbol-graph-sources-"));
+		const dbPath = join(dir, "symbol-graph.db");
+		const sources = [
+			{ fidelity: "semantic", backend: "gopls", languageId: "go", authority: "language-server", freshness: "live-process", limitations: [] },
+			{ fidelity: "semantic", backend: "pyright", languageId: "python", authority: "language-server", freshness: "live-process", limitations: [] },
+		] as const;
+		try {
+			const first = new SqliteSymbolGraph(dbPath);
+			await first.setGeneration({
+				sourceFingerprint: "polyglot",
+				maxFiles: 10,
+				maxSymbolsPerFile: 20,
+				completedAt: 1,
+				provenance: {
+					fidelity: "semantic",
+					backend: "polyglot-language-servers",
+					languageId: "polyglot",
+					authority: "language-server",
+					freshness: "live-process",
+					limitations: [],
+				},
+				sources,
+				result: { filesProcessed: 2, symbolsProcessed: 2, nodesAdded: 2, edgesAdded: 0 },
+			});
+			await first.close();
+
+			const second = new SqliteSymbolGraph(dbPath);
+			try {
+				expect((await second.getGeneration())?.sources).toEqual(sources);
+			} finally {
+				await second.close();
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("reachableFrom's WITH RECURSIVE query respects maxDepth across a real reopen, not just in-process state", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "lector-sqlite-symbol-graph-recursive-"));
 		const dbPath = join(dir, "symbol-graph.db");

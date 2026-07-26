@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunningDaemon } from "@danypops/daemon-kit/daemon";
 import { startLectorDaemon } from "../src/daemon.ts";
@@ -70,5 +71,26 @@ describe("TypeScript/JavaScript reference CLI parity", () => {
 		expect(human).toContain("semantic via typescript-language-server");
 		expect(human).toContain("runCheckout");
 		expect(human.length).toBeLessThan(20_000);
+	}, 30_000);
+
+	it("preserves polyglot source provenance in JSON and human output", async () => {
+		isolated = isolatedLectorPaths();
+		fixture = materializeTypeScriptReferenceFixture();
+		writeFileSync(join(fixture.root, "polyglot.ts"), "export function polyglotTypeScript(): void {}\n");
+		writeFileSync(join(fixture.root, "polyglot.py"), "def polyglot_python() -> None:\n    pass\n");
+		writeFileSync(join(fixture.root, "go.mod"), "module fixture/polyglot\n\ngo 1.22\n");
+		writeFileSync(join(fixture.root, "polyglot.go"), "package polyglot\n\nfunc PolyglotGo() {}\n");
+		daemon = startLectorDaemon({ workspaces: new Map(), allowDynamicOnly: true, paths: isolated.paths });
+		const registration = JSON.parse(await runCli(["workspace", "register", fixture.root, "--json"])) as { workspaceId: string };
+
+		const json = JSON.parse(await runCli(["workspace", "symbols", registration.workspaceId, "polyglot", "--json"])) as SymbolSearchResult;
+		expect(json.provenance).toMatchObject({ backend: "polyglot-language-servers", languageId: "polyglot" });
+		expect(json.sources?.map((source) => source.provenance.languageId)).toEqual(["typescript", "python", "go"]);
+		expect(json.symbols.map((symbol) => symbol.name)).toEqual(expect.arrayContaining(["polyglotTypeScript", "polyglot_python", "PolyglotGo"]));
+
+		const human = await runCli(["workspace", "symbols", registration.workspaceId, "polyglot"]);
+		expect(human).toContain("typescript: ready via typescript-language-server");
+		expect(human).toContain("python: ready via pyright");
+		expect(human).toContain("go: ready via gopls");
 	}, 30_000);
 });

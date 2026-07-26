@@ -8,6 +8,8 @@ export interface SymbolGraphGeneration {
 	readonly completedAt: number;
 	/** Absent only for generations persisted before provenance was recorded. */
 	readonly provenance?: IntelligenceProvenance;
+	/** Per-language authorities included when provenance is polyglot. */
+	readonly sources?: readonly IntelligenceProvenance[];
 	readonly result: PopulateSymbolGraphResult;
 }
 

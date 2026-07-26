@@ -9,6 +9,14 @@ export interface IntelligenceProvenance {
 	readonly limitations: readonly string[];
 }
 
+export interface IntelligenceSourceOutcome {
+	readonly provenance: IntelligenceProvenance;
+	readonly status: "ready" | "failed";
+	readonly symbolCount: number;
+	readonly truncated?: boolean;
+	readonly error?: { readonly code: string; readonly message: string };
+}
+
 export interface SymbolSearchBounds {
 	readonly maxResults: number;
 }

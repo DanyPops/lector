@@ -63,7 +63,7 @@ describe("workspace.hasWarmIndex", () => {
 		service = createLectorService(new Map(), { allowDynamicOnly: true });
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
 
-		await service.dispatch("workspace.findSymbols", { workspaceId, query: "add", seedFile: "index.ts" });
+		await service.dispatch("workspace.documentSymbols", { workspaceId, path: join(fixtureRoot, "index.ts") });
 
 		expect((await service.dispatch("workspace.hasWarmIndex", { workspaceId, path: join(fixtureRoot, "index.ts") })).warm).toBe(true);
 		expect((await service.dispatch("workspace.hasWarmIndex", { workspaceId, path: join(fixtureRoot, "main.py") })).warm).toBe(false);

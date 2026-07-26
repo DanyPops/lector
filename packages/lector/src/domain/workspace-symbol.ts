@@ -1,4 +1,4 @@
-import type { IntelligenceProvenance } from "./intelligence-provenance.ts";
+import type { IntelligenceProvenance, IntelligenceSourceOutcome } from "./intelligence-provenance.ts";
 
 /** A location within a workspace file: 1-indexed line and character, matching how humans and CLIs present positions. */
 export interface WorkspaceLocation {
@@ -13,10 +13,15 @@ export interface WorkspaceSymbol {
 	readonly kind: string;
 	readonly location: WorkspaceLocation;
 	readonly containerName?: string;
+	/** Present when a workspace-wide composite query needs to preserve which backend produced this symbol. */
+	readonly provenance?: IntelligenceProvenance;
 }
 
 export interface SymbolSearchResult {
 	readonly symbols: readonly WorkspaceSymbol[];
 	readonly truncated: boolean;
 	readonly provenance: IntelligenceProvenance;
+	/** Present for composite workspace queries; omitted for one-language adapters. */
+	readonly completeness?: "complete" | "partial";
+	readonly sources?: readonly IntelligenceSourceOutcome[];
 }

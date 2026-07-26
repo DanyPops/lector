@@ -12,6 +12,7 @@ import { serveMain } from "./daemon.ts";
 import type { JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { ContentHash } from "./domain/content-hash.ts";
 import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOperationResult } from "./domain/package-source.ts";
+import type { SymbolSearchResult } from "./domain/workspace-symbol.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import type { WorkspaceId } from "./service.ts";
 
@@ -130,6 +131,14 @@ async function runWorkspaceRegister(dir: string | undefined, flags: string[]): P
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.workspaceId} (${result.created ? "created" : "already registered"})`);
 }
 
+function formatSymbolSources(result: SymbolSearchResult): readonly string[] {
+	return (result.sources ?? []).map((source) => {
+		const identity = `${source.provenance.languageId}: ${source.status} via ${source.provenance.backend}`;
+		if (source.status === "failed") return source.error ? `${identity} [${source.error.code}] ${source.error.message}` : identity;
+		return `${identity} (${source.symbolCount} symbol${source.symbolCount === 1 ? "" : "s"}${source.truncated ? ", truncated" : ""})`;
+	});
+}
+
 async function runWorkspaceSymbols(workspaceId: string | undefined, query: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !query) fail(USAGE);
 	const seedFile = flagValue(flags, "--seed-file"); // omit to auto-discover one
@@ -141,6 +150,7 @@ async function runWorkspaceSymbols(workspaceId: string | undefined, query: strin
 	}
 	const { symbols, provenance, truncated } = result;
 	console.log(`${provenance.fidelity} via ${provenance.backend}${truncated ? " (truncated)" : ""}`);
+	for (const source of formatSymbolSources(result)) console.log(source);
 	if (symbols.length === 0) {
 		console.log(`no symbols matched "${query}"`);
 		return;

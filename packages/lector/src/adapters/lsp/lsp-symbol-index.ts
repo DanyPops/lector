@@ -1,5 +1,5 @@
 import { readFileSync, realpathSync } from "node:fs";
-import { extname, join } from "node:path";
+import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../domain/call-hierarchy.ts";
 import type { CodeRange } from "../../domain/code-range.ts";
@@ -25,6 +25,16 @@ export interface LspSymbolIndexOptions {
 	readonly maxFileBytes?: number;
 	readonly maxRefreshBytes?: number;
 	readonly maxFallbackSeedFiles?: number;
+}
+
+export class LanguageFileOutsideWorkspace extends Error {
+	constructor(
+		readonly path: string,
+		readonly root: string,
+	) {
+		super(`language file "${path}" resolves outside workspace root "${root}"`);
+		this.name = "LanguageFileOutsideWorkspace";
+	}
 }
 
 export class LanguageFileLimitExceeded extends Error {
@@ -270,6 +280,7 @@ function normalizeDocumentSymbol(path: string, item: LspDocumentSymbol | LspSymb
 export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	readonly provenance: IntelligenceProvenance;
 	private readonly cwd: string;
+	private readonly canonicalCwd: string;
 	private readonly descriptor: LanguageServerDescriptor;
 	private readonly explicitSeedFile: string | undefined;
 	private fallbackSeedFile: string | undefined;
@@ -284,7 +295,8 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private initializing: Promise<LanguageServerProcess> | undefined;
 
 	constructor(cwd: string, descriptor: LanguageServerDescriptor, seedFile?: string, options: LspSymbolIndexOptions = {}) {
-		this.cwd = cwd;
+		this.cwd = resolve(cwd);
+		this.canonicalCwd = realpathSync(this.cwd);
 		this.descriptor = descriptor;
 		this.explicitSeedFile = seedFile;
 		this.maxOpenFiles = positiveLimit(options.maxOpenFiles, DEFAULT_MAX_OPEN_FILES, "maxOpenFiles");
@@ -309,7 +321,18 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		return this.process?.pid;
 	}
 
-	private async ensureInitialized(): Promise<LanguageServerProcess> {
+	private resolveTargetPath(path: string): string {
+		const absolute = resolve(this.cwd, path);
+		const canonical = realpathSync(absolute);
+		const relativeToRoot = relative(this.canonicalCwd, canonical);
+		if (relativeToRoot === ".." || relativeToRoot.startsWith(`..${sep}`) || isAbsolute(relativeToRoot)) {
+			throw new LanguageFileOutsideWorkspace(path, this.cwd);
+		}
+		return absolute;
+	}
+
+	private async ensureInitialized(initialPath?: string): Promise<LanguageServerProcess> {
+		const initialTargetPath = initialPath ? this.resolveTargetPath(initialPath) : undefined;
 		if (this.process) return this.process;
 		if (!this.initializing) {
 			let spawned: LanguageServerProcess | undefined;
@@ -350,8 +373,11 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				});
 				proc.notify("initialized", {});
 
-				const seedFile = this.fallbackSeedFile ?? this.explicitSeedFile ?? resolveSeedFile(this.cwd, this.descriptor);
-				await this.ensureFileOpen(proc, join(this.cwd, seedFile));
+				const configuredSeedFile = this.fallbackSeedFile ?? this.explicitSeedFile;
+				const seedPath = configuredSeedFile
+					? resolve(this.cwd, configuredSeedFile)
+					: (initialTargetPath ?? resolve(this.cwd, resolveSeedFile(this.cwd, this.descriptor)));
+				await this.ensureFileOpen(proc, seedPath);
 
 				this.process = proc;
 				return proc;
@@ -374,6 +400,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 
 	/** Opens a file or sends a monotonic full-document change when its disk content changed since the prior query. */
 	private async ensureFileOpen(proc: LanguageServerProcess, path: string): Promise<void> {
+		path = this.resolveTargetPath(path);
 		const content = this.readBoundedFile(path);
 		const opened = this.openedFiles.get(path);
 		if (opened?.content === content) return;
@@ -459,7 +486,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	async goToDefinition(at: WorkspaceLocation): Promise<WorkspaceLocation[]> {
-		const proc = await this.ensureInitialized();
+		const proc = await this.ensureInitialized(at.path);
 		await this.ensureFileOpen(proc, at.path);
 		const result = await proc.request<LspLocation | LspLocation[] | LspLocationLink[] | null>("textDocument/definition", {
 			textDocument: { uri: pathToFileURL(at.path).href },
@@ -469,7 +496,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	async goToImplementation(at: WorkspaceLocation): Promise<WorkspaceLocation[]> {
-		const proc = await this.ensureInitialized();
+		const proc = await this.ensureInitialized(at.path);
 		await this.ensureFileOpen(proc, at.path);
 		const result = await proc.request<LspLocation | LspLocation[] | LspLocationLink[] | null>("textDocument/implementation", {
 			textDocument: { uri: pathToFileURL(at.path).href },
@@ -479,7 +506,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	async findReferences(at: WorkspaceLocation, includeDeclaration: boolean): Promise<WorkspaceLocation[]> {
-		const proc = await this.ensureInitialized();
+		const proc = await this.ensureInitialized(at.path);
 		await this.ensureFileOpen(proc, at.path);
 		const results =
 			(await proc.request<LspLocation[] | null>("textDocument/references", {
@@ -491,7 +518,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	async hover(at: WorkspaceLocation): Promise<Hover | undefined> {
-		const proc = await this.ensureInitialized();
+		const proc = await this.ensureInitialized(at.path);
 		await this.ensureFileOpen(proc, at.path);
 		const result = await proc.request<LspHover | null>("textDocument/hover", {
 			textDocument: { uri: pathToFileURL(at.path).href },
@@ -502,7 +529,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	async documentSymbols(path: string): Promise<DocumentSymbolEntry[]> {
-		const proc = await this.ensureInitialized();
+		const proc = await this.ensureInitialized(path);
 		await this.ensureFileOpen(proc, path);
 		const results =
 			(await proc.request<(LspDocumentSymbol | LspSymbolInformation)[] | null>("textDocument/documentSymbol", {
@@ -512,7 +539,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	async diagnostics(path: string): Promise<Diagnostic[]> {
-		const proc = await this.ensureInitialized();
+		const proc = await this.ensureInitialized(path);
 		await this.ensureFileOpen(proc, path);
 		if (!this.latestDiagnostics.has(path)) await this.waitForDiagnosticsNotification(path, 5000);
 		return this.latestDiagnostics.get(path) ?? [];
@@ -529,13 +556,13 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	async prepareCallHierarchy(at: WorkspaceLocation): Promise<CallHierarchyEntry[]> {
-		const proc = await this.ensureInitialized();
+		const proc = await this.ensureInitialized(at.path);
 		const items = await this.prepareCallHierarchyRaw(proc, at);
 		return items.map((item) => normalizeCallHierarchyItem(item));
 	}
 
 	async incomingCalls(at: WorkspaceLocation): Promise<IncomingCall[]> {
-		const proc = await this.ensureInitialized();
+		const proc = await this.ensureInitialized(at.path);
 		const root = (await this.prepareCallHierarchyRaw(proc, at))[0];
 		if (!root) return [];
 		const results = (await proc.request<LspCallHierarchyIncomingCall[] | null>("callHierarchy/incomingCalls", { item: root })) ?? [];
@@ -546,7 +573,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	async outgoingCalls(at: WorkspaceLocation): Promise<OutgoingCall[]> {
-		const proc = await this.ensureInitialized();
+		const proc = await this.ensureInitialized(at.path);
 		const root = (await this.prepareCallHierarchyRaw(proc, at))[0];
 		if (!root) return [];
 		const results = (await proc.request<LspCallHierarchyOutgoingCall[] | null>("callHierarchy/outgoingCalls", { item: root })) ?? [];
