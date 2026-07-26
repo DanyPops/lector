@@ -13,6 +13,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -42,6 +43,17 @@ jobs:
           echo "dir=$package_dir" >> "$GITHUB_OUTPUT"
 
       - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+
+      - name: Install system test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ripgrep
+          go install golang.org/x/tools/gopls@v0.23.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - run: bun install --frozen-lockfile
       - run: bun run --filter '*' typecheck
