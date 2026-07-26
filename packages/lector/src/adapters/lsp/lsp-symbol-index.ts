@@ -134,7 +134,7 @@ function isHierarchicalDocumentSymbol(item: LspDocumentSymbol | LspSymbolInforma
 /** Resolves a descriptor's launch into a spawnable command + args. */
 function resolveLanguageServerCommand(descriptor: LanguageServerDescriptor): { command: string; args: string[] } {
 	if (descriptor.launch.kind === "npm-module") {
-		return { command: "bun", args: [fileURLToPath(import.meta.resolve(descriptor.launch.entryModule)), ...descriptor.args] };
+		return { command: process.execPath, args: [fileURLToPath(import.meta.resolve(descriptor.launch.entryModule)), ...descriptor.args] };
 	}
 	return { command: descriptor.launch.command, args: [...descriptor.args] };
 }
