@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../domain/call-hierarchy.ts";
@@ -119,6 +119,8 @@ interface LspPublishDiagnosticsParams {
 }
 
 /** LSP DiagnosticSeverity is 1-4; the spec recommends treating an absent severity as an error. */
+const RUNTIME_EXECUTABLE = realpathSync(process.execPath);
+
 const LSP_DIAGNOSTIC_SEVERITY_NAMES: Readonly<Record<number, DiagnosticSeverity>> = {
 	1: "error",
 	2: "warning",
@@ -134,7 +136,7 @@ function isHierarchicalDocumentSymbol(item: LspDocumentSymbol | LspSymbolInforma
 /** Resolves a descriptor's launch into a spawnable command + args. */
 function resolveLanguageServerCommand(descriptor: LanguageServerDescriptor): { command: string; args: string[] } {
 	if (descriptor.launch.kind === "npm-module") {
-		return { command: process.execPath, args: [fileURLToPath(import.meta.resolve(descriptor.launch.entryModule)), ...descriptor.args] };
+		return { command: RUNTIME_EXECUTABLE, args: [fileURLToPath(import.meta.resolve(descriptor.launch.entryModule)), ...descriptor.args] };
 	}
 	return { command: descriptor.launch.command, args: [...descriptor.args] };
 }

@@ -14,7 +14,7 @@
     },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "bin": {
         "lector": "src/cli.ts",
       },
@@ -37,9 +37,9 @@
     },
     "packages/pi-lector": {
       "name": "@danypops/pi-lector",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "dependencies": {
-        "@danypops/lector": "^0.1.6",
+        "@danypops/lector": "^0.1.7",
       },
       "devDependencies": {
         "@earendil-works/pi-ai": "^0.81.1",
