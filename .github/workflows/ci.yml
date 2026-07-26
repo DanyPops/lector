@@ -25,6 +25,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - name: Install system test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clangd ripgrep
+          rustup component add rust-analyzer
+          go install golang.org/x/tools/gopls@v0.23.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          # bash-language-server resolves by bare name against PATH (see language-server-descriptor.ts):
+          # its own pinned editorconfig dependency carries an unpatched ReDoS/OOM chain, so it is a
+          # self-installed system binary rather than a bundled npm dependency.
+          bun add --global bash-language-server
       - run: bun install
       - run: bun test
       - run: bun run typecheck

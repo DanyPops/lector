@@ -55,6 +55,10 @@ jobs:
           rustup component add rust-analyzer
           go install golang.org/x/tools/gopls@v0.23.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          # bash-language-server resolves by bare name against PATH (see language-server-descriptor.ts):
+          # its own pinned editorconfig dependency carries an unpatched ReDoS/OOM chain, so it is a
+          # self-installed system binary rather than a bundled npm dependency.
+          bun add --global bash-language-server
 
       - run: bun install --frozen-lockfile
       - run: bun run --filter '*' typecheck
