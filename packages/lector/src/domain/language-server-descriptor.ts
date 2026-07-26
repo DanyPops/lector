@@ -104,7 +104,14 @@ export const BASH_DESCRIPTOR: LanguageServerDescriptor = {
 	backendId: "bash-language-server",
 	extensions: [".sh", ".bash"],
 	workspaceDiscovery: "explicit-only",
-	launch: { kind: "npm-module", entryModule: "bash-language-server/out/cli.js" },
+	// System-binary, not npm-module: bash-language-server's own package.json hard-pins a vulnerable
+	// editorconfig -> minimatch/brace-expansion chain (GHSA-3ppc-4f35-3m26, GHSA-7r86-cg39-jmmj,
+	// GHSA-23c5-xmqv-rm74, GHSA-mh99-v99m-4gvg) with no upstream fix. That chain is only reachable
+	// through textDocument/formatting, which Lector never sends -- but bundling it as a production
+	// npm dependency still ships the vulnerable code and the audit finding to every consumer.
+	// Resolving by bare name against PATH, like gopls/rust-analyzer/clangd, keeps Bash support
+	// available to whoever installs the real server themselves without shipping it by default.
+	launch: { kind: "system-binary", command: "bash-language-server" },
 	args: ["start"],
 	rootMarkers: [],
 	commonSeedCandidates: ["main.sh", "run.sh", "install.sh"],
