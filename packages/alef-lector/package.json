@@ -1,0 +1,37 @@
+{
+	"name": "@danypops/alef-lector",
+	"version": "0.1.0",
+	"description": "Alef host adapter for Lector: Node-portable WorkspaceFilesystemPort/CodeIntelligencePort/CallGraphPort/WorkspaceGitPort implementations over a running Lector daemon",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+	},
+	"files": ["dist", "README.md", "LICENSE"],
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit",
+		"clean": "rm -rf dist",
+		"build:types": "tsc -b tsconfig.build.json",
+		"build:js": "bun build ./src/index.ts ./src/call-graph-port.ts ./src/code-intelligence-port.ts ./src/filesystem-port.ts ./src/git-port.ts ./src/client.ts ./src/workspace-registration.ts --outdir=dist --target=node --format=esm",
+		"build": "npm run build:js && npm run build:types",
+		"prepublishOnly": "npm run clean && npm run build"
+	},
+	"dependencies": {
+		"@danypops/lector": "^0.1.12"
+	},
+	"devDependencies": {
+		"bun-types": "latest",
+		"typescript": "^5.9.3"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/DanyPops/lector.git",
+		"directory": "packages/alef-lector"
+	},
+	"publishConfig": {
+		"access": "public"
+	}
+}
