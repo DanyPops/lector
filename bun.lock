@@ -41,7 +41,7 @@
     },
     "packages/pi-lector": {
       "name": "@danypops/pi-lector",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "dependencies": {
         "@danypops/lector": "^0.1.8",
       },
