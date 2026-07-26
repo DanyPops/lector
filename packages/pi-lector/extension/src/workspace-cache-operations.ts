@@ -46,6 +46,20 @@ export type CachePresentationState =
 	| { readonly status: "finished-caching"; readonly job: JobSnapshot<PopulateSymbolGraphResult> & { readonly status: "succeeded" } }
 	| { readonly status: "cached" };
 
+export function describeCacheState(state: CachePresentationState): string {
+	if (state.status === "not-cached") return `not cached (${state.reason})`;
+	if (state.status === "caching") return `caching (job ${state.jobId})`;
+	if (state.status === "finished-caching") return `finished caching (job ${state.job.id})`;
+	return "cached";
+}
+
+export function cacheContextMessage(state: CachePresentationState): string {
+	const prefix = `Lector workspace cache: ${describeCacheState(state)}.`;
+	if (state.status === "not-cached") return `${prefix} Live code-intelligence operations remain available.`;
+	if (state.status === "caching") return `${prefix} The cached graph is still building; use live code-intelligence operations until it is ready.`;
+	return `${prefix} The cached graph is ready.`;
+}
+
 export interface MonitorWorkspaceCacheOptions {
 	readonly directory: string;
 	readonly maxFiles: number;

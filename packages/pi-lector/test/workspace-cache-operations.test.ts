@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { JobSnapshot, PopulateSymbolGraphResult } from "@danypops/lector";
-import { monitorWorkspaceCache, type WorkspaceCacheOperations } from "../extension/src/workspace-cache-operations.ts";
+import { cacheContextMessage, describeCacheState, monitorWorkspaceCache, type WorkspaceCacheOperations } from "../extension/src/workspace-cache-operations.ts";
 
 function runningJob(id = "job-1"): JobSnapshot<PopulateSymbolGraphResult> {
 	return { id, operation: "workspace.populateSymbolGraph", priority: "local", submittedAt: 1, startedAt: 2, status: "running" };
@@ -18,6 +18,32 @@ function succeededJob(id = "job-1"): JobSnapshot<PopulateSymbolGraphResult> & { 
 		result: { filesProcessed: 2, symbolsProcessed: 4, nodesAdded: 4, edgesAdded: 2 },
 	};
 }
+
+describe("cache status presentation", () => {
+	it("never claims a cached graph is still loading", () => {
+		const state = { status: "cached" } as const;
+		expect(describeCacheState(state)).toBe("cached");
+		expect(cacheContextMessage(state)).toBe("Lector workspace cache: cached. The cached graph is ready.");
+		expect(cacheContextMessage(state)).not.toContain("loading");
+	});
+
+	it("keeps the bounded job id and live-operation guidance while caching", () => {
+		const state = { status: "caching", jobId: "job-42" } as const;
+		expect(cacheContextMessage(state)).toBe(
+			"Lector workspace cache: caching (job job-42). The cached graph is still building; use live code-intelligence operations until it is ready.",
+		);
+	});
+
+	it("does not claim that work is running before a cache job is observed", () => {
+		const state = { status: "not-cached", reason: "source-changed" } as const;
+		expect(cacheContextMessage(state)).toBe("Lector workspace cache: not cached (source-changed). Live code-intelligence operations remain available.");
+	});
+
+	it("reports a completed cache job as ready", () => {
+		const state = { status: "finished-caching", job: succeededJob("job-42") } as const;
+		expect(cacheContextMessage(state)).toBe("Lector workspace cache: finished caching (job job-42). The cached graph is ready.");
+	});
+});
 
 describe("monitorWorkspaceCache", () => {
 	it("reports cached without submitting work when the content manifest still matches", async () => {

@@ -64,7 +64,13 @@ import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
 import { formatRepoFetchCall, formatRepoFetchResult } from "./repo-fetch-rendering.ts";
 import { createLectorSearchOperations } from "./search-operations.ts";
 import { formatSearchCall, formatSearchResult } from "./search-rendering.ts";
-import { type CachePresentationState, createWorkspaceCacheOperations, monitorWorkspaceCache } from "./workspace-cache-operations.ts";
+import {
+	type CachePresentationState,
+	cacheContextMessage,
+	createWorkspaceCacheOperations,
+	describeCacheState,
+	monitorWorkspaceCache,
+} from "./workspace-cache-operations.ts";
 import { createLectorWriteOperations } from "./write-operations.ts";
 
 function describeIntelligenceSource(provenance: IntelligenceProvenance): string {
@@ -99,13 +105,6 @@ export default function (pi: ExtensionAPI) {
 	let cacheState: CachePresentationState | undefined;
 	let lastInjectedCacheState: string | undefined;
 
-	function describeCacheState(state: CachePresentationState): string {
-		if (state.status === "not-cached") return `not cached (${state.reason})`;
-		if (state.status === "caching") return `caching (job ${state.jobId})`;
-		if (state.status === "finished-caching") return `finished caching (job ${state.job.id})`;
-		return "cached";
-	}
-
 	pi.on("before_agent_start", () => {
 		if (!cacheState) return;
 		const description = describeCacheState(cacheState);
@@ -114,7 +113,7 @@ export default function (pi: ExtensionAPI) {
 		return {
 			message: {
 				customType: "lector-cache-status",
-				content: `Lector workspace cache: ${description}. A caching graph is still loading; use live code-intelligence operations until it becomes cached.`,
+				content: cacheContextMessage(cacheState),
 				display: false,
 			},
 		};
