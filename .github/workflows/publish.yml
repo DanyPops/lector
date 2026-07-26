@@ -51,7 +51,8 @@ jobs:
       - name: Install system test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes ripgrep
+          sudo apt-get install --yes clangd ripgrep
+          rustup component add rust-analyzer
           go install golang.org/x/tools/gopls@v0.23.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 

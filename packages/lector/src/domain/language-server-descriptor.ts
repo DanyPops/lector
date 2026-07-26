@@ -35,6 +35,7 @@ export const TYPESCRIPT_DESCRIPTOR: LanguageServerDescriptor = {
 	args: ["--stdio"],
 	rootMarkers: ["tsconfig.json", "jsconfig.json", "package.json"],
 	commonSeedCandidates: ["src/index.ts", "index.ts", "src/main.ts", "main.ts", "src/index.tsx", "index.tsx", "src/index.js", "index.js"],
+	settleMs: 2000,
 	// typescript-language-server gates its own diagnosticsSupport/callHierarchyProvider flags
 	// on these capabilities being present at all -- omitted, it silently withholds both.
 	extraCapabilities: { publishDiagnostics: {}, callHierarchy: {} },
