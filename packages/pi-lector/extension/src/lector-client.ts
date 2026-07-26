@@ -1,4 +1,5 @@
 import { dirname, parse } from "node:path";
+import { createRetryingClient, type RetryingClient } from "@danypops/daemon-kit/pi-client";
 import {
 	connectLectorClient,
 	type LectorClient,
@@ -20,60 +21,33 @@ import { nearestGitRoot } from "./nearest-workspace-root.ts";
  *
  * The daemon binds a new random port on every restart. A client resolved
  * once and cached for the rest of the session would otherwise point at a
- * dead port after any later restart -- lectorClient()'s returned .call()
+ * dead port after any later restart -- daemon-kit's createRetryingClient
  * detects that on the failing call itself (not just the first connection
- * attempt) and retries once against a freshly re-resolved client, matching
- * the pattern already proven in this house's papyrusClient()/callService().
+ * attempt) and retries once against a freshly re-resolved client, the same
+ * policy this file used to hand-roll and now shares with web-spider's
+ * callWebSpider(), papyrus's callService(), and pi-packed's createNatives().
  */
 
 type ClientConnector = () => Promise<LectorClient>;
 
 let connector: ClientConnector = () => connectLectorClient();
-let cachedClient: Promise<LectorClient> | undefined;
+// Wraps `() => connector()` rather than `connector` itself, so a test's
+// setLectorClientConnectorForTests still takes effect after this retrying
+// client is constructed once at module load.
+const retryingClient: RetryingClient<LectorClient> = createRetryingClient(() => connector(), { label: "Lector" });
 const workspaceIdByRoot = new Map<string, WorkspaceId>();
-
-async function resolveClient(): Promise<LectorClient> {
-	if (!cachedClient) {
-		cachedClient = connector().catch((error: unknown) => {
-			cachedClient = undefined;
-			throw error;
-		});
-	}
-	return cachedClient;
-}
-
-/**
- * True when `error` means the connection itself is bad (the daemon
- * restarted on a new port since this client was cached, or died outright)
- * -- worth invalidating the cache and retrying once. False for a genuine
- * domain-level rejection (e.g. UnknownWorkspace), which a retry cannot fix
- * and would only mask.
- */
-function isStaleConnectionError(error: unknown): boolean {
-	if (error instanceof TypeError) return true; // fetch()'s own connection-refused/DNS-failure shape
-	if (!(error instanceof Error)) return false;
-	if (error.name === "AbortError" || error.name === "TimeoutError") return true;
-	return /fetch failed|unable to connect|network|socket|ECONNRESET|ECONNREFUSED|connection refused/i.test(error.message);
-}
 
 export interface RetryingLectorClient {
 	call<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]>;
 }
 
+// Kept async even though its own body has no await: every call site across this package does
+// `await lectorClient()`, and dropping async here (just to satisfy require-await) would turn an
+// internal implementation detail into a signature change rippling through every one of them.
+// eslint-disable-next-line @typescript-eslint/require-await
 export async function lectorClient(): Promise<RetryingLectorClient> {
 	return {
-		async call(operation, input) {
-			for (let attempt = 0; attempt < 2; attempt++) {
-				const client = await resolveClient();
-				try {
-					return await client.call(operation, input);
-				} catch (error) {
-					cachedClient = undefined;
-					if (attempt === 1 || !isStaleConnectionError(error)) throw error;
-				}
-			}
-			throw new Error("Lector daemon client retry exhausted");
-		},
+		call: (operation, input) => retryingClient.call((client) => client.call(operation, input)),
 	};
 }
 
@@ -163,13 +137,13 @@ export async function withWorkspace<T>(resolve: () => Promise<ResolvedWorkspace>
 }
 
 export function setLectorClientConnectorForTests(value: ClientConnector): void {
-	cachedClient = undefined;
+	retryingClient.reset();
 	workspaceIdByRoot.clear();
 	connector = value;
 }
 
 export function resetLectorClientForTests(): void {
-	cachedClient = undefined;
+	retryingClient.reset();
 	workspaceIdByRoot.clear();
 	connector = () => connectLectorClient();
 }
