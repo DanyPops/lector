@@ -4,6 +4,15 @@ The capability core and daemon half of [Lector](../../README.md) -- domain,
 ports, adapters, and the CLI/systemd service. See the repo root README for
 the overall architecture and how `packages/pi-lector` fits in.
 
+## Install
+
+Requires Bun and systemd user services on Linux.
+
+```bash
+npm install --global @danypops/lector
+lector service install
+```
+
 ## Storage and service
 
 ```text
