@@ -1,4 +1,4 @@
-import type { RepoFetchResult } from "../domain/repo-fetch-result.ts";
+import type { RepoFetchPolicy, RepoFetchResult } from "../domain/repo-fetch-result.ts";
 import type { RepoReference } from "../domain/repo-reference.ts";
 
 /**
@@ -7,5 +7,5 @@ import type { RepoReference } from "../domain/repo-reference.ts";
  * directory to read and analyze, not one the caller owns.
  */
 export interface RepoFetcherPort {
-	fetch(reference: RepoReference): Promise<RepoFetchResult>;
+	fetch(reference: RepoReference, policy?: RepoFetchPolicy): Promise<RepoFetchResult>;
 }

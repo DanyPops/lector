@@ -25,7 +25,16 @@ const UNAVAILABLE_CODES = [
 const AMBIGUOUS_CODES = ["multiple-installed-versions", "multiple-source-candidates"] as const;
 const UNAUTHENTICATED_CODES = ["registry-authentication-required", "repository-authentication-required"] as const;
 const OVERSIZED_CODES = ["manifest-limit-exceeded", "registry-response-limit-exceeded", "clone-limit-exceeded", "cache-limit-exceeded"] as const;
-const OVERSIZED_RESOURCES = ["manifest-bytes", "manifest-entries", "registry-response-bytes", "clone-bytes", "cache-bytes"] as const;
+const OVERSIZED_RESOURCES = [
+	"manifest-bytes",
+	"manifest-entries",
+	"manifest-nesting",
+	"workspaces",
+	"diagnostics",
+	"registry-response-bytes",
+	"clone-bytes",
+	"cache-bytes",
+] as const;
 const MISMATCHED_CODES = ["coordinate-mismatch", "repository-ref-mismatch", "repository-commit-mismatch", "integrity-mismatch"] as const;
 
 export class InvalidPackageSourceContract extends Error {
@@ -74,6 +83,9 @@ function validateRequest(request: PackageSourceRequest): void {
 function validateBounds(bounds: PackageSourceBounds): void {
 	assertPositiveSafeInteger(bounds.maxManifestBytes, "maxManifestBytes");
 	assertPositiveSafeInteger(bounds.maxManifestEntries, "maxManifestEntries");
+	assertPositiveSafeInteger(bounds.maxManifestNesting, "maxManifestNesting");
+	assertPositiveSafeInteger(bounds.maxWorkspaces, "maxWorkspaces");
+	assertPositiveSafeInteger(bounds.maxDiagnostics, "maxDiagnostics");
 	assertPositiveSafeInteger(bounds.maxRegistryResponseBytes, "maxRegistryResponseBytes");
 	assertNonNegativeSafeInteger(bounds.maxRedirects, "maxRedirects");
 	assertNonNegativeSafeInteger(bounds.maxRetries, "maxRetries");

@@ -13,7 +13,7 @@ import { measureDirectorySizeBytes } from "../../src/adapters/directory-size.ts"
 import { GitRepoFetcher } from "../../src/adapters/git-repo-fetcher.ts";
 import { UnsafeGitArgument } from "../../src/domain/assert-safe-git-argument.ts";
 import { UnsafePathSegment } from "../../src/domain/assert-safe-path-segment.ts";
-import { RepoFetchFailed } from "../../src/domain/repo-fetch-result.ts";
+import { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded } from "../../src/domain/repo-fetch-result.ts";
 import type { RepoReference } from "../../src/domain/repo-reference.ts";
 import { requireDefined } from "../support/require-defined.ts";
 
@@ -68,6 +68,7 @@ describe("GitRepoFetcher", () => {
 
 		expect(result.fromCache).toBe(false);
 		expect(result.resolvedRef).toBe("HEAD");
+		expect(result.commit).toMatch(/^[0-9a-f]{40}$/);
 		expect(readFileSync(join(result.path, "README.md"), "utf8")).toBe("on main\n");
 		expect(existsSync(join(result.path, ".git"))).toBe(false);
 	});
@@ -93,6 +94,25 @@ describe("GitRepoFetcher", () => {
 		expect(first.fromCache).toBe(false);
 		expect(second.fromCache).toBe(true);
 		expect(second.path).toBe(first.path);
+	});
+
+	it("fetches an exact commit without assuming it is a branch or tag", async () => {
+		sourceRepo = buildSourceRepo();
+		const commit = execFileSync("git", ["rev-parse", "feature"], { cwd: sourceRepo, encoding: "utf8" }).trim();
+		const fetcher = buildFetcher();
+
+		const result = await fetcher.fetch(reference({ ref: commit }), { exactRef: true, timeoutMs: 10_000 });
+
+		expect(result.commit).toBe(commit);
+		expect(result.refFallbackOccurred).toBe(false);
+		expect(readFileSync(join(result.path, "README.md"), "utf8")).toBe("on feature\n");
+	});
+
+	it("never falls back when the caller requires an exact ref", async () => {
+		sourceRepo = buildSourceRepo();
+		const fetcher = buildFetcher();
+
+		await expect(fetcher.fetch(reference({ ref: "does-not-exist" }), { exactRef: true, timeoutMs: 10_000 })).rejects.toBeInstanceOf(RepoFetchFailed);
 	});
 
 	it("falls back to the default branch when the requested ref does not exist", async () => {
@@ -123,6 +143,28 @@ describe("GitRepoFetcher", () => {
 		sourceRepo = buildSourceRepo();
 		const fetcher = buildFetcher();
 		await expect(fetcher.fetch(reference({ ref: "--upload-pack=evil" }))).rejects.toBeInstanceOf(UnsafeGitArgument);
+	});
+
+	it("bounds queued fetches while one checkout is active", async () => {
+		sourceRepo = buildSourceRepo();
+		reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-cache-"));
+		const fetcher = new GitRepoFetcher(reposDir, { maxQueued: 0, resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") });
+
+		const active = fetcher.fetch(reference({ ref: "main" }));
+		await expect(fetcher.fetch(reference({ ref: "feature" }))).rejects.toBeInstanceOf(RepoFetchCapacityExceeded);
+		await active;
+	});
+
+	it("rejects and removes a checkout beyond the caller's clone or cache bound", async () => {
+		sourceRepo = buildSourceRepo();
+		const fetcher = buildFetcher();
+
+		await expect(fetcher.fetch(reference({ ref: "main" }), { exactRef: true, maxCloneBytes: 1, maxCacheBytes: 1_000_000, timeoutMs: 10_000 })).rejects.toEqual(
+			expect.objectContaining({ name: RepoFetchLimitExceeded.name, resource: "clone-bytes", limit: 1 }),
+		);
+		await expect(
+			fetcher.fetch(reference({ ref: "feature" }), { exactRef: true, maxCloneBytes: 1_000_000, maxCacheBytes: 1, timeoutMs: 10_000 }),
+		).rejects.toEqual(expect.objectContaining({ name: RepoFetchLimitExceeded.name, resource: "cache-bytes", limit: 1 }));
 	});
 
 	it("evicts the least-recently-fetched clone from disk once the disk budget is exceeded", async () => {

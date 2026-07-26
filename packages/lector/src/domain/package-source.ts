@@ -15,6 +15,9 @@ export interface PackageSourceRequest {
 export interface PackageSourceBounds {
 	readonly maxManifestBytes: number;
 	readonly maxManifestEntries: number;
+	readonly maxManifestNesting: number;
+	readonly maxWorkspaces: number;
+	readonly maxDiagnostics: number;
 	readonly maxRegistryResponseBytes: number;
 	readonly maxRedirects: number;
 	readonly maxRetries: number;
@@ -91,7 +94,15 @@ export interface UnauthenticatedPackageSource {
 export interface OversizedPackageSource {
 	readonly status: "oversized";
 	readonly code: "manifest-limit-exceeded" | "registry-response-limit-exceeded" | "clone-limit-exceeded" | "cache-limit-exceeded";
-	readonly resource: "manifest-bytes" | "manifest-entries" | "registry-response-bytes" | "clone-bytes" | "cache-bytes";
+	readonly resource:
+		| "manifest-bytes"
+		| "manifest-entries"
+		| "manifest-nesting"
+		| "workspaces"
+		| "diagnostics"
+		| "registry-response-bytes"
+		| "clone-bytes"
+		| "cache-bytes";
 	readonly limit: number;
 	readonly observed: number | null;
 }
@@ -110,3 +121,23 @@ export type PackageSourceOutcome =
 	| UnauthenticatedPackageSource
 	| OversizedPackageSource
 	| MismatchedPackageSource;
+
+export interface PackageSourceOperationResult {
+	readonly outcome: PackageSourceOutcome;
+	readonly workspaceId: string | null;
+}
+
+export const DEFAULT_PACKAGE_SOURCE_BOUNDS: PackageSourceBounds = {
+	maxManifestBytes: 16 * 1024 * 1024,
+	maxManifestEntries: 100_000,
+	maxManifestNesting: 128,
+	maxWorkspaces: 10_000,
+	maxDiagnostics: 100,
+	maxRegistryResponseBytes: 8 * 1024 * 1024,
+	maxRedirects: 5,
+	maxRetries: 2,
+	maxCloneBytes: 512 * 1024 * 1024,
+	maxCacheBytes: 5 * 1024 * 1024 * 1024,
+	maxCandidates: 20,
+	timeoutMs: 60_000,
+};

@@ -25,4 +25,8 @@ describe("published runtime dependencies", () => {
 			expect(packageJson.dependencies).toHaveProperty(dependency);
 		}
 	});
+
+	it("ships the bounded npm registry transport", () => {
+		expect(packageJson.dependencies).toHaveProperty("fetch-retry");
+	});
 });

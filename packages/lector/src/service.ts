@@ -7,6 +7,9 @@ import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.
 import { LocalGit } from "./adapters/local-git.ts";
 import { discoverWorkspaceDescriptor } from "./adapters/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
+import { NpmLockfileVersionResolver } from "./adapters/npm-lockfile-version-resolver.ts";
+import { NpmPackageSourceResolver } from "./adapters/npm-package-source-resolver.ts";
+import { NpmRegistryClient } from "./adapters/npm-registry-client.ts";
 import { ReadOnlyWorkspace } from "./adapters/read-only-workspace.ts";
 import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "./adapters/source-manifest.ts";
@@ -29,6 +32,7 @@ import { hoverAt } from "./domain/hover-at.ts";
 import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts";
 import { descriptorForPath, LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./domain/language-server-descriptor.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
+import type { PackageSourceBounds, PackageSourceOperationResult, PackageSourceRequest } from "./domain/package-source.ts";
 import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
 import { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
@@ -36,6 +40,7 @@ import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read
 import { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
 import type { RepoFetchResult } from "./domain/repo-fetch-result.ts";
 import type { RepoReference } from "./domain/repo-reference.ts";
+import { resolvePackageSource } from "./domain/resolve-package-source.ts";
 import { searchText as searchTextQuery } from "./domain/search-text.ts";
 import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
@@ -46,6 +51,7 @@ import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts"
 import type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 import type { GitPort } from "./ports/git-port.ts";
+import type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 import type { SearchCachePort } from "./ports/search-cache-port.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
@@ -128,6 +134,13 @@ export class RepoFetcherNotConfigured extends Error {
 	}
 }
 
+export class PackageSourceResolverNotConfigured extends Error {
+	constructor() {
+		super("package.resolveSource requires a service constructed with repository fetching");
+		this.name = "PackageSourceResolverNotConfigured";
+	}
+}
+
 export class UnsupportedJobOperation extends Error {
 	constructor(readonly operation: string) {
 		super(`operation "${operation}" cannot run as a background job; supported operations: workspace.populateSymbolGraph`);
@@ -185,6 +198,7 @@ export type OperationName =
 	| "workspace.gitLog"
 	| "workspace.gitDiff"
 	| "repo.fetch"
+	| "package.resolveSource"
 	| "workspace.searchText"
 	| "search.symbols"
 	| "search.text"
@@ -215,6 +229,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.gitLog",
 	"workspace.gitDiff",
 	"repo.fetch",
+	"package.resolveSource",
 	"workspace.searchText",
 	"search.symbols",
 	"search.text",
@@ -254,6 +269,7 @@ export interface OperationInputs {
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
 	"repo.fetch": RepoReference;
+	"package.resolveSource": { request: PackageSourceRequest; bounds: PackageSourceBounds };
 	"workspace.searchText": { workspaceId: WorkspaceId; query: string; maxMatches: number; maxBytes: number };
 	/**
 	 * No single workspaceId -- fans out across several at once, unlike every other findSymbols-
@@ -299,6 +315,7 @@ export interface OperationOutputs {
 	"workspace.gitLog": { entries: readonly GitLogEntry[] };
 	"workspace.gitDiff": GitDiffResult;
 	"repo.fetch": RepoFetchResult & { workspaceId: WorkspaceId };
+	"package.resolveSource": PackageSourceOperationResult;
 	"workspace.searchText": TextSearchResult;
 	"search.symbols": { results: readonly WorkspaceQueryOutcome<{ symbols: readonly WorkspaceSymbol[] }>[] };
 	"search.text": { results: readonly WorkspaceQueryOutcome<TextSearchResult>[] };
@@ -366,6 +383,8 @@ export interface LectorServiceOptions {
 	createGitPort?: (rootPath: string) => GitPort;
 	/** Factory for the port backing repo.fetch. No default -- unlike createSymbolGraph's safe in-memory fallback, fetching a real external repo always needs a real disk location only a host (daemon.ts) can supply. Called once at construction and reused, not per-call. */
 	createRepoFetcher?: () => RepoFetcherPort;
+	/** Override package-source resolution. With a repo fetcher configured, the default composes npm lockfiles, registry metadata, and exact Git fetching. */
+	createPackageSourceResolver?: () => PackageSourceResolverPort;
 	/** Factory for the port backing workspace.searchText. Defaults to RipgrepTextSearch -- cheap to construct, no disk dependency, safe like createGitPort's default. Called once at construction and reused. */
 	createTextSearch?: () => TextSearchPort;
 	/** Factory for workspace.searchText's result cache. Defaults to an in-memory-only InMemorySearchCache -- safe, no disk dependency. A host wanting the disk-backed tier too (surviving a restart) supplies a TieredSearchCache here. Called once at construction and reused. */
@@ -481,6 +500,11 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	// every time, wastefully, and would risk losing the in-memory LRU's recency ordering
 	// between calls for no benefit (the index itself is what makes rehydration correct at all).
 	const repoFetcher = options.createRepoFetcher?.();
+	const packageSourceResolver =
+		options.createPackageSourceResolver?.() ??
+		(repoFetcher
+			? new NpmPackageSourceResolver({ versions: new NpmLockfileVersionResolver(), registry: new NpmRegistryClient(), repositories: repoFetcher })
+			: undefined);
 	const textSearch = options.createTextSearch?.() ?? new RipgrepTextSearch();
 	const searchCache = options.createSearchCache?.() ?? new InMemorySearchCache();
 
@@ -519,6 +543,28 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			registry.set(workspaceId, { port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)), rootPath: absolutePath, origin: "remote" });
 		}
 		return { workspaceId, ...result };
+	}
+
+	async function packageSourceHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["package.resolveSource"],
+	): Promise<OperationOutputs["package.resolveSource"]> {
+		if (!packageSourceResolver) throw new PackageSourceResolverNotConfigured();
+		const outcome = await resolvePackageSource(packageSourceResolver, input.request, input.bounds);
+		if (outcome.status !== "verified") return { outcome, workspaceId: null };
+		const absolutePath = resolve(outcome.workspace.cachePath);
+		let sourceStats: Awaited<ReturnType<typeof stat>>;
+		try {
+			sourceStats = await stat(absolutePath);
+		} catch {
+			throw new InvalidWorkspaceRoot(absolutePath, "verified package source does not exist or is not accessible");
+		}
+		if (!sourceStats.isDirectory()) throw new InvalidWorkspaceRoot(absolutePath, "verified package source is not a directory");
+		const workspaceId = deriveWorkspaceId(absolutePath);
+		if (!registry.has(workspaceId)) {
+			registry.set(workspaceId, { port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)), rootPath: absolutePath, origin: "remote" });
+		}
+		return { outcome, workspaceId };
 	}
 
 	async function searchTextHandler(
@@ -920,6 +966,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.gitLog": gitLogHandler,
 		"workspace.gitDiff": gitDiffHandler,
 		"repo.fetch": repoFetchHandler,
+		"package.resolveSource": packageSourceHandler,
 		"workspace.searchText": searchTextHandler,
 		"search.symbols": crossFindSymbols,
 		"search.text": crossSearchText,

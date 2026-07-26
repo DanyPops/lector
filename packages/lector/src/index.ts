@@ -12,6 +12,18 @@ export {
 } from "./adapters/lsp/language-server-process.ts";
 export { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
 export { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } from "./adapters/npm-lockfile-version-resolver.ts";
+export { NpmPackageSourceResolver, type NpmPackageSourceResolverOptions } from "./adapters/npm-package-source-resolver.ts";
+export {
+	DEFAULT_NPM_REGISTRY,
+	InvalidNpmRegistryRequest,
+	NpmPackageNotFound,
+	NpmRegistryAuthenticationRequired,
+	NpmRegistryClient,
+	type NpmRegistryClientOptions,
+	NpmRegistryRequestFailed,
+	NpmRegistryResponseLimitExceeded,
+	NpmVersionNotFound,
+} from "./adapters/npm-registry-client.ts";
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
 export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
@@ -84,6 +96,7 @@ export {
 	PYTHON_DESCRIPTOR,
 	TYPESCRIPT_DESCRIPTOR,
 } from "./domain/language-server-descriptor.ts";
+export type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "./domain/npm-package-metadata.ts";
 export { outgoingCalls } from "./domain/outgoing-calls.ts";
 export type {
 	AmbiguousPackageSource,
@@ -94,6 +107,7 @@ export type {
 	PackageRepositoryIdentity,
 	PackageSourceBounds,
 	PackageSourceCandidate,
+	PackageSourceOperationResult,
 	PackageSourceOutcome,
 	PackageSourceRequest,
 	PackageSourceVerification,
@@ -104,12 +118,13 @@ export type {
 	UnavailablePackageSource,
 	VerifiedPackageSource,
 } from "./domain/package-source.ts";
+export { DEFAULT_PACKAGE_SOURCE_BOUNDS } from "./domain/package-source.ts";
 export { type PopulateSymbolGraphResult, populateSymbolGraph } from "./domain/populate-symbol-graph.ts";
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
 export { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 export { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
-export { RepoFetchFailed, type RepoFetchResult } from "./domain/repo-fetch-result.ts";
+export { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchPolicy, type RepoFetchResult } from "./domain/repo-fetch-result.ts";
 export type { RepoReference } from "./domain/repo-reference.ts";
 export { InvalidPackageSourceContract, resolvePackageSource } from "./domain/resolve-package-source.ts";
 export { deriveSearchCacheKey, type SearchCacheKey } from "./domain/search-cache-key.ts";
@@ -125,6 +140,7 @@ export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
 export type { GitPort } from "./ports/git-port.ts";
 export type { InstalledPackageVersionResolverPort } from "./ports/installed-package-version-resolver-port.ts";
+export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 export type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 export type { SearchCachePort } from "./ports/search-cache-port.ts";
@@ -146,6 +162,7 @@ export {
 	type OperationInputs,
 	type OperationName,
 	type OperationOutputs,
+	PackageSourceResolverNotConfigured,
 	RepoFetcherNotConfigured,
 	SymbolQueryUnavailable,
 	UnknownWorkspace,

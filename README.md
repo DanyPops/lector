@@ -17,8 +17,7 @@ request can warm the other's for free.
   domain, ports, adapters (local filesystem, `typescript-language-server`,
   tree-sitter, SQLite content cache), and the CLI/systemd service.
 - **[`packages/pi-lector`](packages/pi-lector)** — the Pi host adapter:
-  overrides `read`/`write`/`edit` and adds a `find_symbols` tool, all routed
-  through a running Lector daemon.
+  overrides `read`/`write`/`edit` and adds symbol, search, Git, repository, and verified package-source tools, all routed through a running Lector daemon.
 
 A future `alef-lector` (the Alef host adapter) would join this workspace the
 same way, depending on `packages/lector` without duplicating any of its

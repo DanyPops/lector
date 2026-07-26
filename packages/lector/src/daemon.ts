@@ -9,6 +9,7 @@ import { SqliteSearchCache } from "./adapters/sqlite-search-cache.ts";
 import { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 import { TieredSearchCache } from "./adapters/tiered-search-cache.ts";
 import { resolveLectorPaths } from "./constants.ts";
+import type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import { createLectorService, type LectorService, type OperationName, type WorkspaceId } from "./service.ts";
@@ -84,6 +85,8 @@ export interface LectorDaemonOptions {
 	symbolIndexReapIntervalMs?: number;
 	/** Override the repo.fetch backend (tests inject a GitRepoFetcher pointed at a local fixture repo, avoiding live network). Defaults to a real GitRepoFetcher under this daemon's own data directory. */
 	createRepoFetcher?: () => RepoFetcherPort;
+	/** Override package source resolution while retaining the authenticated daemon/client seam. */
+	createPackageSourceResolver?: () => PackageSourceResolverPort;
 }
 
 function prepare(options: LectorDaemonOptions): {
@@ -110,6 +113,7 @@ function prepare(options: LectorDaemonOptions): {
 		allowDynamicOnly: options.allowDynamicOnly,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
 		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),
+		createPackageSourceResolver: options.createPackageSourceResolver,
 		// The real production shape the SearchCachePort design was for: an in-memory tier for
 		// speed plus a disk-backed tier so repeated searches survive a daemon restart -- a single
 		// SearchCachePort adapter can only be one or the other, service.ts's own safe default is

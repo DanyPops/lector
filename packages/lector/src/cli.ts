@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
@@ -11,6 +11,7 @@ import { LECTOR_PATH_NAMES } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
 import type { JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { ContentHash } from "./domain/content-hash.ts";
+import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOperationResult } from "./domain/package-source.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import type { WorkspaceId } from "./service.ts";
 
@@ -51,6 +52,8 @@ const USAGE = `Usage:
   lector workspace git-diff <workspace-id> [--ref <ref>] --max-bytes <n> [--json]
   lector workspace repo-fetch <owner>/<repo>[@ref] [--host <host>] [--json]
     shallow-clones an external repo into a disk-bounded cache and registers it read-only
+  lector package source <project-dir> <package-name> [--version <exact-version>] [--registry <url>] [--json]
+    resolves an installed npm package to verified exact repository source and registers it read-only
   lector workspace search-text <workspace-id> <query> --max-matches <n> --max-bytes <n> [--json]
   lector search symbols <query> [--workspace <id>]... [--timeout-ms <n>] [--json]
   lector search text <query> --max-matches <n> --max-bytes <n> [--workspace <id>]... [--timeout-ms <n>] [--json]
@@ -454,6 +457,38 @@ async function runWorkspaceRepoFetch(spec: string | undefined, flags: string[]):
 	if (result.refFallbackOccurred) console.log(`note: requested ref not found, fell back to the default branch (resolved: ${result.resolvedRef})`);
 }
 
+function formatPackageSourceResult(result: PackageSourceOperationResult): string {
+	const { outcome } = result;
+	if (outcome.status === "verified") {
+		return `${result.workspaceId ?? "unregistered"} ${outcome.coordinate.name}@${outcome.coordinate.resolvedVersion} -- ${outcome.workspace.cachePath}\n${outcome.repository.url ?? "local source"}@${outcome.repository.resolvedRef ?? "local"} ${outcome.repository.commit ?? outcome.verification.integrity}`;
+	}
+	if (outcome.status === "ambiguous") {
+		return `ambiguous [${outcome.code}] -- ${outcome.candidates.map((candidate) => `${candidate.version} (${candidate.source})`).join(", ")}${outcome.truncated ? ", …" : ""}`;
+	}
+	if (outcome.status === "unauthenticated") return `unauthenticated [${outcome.code}] -- configure ${outcome.requiredCredentialNames.join(", ")}`;
+	if (outcome.status === "oversized") return `oversized [${outcome.code}] -- ${outcome.resource} exceeded ${outcome.limit}`;
+	if (outcome.status === "mismatched") return `mismatched [${outcome.code}] -- expected ${outcome.expected}, got ${outcome.actual}`;
+	return `unavailable [${outcome.code}]`;
+}
+
+async function runPackageSource(projectDir: string | undefined, packageName: string | undefined, flags: string[]): Promise<void> {
+	if (!projectDir || !packageName) fail(USAGE);
+	const client = await connectLectorClient();
+	const result = await client.call("package.resolveSource", {
+		request: {
+			projectRoot: resolve(projectDir),
+			coordinate: {
+				ecosystem: "npm",
+				registry: flagValue(flags, "--registry") ?? null,
+				name: packageName,
+				requestedVersion: flagValue(flags, "--version") ?? null,
+			},
+		},
+		bounds: DEFAULT_PACKAGE_SOURCE_BOUNDS,
+	});
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : formatPackageSourceResult(result));
+}
+
 async function runWorkspaceSearchText(workspaceId: string | undefined, query: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !query) fail(USAGE);
 	const maxMatches = requiredIntFlag(flags, "--max-matches");
@@ -655,7 +690,7 @@ WantedBy=default.target
 }
 
 function unitPath(): string {
-	const configHome = process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
+	const configHome = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
 	return join(configHome, "systemd", "user", LECTOR_PATH_NAMES.systemdUnitName);
 }
 
@@ -710,6 +745,12 @@ async function main(): Promise<void> {
 	if (command === "job") {
 		const [action, jobId, ...jobFlags] = rest;
 		if (action === "status") return runJobStatus(jobId, jobFlags);
+		fail(USAGE);
+	}
+
+	if (command === "package") {
+		const [action, projectDir, packageName, ...packageFlags] = rest;
+		if (action === "source") return runPackageSource(projectDir, packageName, packageFlags);
 		fail(USAGE);
 	}
 

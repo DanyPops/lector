@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { LRUCache } from "lru-cache";
 import simpleGit from "simple-git";
 import { assertSafeRepoReference } from "../domain/assert-safe-repo-reference.ts";
-import { RepoFetchFailed, type RepoFetchResult } from "../domain/repo-fetch-result.ts";
+import { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchPolicy, type RepoFetchResult } from "../domain/repo-fetch-result.ts";
 import type { RepoReference } from "../domain/repo-reference.ts";
 import type { RepoFetcherPort } from "../ports/repo-fetcher-port.ts";
 import { measureDirectorySizeBytes } from "./directory-size.ts";
@@ -12,12 +12,18 @@ import { measureDirectorySizeBytes } from "./directory-size.ts";
 interface RepoCacheEntry {
 	readonly path: string;
 	readonly resolvedRef: string;
+	readonly commit: string;
+	readonly cloneSizeBytes: number;
+	readonly cacheSizeBytes: number;
 	readonly fetchedAt: number;
 }
 
 const INDEX_FILENAME = "index.json";
 const DEFAULT_MAX_CACHE_BYTES = 5 * 1024 * 1024 * 1024;
 const DEFAULT_MAX_ENTRIES = 500;
+const DEFAULT_TIMEOUT_MS = 60_000;
+const DEFAULT_MAX_QUEUED = 32;
+const COMMIT_HASH = /^[0-9a-f]{40,64}$/i;
 
 function cacheKey(reference: RepoReference): string {
 	return `${reference.host}/${reference.owner}/${reference.repo}/${reference.ref ?? "HEAD"}`;
@@ -27,6 +33,7 @@ export interface GitRepoFetcherOptions {
 	/** Disk budget in bytes across every cached clone. Least-recently-fetched clones are deleted once exceeded. */
 	readonly maxCacheBytes?: number;
 	readonly maxEntries?: number;
+	readonly maxQueued?: number;
 	/** Maps a reference to what git should clone from. Defaults to `https://<host>/<owner>/<repo>.git`. Overridable so tests can point at a real local bare-repo fixture instead of the network. */
 	readonly resolveCloneUrl?: (reference: RepoReference) => string;
 }
@@ -35,31 +42,64 @@ function defaultCloneUrl(reference: RepoReference): string {
 	return `https://${reference.host}/${reference.owner}/${reference.repo}.git`;
 }
 
+function positiveLimit(value: number | undefined, fallback: number, field: string): number {
+	const result = value ?? fallback;
+	if (!Number.isSafeInteger(result) || result < 1) throw new TypeError(`${field} must be a positive safe integer`);
+	return result;
+}
+
+function nonNegativeLimit(value: number | undefined, fallback: number, field: string): number {
+	const result = value ?? fallback;
+	if (!Number.isSafeInteger(result) || result < 0) throw new TypeError(`${field} must be a non-negative safe integer`);
+	return result;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function validDump(value: unknown): value is Parameters<LRUCache<string, RepoCacheEntry>["load"]>[0] {
+	if (!Array.isArray(value)) return false;
+	return value.every((item) => {
+		if (!Array.isArray(item) || item.length !== 2 || typeof item[0] !== "string" || !isRecord(item[1])) return false;
+		const entry = item[1].value;
+		return (
+			isRecord(entry) &&
+			typeof entry.path === "string" &&
+			typeof entry.resolvedRef === "string" &&
+			typeof entry.commit === "string" &&
+			COMMIT_HASH.test(entry.commit) &&
+			typeof entry.cloneSizeBytes === "number" &&
+			typeof entry.cacheSizeBytes === "number" &&
+			typeof entry.fetchedAt === "number"
+		);
+	});
+}
+
 /**
- * RepoFetcherPort backed by a real `git clone --depth 1`, content-addressed by
- * (host, owner, repo, ref) under `reposDir`. Disk usage is bounded by an LRU cache keyed the same
- * way; evicting an entry deletes its directory, so the cache and the filesystem never disagree
- * about what's actually on disk. Calls are serialized through an in-process queue -- this daemon
- * is the sole writer of reposDir, so a promise chain is sufficient; no cross-process file lock
- * is needed.
+ * RepoFetcherPort backed by a real bounded `git` checkout. Calls are serialized because this
+ * daemon is the sole writer of reposDir. Exact callers never fall back to HEAD.
  */
 export class GitRepoFetcher implements RepoFetcherPort {
 	private readonly reposDir: string;
 	private readonly indexPath: string;
 	private readonly resolveCloneUrl: (reference: RepoReference) => string;
+	private readonly maxCacheBytes: number;
+	private readonly maxQueued: number;
 	private readonly cache: LRUCache<string, RepoCacheEntry>;
+	private pending = 0;
 	private queue: Promise<unknown> = Promise.resolve();
 
 	constructor(reposDir: string, options: GitRepoFetcherOptions = {}) {
 		this.reposDir = reposDir;
 		this.indexPath = join(reposDir, INDEX_FILENAME);
 		this.resolveCloneUrl = options.resolveCloneUrl ?? defaultCloneUrl;
+		this.maxCacheBytes = positiveLimit(options.maxCacheBytes, DEFAULT_MAX_CACHE_BYTES, "maxCacheBytes");
+		this.maxQueued = nonNegativeLimit(options.maxQueued, DEFAULT_MAX_QUEUED, "maxQueued");
 		this.cache = new LRUCache<string, RepoCacheEntry>({
-			maxSize: options.maxCacheBytes ?? DEFAULT_MAX_CACHE_BYTES,
-			// A single clone larger than the whole budget must still be stored (evicting everything
-			// else) rather than silently rejected -- lru-cache's own default couples this to maxSize.
+			maxSize: this.maxCacheBytes,
 			maxEntrySize: Number.MAX_SAFE_INTEGER,
-			max: options.maxEntries ?? DEFAULT_MAX_ENTRIES,
+			max: positiveLimit(options.maxEntries, DEFAULT_MAX_ENTRIES, "maxEntries"),
 			dispose: (entry) => {
 				rmSync(entry.path, { recursive: true, force: true });
 			},
@@ -67,22 +107,63 @@ export class GitRepoFetcher implements RepoFetcherPort {
 		this.loadIndex();
 	}
 
-	async fetch(reference: RepoReference): Promise<RepoFetchResult> {
+	async fetch(reference: RepoReference, policy: RepoFetchPolicy = {}): Promise<RepoFetchResult> {
 		assertSafeRepoReference(reference);
-		const task = this.queue.then(() => this.fetchLocked(reference));
+		if (this.pending > this.maxQueued) throw new RepoFetchCapacityExceeded(this.maxQueued);
+		const normalizedPolicy = {
+			exactRef: policy.exactRef ?? false,
+			maxCloneBytes: positiveLimit(policy.maxCloneBytes, Number.MAX_SAFE_INTEGER, "maxCloneBytes"),
+			maxCacheBytes: positiveLimit(policy.maxCacheBytes, this.maxCacheBytes, "maxCacheBytes"),
+			timeoutMs: positiveLimit(policy.timeoutMs, DEFAULT_TIMEOUT_MS, "timeoutMs"),
+		};
+		this.pending++;
+		const deadline = Date.now() + normalizedPolicy.timeoutMs;
+		const task = this.queue.then(() => {
+			const remaining = deadline - Date.now();
+			if (remaining <= 0) throw new RepoFetchFailed(reference.host, reference.owner, reference.repo, reference.ref, new Error("fetch timed out in queue"));
+			return this.fetchLocked(reference, { ...normalizedPolicy, timeoutMs: remaining });
+		});
 		this.queue = task.then(
 			() => undefined,
 			() => undefined,
 		);
-		return task;
+		return task.finally(() => {
+			this.pending--;
+		});
 	}
 
-	private async fetchLocked(reference: RepoReference): Promise<RepoFetchResult> {
-		const key = cacheKey(reference);
+	private trimToCacheBound(maxCacheBytes: number, requiredBytes = 0): void {
+		while (this.cache.calculatedSize + requiredBytes > maxCacheBytes && this.cache.size > 0) this.cache.pop();
+	}
+
+	private cachedResult(key: string, reference: RepoReference, policy: Required<RepoFetchPolicy>): RepoFetchResult | null {
 		const cached = this.cache.get(key);
-		if (cached) {
-			return { path: cached.path, fromCache: true, resolvedRef: cached.resolvedRef, refFallbackOccurred: false };
+		if (!cached) return null;
+		if (policy.exactRef && reference.ref !== null && cached.resolvedRef !== reference.ref) {
+			this.cache.delete(key);
+			return null;
 		}
+		if (cached.cloneSizeBytes > policy.maxCloneBytes) {
+			throw new RepoFetchLimitExceeded("clone-bytes", policy.maxCloneBytes, cached.cloneSizeBytes);
+		}
+		if (cached.cacheSizeBytes > policy.maxCacheBytes) {
+			throw new RepoFetchLimitExceeded("cache-bytes", policy.maxCacheBytes, cached.cacheSizeBytes);
+		}
+		this.trimToCacheBound(policy.maxCacheBytes);
+		if (!this.cache.has(key)) throw new RepoFetchLimitExceeded("cache-bytes", policy.maxCacheBytes, cached.cacheSizeBytes);
+		return {
+			path: cached.path,
+			fromCache: true,
+			resolvedRef: cached.resolvedRef,
+			refFallbackOccurred: false,
+			commit: cached.commit,
+		};
+	}
+
+	private async fetchLocked(reference: RepoReference, policy: Required<RepoFetchPolicy>): Promise<RepoFetchResult> {
+		const key = cacheKey(reference);
+		const cached = this.cachedResult(key, reference, policy);
+		if (cached) return cached;
 
 		const targetDir = join(this.reposDir, reference.host, reference.owner, reference.repo, reference.ref ?? "HEAD");
 		await rm(targetDir, { recursive: true, force: true });
@@ -93,47 +174,83 @@ export class GitRepoFetcher implements RepoFetcherPort {
 		let resolvedRef = reference.ref ?? "HEAD";
 		let refFallbackOccurred = false;
 		try {
-			await this.clone(url, reference.ref, tmpDir);
+			if (policy.exactRef && reference.ref !== null) {
+				await this.cloneExact(url, reference.ref, tmpDir, policy.timeoutMs);
+			} else {
+				await this.clone(url, reference.ref, tmpDir, policy.timeoutMs);
+			}
 		} catch (firstError) {
-			if (reference.ref === null) {
+			if (reference.ref === null || policy.exactRef) {
+				await rm(tmpDir, { recursive: true, force: true });
 				throw new RepoFetchFailed(reference.host, reference.owner, reference.repo, reference.ref, firstError);
 			}
 			await rm(tmpDir, { recursive: true, force: true });
 			try {
-				await this.clone(url, null, tmpDir);
+				await this.clone(url, null, tmpDir, policy.timeoutMs);
 				refFallbackOccurred = true;
 				resolvedRef = "HEAD";
 			} catch (secondError) {
+				await rm(tmpDir, { recursive: true, force: true });
 				throw new RepoFetchFailed(reference.host, reference.owner, reference.repo, reference.ref, secondError);
 			}
 		}
 
-		await rm(join(tmpDir, ".git"), { recursive: true, force: true });
-		await mkdir(dirname(targetDir), { recursive: true });
-		await rename(tmpDir, targetDir);
+		try {
+			const git = simpleGit({ baseDir: tmpDir, timeout: { block: policy.timeoutMs } });
+			const commit = (await git.revparse(["HEAD"])).trim();
+			if (!COMMIT_HASH.test(commit)) throw new Error("git returned an invalid commit id");
+			const cloneSizeBytes = await measureDirectorySizeBytes(tmpDir);
+			if (cloneSizeBytes > policy.maxCloneBytes) throw new RepoFetchLimitExceeded("clone-bytes", policy.maxCloneBytes, cloneSizeBytes);
+			await rm(join(tmpDir, ".git"), { recursive: true, force: true });
+			const cacheSizeBytes = await measureDirectorySizeBytes(tmpDir);
+			if (cacheSizeBytes > policy.maxCacheBytes) throw new RepoFetchLimitExceeded("cache-bytes", policy.maxCacheBytes, cacheSizeBytes);
+			this.trimToCacheBound(policy.maxCacheBytes, cacheSizeBytes);
+			await mkdir(dirname(targetDir), { recursive: true });
+			await rename(tmpDir, targetDir);
 
-		const sizeBytes = await measureDirectorySizeBytes(targetDir);
-		const entry: RepoCacheEntry = { path: targetDir, resolvedRef, fetchedAt: Date.now() };
-		this.cache.set(key, entry, { size: sizeBytes });
-		this.persistIndex();
-
-		return { path: targetDir, fromCache: false, resolvedRef, refFallbackOccurred };
+			const entry: RepoCacheEntry = { path: targetDir, resolvedRef, commit, cloneSizeBytes, cacheSizeBytes, fetchedAt: Date.now() };
+			this.cache.set(key, entry, { size: cacheSizeBytes });
+			this.persistIndex();
+			return { path: targetDir, fromCache: false, resolvedRef, refFallbackOccurred, commit };
+		} catch (error) {
+			await rm(tmpDir, { recursive: true, force: true });
+			throw error;
+		}
 	}
 
-	private async clone(url: string, ref: string | null, targetDir: string): Promise<void> {
-		const options = ref ? ["--depth", "1", "--branch", ref] : ["--depth", "1"];
-		await simpleGit().clone(url, targetDir, options);
+	private async clone(url: string, ref: string | null, targetDir: string, timeoutMs: number): Promise<void> {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
+		try {
+			const options = ref ? ["--quiet", "--depth", "1", "--branch", ref] : ["--quiet", "--depth", "1"];
+			await simpleGit({ timeout: { block: timeoutMs }, abort: controller.signal }).clone(url, targetDir, options);
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	private async cloneExact(url: string, ref: string, targetDir: string, timeoutMs: number): Promise<void> {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
+		try {
+			await mkdir(targetDir, { recursive: true });
+			const git = simpleGit({ baseDir: targetDir, timeout: { block: timeoutMs }, abort: controller.signal });
+			await git.init(["--quiet"]);
+			await git.addRemote("origin", url);
+			await git.raw(["fetch", "--quiet", "--depth", "1", "origin", ref]);
+			await git.raw(["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
+		} finally {
+			clearTimeout(timer);
+		}
 	}
 
 	private loadIndex(): void {
 		if (!existsSync(this.indexPath)) return;
 		try {
-			const dumped = JSON.parse(readFileSync(this.indexPath, "utf8")) as Parameters<typeof this.cache.load>[0];
-			this.cache.load(dumped);
+			const dumped: unknown = JSON.parse(readFileSync(this.indexPath, "utf8"));
+			if (validDump(dumped)) this.cache.load(dumped);
 		} catch {
-			// Corrupt or unreadable index -- start fresh, do not throw. Directories left over from a
-			// prior run are cleaned up lazily the next time their key is fetched again (fetchLocked
-			// always rm's targetDir before cloning into it).
+			// An invalid index is disposable; fetched repositories can be cloned again.
 		}
 	}
 

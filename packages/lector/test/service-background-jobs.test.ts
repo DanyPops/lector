@@ -175,7 +175,14 @@ describe("createLectorService background jobs", () => {
 			allowDynamicOnly: true,
 			createJobExecutor: testExecutor,
 			createRepoFetcher: () => ({
-				fetch: () => Promise.resolve({ path: remoteRoot, fromCache: true, resolvedRef: "main", refFallbackOccurred: false }),
+				fetch: () =>
+					Promise.resolve({
+						path: remoteRoot,
+						fromCache: true,
+						resolvedRef: "main",
+						refFallbackOccurred: false,
+						commit: "1111111111111111111111111111111111111111",
+					}),
 			}),
 			createSymbolIndex: (rootPath) => {
 				const gate = gates.get(rootPath);

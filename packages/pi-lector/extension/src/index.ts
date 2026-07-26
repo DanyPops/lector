@@ -10,6 +10,7 @@ import type {
 	IncomingCall,
 	JobSnapshot,
 	OutgoingCall,
+	PackageSourceOperationResult,
 	PopulateSymbolGraphResult,
 	RepoFetchResult,
 	SymbolNode,
@@ -55,6 +56,8 @@ import { formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-r
 import { createLectorGitOperations } from "./git-operations.ts";
 import { formatGitDiffCall, formatGitDiffResult, formatGitLogCall, formatGitLogResult, formatGitStatusCall, formatGitStatusResult } from "./git-rendering.ts";
 import { nearestGitRoot } from "./nearest-workspace-root.ts";
+import { createLectorPackageSourceOperations } from "./package-source-operations.ts";
+import { formatPackageSourceCall, formatPackageSourceResult } from "./package-source-rendering.ts";
 import { createLectorReadOperations } from "./read-operations.ts";
 import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
 import { formatRepoFetchCall, formatRepoFetchResult } from "./repo-fetch-rendering.ts";
@@ -821,6 +824,45 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { result?: TextSearchResult } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatSearchResult(details?.result, expanded, theme));
+				return text;
+			},
+		});
+
+		const packageSourceOperations = createLectorPackageSourceOperations();
+		pi.registerTool({
+			name: "package_source",
+			label: "Package Source",
+			description:
+				"Resolve an installed npm package to verified exact repository source. Uses the project's lockfile, bounded registry metadata, and an exact Git ref/commit; registers verified source as a read-only workspace for the other Lector tools.",
+			promptSnippet: "Resolve an installed npm package to exact read-only source",
+			parameters: Type.Object({
+				directory: Type.String({ description: "Project directory containing the npm-family lockfile" }),
+				name: Type.String({ description: "Installed package name, including scope when present" }),
+				version: Type.Optional(Type.String({ description: "Exact installed version; required when the lockfile contains several versions" })),
+				registry: Type.Optional(Type.String({ description: "npm registry URL; defaults to the public npm registry" })),
+			}),
+			async execute(_toolCallId, params) {
+				const directory = resolve(cwd, params.directory);
+				const result = await packageSourceOperations.resolve(directory, params.name, params.version ?? null, params.registry ?? null);
+				return { content: [{ type: "text", text: JSON.stringify(result) }], details: { result } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatPackageSourceCall(args as { directory?: unknown; name?: unknown; version?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Resolving package source..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "package_source failed"), 0, 0);
+				}
+				const details = result.details as { result?: PackageSourceOperationResult } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatPackageSourceResult(details?.result, expanded, theme));
 				return text;
 			},
 		});

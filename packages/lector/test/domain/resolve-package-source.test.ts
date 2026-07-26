@@ -12,6 +12,9 @@ const REQUEST: PackageSourceRequest = {
 const BOUNDS = {
 	maxManifestBytes: 1_000_000,
 	maxManifestEntries: 10_000,
+	maxManifestNesting: 64,
+	maxWorkspaces: 100,
+	maxDiagnostics: 20,
 	maxRegistryResponseBytes: 2_000_000,
 	maxRedirects: 3,
 	maxRetries: 2,
