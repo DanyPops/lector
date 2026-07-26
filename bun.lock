@@ -40,7 +40,7 @@
     },
     "packages/pi-lector": {
       "name": "@danypops/pi-lector",
-      "version": "0.1.11",
+      "version": "0.1.12",
       "dependencies": {
         "@danypops/daemon-kit": "^0.4.0",
         "@danypops/lector": "^0.1.10",
