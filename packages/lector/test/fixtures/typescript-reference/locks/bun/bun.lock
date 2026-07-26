@@ -5,6 +5,10 @@
       "dependencies": {
         "@fixture/dependency": "1.2.3"
       }
+    },
+    "packages/contracts": {
+      "name": "@fixture/contracts",
+      "version": "1.0.0"
     }
   },
   "packages": {

@@ -19,4 +19,10 @@ describe("published runtime dependencies", () => {
 	it("ships the TypeScript compiler used for tsconfig-aware project discovery", () => {
 		expect(packageJson.dependencies).toHaveProperty("typescript");
 	});
+
+	it("ships every parser used for npm-family lockfile resolution", () => {
+		for (const dependency of ["@yarnpkg/parsers", "jsonc-parser", "yaml"]) {
+			expect(packageJson.dependencies).toHaveProperty(dependency);
+		}
+	});
 });

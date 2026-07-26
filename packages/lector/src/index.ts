@@ -11,6 +11,7 @@ export {
 	LanguageServerRequestTimedOut,
 } from "./adapters/lsp/language-server-process.ts";
 export { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
+export { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } from "./adapters/npm-lockfile-version-resolver.ts";
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
 export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
@@ -64,6 +65,18 @@ export { goToImplementation } from "./domain/go-to-implementation.ts";
 export type { Hover } from "./domain/hover.ts";
 export { hoverAt } from "./domain/hover-at.ts";
 export { incomingCalls } from "./domain/incoming-calls.ts";
+export type {
+	AmbiguousInstalledPackageVersion,
+	InstalledPackageEvidence,
+	InstalledPackageVersionBounds,
+	InstalledPackageVersionCandidate,
+	InstalledPackageVersionOutcome,
+	InstalledPackageVersionRequest,
+	JavaScriptPackageManager,
+	OversizedInstalledPackageVersion,
+	ResolvedInstalledPackageVersion,
+	UnavailableInstalledPackageVersion,
+} from "./domain/installed-package-version.ts";
 export {
 	descriptorForExtension,
 	LANGUAGE_SERVER_DESCRIPTORS,
@@ -111,6 +124,7 @@ export type { WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symb
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
 export type { GitPort } from "./ports/git-port.ts";
+export type { InstalledPackageVersionResolverPort } from "./ports/installed-package-version-resolver-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 export type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 export type { SearchCachePort } from "./ports/search-cache-port.ts";

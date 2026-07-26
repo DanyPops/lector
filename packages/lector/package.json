@@ -18,8 +18,10 @@
 	},
 	"dependencies": {
 		"@danypops/daemon-kit": "^0.3.2",
+		"@yarnpkg/parsers": "^3.0.3",
 		"bash-language-server": "^5.6.0",
 		"graphology": "^0.26.0",
+		"jsonc-parser": "^3.3.1",
 		"lru-cache": "^11.5.2",
 		"pyright": "^1.1.411",
 		"simple-git": "^3.36.0",
@@ -27,6 +29,7 @@
 		"typescript": "^5.9.3",
 		"typescript-language-server": "^5.3.0",
 		"web-tree-sitter": "0.20.8",
+		"yaml": "^2.9.0",
 		"yaml-language-server": "^1.24.0"
 	},
 	"devDependencies": {
