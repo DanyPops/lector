@@ -6,6 +6,7 @@
  * plain BFS doesn't share); the durability test below proves the actual
  * point of a SQLite-backed graph over the in-memory one.
  */
+import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,15 +65,70 @@ describe("SqliteSymbolGraph durability", () => {
 					limitations: [],
 				},
 				sources,
-				result: { filesProcessed: 2, symbolsProcessed: 2, nodesAdded: 2, edgesAdded: 0 },
+				result: {
+					completeness: "partial",
+					filesAttempted: 3,
+					filesProcessed: 2,
+					filesFailed: 1,
+					symbolsProcessed: 2,
+					nodesAdded: 2,
+					edgesAdded: 0,
+					failureCount: 1,
+					failures: [
+						{
+							path: "/repo/excluded_test.go",
+							operation: "document-symbols",
+							code: "CodeIntelligenceFileError",
+							message: "no package metadata",
+							provenance: sources[0],
+						},
+					],
+					failuresTruncated: false,
+				},
 			});
 			await first.close();
 
 			const second = new SqliteSymbolGraph(dbPath);
 			try {
-				expect((await second.getGeneration())?.sources).toEqual(sources);
+				const generation = await second.getGeneration();
+				expect(generation?.sources).toEqual(sources);
+				expect(generation?.result).toMatchObject({ completeness: "partial", filesFailed: 1, failureCount: 1 });
 			} finally {
 				await second.close();
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("reads pre-v5 generation rows as complete after the result JSON migration", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "lector-sqlite-symbol-graph-legacy-result-"));
+		const dbPath = join(dir, "symbol-graph.db");
+		try {
+			const migrated = new SqliteSymbolGraph(dbPath);
+			await migrated.close();
+			const db = new Database(dbPath);
+			db.query(
+				"INSERT INTO symbol_graph_generation (singleton, source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)",
+			).run("legacy", 10, 20, 1, 2, 3, 3, 1);
+			db.close();
+
+			const reopened = new SqliteSymbolGraph(dbPath);
+			try {
+				expect((await reopened.getGeneration())?.result).toEqual({
+					completeness: "complete",
+					filesAttempted: 2,
+					filesProcessed: 2,
+					filesFailed: 0,
+					symbolsProcessed: 3,
+					nodesAdded: 3,
+					edgesAdded: 1,
+					failureCount: 0,
+					failures: [],
+					failuresTruncated: false,
+				});
+			} finally {
+				await reopened.close();
 			}
 		} finally {
 			rmSync(dir, { recursive: true, force: true });

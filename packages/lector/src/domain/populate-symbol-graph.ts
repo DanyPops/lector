@@ -1,17 +1,60 @@
 import type { CodeIntelligencePort } from "../ports/code-intelligence-port.ts";
 import type { SymbolGraphPort, SymbolNode } from "../ports/symbol-graph-port.ts";
+import type { OutgoingCall } from "./call-hierarchy.ts";
 import type { DocumentSymbolEntry } from "./document-symbol.ts";
+import type { IntelligenceProvenance } from "./intelligence-provenance.ts";
 import { deriveSymbolNodeId } from "./symbol-node-id.ts";
 import type { WorkspaceLocation } from "./workspace-symbol.ts";
 
 const CALLABLE_KINDS = new Set(["function", "method", "constructor"]);
+const MAX_RECORDED_FAILURES = 100;
+const MAX_FAILURE_MESSAGE_LENGTH = 500;
+
+export interface SymbolGraphPopulationFailure {
+	readonly path: string;
+	readonly operation: "document-symbols" | "outgoing-calls";
+	readonly code: string;
+	readonly message: string;
+	readonly provenance: IntelligenceProvenance;
+}
 
 export interface PopulateSymbolGraphResult {
+	readonly completeness: "complete" | "partial";
+	readonly filesAttempted: number;
 	readonly filesProcessed: number;
+	readonly filesFailed: number;
 	readonly symbolsProcessed: number;
 	/** addNode calls made, not necessarily new nodes -- a symbol reached from multiple edges is upserted once per encounter within a run, deduped in-memory. */
 	readonly nodesAdded: number;
 	readonly edgesAdded: number;
+	readonly failureCount: number;
+	readonly failures: readonly SymbolGraphPopulationFailure[];
+	readonly failuresTruncated: boolean;
+}
+
+const UNKNOWN_PROVENANCE: IntelligenceProvenance = {
+	fidelity: "semantic",
+	backend: "unavailable",
+	languageId: "unknown",
+	authority: "language-server",
+	freshness: "live-process",
+	limitations: ["source provenance was unavailable"],
+};
+
+function boundedFailure(
+	index: CodeIntelligencePort,
+	path: string,
+	operation: SymbolGraphPopulationFailure["operation"],
+	error: unknown,
+): SymbolGraphPopulationFailure {
+	const errorName = error instanceof Error ? error.name : undefined;
+	return {
+		path,
+		operation,
+		code: errorName && errorName !== "Error" ? errorName : "CodeIntelligenceFileError",
+		message: (error instanceof Error ? error.message : String(error)).slice(0, MAX_FAILURE_MESSAGE_LENGTH),
+		provenance: index.provenanceForPath?.(path) ?? index.provenance ?? UNKNOWN_PROVENANCE,
+	};
 }
 
 function toLocation(entry: DocumentSymbolEntry): WorkspaceLocation {
@@ -50,7 +93,16 @@ export async function populateSymbolGraph(
 	let symbolsProcessed = 0;
 	let nodesAdded = 0;
 	let edgesAdded = 0;
+	let failureCount = 0;
 	const addedNodeIds = new Set<string>();
+	const failedFiles = new Set<string>();
+	const failures: SymbolGraphPopulationFailure[] = [];
+
+	function recordFailure(file: string, operation: SymbolGraphPopulationFailure["operation"], error: unknown): void {
+		failureCount++;
+		failedFiles.add(file);
+		if (failures.length < MAX_RECORDED_FAILURES) failures.push(boundedFailure(index, file, operation, error));
+	}
 
 	async function ensureNode(node: SymbolNode): Promise<void> {
 		if (addedNodeIds.has(node.id)) return;
@@ -60,7 +112,13 @@ export async function populateSymbolGraph(
 	}
 
 	for (const file of files) {
-		const topLevel = await index.documentSymbols(file);
+		let topLevel: DocumentSymbolEntry[];
+		try {
+			topLevel = await index.documentSymbols(file);
+		} catch (error) {
+			recordFailure(file, "document-symbols", error);
+			continue;
+		}
 		const flattened = flattenDocumentSymbols(topLevel).slice(0, maxSymbolsPerFile);
 		filesProcessed++;
 
@@ -76,7 +134,13 @@ export async function populateSymbolGraph(
 			}
 
 			if (CALLABLE_KINDS.has(entry.kind)) {
-				const callees = await index.outgoingCalls(location);
+				let callees: OutgoingCall[];
+				try {
+					callees = await index.outgoingCalls(location);
+				} catch (error) {
+					recordFailure(file, "outgoing-calls", error);
+					continue;
+				}
 				for (const call of callees) {
 					const calleeNode: SymbolNode = { id: deriveSymbolNodeId(call.to.location), name: call.to.name, kind: call.to.kind, location: call.to.location };
 					await ensureNode(calleeNode);
@@ -87,5 +151,16 @@ export async function populateSymbolGraph(
 		}
 	}
 
-	return { filesProcessed, symbolsProcessed, nodesAdded, edgesAdded };
+	return {
+		completeness: failureCount === 0 ? "complete" : "partial",
+		filesAttempted: files.length,
+		filesProcessed,
+		filesFailed: failedFiles.size,
+		symbolsProcessed,
+		nodesAdded,
+		edgesAdded,
+		failureCount,
+		failures,
+		failuresTruncated: failureCount > failures.length,
+	};
 }

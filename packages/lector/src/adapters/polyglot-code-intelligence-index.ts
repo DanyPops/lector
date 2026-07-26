@@ -97,6 +97,10 @@ export class PolyglotCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 		};
 	}
 
+	provenanceForPath(path: string): IntelligenceProvenance {
+		return this.indexForPath(path).provenance;
+	}
+
 	goToDefinition(at: WorkspaceLocation) {
 		return this.indexForPath(at.path).goToDefinition(at);
 	}

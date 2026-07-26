@@ -28,6 +28,13 @@ function fixture(): string {
 	return fixtureRoot;
 }
 
+function excludedGoTestFixture(): string {
+	fixtureRoot = mkdtempSync(join(tmpdir(), "lector-cli-partial-"));
+	writeFileSync(join(fixtureRoot, "go.mod"), "module fixture\n\ngo 1.22\n");
+	writeFileSync(join(fixtureRoot, "e2e_test.go"), "//go:build e2e\n\npackage fixture_test\n\nfunc TestE2E() {}\n");
+	return fixtureRoot;
+}
+
 async function runCli(args: readonly string[]): Promise<string> {
 	if (!isolated) throw new Error("isolated daemon paths not initialized");
 	const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/cli.ts"), ...args], {
@@ -78,9 +85,27 @@ describe("lector CLI background-job parity", () => {
 		}
 		expect(polled.id).toBe(submitted.id);
 		expect(polled.status).toBe("succeeded");
+		if (polled.status === "succeeded") expect(polled.result.completeness).toBe("complete");
 		const cacheStatus = JSON.parse(
 			await runCli(["workspace", "cache-status", registered.workspaceId, "--max-files", "10", "--max-symbols-per-file", "10", "--json"]),
 		) as { status: string };
 		expect(cacheStatus.status).toBe("cached");
+	}, 20_000);
+
+	it("returns and renders a persisted partial result when one file-level operation fails", async () => {
+		isolated = isolatedLectorPaths();
+		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		const project = excludedGoTestFixture();
+		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
+
+		const result = JSON.parse(
+			await runCli(["workspace", "populate-symbol-graph", registered.workspaceId, "--max-files", "10", "--max-symbols-per-file", "10", "--json"]),
+		) as PopulateSymbolGraphResult;
+		expect(result).toMatchObject({ completeness: "partial", filesFailed: 1, failureCount: 1 });
+		expect(result.failures[0]).toMatchObject({ operation: "outgoing-calls", provenance: { backend: "gopls", languageId: "go" } });
+
+		const human = await runCli(["workspace", "cache-status", registered.workspaceId, "--max-files", "10", "--max-symbols-per-file", "10"]);
+		expect(human).toContain("partially cached");
+		expect(human).toContain("no package metadata");
 	}, 20_000);
 });

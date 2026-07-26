@@ -2,6 +2,7 @@ import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../domain/c
 import type { Diagnostic } from "../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../domain/document-symbol.ts";
 import type { Hover } from "../domain/hover.ts";
+import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
 import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
 
 /**
@@ -17,6 +18,8 @@ import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
  * process findSymbols already keeps alive per workspace -- not a second one.
  */
 export interface CodeIntelligencePort {
+	readonly provenance?: IntelligenceProvenance;
+	provenanceForPath?(path: string): IntelligenceProvenance | undefined;
 	/** Where the symbol at `at` is actually declared -- may cross files, may return more than one candidate. */
 	goToDefinition(at: WorkspaceLocation): Promise<WorkspaceLocation[]>;
 	/** Every concrete implementation of the interface/abstract member at `at` -- unlike goToDefinition, crosses a port/interface boundary into its real adapters. */

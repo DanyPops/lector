@@ -63,6 +63,13 @@ function buildPolyglot(): { root: string; tsFile: string; pyFile: string; goFile
 	return { root, tsFile, pyFile, goFile };
 }
 
+function buildPolyglotWithOrphanGoTest(): ReturnType<typeof buildPolyglot> & { orphanGoTest: string } {
+	const fixture = buildPolyglot();
+	const orphanGoTest = join(fixture.root, "e2e_concurrency_test.go");
+	writeFileSync(orphanGoTest, "//go:build e2e\n\npackage fixture_test\n\nfunc TestConcurrency() {}\n");
+	return { ...fixture, orphanGoTest };
+}
+
 describe("multi-language dispatch: monoglot workspaces auto-detect with no seedFile at all", () => {
 	it("a Python-only workspace auto-detects Python -- findSymbols with no seedFile, and documentSymbols on a .py file, both work with zero manual language selection", async () => {
 		fixtureRoot = buildMonoglotPython();
@@ -189,6 +196,27 @@ describe("multi-language dispatch: a polyglot workspace holds one independent wa
 			expect(status.generation.provenance).toMatchObject({ languageId: "polyglot", backend: "polyglot-language-servers" });
 			expect(status.generation.sources?.map((source) => source.languageId)).toEqual(["typescript", "python", "go"]);
 		}
+	}, 30_000);
+
+	it("persists a partial graph when one Go test file has no package metadata", async () => {
+		const { root, orphanGoTest } = buildPolyglotWithOrphanGoTest();
+		fixtureRoot = root;
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
+
+		const result = await service.dispatch("workspace.populateSymbolGraph", { workspaceId, maxFiles: 50, maxSymbolsPerFile: 50 });
+		const status = await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 50, maxSymbolsPerFile: 50 });
+
+		expect(result).toMatchObject({ completeness: "partial", filesAttempted: 4, filesProcessed: 4, filesFailed: 1 });
+		expect(result.failures).toEqual([
+			expect.objectContaining({
+				path: orphanGoTest,
+				operation: "outgoing-calls",
+				provenance: expect.objectContaining({ languageId: "go", backend: "gopls" }),
+			}),
+		]);
+		expect(result.failures[0]?.message).toContain("no package metadata for file");
+		expect(status).toMatchObject({ status: "partial", generation: { result: { filesFailed: 1 } } });
 	}, 30_000);
 
 	it("keeps each language's call edges and source provenance after a graph reopen", async () => {

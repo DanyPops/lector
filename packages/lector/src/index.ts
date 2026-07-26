@@ -130,7 +130,7 @@ export type {
 	VerifiedPackageSource,
 } from "./domain/package-source.ts";
 export { DEFAULT_PACKAGE_SOURCE_BOUNDS } from "./domain/package-source.ts";
-export { type PopulateSymbolGraphResult, populateSymbolGraph } from "./domain/populate-symbol-graph.ts";
+export { type PopulateSymbolGraphResult, populateSymbolGraph, type SymbolGraphPopulationFailure } from "./domain/populate-symbol-graph.ts";
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
 export { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";

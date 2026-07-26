@@ -16,4 +16,5 @@ export interface SymbolGraphGeneration {
 export type WorkspaceCacheStatus =
 	| { readonly status: "not-cached"; readonly reason: "no-completed-generation" | "bounds-changed" | "source-changed" }
 	| { readonly status: "caching"; readonly jobId: string }
+	| { readonly status: "partial"; readonly generation: SymbolGraphGeneration }
 	| { readonly status: "cached"; readonly generation: SymbolGraphGeneration };

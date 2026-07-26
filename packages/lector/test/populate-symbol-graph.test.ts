@@ -13,6 +13,7 @@ import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../src/domain/language-server-descriptor.ts";
 import { populateSymbolGraph } from "../src/domain/populate-symbol-graph.ts";
 import { deriveSymbolNodeId } from "../src/domain/symbol-node-id.ts";
+import type { CodeIntelligencePort } from "../src/ports/code-intelligence-port.ts";
 import { findPositionOf } from "./support/find-position.ts";
 
 let fixtureRoot: string | undefined;
@@ -30,7 +31,7 @@ afterEach(async () => {
 
 function buildFixture(): { root: string; chainFile: string; classFile: string } {
 	const root = mkdtempSync(join(tmpdir(), "lector-symbol-graph-fixture-"));
-	writeFileSync(root + "/tsconfig.json", JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true } }));
+	writeFileSync(`${root}/tsconfig.json`, JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true } }));
 	const chainFile = join(root, "chain.ts");
 	writeFileSync(
 		chainFile,
@@ -86,6 +87,40 @@ describe("populateSymbolGraph", () => {
 		expect(containedNames).toContain("greet");
 	}, 20_000);
 
+	it("bounds recorded file failures while retaining the total failure count", async () => {
+		const empty = async () => [];
+		const failing: CodeIntelligencePort = {
+			provenance: {
+				fidelity: "semantic",
+				backend: "failing-test-server",
+				languageId: "test",
+				authority: "language-server",
+				freshness: "live-process",
+				limitations: [],
+			},
+			goToDefinition: empty,
+			goToImplementation: empty,
+			findReferences: empty,
+			hover: async () => undefined,
+			documentSymbols: async (path) => {
+				throw new Error(`cannot index ${path}`);
+			},
+			diagnostics: empty,
+			prepareCallHierarchy: empty,
+			incomingCalls: empty,
+			outgoingCalls: empty,
+		};
+		graph = new InMemorySymbolGraph();
+		const files = Array.from({ length: 105 }, (_, position) => `/repo/file-${position}.test`);
+
+		const result = await populateSymbolGraph(failing, graph, files, 10);
+
+		expect(result).toMatchObject({ completeness: "partial", filesAttempted: 105, filesProcessed: 0, filesFailed: 105, failureCount: 105 });
+		expect(result.failures).toHaveLength(100);
+		expect(result.failuresTruncated).toBe(true);
+		expect(result.failures[0]?.message.length).toBeLessThanOrEqual(500);
+	});
+
 	it("returns honest zero counts for an empty file list, not an error", async () => {
 		const { root } = buildFixture();
 		fixtureRoot = root;
@@ -94,6 +129,17 @@ describe("populateSymbolGraph", () => {
 
 		const result = await populateSymbolGraph(index, graph, [], 50);
 
-		expect(result).toEqual({ filesProcessed: 0, symbolsProcessed: 0, nodesAdded: 0, edgesAdded: 0 });
+		expect(result).toEqual({
+			completeness: "complete",
+			filesAttempted: 0,
+			filesProcessed: 0,
+			filesFailed: 0,
+			symbolsProcessed: 0,
+			nodesAdded: 0,
+			edgesAdded: 0,
+			failureCount: 0,
+			failures: [],
+			failuresTruncated: false,
+		});
 	}, 20_000);
 });

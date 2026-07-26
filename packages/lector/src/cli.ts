@@ -12,6 +12,7 @@ import { serveMain } from "./daemon.ts";
 import type { JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { ContentHash } from "./domain/content-hash.ts";
 import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOperationResult } from "./domain/package-source.ts";
+import type { PopulateSymbolGraphResult } from "./domain/populate-symbol-graph.ts";
 import type { SymbolSearchResult } from "./domain/workspace-symbol.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import type { WorkspaceId } from "./service.ts";
@@ -361,11 +362,19 @@ function requiredIntFlag(flags: string[], flag: string): number {
 	return parsed;
 }
 
-function formatJobSnapshot(job: JobSnapshot<{ filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number }>): string {
+function formatPopulationResult(result: PopulateSymbolGraphResult): string {
+	const counts = `${result.filesProcessed}/${result.filesAttempted} files, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`;
+	if (result.completeness === "complete") return counts;
+	const first = result.failures[0];
+	const failure = first ? `; first failure: ${first.path} [${first.code} via ${first.provenance.backend}] ${first.message}` : "";
+	return `partial -- ${counts}, ${result.filesFailed} failed files (${result.failureCount} failed operations)${failure}`;
+}
+
+function formatJobSnapshot(job: JobSnapshot<PopulateSymbolGraphResult>): string {
 	if (job.status === "queued") return `${job.id}: queued (${job.operation}); poll with: lector job status ${job.id}`;
 	if (job.status === "running") return `${job.id}: still running (${job.operation}); poll with: lector job status ${job.id}`;
 	if (job.status === "failed") return `${job.id}: failed [${job.error.code}] -- ${job.error.message}`;
-	return `${job.id}: succeeded -- ${job.result.filesProcessed} files, ${job.result.symbolsProcessed} symbols, ${job.result.nodesAdded} nodes, ${job.result.edgesAdded} edges`;
+	return `${job.id}: succeeded -- ${formatPopulationResult(job.result)}`;
 }
 
 async function runWorkspacePopulateSymbolGraph(workspaceId: string | undefined, flags: string[]): Promise<void> {
@@ -385,11 +394,7 @@ async function runWorkspacePopulateSymbolGraph(workspaceId: string | undefined, 
 		return;
 	}
 	const result = await client.call("workspace.populateSymbolGraph", { workspaceId, maxFiles, maxSymbolsPerFile });
-	console.log(
-		hasFlag(flags, "--json")
-			? JSON.stringify(result)
-			: `${result.filesProcessed} files, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`,
-	);
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : formatPopulationResult(result));
 }
 
 async function runJobStatus(jobId: string | undefined, flags: string[]): Promise<void> {
@@ -411,6 +416,7 @@ async function runWorkspaceCacheStatus(workspaceId: string | undefined, flags: s
 	}
 	if (status.status === "not-cached") console.log(`not cached -- ${status.reason}`);
 	else if (status.status === "caching") console.log(`caching -- job ${status.jobId}`);
+	else if (status.status === "partial") console.log(`partially cached -- ${formatPopulationResult(status.generation.result)}`);
 	else console.log(`cached -- completed ${new Date(status.generation.completedAt).toISOString()}`);
 }
 

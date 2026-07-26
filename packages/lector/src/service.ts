@@ -313,7 +313,7 @@ export interface OperationOutputs {
 	"workspace.prepareCallHierarchy": Provenanced<{ items: readonly CallHierarchyEntry[] }>;
 	"workspace.incomingCalls": Provenanced<{ calls: readonly IncomingCall[] }>;
 	"workspace.outgoingCalls": Provenanced<{ calls: readonly OutgoingCall[] }>;
-	"workspace.populateSymbolGraph": { filesProcessed: number; symbolsProcessed: number; nodesAdded: number; edgesAdded: number };
+	"workspace.populateSymbolGraph": PopulateSymbolGraphResult;
 	"workspace.reachableFrom": { symbols: readonly SymbolNode[] };
 	"workspace.symbolEdgesFrom": { symbols: readonly SymbolNode[] };
 	"workspace.symbolEdgesTo": { symbols: readonly SymbolNode[] };
@@ -911,7 +911,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			return { status: "not-cached", reason: "source-changed" };
 		}
 		if (currentFingerprint !== generation.sourceFingerprint) return { status: "not-cached", reason: "source-changed" };
-		return { status: "cached", generation };
+		return generation.result.completeness === "partial" ? { status: "partial", generation } : { status: "cached", generation };
 	}
 
 	function isRecord(value: unknown): value is Record<string, unknown> {

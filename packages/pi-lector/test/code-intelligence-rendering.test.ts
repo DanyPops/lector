@@ -263,7 +263,18 @@ describe("formatPopulateSymbolGraphCall/Result", () => {
 				startedAt: 2,
 				finishedAt: 3,
 				status: "succeeded",
-				result: { filesProcessed: 3, symbolsProcessed: 12, nodesAdded: 10, edgesAdded: 7 },
+				result: {
+					completeness: "complete",
+					filesAttempted: 3,
+					filesProcessed: 3,
+					filesFailed: 0,
+					symbolsProcessed: 12,
+					nodesAdded: 10,
+					edgesAdded: 7,
+					failureCount: 0,
+					failures: [],
+					failuresTruncated: false,
+				},
 			},
 			plainTheme,
 		);
@@ -271,6 +282,52 @@ describe("formatPopulateSymbolGraphCall/Result", () => {
 		expect(text).toContain("12 symbols");
 		expect(text).toContain("10 nodes");
 		expect(text).toContain("7 edges");
+	});
+
+	it("shows partial graph failures without treating the whole job as failed", () => {
+		const text = formatPopulateSymbolGraphResult(
+			{
+				id: "job-partial",
+				operation: "workspace.populateSymbolGraph",
+				priority: "local",
+				submittedAt: 1,
+				startedAt: 2,
+				finishedAt: 3,
+				status: "succeeded",
+				result: {
+					completeness: "partial",
+					filesAttempted: 4,
+					filesProcessed: 3,
+					filesFailed: 1,
+					symbolsProcessed: 12,
+					nodesAdded: 10,
+					edgesAdded: 7,
+					failureCount: 1,
+					failures: [
+						{
+							path: "/repo/e2e_test.go",
+							operation: "document-symbols",
+							code: "CodeIntelligenceFileError",
+							message: "no package metadata",
+							provenance: {
+								fidelity: "semantic",
+								backend: "gopls",
+								languageId: "go",
+								authority: "language-server",
+								freshness: "live-process",
+								limitations: [],
+							},
+						},
+					],
+					failuresTruncated: false,
+				},
+			},
+			plainTheme,
+		);
+		expect(text).toContain("partially cached 3/4 files");
+		expect(text).toContain("1 failed file");
+		expect(text).toContain("gopls");
+		expect(text).toContain("no package metadata");
 	});
 
 	it("shows an actionable still-loading state with the job id instead of an empty result", () => {

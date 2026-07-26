@@ -44,12 +44,14 @@ export type CachePresentationState =
 	| { readonly status: "not-cached"; readonly reason: string }
 	| { readonly status: "caching"; readonly jobId: string }
 	| { readonly status: "finished-caching"; readonly job: JobSnapshot<PopulateSymbolGraphResult> & { readonly status: "succeeded" } }
+	| { readonly status: "partial"; readonly result: PopulateSymbolGraphResult }
 	| { readonly status: "cached" };
 
 export function describeCacheState(state: CachePresentationState): string {
 	if (state.status === "not-cached") return `not cached (${state.reason})`;
 	if (state.status === "caching") return `caching (job ${state.jobId})`;
 	if (state.status === "finished-caching") return `finished caching (job ${state.job.id})`;
+	if (state.status === "partial") return `partially cached (${state.result.filesFailed} failed file${state.result.filesFailed === 1 ? "" : "s"})`;
 	return "cached";
 }
 
@@ -57,6 +59,7 @@ export function cacheContextMessage(state: CachePresentationState): string {
 	const prefix = `Lector workspace cache: ${describeCacheState(state)}.`;
 	if (state.status === "not-cached") return `${prefix} Live code-intelligence operations remain available.`;
 	if (state.status === "caching") return `${prefix} The cached graph is still building; use live code-intelligence operations until it is ready.`;
+	if (state.status === "partial") return `${prefix} The graph is usable, but live code-intelligence operations are required for failed files.`;
 	return `${prefix} The cached graph is ready.`;
 }
 
@@ -80,6 +83,15 @@ export async function monitorWorkspaceCache(operations: WorkspaceCacheOperations
 		options.onState({ status: "cached" });
 		return;
 	}
+	if (initial.status === "partial") {
+		options.onState({ status: "partial", result: initial.generation.result });
+		return;
+	}
+
+	function reportCompleted(job: JobSnapshot<PopulateSymbolGraphResult> & { readonly status: "succeeded" }): void {
+		options.onState({ status: "finished-caching", job });
+		options.onState(job.result.completeness === "partial" ? { status: "partial", result: job.result } : { status: "cached" });
+	}
 
 	let jobId: string;
 	if (initial.status === "caching") {
@@ -89,8 +101,7 @@ export async function monitorWorkspaceCache(operations: WorkspaceCacheOperations
 		const submitted = await operations.submit(options.directory, options.maxFiles, options.maxSymbolsPerFile);
 		if (submitted.status === "failed") throw new Error(`${submitted.error.code}: ${submitted.error.message}`);
 		if (submitted.status === "succeeded") {
-			options.onState({ status: "finished-caching", job: submitted });
-			options.onState({ status: "cached" });
+			reportCompleted(submitted);
 			return;
 		}
 		jobId = submitted.id;
@@ -103,8 +114,7 @@ export async function monitorWorkspaceCache(operations: WorkspaceCacheOperations
 		const job = await operations.jobStatus(jobId);
 		if (job.status === "failed") throw new Error(`${job.error.code}: ${job.error.message}`);
 		if (job.status === "succeeded") {
-			options.onState({ status: "finished-caching", job });
-			options.onState({ status: "cached" });
+			reportCompleted(job);
 			return;
 		}
 	}

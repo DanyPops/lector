@@ -140,7 +140,7 @@ export function formatDiagnosticsResult(diagnostics: readonly Diagnostic[] | und
 	const lines = [theme.fg("muted", `${diagnostics.length} diagnostic${diagnostics.length === 1 ? "" : "s"}:`)];
 
 	for (const diagnostic of diagnostics.slice(0, displayCount)) {
-		const severity = theme.fg(DIAGNOSTIC_SEVERITY_COLOR[diagnostic.severity] ?? "muted", theme.bold(diagnostic.severity));
+		const severity = theme.fg(DIAGNOSTIC_SEVERITY_COLOR[diagnostic.severity], theme.bold(diagnostic.severity));
 		const location = formatLocation(theme, diagnostic.range.path, diagnostic.range.start.line, diagnostic.range.start.character);
 		const origin = diagnostic.source ? theme.fg("dim", ` (${diagnostic.source}${diagnostic.code !== undefined ? ` ${diagnostic.code}` : ""})`) : "";
 		lines.push(`  ${severity} ${location} -- ${diagnostic.message}${origin}`);
@@ -209,7 +209,11 @@ export function describePopulateSymbolGraphJob(job: JobSnapshot<PopulateSymbolGr
 	if (job.status === "running") return `Source workspace is registered; symbol graph is still loading (job ${job.id}). Poll job_status.`;
 	if (job.status === "failed") return `Job ${job.id} failed [${job.error.code}] -- ${job.error.message}`;
 	const result = job.result;
-	return `Job ${job.id} cached ${result.filesProcessed} file${result.filesProcessed === 1 ? "" : "s"}, ${result.symbolsProcessed} symbol${result.symbolsProcessed === 1 ? "" : "s"}, ${result.nodesAdded} node${result.nodesAdded === 1 ? "" : "s"}, ${result.edgesAdded} edge${result.edgesAdded === 1 ? "" : "s"}`;
+	const counts = `${result.filesProcessed}/${result.filesAttempted} files, ${result.symbolsProcessed} symbol${result.symbolsProcessed === 1 ? "" : "s"}, ${result.nodesAdded} node${result.nodesAdded === 1 ? "" : "s"}, ${result.edgesAdded} edge${result.edgesAdded === 1 ? "" : "s"}`;
+	if (result.completeness === "complete") return `Job ${job.id} cached ${counts}`;
+	const first = result.failures[0];
+	const failure = first ? ` First failure: ${first.path} [${first.code} via ${first.provenance.backend}] ${first.message}` : "";
+	return `Job ${job.id} partially cached ${counts}; ${result.filesFailed} failed file${result.filesFailed === 1 ? "" : "s"} (${result.failureCount} failed operations).${failure}`;
 }
 
 export function formatPopulateSymbolGraphResult(job: JobSnapshot<PopulateSymbolGraphResult> | undefined, theme: LectorTheme): string {

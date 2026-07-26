@@ -155,7 +155,18 @@ export function runSymbolGraphPortConformanceSuite(name: string, harness: Symbol
 						freshness: "live-process",
 						limitations: [],
 					},
-					result: { filesProcessed: 4, symbolsProcessed: 12, nodesAdded: 10, edgesAdded: 8 },
+					result: {
+						completeness: "complete",
+						filesAttempted: 4,
+						filesProcessed: 4,
+						filesFailed: 0,
+						symbolsProcessed: 12,
+						nodesAdded: 10,
+						edgesAdded: 8,
+						failureCount: 0,
+						failures: [],
+						failuresTruncated: false,
+					},
 				};
 				await graph.setGeneration(generation);
 				expect(await graph.getGeneration()).toEqual(generation);

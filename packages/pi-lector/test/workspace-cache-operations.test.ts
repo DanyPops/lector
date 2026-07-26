@@ -15,7 +15,48 @@ function succeededJob(id = "job-1"): JobSnapshot<PopulateSymbolGraphResult> & { 
 		startedAt: 2,
 		finishedAt: 3,
 		status: "succeeded",
-		result: { filesProcessed: 2, symbolsProcessed: 4, nodesAdded: 4, edgesAdded: 2 },
+		result: {
+			completeness: "complete",
+			filesAttempted: 2,
+			filesProcessed: 2,
+			filesFailed: 0,
+			symbolsProcessed: 4,
+			nodesAdded: 4,
+			edgesAdded: 2,
+			failureCount: 0,
+			failures: [],
+			failuresTruncated: false,
+		},
+	};
+}
+
+function partialJob(id = "job-2"): JobSnapshot<PopulateSymbolGraphResult> & { status: "succeeded" } {
+	const job = succeededJob(id);
+	return {
+		...job,
+		result: {
+			...job.result,
+			completeness: "partial",
+			filesAttempted: 3,
+			filesFailed: 1,
+			failureCount: 1,
+			failures: [
+				{
+					path: "/repo/excluded_test.go",
+					operation: "document-symbols",
+					code: "CodeIntelligenceFileError",
+					message: "no package metadata",
+					provenance: {
+						fidelity: "semantic",
+						backend: "gopls",
+						languageId: "go",
+						authority: "language-server",
+						freshness: "live-process",
+						limitations: [],
+					},
+				},
+			],
+		},
 	};
 }
 
@@ -42,6 +83,14 @@ describe("cache status presentation", () => {
 	it("reports a completed cache job as ready", () => {
 		const state = { status: "finished-caching", job: succeededJob("job-42") } as const;
 		expect(cacheContextMessage(state)).toBe("Lector workspace cache: finished caching (job job-42). The cached graph is ready.");
+	});
+
+	it("keeps partial caches distinct and directs failed files to live operations", () => {
+		const state = { status: "partial", result: partialJob().result } as const;
+		expect(describeCacheState(state)).toBe("partially cached (1 failed file)");
+		expect(cacheContextMessage(state)).toBe(
+			"Lector workspace cache: partially cached (1 failed file). The graph is usable, but live code-intelligence operations are required for failed files.",
+		);
 	});
 });
 
@@ -93,6 +142,55 @@ describe("monitorWorkspaceCache", () => {
 			sleep: () => Promise.resolve(),
 		});
 		expect(states).toEqual(["not-cached", "caching", "finished-caching", "cached"]);
+	});
+
+	it("retains a completed partial generation without resubmitting it", async () => {
+		let submissions = 0;
+		const states: string[] = [];
+		const job = partialJob();
+		const operations: WorkspaceCacheOperations = {
+			status: () =>
+				Promise.resolve({
+					status: "partial",
+					generation: { sourceFingerprint: "x", maxFiles: 10, maxSymbolsPerFile: 10, completedAt: 1, result: job.result },
+				}),
+			submit: () => {
+				submissions++;
+				return Promise.resolve(job);
+			},
+			jobStatus: () => Promise.resolve(job),
+		};
+		await monitorWorkspaceCache(operations, {
+			directory: "/repo",
+			maxFiles: 10,
+			maxSymbolsPerFile: 10,
+			pollIntervalMs: 1,
+			maxPolls: 2,
+			shouldContinue: () => true,
+			onState: (state) => states.push(state.status),
+		});
+		expect(states).toEqual(["partial"]);
+		expect(submissions).toBe(0);
+	});
+
+	it("reports a new partial generation after its job succeeds", async () => {
+		const states: string[] = [];
+		const job = partialJob();
+		const operations: WorkspaceCacheOperations = {
+			status: () => Promise.resolve({ status: "not-cached", reason: "source-changed" }),
+			submit: () => Promise.resolve(job),
+			jobStatus: () => Promise.resolve(job),
+		};
+		await monitorWorkspaceCache(operations, {
+			directory: "/repo",
+			maxFiles: 10,
+			maxSymbolsPerFile: 10,
+			pollIntervalMs: 1,
+			maxPolls: 2,
+			shouldContinue: () => true,
+			onState: (state) => states.push(state.status),
+		});
+		expect(states).toEqual(["not-cached", "finished-caching", "partial"]);
 	});
 
 	it("stops after maxPolls instead of polling forever", async () => {
