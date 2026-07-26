@@ -68,8 +68,7 @@ export const RUST_DESCRIPTOR: LanguageServerDescriptor = {
 	args: [],
 	rootMarkers: ["Cargo.toml"],
 	commonSeedCandidates: ["src/main.rs", "src/lib.rs"],
-	// A query under ~800ms after didOpen can return a null result; 2500ms holds a real margin.
-	settleMs: 2500,
+	settleMs: 5000,
 };
 
 export const CPP_DESCRIPTOR: LanguageServerDescriptor = {
