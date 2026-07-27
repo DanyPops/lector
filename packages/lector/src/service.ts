@@ -57,6 +57,7 @@ import type { WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
 import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
 import { assertBoundedSymbolQuery } from "./domain/symbol-query.ts";
 import type { TextSearchResult } from "./domain/text-search-result.ts";
+import { computeWorkspaceMap, type WorkspaceMapResult } from "./domain/workspace-map.ts";
 import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts";
 import type { SymbolSearchResult, WorkspaceLocation } from "./domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
@@ -240,7 +241,8 @@ export type OperationName =
 	| "workspace.listAnnotations"
 	| "workspace.refreshAnnotation"
 	| "workspace.scrubAnnotation"
-	| "workspace.restoreAnnotation";
+	| "workspace.restoreAnnotation"
+	| "workspace.map";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
@@ -278,6 +280,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.refreshAnnotation",
 	"workspace.scrubAnnotation",
 	"workspace.restoreAnnotation",
+	"workspace.map",
 ];
 
 /** A single position within a file already registered under `workspaceId`, 1-indexed. */
@@ -352,6 +355,7 @@ export interface OperationInputs {
 	};
 	"workspace.scrubAnnotation": { workspaceId: WorkspaceId; id: AnnotationId };
 	"workspace.restoreAnnotation": { workspaceId: WorkspaceId; id: AnnotationId };
+	"workspace.map": { workspaceId: WorkspaceId; maxNodes: number; maxEdges: number; maxEntries: number; maxBytes: number };
 }
 
 type Provenanced<T> = T & { readonly provenance: IntelligenceProvenance };
@@ -392,6 +396,7 @@ export interface OperationOutputs {
 	"workspace.refreshAnnotation": { annotation: SymbolAnnotation | undefined };
 	"workspace.scrubAnnotation": { scrubbed: boolean };
 	"workspace.restoreAnnotation": { restored: boolean };
+	"workspace.map": WorkspaceMapResult;
 }
 
 /**
@@ -1192,6 +1197,17 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return { restored: await store.restore(input.id) };
 	}
 
+	async function workspaceMapHandler(registry: MutableRegistry, input: OperationInputs["workspace.map"]): Promise<OperationOutputs["workspace.map"]> {
+		const workspace = resolveWorkspace(registry, input.workspaceId);
+		const graph = ensureSymbolGraph(input.workspaceId);
+		return computeWorkspaceMap(graph, workspace, {
+			maxNodes: input.maxNodes,
+			maxEdges: input.maxEdges,
+			maxEntries: input.maxEntries,
+			maxBytes: input.maxBytes,
+		});
+	}
+
 	const handlers: OperationHandlers = {
 		"workspace.rawRead": (registry, input) => rawRead(resolveWorkspace(registry, input.workspaceId), input.path),
 		"workspace.exactEdit": (registry, input) => {
@@ -1231,6 +1247,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.refreshAnnotation": refreshAnnotationHandler,
 		"workspace.scrubAnnotation": scrubAnnotationHandler,
 		"workspace.restoreAnnotation": restoreAnnotationHandler,
+		"workspace.map": workspaceMapHandler,
 	};
 
 	return {
