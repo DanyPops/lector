@@ -12,6 +12,13 @@ export interface SymbolNode {
 
 export type SymbolEdgeKind = "calls" | "references" | "contains";
 
+/** One recorded edge, denormalized for bulk export -- symbol-graph-port's other methods only ever answer "who does X point to/from", never "give me every edge". */
+export interface SymbolEdgeRecord {
+	readonly from: SymbolNodeId;
+	readonly to: SymbolNodeId;
+	readonly kind: SymbolEdgeKind;
+}
+
 /**
  * SymbolGraphPort -- a persisted, queryable graph of symbol relationships,
  * populated by a batch indexing pass rather than answered live per query,
@@ -31,5 +38,9 @@ export interface SymbolGraphPort {
 	reachableFrom(id: SymbolNodeId, options: { maxDepth: number; kind?: SymbolEdgeKind }): Promise<readonly SymbolNodeId[]>;
 	getGeneration(): Promise<SymbolGraphGeneration | undefined>;
 	setGeneration(generation: SymbolGraphGeneration): Promise<void>;
+	/** Every node, bounded to maxNodes -- for whole-graph analyses (e.g. ranking) that genuinely need every node, unlike every other query here which starts from one id. */
+	allNodes(maxNodes: number): Promise<readonly SymbolNode[]>;
+	/** Every edge, bounded to maxEdges. */
+	allEdges(maxEdges: number): Promise<readonly SymbolEdgeRecord[]>;
 	close(): Promise<void>;
 }

@@ -172,6 +172,34 @@ export function runSymbolGraphPortConformanceSuite(name: string, harness: Symbol
 				expect(await graph.getGeneration()).toEqual(generation);
 			}));
 
+		it("allNodes returns every added node, and allEdges returns every added edge", () =>
+			withGraph(async (graph) => {
+				await graph.addNode(node("a", "a"));
+				await graph.addNode(node("b", "b"));
+				await graph.addEdge("a", "b", "calls");
+
+				const nodes = await graph.allNodes(10);
+				expect(nodes.map((n) => n.id).sort()).toEqual(["a", "b"]);
+				const edges = await graph.allEdges(10);
+				expect(edges).toEqual([{ from: "a", to: "b", kind: "calls" }]);
+			}));
+
+		it("allNodes/allEdges are bounded by maxNodes/maxEdges", () =>
+			withGraph(async (graph) => {
+				for (const id of ["a", "b", "c"]) await graph.addNode(node(id, id));
+				await graph.addEdge("a", "b", "calls");
+				await graph.addEdge("b", "c", "calls");
+
+				expect((await graph.allNodes(2)).length).toBe(2);
+				expect((await graph.allEdges(1)).length).toBe(1);
+			}));
+
+		it("allNodes/allEdges return empty arrays for a graph with nothing added, not an error", () =>
+			withGraph(async (graph) => {
+				expect(await graph.allNodes(10)).toEqual([]);
+				expect(await graph.allEdges(10)).toEqual([]);
+			}));
+
 		it("does not let edges/nodes touching one graph affect a separately created one", () =>
 			withGraph(async (graphA) => {
 				await withGraph(async (graphB) => {

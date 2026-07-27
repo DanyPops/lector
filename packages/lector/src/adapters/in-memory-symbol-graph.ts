@@ -1,7 +1,7 @@
 import Graph from "graphology";
 import type { SymbolGraphGeneration } from "../domain/symbol-graph-generation.ts";
 import type { SymbolNodeId } from "../domain/symbol-node-id.ts";
-import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "../ports/symbol-graph-port.ts";
+import type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "../ports/symbol-graph-port.ts";
 
 /**
  * In-memory SymbolGraphPort for tests and small/ephemeral workspaces,
@@ -62,6 +62,19 @@ export class InMemorySymbolGraph implements SymbolGraphPort {
 			frontier = next;
 		}
 		return Array.from(reached);
+	}
+
+	async allNodes(maxNodes: number): Promise<readonly SymbolNode[]> {
+		return Array.from(this.nodes.values()).slice(0, maxNodes);
+	}
+
+	async allEdges(maxEdges: number): Promise<readonly SymbolEdgeRecord[]> {
+		const records: SymbolEdgeRecord[] = [];
+		for (const edgeKey of this.graph.edges()) {
+			if (records.length >= maxEdges) break;
+			records.push({ from: this.graph.source(edgeKey), to: this.graph.target(edgeKey), kind: this.graph.getEdgeAttribute(edgeKey, "kind") as SymbolEdgeKind });
+		}
+		return records;
 	}
 
 	async getGeneration(): Promise<SymbolGraphGeneration | undefined> {

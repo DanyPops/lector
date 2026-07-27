@@ -21,6 +21,7 @@
 		"@yarnpkg/parsers": "^3.0.3",
 		"fetch-retry": "^6.0.0",
 		"graphology": "^0.26.0",
+		"graphology-metrics": "^2.4.0",
 		"jsonc-parser": "^3.3.1",
 		"lru-cache": "^11.5.2",
 		"pyright": "^1.1.411",
