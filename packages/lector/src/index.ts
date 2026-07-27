@@ -47,6 +47,11 @@ export {
 } from "./client.ts";
 export { resolveLectorPaths } from "./constants.ts";
 export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
+export {
+	type ApplyPatchRequest,
+	applyPatch,
+	PatchRejected,
+} from "./domain/apply-patch.ts";
 export { assertSafeGitArgument, UnsafeGitArgument } from "./domain/assert-safe-git-argument.ts";
 export { assertSafeGlobPattern, UnsafeGlobPattern } from "./domain/assert-safe-glob-pattern.ts";
 export { assertSafePathSegment, UnsafePathSegment } from "./domain/assert-safe-path-segment.ts";
@@ -177,6 +182,11 @@ export type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./domain/symbo
 export { deriveSymbolNodeId, type SymbolNodeId } from "./domain/symbol-node-id.ts";
 export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./domain/symbol-query.ts";
 export type { TextSearchMatch, TextSearchResult } from "./domain/text-search-result.ts";
+export {
+	InvalidUnifiedDiff,
+	parseUnifiedDiff,
+	type UnifiedDiffHunk,
+} from "./domain/unified-diff.ts";
 export type { WorkspaceMapEntry, WorkspaceMapOptions, WorkspaceMapResult } from "./domain/workspace-map.ts";
 export { computeWorkspaceMap } from "./domain/workspace-map.ts";
 export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";

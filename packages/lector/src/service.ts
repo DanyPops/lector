@@ -18,6 +18,7 @@ import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "./adapters/source-manifest.ts";
 import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "./adapters/typescript-compiler-symbol-index.ts";
+import { applyPatch, PatchRejected } from "./domain/apply-patch.ts";
 import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
@@ -214,6 +215,7 @@ export type OperationName =
 	| "workspace.rawRead"
 	| "workspace.exactEdit"
 	| "workspace.lineEdit"
+	| "workspace.applyPatch"
 	| "workspace.registerPath"
 	| "workspace.findSymbols"
 	| "workspace.goToDefinition"
@@ -254,6 +256,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
 	"workspace.exactEdit",
 	"workspace.lineEdit",
+	"workspace.applyPatch",
 	"workspace.registerPath",
 	"workspace.findSymbols",
 	"workspace.goToDefinition",
@@ -303,6 +306,7 @@ export interface OperationInputs {
 	"workspace.rawRead": { workspaceId: WorkspaceId; path: string };
 	"workspace.exactEdit": { workspaceId: WorkspaceId } & ExpectedHashEdit;
 	"workspace.lineEdit": { workspaceId: WorkspaceId; path: string; edits: readonly LineEdit[] };
+	"workspace.applyPatch": { workspaceId: WorkspaceId; path: string; expectedHash: ContentHash; patchText: string };
 	"workspace.registerPath": { path: string };
 	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string; maxResults?: number; responseFormat?: ResponseFormat };
 	"workspace.goToDefinition": WorkspacePosition;
@@ -375,6 +379,7 @@ export interface OperationOutputs {
 	"workspace.rawRead": RawRead;
 	"workspace.exactEdit": EditOutcome;
 	"workspace.lineEdit": LineEditOutcome;
+	"workspace.applyPatch": EditOutcome;
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
 	"workspace.findSymbols": SymbolSearchResult;
 	"workspace.goToDefinition": Provenanced<{ locations: readonly WorkspaceLocation[] }>;
@@ -1250,6 +1255,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.lineEdit": (registry, input) => {
 			return lineEdit(resolveWorkspace(registry, input.workspaceId), { path: input.path, edits: input.edits });
 		},
+		"workspace.applyPatch": (registry, input) => {
+			return applyPatch(resolveWorkspace(registry, input.workspaceId), { path: input.path, expectedHash: input.expectedHash, patchText: input.patchText });
+		},
 		"workspace.registerPath": registerPath,
 		"workspace.findSymbols": findSymbols,
 		"workspace.goToDefinition": goToDefinition,
@@ -1324,4 +1332,4 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 }
 
 export { JobCapacityExceeded, JobNotFound } from "./domain/bounded-job-executor.ts";
-export { LineEditRace, LineEditRejected, StaleExpectedHash, WorkspaceEntryNotFound };
+export { LineEditRace, LineEditRejected, PatchRejected, StaleExpectedHash, WorkspaceEntryNotFound };

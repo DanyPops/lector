@@ -33,6 +33,10 @@ const USAGE = `Usage:
   lector workspace register <dir> [--json]
   lector workspace read <workspace-id> <path> [--json]
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
+  lector workspace apply-patch <workspace-id> <path> --patch <unified-diff-text> --expected-hash <hash> [--json]
+    applies real unified-diff hunks (as diff -u / git diff produce), whole-file guarded --
+    hunk context is searched for near its own line-number hint, tolerating a file that
+    shifted slightly since the patch was generated, not trusted as an exact offset
   lector workspace line-edit <workspace-id> <path> --edits <json> [--json]
     --edits is a JSON array of LineEdit objects ({kind:"replace",startLine,endLine,
     expectedStartHash,expectedEndHash,lines} | {kind:"insertBefore"|"insertAfter",atLine,
@@ -889,6 +893,19 @@ async function runWorkspaceLineEdit(workspaceId: string | undefined, path: strin
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.path}: ${result.previousHash} -> ${result.newHash}`);
 }
 
+async function runWorkspaceApplyPatch(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const patchText = flagValue(flags, "--patch");
+	if (patchText === undefined) fail("lector workspace apply-patch requires --patch <unified-diff-text>");
+	const expectedHashFlag = flagValue(flags, "--expected-hash");
+	if (expectedHashFlag === undefined) fail("lector workspace apply-patch requires --expected-hash <hash>");
+	const expectedHash = expectedHashFlag as ContentHash;
+
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.applyPatch", { workspaceId, path, expectedHash, patchText });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.path}: ${result.previousHash} -> ${result.newHash}`);
+}
+
 /**
  * systemd user-unit lifecycle (`install|start|stop|restart|status`) for a
  * persistent Lector daemon. `install` always runs `serve
@@ -993,6 +1010,7 @@ async function main(): Promise<void> {
 		if (action === "read") return runWorkspaceRead(workspaceId, path, flags);
 		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
 		if (action === "line-edit") return runWorkspaceLineEdit(workspaceId, path, flags);
+		if (action === "apply-patch") return runWorkspaceApplyPatch(workspaceId, path, flags);
 		if (action === "symbols") return runWorkspaceSymbols(workspaceId, path, flags);
 		if (action === "search-text") return runWorkspaceSearchText(workspaceId, path, flags);
 		if (action === "find-files") return runWorkspaceFindFiles(workspaceId, actionArgs.slice(1));

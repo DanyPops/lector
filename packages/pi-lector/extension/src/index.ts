@@ -1,8 +1,10 @@
 import { resolve } from "node:path";
 import type {
 	CallHierarchyEntry,
+	ContentHash,
 	Diagnostic,
 	DocumentSymbolEntry,
+	EditOutcome,
 	FindFilesResult,
 	GitDiffResult,
 	GitLogEntry,
@@ -28,6 +30,8 @@ import type {
 import { createEditToolDefinition, createReadToolDefinition, createWriteToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { createLectorApplyPatchOperations } from "./apply-patch-operations.ts";
+import { formatApplyPatchCall, formatApplyPatchResult } from "./apply-patch-rendering.ts";
 import { createLectorCodeIntelligenceOperations } from "./code-intelligence-operations.ts";
 import {
 	describePopulateSymbolGraphJob,
@@ -1167,6 +1171,52 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { result?: LineEditOutcome } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatLineEditResult(details?.result, theme));
+				return text;
+			},
+		});
+
+		const applyPatchOperations = createLectorApplyPatchOperations();
+		pi.registerTool({
+			name: "apply_patch",
+			label: "Apply Patch",
+			description:
+				"Applies a real unified diff (as `diff -u` / `git diff` produce) to a file, guarded by the whole-file hash you last observed there -- distinct from line_edit's per-line guards and the generic edit tool's plain replace. Hunk context is searched for near its own line-number hint rather than trusted as an exact offset, so the patch still applies correctly even if the file shifted slightly (e.g. unrelated lines added elsewhere) since the diff was generated.",
+			promptSnippet: "Apply a real unified diff to a file, whole-file hash guarded",
+			promptGuidelines: [
+				"Use apply_patch when you already have a unified diff (e.g. from a prior read's content, or produced by a diffing step) rather than reconstructing the full post-patch content yourself for the generic edit tool.",
+				"If a hunk's context can no longer be found, the file has drifted too far from what the patch assumed -- re-read the file and regenerate the patch, the same response as a stale hash on any other Lector edit tool.",
+			],
+			parameters: Type.Object({
+				path: Type.String({ description: "Absolute or workspace-relative path to the file to patch" }),
+				expectedHash: Type.String({ description: "The whole-file hash you last observed at path (from a prior read)" }),
+				patchText: Type.String({
+					description: "Real unified-diff text with one or more @@ hunks (--- / +++ file-header lines are optional and ignored if present)",
+				}),
+			}),
+			async execute(_toolCallId, params) {
+				const absolutePath = resolve(cwd, params.path);
+				// TypeBox has no concept of Lector's branded ContentHash -- the daemon's own domain
+				// validation is the real runtime check regardless of what TypeScript sees here.
+				const result = await applyPatchOperations.applyPatch(absolutePath, params.expectedHash as ContentHash, params.patchText);
+				return { content: [{ type: "text", text: `${result.path}: ${result.previousHash ?? "(new)"} -> ${result.newHash}` }], details: { result } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatApplyPatchCall(args as { path?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Applying patch..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "apply_patch failed"), 0, 0);
+				}
+				const details = result.details as { result?: EditOutcome } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatApplyPatchResult(details?.result, theme));
 				return text;
 			},
 		});
