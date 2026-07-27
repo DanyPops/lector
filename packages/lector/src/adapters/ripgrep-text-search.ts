@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { assertSafeSearchQuery } from "../domain/assert-safe-search-query.ts";
+import { SKIP_DIRECTORY_NAMES } from "../domain/skip-directories.ts";
 import type { TextSearchMatch, TextSearchResult } from "../domain/text-search-result.ts";
 import type { TextSearchOptions, TextSearchPort } from "../ports/text-search-port.ts";
-import { SKIP_DIRECTORY_NAMES } from "./find-source-files.ts";
 
 // ripgrep only skips a directory automatically when a real .gitignore names it -- verified
 // empirically (a fixture with no .gitignore let a bare `rg` search node_modules freely).

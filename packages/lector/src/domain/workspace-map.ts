@@ -2,6 +2,7 @@ import Graph from "graphology";
 import pagerank from "graphology-metrics/centrality/pagerank";
 import type { SymbolGraphPort, SymbolNode } from "../ports/symbol-graph-port.ts";
 import type { WorkspacePort } from "../ports/workspace-port.ts";
+import { pathHasSkippedDirectorySegment } from "./skip-directories.ts";
 
 export interface WorkspaceMapOptions {
 	/** Bounds the raw fetch from the graph before ranking -- see SymbolGraphPort.allNodes/allEdges. */
@@ -43,7 +44,15 @@ export interface WorkspaceMapResult {
  * miss the transitive effect of being called by something itself central).
  */
 export async function computeWorkspaceMap(graph: SymbolGraphPort, workspace: WorkspacePort, options: WorkspaceMapOptions): Promise<WorkspaceMapResult> {
-	const [nodes, edges] = await Promise.all([graph.allNodes(options.maxNodes), graph.allEdges(options.maxEdges)]);
+	const [allFetchedNodes, edges] = await Promise.all([graph.allNodes(options.maxNodes), graph.allEdges(options.maxEdges)]);
+	// node_modules/vendored declarations reach the graph only as outgoingCalls edge targets
+	// (the file scan itself never lists them) -- keep them in SymbolGraphPort for other features
+	// that legitimately need them (reachable_from, incoming_calls), but excluding them from
+	// ranking entirely: many unrelated call sites across a real codebase all point at the same
+	// shared stdlib method, which would otherwise dominate PageRank and crowd out the workspace's
+	// own architecturally-central symbols -- exactly the effect aider's own repo-map avoids by
+	// scoping ranking to the project's own files.
+	const nodes = allFetchedNodes.filter((node) => !pathHasSkippedDirectorySegment(node.location.path));
 	if (nodes.length === 0) return { entries: [], totalRanked: 0, truncated: false };
 
 	const rankGraph = new Graph({ type: "directed", multi: true, allowSelfLoops: true });

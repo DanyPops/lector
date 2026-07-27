@@ -32,6 +32,28 @@ describe("computeWorkspaceMap", () => {
 		expect(names.indexOf("central")).toBeLessThan(names.indexOf("leaf"));
 	});
 
+	it("excludes a node_modules/vendored declaration from ranking, even though many domain call sites point at it", async () => {
+		const graph = new InMemorySymbolGraph();
+		const workspace = new InMemoryWorkspace();
+		// A stdlib-shaped node reached only as an outgoingCalls edge target, never scanned directly --
+		// exactly how lib.es5.d.ts's Array.push showed up in a real workspace map run.
+		await seedNode(graph, "push", "push", "node_modules/typescript/lib/lib.es5.d.ts", 1347);
+		await seedNode(graph, "domainCentral", "domainCentral", "a.ts", 1);
+		await seedNode(graph, "domainLeaf", "domainLeaf", "a.ts", 2);
+		for (const callerId of ["c1", "c2", "c3"]) {
+			await seedNode(graph, callerId, callerId, "a.ts", 3);
+			await graph.addEdge(callerId, "domainCentral", "calls");
+			// Every caller also calls the same shared vendored method -- this is the exact pollution
+			// pattern found live: many unrelated call sites converging on one stdlib declaration.
+			await graph.addEdge(callerId, "push", "calls");
+		}
+
+		const result = await computeWorkspaceMap(graph, workspace, DEFAULT_OPTIONS);
+		const names = result.entries.map((e) => e.name);
+		expect(names).not.toContain("push");
+		expect(names.indexOf("domainCentral")).toBeLessThan(names.indexOf("domainLeaf"));
+	});
+
 	it("attaches the real current source line as the signature", async () => {
 		const graph = new InMemorySymbolGraph();
 		const workspace = new InMemoryWorkspace();
