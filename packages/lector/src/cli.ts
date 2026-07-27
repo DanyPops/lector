@@ -60,6 +60,9 @@ const USAGE = `Usage:
   lector workspace annotation restore <workspace-id> <annotation-id> [--json]
   lector workspace has-warm-index <workspace-id> [--json]
     never spawns a symbol index -- reports whether one is already warm
+  lector workspace map <workspace-id> --max-nodes <n> --max-edges <n> --max-entries <n> --max-bytes <n> [--json]
+    ranked, budget-bounded workspace summary (aider-repomap-shaped): the most structurally
+    central symbols by PageRank over the populated graph, signature-only, highest-ranked first
   lector workspace cache-status <workspace-id> --max-files <n> --max-symbols-per-file <n> [--json]
   lector workspace git-status <workspace-id> [--json]
   lector workspace git-log <workspace-id> --max-count <n> [--json]
@@ -430,6 +433,29 @@ async function runWorkspaceCacheStatus(workspaceId: string | undefined, flags: s
 	else if (status.status === "caching") console.log(`caching -- job ${status.jobId}`);
 	else if (status.status === "partial") console.log(`partially cached -- ${formatPopulationResult(status.generation.result)}`);
 	else console.log(`cached -- completed ${new Date(status.generation.completedAt).toISOString()}`);
+}
+
+async function runWorkspaceMap(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const maxNodes = requiredIntFlag(flags, "--max-nodes");
+	const maxEdges = requiredIntFlag(flags, "--max-edges");
+	const maxEntries = requiredIntFlag(flags, "--max-entries");
+	const maxBytes = requiredIntFlag(flags, "--max-bytes");
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.map", { workspaceId, maxNodes, maxEdges, maxEntries, maxBytes });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	if (result.entries.length === 0) {
+		console.log("no ranked symbols (has the graph been populated for this workspace?)");
+		return;
+	}
+	for (const entry of result.entries) {
+		const signature = entry.signature ? ` -- ${entry.signature}` : "";
+		console.log(`${entry.score.toFixed(4)}  ${entry.kind} ${entry.name}  ${entry.path}:${entry.line}:${entry.character}${signature}`);
+	}
+	if (result.truncated) console.log(`... truncated (${result.totalRanked} ranked total)`);
 }
 
 async function runWorkspaceHasWarmIndex(workspaceId: string | undefined, flags: string[]): Promise<void> {
@@ -936,6 +962,10 @@ async function main(): Promise<void> {
 		if (action === "cache-status") {
 			const [cacheWorkspaceId, ...cacheFlags] = actionArgs;
 			return runWorkspaceCacheStatus(cacheWorkspaceId, cacheFlags);
+		}
+		if (action === "map") {
+			const [mapWorkspaceId, ...mapFlags] = actionArgs;
+			return runWorkspaceMap(mapWorkspaceId, mapFlags);
 		}
 		if (action === "git-status" || action === "git-log" || action === "git-diff") {
 			// None of these take a <path> positional -- the generic [workspaceId, path, ...flags]
