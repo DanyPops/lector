@@ -9,6 +9,7 @@ import type {
 	PopulateSymbolGraphResult,
 	SymbolNode,
 	WorkspaceLocation,
+	WorkspaceMapResult,
 } from "@danypops/lector";
 import { keyHint, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { colorForKind, formatLocation, type LectorTheme } from "./lector-tui-theme.ts";
@@ -237,5 +238,33 @@ export function formatReachableFromResult(symbols: readonly SymbolNode[] | undef
 
 	const remaining = symbols.length - displayCount;
 	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
+	return lines.join("\n");
+}
+
+export function formatWorkspaceMapCall(args: { path?: unknown; maxEntries?: unknown }, theme: LectorTheme): string {
+	const path = typeof args.path === "string" ? args.path : "";
+	const maxEntries = typeof args.maxEntries === "number" ? ` (top ${args.maxEntries})` : "";
+	return `${theme.fg("toolTitle", theme.bold("workspace_map"))} ${theme.fg("dim", path)}${theme.fg("muted", maxEntries)}`;
+}
+
+export function formatWorkspaceMapResult(result: WorkspaceMapResult | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!result || result.entries.length === 0) return theme.fg("dim", "No ranked symbols (has the graph been populated for this workspace?).");
+
+	const displayCount = expanded ? result.entries.length : Math.min(result.entries.length, DEFAULT_VISIBLE_SYMBOLS);
+	const lines = [
+		theme.fg(
+			"muted",
+			`${result.entries.length} of ${result.totalRanked} ranked symbol${result.totalRanked === 1 ? "" : "s"}, most structurally central first:`,
+		),
+	];
+	for (const entry of result.entries.slice(0, displayCount)) {
+		const signature = entry.signature ? ` -- ${entry.signature}` : "";
+		lines.push(
+			`  ${theme.fg(colorForKind(entry.kind), entry.kind)} ${theme.bold(entry.name)}  ${formatLocation(theme, entry.path, entry.line, entry.character)}${signature}`,
+		);
+	}
+	const remaining = displayCount - result.entries.length;
+	if (remaining < 0) lines.push(theme.fg("dim", `... ${-remaining} more (${keyHint("app.tools.expand", "to expand")})`));
+	if (result.truncated) lines.push(theme.fg("warning", "budget-truncated -- raise --max-entries/--max-bytes for more"));
 	return lines.join("\n");
 }

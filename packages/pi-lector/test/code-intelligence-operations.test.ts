@@ -174,6 +174,23 @@ describe("Lector-backed code-intelligence operations", () => {
 		expect(reachable.some((symbol) => symbol.name === "add")).toBe(true);
 	}, 20_000);
 
+	it("populateSymbolGraph and workspaceMap rank a real graph, most-called symbol first", async () => {
+		const daemon = startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const ops = createLectorCodeIntelligenceOperations();
+		await ops.populateSymbolGraph(mathFile, 100, 50, 20_000);
+
+		// add is called twice by addTwice -- it should rank above addTwice itself, which nothing calls.
+		const map = await ops.workspaceMap(mathFile, 1_000, 1_000, 100, 1_000_000);
+		const names = map.entries.map((entry) => entry.name);
+		expect(names.indexOf("add")).toBeLessThan(names.indexOf("addTwice"));
+		expect(map.entries.find((entry) => entry.name === "add")?.signature).toContain("add");
+	}, 20_000);
+
 	it("populateSymbolGraph returns a pollable job immediately instead of blocking on a cold language server", async () => {
 		const daemon = startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;

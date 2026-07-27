@@ -5,7 +5,7 @@
  * theme approach: asserts on the actual rendered text, no ANSI noise.
  */
 import { describe, expect, it } from "bun:test";
-import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, SymbolNode, WorkspaceLocation } from "@danypops/lector";
+import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, SymbolNode, WorkspaceLocation, WorkspaceMapResult } from "@danypops/lector";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import {
 	formatDiagnosticsCall,
@@ -28,6 +28,8 @@ import {
 	formatPrepareCallHierarchyResult,
 	formatReachableFromCall,
 	formatReachableFromResult,
+	formatWorkspaceMapCall,
+	formatWorkspaceMapResult,
 } from "../extension/src/code-intelligence-rendering.ts";
 import type { LectorTheme } from "../extension/src/lector-tui-theme.ts";
 
@@ -379,5 +381,38 @@ describe("formatReachableFromCall/Result", () => {
 		const text = formatReachableFromResult([symbolNode({ name: "b" }), symbolNode({ name: "c" })], false, plainTheme);
 		expect(text).toContain("b");
 		expect(text).toContain("c");
+	});
+});
+
+describe("formatWorkspaceMapCall/Result", () => {
+	function mapResult(overrides: Partial<WorkspaceMapResult> = {}): WorkspaceMapResult {
+		return {
+			entries: [{ name: "central", kind: "function", path: "src/math.ts", line: 1, character: 17, score: 0.5, signature: "export function central() {}" }],
+			totalRanked: 1,
+			truncated: false,
+			...overrides,
+		};
+	}
+
+	it("shows the tool name, path, and requested entry count", () => {
+		const text = formatWorkspaceMapCall({ path: "src/math.ts", maxEntries: 20 }, plainTheme);
+		expect(text).toContain("workspace_map");
+		expect(text).toContain("src/math.ts");
+		expect(text).toContain("20");
+	});
+
+	it("shows a clear message when nothing is ranked", () => {
+		expect(formatWorkspaceMapResult({ entries: [], totalRanked: 0, truncated: false }, false, plainTheme)).toContain("No ranked symbols");
+	});
+
+	it("lists each ranked entry with its signature", () => {
+		const text = formatWorkspaceMapResult(mapResult(), false, plainTheme);
+		expect(text).toContain("central");
+		expect(text).toContain("export function central() {}");
+	});
+
+	it("notes budget truncation distinctly from display-count truncation", () => {
+		const text = formatWorkspaceMapResult(mapResult({ truncated: true }), false, plainTheme);
+		expect(text).toContain("budget-truncated");
 	});
 });

@@ -29,6 +29,7 @@ export interface CodeIntelligenceOperations {
 	reachableFrom(path: string, line: number, character: number, maxDepth: number, kind?: SymbolEdgeKind): Promise<readonly SymbolNode[]>;
 	/** Never spawns a symbol index -- safe to call opportunistically (e.g. before deciding whether to enrich a result). */
 	hasWarmIndex(path: string): Promise<boolean>;
+	workspaceMap(path: string, maxNodes: number, maxEdges: number, maxEntries: number, maxBytes: number): Promise<OperationOutputs["workspace.map"]>;
 }
 
 export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperations {
@@ -150,6 +151,15 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 					const client = await lectorClient();
 					const { warm } = await client.call("workspace.hasWarmIndex", { workspaceId });
 					return warm;
+				},
+			);
+		},
+		async workspaceMap(path, maxNodes, maxEdges, maxEntries, maxBytes) {
+			return withWorkspace(
+				() => workspaceForCodeIntelligencePath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					return client.call("workspace.map", { workspaceId, maxNodes, maxEdges, maxEntries, maxBytes });
 				},
 			);
 		},

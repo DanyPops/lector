@@ -19,6 +19,7 @@ import type {
 	SymbolSearchResult,
 	TextSearchResult,
 	WorkspaceLocation,
+	WorkspaceMapResult,
 	WorkspaceQueryOutcome,
 } from "@danypops/lector";
 import { createEditToolDefinition, createReadToolDefinition, createWriteToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -49,6 +50,8 @@ import {
 	formatPrepareCallHierarchyResult,
 	formatReachableFromCall,
 	formatReachableFromResult,
+	formatWorkspaceMapCall,
+	formatWorkspaceMapResult,
 } from "./code-intelligence-rendering.ts";
 import { createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-search-operations.ts";
 import { formatCrossWorkspaceCall, formatFindSymbolsAcrossProjectsResult, formatSearchTextAcrossProjectsResult } from "./cross-workspace-search-rendering.ts";
@@ -827,6 +830,57 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { symbols?: readonly SymbolNode[] } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatReachableFromResult(details?.symbols, expanded, theme));
+				return text;
+			},
+		});
+
+		pi.registerTool({
+			name: "workspace_map",
+			label: "Workspace Map",
+			description:
+				"A ranked, budget-bounded summary of the workspace's most structurally central symbols (aider-repomap-shaped) -- signature-only, highest-ranked first by PageRank over the populated call/reference graph, not full file dumps. Use when orienting in an unfamiliar or large codebase instead of reading many files one by one. Requires populate_symbol_graph to have been run for this workspace first; returns empty otherwise.",
+			promptSnippet: "Get a ranked, signature-only overview of the workspace's most central symbols",
+			promptGuidelines: [
+				"Prefer this over reading many files to get oriented in a large or unfamiliar codebase -- it surfaces the most-referenced symbols first, not an arbitrary file order.",
+				"A budget-truncated result means real symbols were left out, not that the workspace only has this many -- raise maxEntries/maxBytes for more.",
+			],
+			parameters: Type.Object({
+				path: Type.String({ description: "Absolute or cwd-relative path used to resolve which workspace to map" }),
+				maxNodes: Type.Number({ description: "Bounds the raw fetch from the graph before ranking" }),
+				maxEdges: Type.Number({ description: "Bounds the raw fetch from the graph before ranking" }),
+				maxEntries: Type.Number({ description: "Hard cap on the number of ranked entries returned" }),
+				maxBytes: Type.Number({ description: "Soft byte budget -- stops adding entries once exceeded, even under maxEntries" }),
+			}),
+			async execute(_toolCallId, params) {
+				const path = resolve(cwd, params.path);
+				const result = await codeIntelligenceOperations.workspaceMap(path, params.maxNodes, params.maxEdges, params.maxEntries, params.maxBytes);
+				const text =
+					result.entries.length === 0
+						? "No ranked symbols (has the graph been populated for this workspace?)."
+						: result.entries
+								.map(
+									(entry) => `${entry.kind} ${entry.name} -- ${entry.path}:${entry.line}:${entry.character}${entry.signature ? ` -- ${entry.signature}` : ""}`,
+								)
+								.join("\n");
+				return { content: [{ type: "text", text }], details: { result } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatWorkspaceMapCall(args as { path?: unknown; maxEntries?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Ranking workspace symbols..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "workspace_map failed"), 0, 0);
+				}
+				const details = result.details as { result?: WorkspaceMapResult } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatWorkspaceMapResult(details?.result, expanded, theme));
 				return text;
 			},
 		});
