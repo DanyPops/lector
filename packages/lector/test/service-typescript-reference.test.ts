@@ -27,7 +27,11 @@ describe("TypeScript/JavaScript reference service and authenticated client", () 
 		service = createLectorService(new Map(), { allowDynamicOnly: true });
 		const isolated = isolatedLectorPaths();
 		const token = ensureAuthToken(isolated.paths.token, "Lector");
-		const daemon = startDaemon({ daemonLabel: "Lector", handlePath: isolated.paths.handle, buildApp: () => buildLectorApp(service as LectorService, token) });
+		const daemon = await startDaemon({
+			daemonLabel: "Lector",
+			handlePath: isolated.paths.handle,
+			buildApp: () => buildLectorApp(service as LectorService, token),
+		});
 		stop = async () => {
 			await daemon.stop();
 			isolated.cleanup();

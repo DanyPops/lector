@@ -19,7 +19,7 @@ afterEach(async () => {
 
 describe("Lector-backed line-edit operations", () => {
 	it("applies a real hash-guarded line edit via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-line-edit-fixture-"));
@@ -37,7 +37,7 @@ describe("Lector-backed line-edit operations", () => {
 	}, 20_000);
 
 	it("rejects a stale hash with a clear, actionable error, without writing anything", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-line-edit-fixture-"));
@@ -55,7 +55,7 @@ describe("Lector-backed line-edit operations", () => {
 	}, 20_000);
 
 	it("inserts a new line before an anchor via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-line-edit-fixture-"));

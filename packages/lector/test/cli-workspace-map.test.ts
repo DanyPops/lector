@@ -56,7 +56,7 @@ async function runCli(args: readonly string[]): Promise<string> {
 describe("lector CLI workspace map", () => {
 	it("ranks a real LSP-populated graph and bounds the result to --max-entries", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
 		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
 		await runCli(["workspace", "populate-symbol-graph", registered.workspaceId, "--max-files", "10", "--max-symbols-per-file", "10", "--json"]);

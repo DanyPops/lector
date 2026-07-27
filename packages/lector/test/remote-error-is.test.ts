@@ -22,7 +22,7 @@ afterEach(() => {
 describe("remoteErrorIs", () => {
 	it("recognizes a StaleExpectedHash raised by the daemon and received over HTTP", async () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
-		const daemon = startLectorDaemon({ workspaces: new Map([["main", new InMemoryWorkspace()]]), paths });
+		const daemon = await startLectorDaemon({ workspaces: new Map([["main", new InMemoryWorkspace()]]), paths });
 		cleanup = () => {
 			void daemon.stop();
 			cleanupPaths();
@@ -50,7 +50,7 @@ describe("remoteErrorIs", () => {
 
 	it("does not match a different error name", async () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
-		const daemon = startLectorDaemon({ workspaces: new Map([["main", new InMemoryWorkspace()]]), paths });
+		const daemon = await startLectorDaemon({ workspaces: new Map([["main", new InMemoryWorkspace()]]), paths });
 		cleanup = () => {
 			void daemon.stop();
 			cleanupPaths();

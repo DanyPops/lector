@@ -43,7 +43,7 @@ describe("TypeScript/JavaScript reference CLI parity", () => {
 	it("preserves bounded semantic provenance in JSON and human output", async () => {
 		isolated = isolatedLectorPaths();
 		fixture = materializeTypeScriptReferenceFixture();
-		daemon = startLectorDaemon({ workspaces: new Map(), allowDynamicOnly: true, paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map(), allowDynamicOnly: true, paths: isolated.paths });
 		const registration = JSON.parse(await runCli(["workspace", "register", fixture.root, "--json"])) as { workspaceId: string };
 
 		const json = JSON.parse(await runCli(["workspace", "symbols", registration.workspaceId, "runCheckout", "--json"])) as SymbolSearchResult;
@@ -80,7 +80,7 @@ describe("TypeScript/JavaScript reference CLI parity", () => {
 		writeFileSync(join(fixture.root, "polyglot.py"), "def polyglot_python() -> None:\n    pass\n");
 		writeFileSync(join(fixture.root, "go.mod"), "module fixture/polyglot\n\ngo 1.22\n");
 		writeFileSync(join(fixture.root, "polyglot.go"), "package polyglot\n\nfunc PolyglotGo() {}\n");
-		daemon = startLectorDaemon({ workspaces: new Map(), allowDynamicOnly: true, paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map(), allowDynamicOnly: true, paths: isolated.paths });
 		const registration = JSON.parse(await runCli(["workspace", "register", fixture.root, "--json"])) as { workspaceId: string };
 
 		const json = JSON.parse(await runCli(["workspace", "symbols", registration.workspaceId, "polyglot", "--json"])) as SymbolSearchResult;

@@ -20,25 +20,25 @@ describe("LectorFilesystemPort", () => {
 		root = undefined;
 	});
 
-	function port(): LectorFilesystemPort {
-		const daemon = startIsolatedLectorDaemon();
+	async function port(): Promise<LectorFilesystemPort> {
+		const daemon = await startIsolatedLectorDaemon();
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		stop = daemon.stop;
 		root = mkdtempSync(join(tmpdir(), "alef-lector-fs-test-"));
 		return new LectorFilesystemPort(root);
 	}
 
-	it("reports version 1", () => {
-		expect(port().version).toBe(1);
+	it("reports version 1", async () => {
+		expect((await port()).version).toBe(1);
 	});
 
 	it("a path that was never written does not exist", async () => {
-		const entry = await port().readEntry("never-written.txt");
+		const entry = await (await port()).readEntry("never-written.txt");
 		expect(entry.exists).toBe(false);
 	});
 
 	it("writing with expectedHash null creates a new entry, then a real read reflects it", async () => {
-		const p = port();
+		const p = await port();
 		const result = await p.writeEntry("new.txt", null, "hello");
 		expect(result.previousHash).toBeNull();
 		expect(result.newHash).toMatch(/^[0-9a-f]{64}$/);
@@ -46,13 +46,13 @@ describe("LectorFilesystemPort", () => {
 	});
 
 	it("writing with expectedHash null a second time rejects -- the entry already exists", async () => {
-		const p = port();
+		const p = await port();
 		await p.writeEntry("dup.txt", null, "first");
 		await expect(p.writeEntry("dup.txt", null, "second")).rejects.toThrow(StaleWorkspaceWrite);
 	});
 
 	it("writing with the correct observed hash overwrites; a stale hash rejects and leaves the entry unchanged", async () => {
-		const p = port();
+		const p = await port();
 		const first = await p.writeEntry("overwrite.txt", null, "v1");
 		const second = await p.writeEntry("overwrite.txt", first.newHash, "v2");
 		expect(second.previousHash).toBe(first.newHash);

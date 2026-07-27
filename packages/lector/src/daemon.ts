@@ -142,8 +142,15 @@ function prepare(options: LectorDaemonOptions): {
 	};
 }
 
-/** In-process entry point: no signal wiring, returns a stoppable handle. Used by tests and embedders. */
-export function startLectorDaemon(options: LectorDaemonOptions): RunningDaemon {
+/**
+ * In-process entry point: no signal wiring, returns a stoppable handle. Used by tests and
+ * embedders. Deliberately not an `async function`: prepare(options) below still throws
+ * synchronously to the immediate caller on zero registered workspaces (see
+ * daemon-startup-validation.test.ts), before this function ever returns a Promise at all --
+ * wrapping the body in `async` would convert that synchronous throw into a rejected Promise
+ * instead, a real behavior change, not just a type-signature one.
+ */
+export function startLectorDaemon(options: LectorDaemonOptions): Promise<RunningDaemon> {
 	const { paths, app, onShutdown, maintenanceTasks } = prepare(options);
 	return startDaemon({
 		daemonLabel: "Lector",

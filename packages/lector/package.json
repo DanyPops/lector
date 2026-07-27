@@ -17,7 +17,7 @@
 		"bench:cold-start": "bun benchmarks/language-server-cold-start.ts"
 	},
 	"dependencies": {
-		"@danypops/daemon-kit": "^0.3.2",
+		"@danypops/daemon-kit": "^0.14.0",
 		"@yarnpkg/parsers": "^3.0.3",
 		"fetch-retry": "^6.0.0",
 		"graphology": "^0.26.0",

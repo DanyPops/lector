@@ -40,7 +40,7 @@ function buildRepo(): string {
 
 describe("Lector-backed git operations", () => {
 	it("status reports a real modified file via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		repoRoot = buildRepo();
@@ -53,7 +53,7 @@ describe("Lector-backed git operations", () => {
 	}, 20_000);
 
 	it("log returns a real commit via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		repoRoot = buildRepo();
@@ -66,7 +66,7 @@ describe("Lector-backed git operations", () => {
 	}, 20_000);
 
 	it("diff shows a real uncommitted change via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		repoRoot = buildRepo();

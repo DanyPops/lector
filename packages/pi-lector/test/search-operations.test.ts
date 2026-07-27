@@ -19,7 +19,7 @@ afterEach(async () => {
 
 describe("Lector-backed search operations", () => {
 	it("finds a real match via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-search-fixture-"));
@@ -33,7 +33,7 @@ describe("Lector-backed search operations", () => {
 	}, 20_000);
 
 	it("signals truncation rather than silently returning a partial result", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-search-fixture-"));

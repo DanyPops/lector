@@ -76,7 +76,7 @@ async function registerAndPopulate(): Promise<{ workspaceId: string; path: strin
 describe("lector CLI annotation commands", () => {
 	it("creates, gets, lists, refreshes, scrubs, and restores an annotation end-to-end against a real daemon", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const { workspaceId, path, line, character } = await registerAndPopulate();
 		const anchor = `${path}:${line}:${character}`;
 
@@ -139,7 +139,7 @@ describe("lector CLI annotation commands", () => {
 
 	it("accepts a workspace-relative --anchor path, resolving to the same symbol as the absolute form", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const { workspaceId, path, line, character } = await registerAndPopulate();
 
 		const createdViaAbsolute = JSON.parse(
@@ -185,7 +185,7 @@ describe("lector CLI annotation commands", () => {
 
 	it("rejects an --anchor that does not resolve to any known symbol, with a non-zero exit", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
 		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
 		await runCli(["workspace", "populate-symbol-graph", registered.workspaceId, "--max-files", "10", "--max-symbols-per-file", "10", "--json"]);

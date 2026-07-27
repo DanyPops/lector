@@ -51,7 +51,7 @@ async function realAnchor(mathFile: string): Promise<{ path: string; line: numbe
 
 describe("Lector-backed annotation operations", () => {
 	it("creates, gets, lists, refreshes, scrubs, and restores an annotation via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root, mathFile } = buildProjectFixture();
@@ -82,7 +82,7 @@ describe("Lector-backed annotation operations", () => {
 	}, 20_000);
 
 	it("rejects an anchor that does not resolve to a real symbol", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root, mathFile } = buildProjectFixture();

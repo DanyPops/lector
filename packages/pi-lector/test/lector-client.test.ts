@@ -32,7 +32,7 @@ function fakeRepo(prefix: string): string {
 
 describe("workspaceForPath", () => {
 	it("registers a distinct project root exactly once, even across many calls for different files in it", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		let registerCalls = 0;
 		const countingClient: LectorClient = {
 			...daemon.client,
@@ -60,7 +60,7 @@ describe("workspaceForPath", () => {
 		"two files under two different repos resolve to two different workspaces in the same running session -- " +
 			"the exact shape of the bug this fixes (previously hard-locked to one session-wide cwd)",
 		async () => {
-			const daemon = startIsolatedLectorDaemon();
+			const daemon = await startIsolatedLectorDaemon();
 			setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
 			const repoA = fakeRepo("pi-lector-repo-a-");
@@ -83,7 +83,7 @@ describe("workspaceForPath", () => {
 
 describe("workspaceForDirectory", () => {
 	it("resolves a directory to the same workspace as a file inside it via workspaceForPath", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
 		const repo = fakeRepo("pi-lector-dir-");
@@ -100,7 +100,7 @@ describe("workspaceForDirectory", () => {
 
 describe("workspaceForPath vs. workspaceForDirectory fallback when no git repo is found", () => {
 	it("workspaceForPath falls back to the filesystem root -- any absolute path is fair game for read/write/edit", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
 		const plainDir = mkdtempSync(join(tmpdir(), "pi-lector-no-git-"));
@@ -114,7 +114,7 @@ describe("workspaceForPath vs. workspaceForDirectory fallback when no git repo i
 	});
 
 	it("workspaceForDirectory falls back to the directory itself, never the filesystem root -- a symbol query must not widen to the whole disk", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
 		const plainDir = mkdtempSync(join(tmpdir(), "pi-lector-no-git-"));
@@ -128,7 +128,7 @@ describe("workspaceForPath vs. workspaceForDirectory fallback when no git repo i
 	});
 
 	it("workspaceForCodeIntelligencePath falls back to the file's own containing directory, never the filesystem root -- every code-intelligence operation spawns a real language server, unlike read/write/edit", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
 		const plainDir = mkdtempSync(join(tmpdir(), "pi-lector-no-git-"));
@@ -174,7 +174,7 @@ describe("lectorClient recovers from a stale cached connection", () => {
 	}
 
 	it("reconnects and retries once when the cached client's connection is stale, succeeding transparently", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		let connectorCalls = 0;
 		setLectorClientConnectorForTests(() => {
 			connectorCalls++;
@@ -229,7 +229,7 @@ describe("withWorkspace recovers from a stale cached workspaceId", () => {
 	// cached id fails with UnknownWorkspace even though nothing about the files on disk
 	// changed.
 	it("re-registers and retries once on UnknownWorkspace, succeeding transparently", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const repo = fakeRepo("pi-lector-stale-workspace-");
 		try {
@@ -252,7 +252,7 @@ describe("withWorkspace recovers from a stale cached workspaceId", () => {
 	});
 
 	it("does not retry a different error -- fails immediately rather than masking it", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const repo = fakeRepo("pi-lector-other-error-");
 		try {
@@ -274,7 +274,7 @@ describe("withWorkspace recovers from a stale cached workspaceId", () => {
 	});
 
 	it("gives up after one retry if UnknownWorkspace persists, rather than retrying forever", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const repo = fakeRepo("pi-lector-persistent-stale-");
 		try {

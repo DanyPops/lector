@@ -51,7 +51,7 @@ function buildProjectFixture(): { root: string; mathFile: string; brokenFile: st
 
 describe("Lector-backed code-intelligence operations", () => {
 	it("documentSymbols lists a real file's declarations via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root, mathFile } = buildProjectFixture();
@@ -67,7 +67,7 @@ describe("Lector-backed code-intelligence operations", () => {
 	}, 20_000);
 
 	it("hover returns real type information for a known declaration", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root, mathFile } = buildProjectFixture();
@@ -83,7 +83,7 @@ describe("Lector-backed code-intelligence operations", () => {
 	}, 20_000);
 
 	it("goToDefinition and findReferences resolve real positions, not placeholders", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root, mathFile } = buildProjectFixture();
@@ -105,7 +105,7 @@ describe("Lector-backed code-intelligence operations", () => {
 	}, 20_000);
 
 	it("goToImplementation crosses an interface/implementation boundary that goToDefinition cannot", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root } = buildProjectFixture();
@@ -125,7 +125,7 @@ describe("Lector-backed code-intelligence operations", () => {
 	}, 20_000);
 
 	it("diagnostics reports a real type error via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root, brokenFile } = buildProjectFixture();
@@ -140,7 +140,7 @@ describe("Lector-backed code-intelligence operations", () => {
 	}, 20_000);
 
 	it("prepareCallHierarchy, incomingCalls, and outgoingCalls resolve a real call relationship via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root, mathFile } = buildProjectFixture();
@@ -161,7 +161,7 @@ describe("Lector-backed code-intelligence operations", () => {
 	}, 20_000);
 
 	it("populateSymbolGraph and reachableFrom answer a real multi-hop question via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root, mathFile } = buildProjectFixture();
@@ -180,7 +180,7 @@ describe("Lector-backed code-intelligence operations", () => {
 	}, 20_000);
 
 	it("populateSymbolGraph and workspaceMap rank a real graph, most-called symbol first", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root, mathFile } = buildProjectFixture();
@@ -197,7 +197,7 @@ describe("Lector-backed code-intelligence operations", () => {
 	}, 20_000);
 
 	it("populateSymbolGraph returns a pollable job immediately instead of blocking on a cold language server", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root, mathFile } = buildProjectFixture();
@@ -211,7 +211,7 @@ describe("Lector-backed code-intelligence operations", () => {
 	}, 20_000);
 
 	it("hasWarmIndex reports false before any query and true after, without itself causing a spawn", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const { root, mathFile } = buildProjectFixture();

@@ -20,14 +20,14 @@ import {
  * dependency (and the version-skew/structural-type-mismatch risk that
  * would come with a second, independently-resolved copy of it).
  */
-export function startIsolatedLectorDaemon(
+export async function startIsolatedLectorDaemon(
 	options: { createRepoFetcher?: () => RepoFetcherPort; createPackageSourceResolver?: () => PackageSourceResolverPort } = {},
-): { client: LectorClient; stop: () => Promise<void> } {
+): Promise<{ client: LectorClient; stop: () => Promise<void> }> {
 	const root = mkdtempSync(join(tmpdir(), "pi-lector-test-"));
 	const paths = resolveLectorPaths({
 		env: { XDG_DATA_HOME: root, XDG_STATE_HOME: root, XDG_RUNTIME_DIR: root, XDG_CONFIG_HOME: root },
 	});
-	const daemon = startLectorDaemon({
+	const daemon = await startLectorDaemon({
 		workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]),
 		paths,
 		createRepoFetcher: options.createRepoFetcher,

@@ -54,7 +54,7 @@ async function runCli(args: readonly string[]): Promise<string> {
 describe("lector CLI --response-format", () => {
 	it("workspace symbols narrows provenance under --response-format concise, keeps the full shape by default", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
 		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
 
@@ -73,7 +73,7 @@ describe("lector CLI --response-format", () => {
 
 	it("rejects an invalid --response-format value with a clear error and non-zero exit", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
 		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
 

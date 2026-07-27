@@ -54,7 +54,7 @@ async function runCli(args: readonly string[]): Promise<string> {
 describe("lector CLI line-edit", () => {
 	it("replaces a single hash-guarded line end to end", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
 		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
 
@@ -72,7 +72,7 @@ describe("lector CLI line-edit", () => {
 
 	it("rejects a stale hash with a non-zero exit, without writing anything", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
 		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
 
@@ -87,7 +87,7 @@ describe("lector CLI line-edit", () => {
 
 	it("requires --edits, with a non-zero exit", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
 		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
 

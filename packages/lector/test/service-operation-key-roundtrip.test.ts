@@ -22,7 +22,7 @@ afterEach(() => {
 
 async function bootDaemon(workspaces: LectorDaemonOptions["workspaces"]) {
 	const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
-	const daemon = startLectorDaemon({ workspaces, paths });
+	const daemon = await startLectorDaemon({ workspaces, paths });
 	const token = readFileSync(paths.token, "utf8").trim();
 	const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${daemon.host}:${daemon.port}`, token, {
 		label: "Lector",

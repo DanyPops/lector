@@ -29,7 +29,7 @@ afterEach(async () => {
 
 describe("TypeScript/JavaScript reference Pi operations", () => {
 	it("preserves semantic provenance through operations and bounded rendering", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		fixture = materializeTypeScriptReferenceGitFixture();

@@ -28,7 +28,7 @@ afterEach(async () => {
 
 describe("Lector-backed read tool", () => {
 	it("returns the real content of a file registered from the tool's cwd", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 

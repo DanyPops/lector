@@ -37,7 +37,7 @@ function fakeRepo(prefix: string): string {
 
 describe("one session, two unrelated repositories", () => {
 	it("reads a file from a completely different repository than wherever the session started, in the same tool instance", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
@@ -56,7 +56,7 @@ describe("one session, two unrelated repositories", () => {
 	});
 
 	it("edits files in two different repositories using the same long-lived Operations instance", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 

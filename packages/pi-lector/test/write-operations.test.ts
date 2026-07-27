@@ -27,7 +27,7 @@ afterEach(async () => {
 
 describe("Lector-backed write tool", () => {
 	it("retries transparently past one interposing external change and lands its own content", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-write-race-"));
@@ -63,7 +63,7 @@ describe("Lector-backed write tool", () => {
 	});
 
 	it("gives up after a bounded number of attempts rather than retrying forever", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-write-persistent-race-"));

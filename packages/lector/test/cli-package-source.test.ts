@@ -66,7 +66,7 @@ describe("lector CLI package-source parity", () => {
 		projectRoot = mkdtempSync(join(tmpdir(), "lector-cli-package-project-"));
 		sourceRoot = mkdtempSync(join(tmpdir(), "lector-cli-package-source-"));
 		writeFileSync(join(sourceRoot, "index.ts"), "export const widget = 1;\n");
-		daemon = startLectorDaemon({
+		daemon = await startLectorDaemon({
 			workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]),
 			paths: isolated.paths,
 			createPackageSourceResolver: () => new FixedResolver(),

@@ -24,7 +24,7 @@ afterEach(async () => {
 
 describe("Lector-backed edit tool", () => {
 	it("commits normally when nothing changed the file between read and write", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
@@ -40,7 +40,7 @@ describe("Lector-backed edit tool", () => {
 	});
 
 	it("fails with a clear error, and leaves the interposing change on disk, when the file changed since it was read", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 

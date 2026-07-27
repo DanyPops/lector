@@ -46,7 +46,7 @@ describe("workspace.registerPath", () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
 		cleanupFns.push(cleanupPaths);
 
-		const firstDaemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths });
+		const firstDaemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths });
 		const firstService = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]));
 		const beforeRestart = await firstService.dispatch("workspace.registerPath", { path: projectDir });
 		await firstDaemon.stop();
@@ -78,7 +78,7 @@ describe("workspace.registerPath", () => {
 		await writeFile(join(projectDir, "existing.txt"), "already on disk");
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
 		cleanupFns.push(cleanupPaths);
-		const daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths });
+		const daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths });
 		cleanupFns.push(() => daemon.stop());
 
 		const token = readFileSync(paths.token, "utf8").trim();
@@ -104,7 +104,7 @@ describe("workspace.registerPath", () => {
 		await writeFile(join(projectDir, "existing.txt"), "already on disk");
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
 		cleanupFns.push(cleanupPaths);
-		const daemon = startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
+		const daemon = await startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
 		cleanupFns.push(() => daemon.stop());
 
 		const token = readFileSync(paths.token, "utf8").trim();

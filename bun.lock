@@ -25,12 +25,12 @@
     },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.1.12",
+      "version": "0.1.14",
       "bin": {
         "lector": "src/cli.ts",
       },
       "dependencies": {
-        "@danypops/daemon-kit": "^0.3.2",
+        "@danypops/daemon-kit": "^0.14.0",
         "@yarnpkg/parsers": "^3.0.3",
         "fetch-retry": "^6.0.0",
         "graphology": "^0.26.0",
@@ -145,7 +145,7 @@
 
     "@danypops/alef-lector": ["@danypops/alef-lector@workspace:packages/alef-lector"],
 
-    "@danypops/daemon-kit": ["@danypops/daemon-kit@0.3.2", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "typescript": "^5" } }, "sha512-M9/XJ/rzxpaYcf8RwSURpRifezx4CLBYW4wmmJgEL7Bigu8RRw+SQ9gmW8HvL+7hch43AVIFmMpV5FlBaMMOsQ=="],
+    "@danypops/daemon-kit": ["@danypops/daemon-kit@0.14.0", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typescript": "^5" }, "optionalPeers": ["@earendil-works/pi-coding-agent"] }, "sha512-UuEn1by8wEQUnq75dqIqLqie7GQY3NvfQAhN4Uy585VmDnNgWicSlENYG5ZvRHLFUd83bCifx5tGHLZL70V9Iw=="],
 
     "@danypops/lector": ["@danypops/lector@workspace:packages/lector"],
 

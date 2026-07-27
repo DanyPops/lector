@@ -19,7 +19,7 @@ afterEach(async () => {
 
 describe("Lector-backed find-files operations", () => {
 	it("finds real files by glob pattern via a running Lector daemon", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-files-fixture-"));
@@ -35,7 +35,7 @@ describe("Lector-backed find-files operations", () => {
 	}, 20_000);
 
 	it("signals truncation rather than silently returning a partial result", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-files-fixture-"));

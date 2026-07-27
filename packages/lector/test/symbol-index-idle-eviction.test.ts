@@ -96,7 +96,7 @@ describe("daemon's periodic idle-eviction maintenance task", () => {
 		const token = ensureAuthToken(paths.token, "Lector");
 		const app = buildLectorApp(service, token);
 		const idleTtlMs = 20;
-		const daemon = startDaemon({
+		const daemon = await startDaemon({
 			daemonLabel: "Lector",
 			handlePath: paths.handle,
 			buildApp: () => app,

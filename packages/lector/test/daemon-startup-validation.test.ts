@@ -40,7 +40,7 @@ describe("startLectorDaemon", () => {
 	it("starts normally and writes a real handle once at least one workspace is registered", async () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
 		const { InMemoryWorkspace } = await import("../src/adapters/in-memory-workspace.ts");
-		const daemon = startLectorDaemon({ workspaces: new Map([["main", new InMemoryWorkspace()]]), paths });
+		const daemon = await startLectorDaemon({ workspaces: new Map([["main", new InMemoryWorkspace()]]), paths });
 		cleanup = () => {
 			void daemon.stop();
 			cleanupPaths();
@@ -51,9 +51,9 @@ describe("startLectorDaemon", () => {
 		expect(handle?.port).toBe(daemon.port);
 	});
 
-	it("starts with zero workspaces when allowDynamicOnly is explicitly set -- the guard requires an explicit opt-in, not silent loosening", () => {
+	it("starts with zero workspaces when allowDynamicOnly is explicitly set -- the guard requires an explicit opt-in, not silent loosening", async () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
-		const daemon = startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
+		const daemon = await startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
 		cleanup = () => {
 			void daemon.stop();
 			cleanupPaths();

@@ -56,7 +56,7 @@ async function runCli(args: readonly string[]): Promise<string> {
 describe("lector CLI find-files", () => {
 	it("lists real files matching a single glob pattern", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
 		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
 
@@ -70,7 +70,7 @@ describe("lector CLI find-files", () => {
 
 	it("OR's multiple --pattern flags together", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
 		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
 
@@ -96,7 +96,7 @@ describe("lector CLI find-files", () => {
 
 	it("requires at least one --pattern, with a non-zero exit", async () => {
 		isolated = isolatedLectorPaths();
-		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
 		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
 

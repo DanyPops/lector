@@ -26,7 +26,7 @@ function buildDir(fileName: string, content: string): string {
 
 describe("Lector-backed cross-workspace search operations", () => {
 	it("searchText finds real matches independently in each explicitly-named directory", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const dirA = buildDir("a.txt", "hello world\n");
@@ -43,7 +43,7 @@ describe("Lector-backed cross-workspace search operations", () => {
 	}, 20_000);
 
 	it("only searches the explicitly-named directories, isolated from the daemon's own bootstrap workspace", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		const dirA = buildDir("a.txt", "hello world\n");

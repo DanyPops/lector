@@ -39,7 +39,7 @@ describe("Lector-backed package source operation", () => {
 	it("resolves through the authenticated daemon and returns a registered read-only workspace", async () => {
 		sourceRoot = mkdtempSync(join(tmpdir(), "pi-lector-package-source-"));
 		writeFileSync(join(sourceRoot, "index.ts"), "export const widget = 1;\n");
-		const daemon = startIsolatedLectorDaemon({ createPackageSourceResolver: () => new FixedResolver() });
+		const daemon = await startIsolatedLectorDaemon({ createPackageSourceResolver: () => new FixedResolver() });
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 

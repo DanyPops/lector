@@ -33,7 +33,7 @@ function clientFor(host: string, port: number, token: string) {
 describe("workspace.findSymbols", () => {
 	it("requires a workspace registered via workspace.registerPath, not a statically-declared one", async () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
-		const daemon = startLectorDaemon({ workspaces: new Map([["static", new InMemoryWorkspace()]]), paths });
+		const daemon = await startLectorDaemon({ workspaces: new Map([["static", new InMemoryWorkspace()]]), paths });
 		cleanup = () => {
 			void daemon.stop();
 			cleanupPaths();
@@ -65,7 +65,7 @@ describe("workspace.findSymbols", () => {
 		const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]), options);
 		const token = ensureAuthToken(paths.token, "Lector");
 		const app = buildLectorApp(service, token);
-		const daemon = startDaemon({ daemonLabel: "Lector", handlePath: paths.handle, buildApp: () => app });
+		const daemon = await startDaemon({ daemonLabel: "Lector", handlePath: paths.handle, buildApp: () => app });
 		cleanup = () => {
 			void service.close().then(() => daemon.stop());
 			cleanupPaths();
@@ -90,7 +90,7 @@ describe("workspace.findSymbols", () => {
 		const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]));
 		const token = ensureAuthToken(paths.token, "Lector");
 		const app = buildLectorApp(service, token);
-		const daemon = startDaemon({ daemonLabel: "Lector", handlePath: paths.handle, buildApp: () => app });
+		const daemon = await startDaemon({ daemonLabel: "Lector", handlePath: paths.handle, buildApp: () => app });
 		cleanup = () => {
 			void service.close().then(() => daemon.stop());
 			cleanupPaths();
@@ -126,7 +126,7 @@ describe("workspace.findSymbols", () => {
 		});
 		const token = ensureAuthToken(paths.token, "Lector");
 		const app = buildLectorApp(service, token);
-		const daemon = startDaemon({
+		const daemon = await startDaemon({
 			daemonLabel: "Lector",
 			handlePath: paths.handle,
 			buildApp: () => app,

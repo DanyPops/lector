@@ -35,7 +35,7 @@ afterEach(async () => {
 
 describe("Lector-backed find-symbols operation", () => {
 	it("finds a real symbol via a running Lector daemon with no seedFile given anywhere", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
@@ -53,7 +53,7 @@ describe("Lector-backed find-symbols operation", () => {
 	}, 20_000);
 
 	it('passes responseFormat through to the daemon, narrowing provenance under "concise"', async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
@@ -71,7 +71,7 @@ describe("Lector-backed find-symbols operation", () => {
 	}, 20_000);
 
 	it("returns an empty array for a query matching nothing, not an error", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
@@ -85,7 +85,7 @@ describe("Lector-backed find-symbols operation", () => {
 	}, 20_000);
 
 	it("searches whichever directory is given, and one Operations instance can search different directories across calls", async () => {
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 

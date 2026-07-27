@@ -20,7 +20,7 @@ afterEach(async () => {
 describe("Lector-backed apply-patch operations", () => {
 	it("applies a real unified diff via a running Lector daemon", async () => {
 		const { contentHashOf } = await import("@danypops/lector");
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-apply-patch-fixture-"));
@@ -37,7 +37,7 @@ describe("Lector-backed apply-patch operations", () => {
 
 	it("rejects a stale expected hash with a clear error, without writing anything", async () => {
 		const { contentHashOf } = await import("@danypops/lector");
-		const daemon = startIsolatedLectorDaemon();
+		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-apply-patch-fixture-"));

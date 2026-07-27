@@ -16,8 +16,8 @@ describe("LectorGitPort", () => {
 	let stop: (() => Promise<void>) | undefined;
 	let repoPath: string;
 
-	beforeEach(() => {
-		const daemon = startIsolatedLectorDaemon();
+	beforeEach(async () => {
+		const daemon = await startIsolatedLectorDaemon();
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 		stop = daemon.stop;
 		repoPath = mkdtempSync(join(tmpdir(), "alef-lector-git-test-"));

@@ -37,7 +37,7 @@ describe("symbol graph persistence across a real daemon restart", () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
 		cleanupFns.push(cleanupPaths);
 
-		const firstDaemon = startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
+		const firstDaemon = await startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
 		const token = readFileSync(paths.token, "utf8").trim();
 		const firstClient = client(firstDaemon, token);
 
@@ -53,7 +53,7 @@ describe("symbol graph persistence across a real daemon restart", () => {
 
 		// A brand-new daemon process pointed at the identical paths -- the real shape of a
 		// systemd restart, not just a new in-process service instance sharing JS heap state.
-		const secondDaemon = startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
+		const secondDaemon = await startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true });
 		cleanupFns.push(() => secondDaemon.stop());
 		const secondClient = client(secondDaemon, token);
 

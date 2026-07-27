@@ -72,7 +72,7 @@ describe("the real daemon enforces the same explicit-identity rule over HTTP", (
 	it("returns a client-visible error for an unregistered workspaceId instead of another workspace's data", async () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
 		const workspaces: LectorDaemonOptions["workspaces"] = new Map([["a", new InMemoryWorkspace()]]);
-		const daemon = startLectorDaemon({ workspaces, paths });
+		const daemon = await startLectorDaemon({ workspaces, paths });
 		cleanup = () => {
 			void daemon.stop();
 			cleanupPaths();

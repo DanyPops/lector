@@ -47,7 +47,7 @@ describe("Lector-backed repo_fetch operations", () => {
 	it("fetches a real repo via a running Lector daemon and returns a usable workspaceId", async () => {
 		sourceRepo = buildSourceRepo();
 		reposDir = mkdtempSync(join(tmpdir(), "pi-lector-repo-fetch-cache-"));
-		const daemon = startIsolatedLectorDaemon({
+		const daemon = await startIsolatedLectorDaemon({
 			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
 		});
 		stopDaemon = daemon.stop;
@@ -64,7 +64,7 @@ describe("Lector-backed repo_fetch operations", () => {
 	it("a second fetch of the same reference is served from cache", async () => {
 		sourceRepo = buildSourceRepo();
 		reposDir = mkdtempSync(join(tmpdir(), "pi-lector-repo-fetch-cache-"));
-		const daemon = startIsolatedLectorDaemon({
+		const daemon = await startIsolatedLectorDaemon({
 			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
 		});
 		stopDaemon = daemon.stop;
