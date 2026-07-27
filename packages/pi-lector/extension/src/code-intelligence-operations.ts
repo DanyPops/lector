@@ -1,4 +1,4 @@
-import type { JobSnapshot, OperationOutputs, PopulateSymbolGraphResult, SymbolEdgeKind, SymbolNode } from "@danypops/lector";
+import type { JobSnapshot, OperationInputs, OperationOutputs, PopulateSymbolGraphResult, SymbolEdgeKind, SymbolNode } from "@danypops/lector";
 import { lectorClient, withWorkspace, workspaceForCodeIntelligencePath } from "./lector-client.ts";
 
 /**
@@ -17,7 +17,13 @@ import { lectorClient, withWorkspace, workspaceForCodeIntelligencePath } from ".
 export interface CodeIntelligenceOperations {
 	goToDefinition(path: string, line: number, character: number): Promise<OperationOutputs["workspace.goToDefinition"]>;
 	goToImplementation(path: string, line: number, character: number): Promise<OperationOutputs["workspace.goToImplementation"]>;
-	findReferences(path: string, line: number, character: number, includeDeclaration: boolean): Promise<OperationOutputs["workspace.findReferences"]>;
+	findReferences(
+		path: string,
+		line: number,
+		character: number,
+		includeDeclaration: boolean,
+		responseFormat?: OperationInputs["workspace.findReferences"]["responseFormat"],
+	): Promise<OperationOutputs["workspace.findReferences"]>;
 	hover(path: string, line: number, character: number): Promise<OperationOutputs["workspace.hover"]>;
 	documentSymbols(path: string): Promise<OperationOutputs["workspace.documentSymbols"]>;
 	diagnostics(path: string): Promise<OperationOutputs["workspace.diagnostics"]>;
@@ -52,12 +58,12 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 				},
 			);
 		},
-		async findReferences(path, line, character, includeDeclaration) {
+		async findReferences(path, line, character, includeDeclaration, responseFormat) {
 			return withWorkspace(
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					return client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration });
+					return client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration, responseFormat });
 				},
 			);
 		},

@@ -186,10 +186,16 @@ export default function (pi: ExtensionAPI) {
 			parameters: Type.Object({
 				query: Type.String({ description: "Name or substring to search for, case-insensitive" }),
 				directory: Type.String({ description: "Directory of the project to search, absolute or relative to the current working directory" }),
+				responseFormat: Type.Optional(
+					Type.Union([Type.Literal("concise"), Type.Literal("detailed")], {
+						description:
+							'"concise" (default "detailed") drops containerName and per-symbol/top-level provenance detail to reduce payload size when you only need name/kind/location',
+					}),
+				),
 			}),
 			async execute(_toolCallId, params) {
 				const directory = resolve(cwd, params.directory);
-				const result = await findSymbolsOperations.findSymbols(params.query, directory);
+				const result = await findSymbolsOperations.findSymbols(params.query, directory, params.responseFormat);
 				const { symbols, provenance, truncated } = result;
 				const source = `${provenance.fidelity} via ${provenance.backend}${truncated ? " (truncated)" : ""}`;
 				const sourceDetails = describeFindSymbolSources(result);
@@ -317,10 +323,15 @@ export default function (pi: ExtensionAPI) {
 			parameters: Type.Object({
 				...positionParameters,
 				includeDeclaration: Type.Boolean({ description: "Include the declaration site itself among the results" }),
+				responseFormat: Type.Optional(
+					Type.Union([Type.Literal("concise"), Type.Literal("detailed")], {
+						description: '"concise" (default "detailed") narrows the provenance detail to reduce payload size',
+					}),
+				),
 			}),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const details = await codeIntelligenceOperations.findReferences(path, params.line, params.character, params.includeDeclaration);
+				const details = await codeIntelligenceOperations.findReferences(path, params.line, params.character, params.includeDeclaration, params.responseFormat);
 				const text = details.locations.length === 0 ? "No references found." : details.locations.map((l) => `${l.path}:${l.line}:${l.character}`).join("\n");
 				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
 			},

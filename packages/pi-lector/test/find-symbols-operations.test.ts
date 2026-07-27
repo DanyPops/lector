@@ -52,6 +52,24 @@ describe("Lector-backed find-symbols operation", () => {
 		expect(match?.kind).toBe("function");
 	}, 20_000);
 
+	it('passes responseFormat through to the daemon, narrowing provenance under "concise"', async () => {
+		const daemon = startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-find-symbols-response-format-"));
+		mkdirSync(join(projectDir, "src"));
+		writeFileSync(join(projectDir, "src", "index.ts"), "export function greetLoudly(name: string): string {\n\treturn name;\n}\n");
+
+		const ops = createLectorFindSymbolsOperations();
+		const detailed = await ops.findSymbols("greetLoudly", projectDir);
+		expect(detailed.provenance).toHaveProperty("languageId");
+
+		const concise = await ops.findSymbols("greetLoudly", projectDir, "concise");
+		expect(concise.provenance).not.toHaveProperty("languageId");
+		expect(concise.symbols.find((symbol) => symbol.name === "greetLoudly")).toMatchObject({ name: "greetLoudly", kind: "function" });
+	}, 20_000);
+
 	it("returns an empty array for a query matching nothing, not an error", async () => {
 		const daemon = startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;

@@ -1,4 +1,4 @@
-import type { SymbolSearchResult } from "@danypops/lector";
+import type { OperationInputs, SymbolSearchResult } from "@danypops/lector";
 import { lectorClient, withWorkspace, workspaceForDirectory } from "./lector-client.ts";
 
 /**
@@ -15,17 +15,17 @@ import { lectorClient, withWorkspace, workspaceForDirectory } from "./lector-cli
  * is no implicit fallback anywhere in this module.
  */
 export interface FindSymbolsOperations {
-	findSymbols(query: string, directory: string): Promise<SymbolSearchResult>;
+	findSymbols(query: string, directory: string, responseFormat?: OperationInputs["workspace.findSymbols"]["responseFormat"]): Promise<SymbolSearchResult>;
 }
 
 export function createLectorFindSymbolsOperations(): FindSymbolsOperations {
 	return {
-		async findSymbols(query, directory) {
+		async findSymbols(query, directory, responseFormat) {
 			return withWorkspace(
 				() => workspaceForDirectory(directory),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					return client.call("workspace.findSymbols", { workspaceId, query });
+					return client.call("workspace.findSymbols", { workspaceId, query, responseFormat });
 				},
 			);
 		},

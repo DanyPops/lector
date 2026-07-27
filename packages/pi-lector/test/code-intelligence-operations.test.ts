@@ -97,6 +97,11 @@ describe("Lector-backed code-intelligence operations", () => {
 		expect(definitions.locations[0]?.path).toBe(mathFile);
 		expect(references.locations.length).toBeGreaterThan(0);
 		expect(references.locations.some((location) => location.path === mathFile)).toBe(true);
+		expect(references.provenance).toHaveProperty("languageId");
+
+		const conciseReferences = await ops.findReferences(mathFile, 1, 17, true, "concise");
+		expect(conciseReferences.locations).toEqual(references.locations);
+		expect(conciseReferences.provenance).not.toHaveProperty("languageId");
 	}, 20_000);
 
 	it("goToImplementation crosses an interface/implementation boundary that goToDefinition cannot", async () => {
