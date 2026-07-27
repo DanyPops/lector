@@ -13,6 +13,7 @@ import type { JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { ContentHash } from "./domain/content-hash.ts";
 import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOperationResult } from "./domain/package-source.ts";
 import type { PopulateSymbolGraphResult } from "./domain/populate-symbol-graph.ts";
+import type { ResponseFormat } from "./domain/response-format.ts";
 import type { SymbolAnnotation } from "./domain/symbol-annotation.ts";
 import type { SymbolSearchResult } from "./domain/workspace-symbol.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
@@ -32,10 +33,11 @@ const USAGE = `Usage:
   lector workspace register <dir> [--json]
   lector workspace read <workspace-id> <path> [--json]
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
-  lector workspace symbols <workspace-id> <query> [--seed-file <path>] [--json]
+  lector workspace symbols <workspace-id> <query> [--seed-file <path>] [--response-format <concise|detailed>] [--json]
   lector workspace definition <workspace-id> <path> <line> <character> [--json]
   lector workspace implementation <workspace-id> <path> <line> <character> [--json]
-  lector workspace references <workspace-id> <path> <line> <character> [--include-declaration] [--json]
+  lector workspace references <workspace-id> <path> <line> <character> [--include-declaration]
+    [--response-format <concise|detailed>] [--json]
   lector workspace hover <workspace-id> <path> <line> <character> [--json]
   lector workspace document-symbols <workspace-id> <path> [--json]
   lector workspace diagnostics <workspace-id> <path> [--json]
@@ -155,11 +157,19 @@ function formatSymbolSources(result: SymbolSearchResult): readonly string[] {
 	});
 }
 
+function parseResponseFormat(flags: string[]): ResponseFormat | undefined {
+	const value = flagValue(flags, "--response-format");
+	if (value === undefined) return undefined;
+	if (value !== "concise" && value !== "detailed") fail(`--response-format must be "concise" or "detailed", got "${value}"`);
+	return value;
+}
+
 async function runWorkspaceSymbols(workspaceId: string | undefined, query: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !query) fail(USAGE);
 	const seedFile = flagValue(flags, "--seed-file"); // omit to auto-discover one
+	const responseFormat = parseResponseFormat(flags);
 	const client = await connectLectorClient();
-	const result = await client.call("workspace.findSymbols", { workspaceId, query, seedFile });
+	const result = await client.call("workspace.findSymbols", { workspaceId, query, seedFile, responseFormat });
 	if (hasFlag(flags, "--json")) {
 		console.log(JSON.stringify(result));
 		return;
@@ -232,8 +242,9 @@ async function runWorkspaceReferences(workspaceId: string | undefined, path: str
 	const [lineArg, characterArg, ...flags] = rest;
 	const { line, character } = parsePosition(lineArg, characterArg);
 	const includeDeclaration = hasFlag(flags, "--include-declaration");
+	const responseFormat = parseResponseFormat(flags);
 	const client = await connectLectorClient();
-	const result = await client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration });
+	const result = await client.call("workspace.findReferences", { workspaceId, path, line, character, includeDeclaration, responseFormat });
 	if (hasFlag(flags, "--json")) {
 		console.log(JSON.stringify(result));
 		return;

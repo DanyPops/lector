@@ -52,11 +52,11 @@ describe("responseFormat on workspace.findSymbols", () => {
 
 		const result = await service.dispatch("workspace.findSymbols", { workspaceId, query: "add", seedFile: "src/math.ts" });
 		const symbol = result.symbols.find((s) => s.name === "add");
-		expect(symbol).toHaveProperty("containerName");
+		expect(symbol).toMatchObject({ name: "add", kind: "method" });
 		expect(result.provenance).toHaveProperty("languageId");
 	});
 
-	it('"concise" strips containerName and narrows provenance, while keeping name/kind/location intact', async () => {
+	it('"concise" strips real per-symbol provenance and narrows top-level provenance, while keeping name/kind/location intact', async () => {
 		fixtureRoot = buildFixture();
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
