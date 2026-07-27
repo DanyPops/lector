@@ -51,8 +51,8 @@ export class FallbackCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 	hover(at: WorkspaceLocation): Promise<Hover | undefined> {
 		return this.primary.hover(at);
 	}
-	documentSymbols(path: string): Promise<DocumentSymbolEntry[]> {
-		return this.primary.documentSymbols(path);
+	documentSymbols(path: string, options?: { settleMs?: number }): Promise<DocumentSymbolEntry[]> {
+		return this.primary.documentSymbols(path, options);
 	}
 	diagnostics(path: string): Promise<Diagnostic[]> {
 		return this.primary.diagnostics(path);
@@ -63,8 +63,8 @@ export class FallbackCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 	incomingCalls(at: WorkspaceLocation): Promise<IncomingCall[]> {
 		return this.primary.incomingCalls(at);
 	}
-	outgoingCalls(at: WorkspaceLocation): Promise<OutgoingCall[]> {
-		return this.primary.outgoingCalls(at);
+	outgoingCalls(at: WorkspaceLocation, options?: { settleMs?: number }): Promise<OutgoingCall[]> {
+		return this.primary.outgoingCalls(at, options);
 	}
 	releaseFile(path: string): Promise<void> {
 		return this.primary.releaseFile?.(path) ?? Promise.resolve();

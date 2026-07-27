@@ -10,6 +10,19 @@ const CALLABLE_KINDS = new Set(["function", "method", "constructor"]);
 const MAX_RECORDED_FAILURES = 100;
 const MAX_FAILURE_MESSAGE_LENGTH = 500;
 
+/**
+ * Overrides LspSymbolIndex's normal post-open settle wait for this crawl's own
+ * documentSymbols/outgoingCalls calls specifically -- validated empirically, not
+ * guessed: real fixtures (a 25-file synthetic cross-file call chain and a 53-file
+ * slice of Lector's own production source, both exercising genuine cross-file
+ * outgoingCalls resolution) produced byte-identical results at zero settle versus
+ * the descriptor's normal default, across repeated runs, a 50-60x wall-clock
+ * speedup. This is specifically NOT validated for goToDefinition/hover -- see
+ * CodeIntelligencePort.documentSymbols's own doc comment for why those stay on
+ * the conservative default and must never adopt this constant.
+ */
+const POPULATION_SETTLE_MS = 0;
+
 export interface SymbolGraphPopulationFailure {
 	readonly path: string;
 	readonly operation: "document-symbols" | "outgoing-calls";
@@ -120,7 +133,7 @@ export async function populateSymbolGraph(
 		try {
 			let topLevel: DocumentSymbolEntry[];
 			try {
-				topLevel = await index.documentSymbols(file);
+				topLevel = await index.documentSymbols(file, { settleMs: POPULATION_SETTLE_MS });
 			} catch (error) {
 				recordFailure(file, "document-symbols", error);
 				continue;
@@ -142,7 +155,7 @@ export async function populateSymbolGraph(
 				if (CALLABLE_KINDS.has(entry.kind)) {
 					let callees: OutgoingCall[];
 					try {
-						callees = await index.outgoingCalls(location);
+						callees = await index.outgoingCalls(location, { settleMs: POPULATION_SETTLE_MS });
 					} catch (error) {
 						recordFailure(file, "outgoing-calls", error);
 						continue;

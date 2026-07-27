@@ -398,8 +398,28 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		return content.toString("utf-8");
 	}
 
-	/** Opens a file or sends a monotonic full-document change when its disk content changed since the prior query. */
-	private async ensureFileOpen(proc: LanguageServerProcess, path: string): Promise<void> {
+	/**
+	 * Opens a file or sends a monotonic full-document change when its disk content
+	 * changed since the prior query, then waits the settle period before returning.
+	 *
+	 * `settleMsOverride` lets a caller that has already validated correctness at its
+	 * own reduced settle time skip the descriptor's normal, more conservative default
+	 * -- see populateSymbolGraph's own use via documentSymbols/outgoingCalls's options.
+	 * Confirmed empirically (real fixtures, byte-identical results across repeated
+	 * runs at real scale) that a bulk documentSymbols+outgoingCalls crawl is correct
+	 * with zero settle even on a file never opened before; goToDefinition/hover are
+	 * NOT -- immediately after opening, they can return a shallow "import statement"
+	 * answer instead of following through to the real cross-file declaration, because
+	 * that resolution depends on the server having caught up on the imported file's
+	 * own analysis, which the settle wait is what actually buys. Never widen this
+	 * override to goToDefinition/hover/findReferences/diagnostics without repeating
+	 * that same validation -- it's a real, measured correctness boundary, not an
+	 * arbitrary one.
+	 */
+	private async ensureFileOpen(proc: LanguageServerProcess, path: string, settleMsOverride?: number): Promise<void> {
+		const settleMs = settleMsOverride ?? this.descriptor.settleMs ?? DEFAULT_SETTLE_MS;
+		if (!Number.isSafeInteger(settleMs) || settleMs < 0 || settleMs > MAX_SETTLE_MS)
+			throw new TypeError(`settleMs must be an integer from 0 through ${MAX_SETTLE_MS}`);
 		path = this.resolveTargetPath(path);
 		const content = this.readBoundedFile(path);
 		const opened = this.openedFiles.get(path);
@@ -424,7 +444,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			});
 			this.openedFiles.set(path, { version, content });
 		}
-		await new Promise((resolve) => setTimeout(resolve, this.descriptor.settleMs ?? DEFAULT_SETTLE_MS));
+		await new Promise((resolve) => setTimeout(resolve, settleMs));
 	}
 
 	/**
@@ -546,9 +566,9 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		return { contents: normalizeHoverContents(result.contents), range: result.range ? toCodeRange(at.path, result.range) : undefined };
 	}
 
-	async documentSymbols(path: string): Promise<DocumentSymbolEntry[]> {
+	async documentSymbols(path: string, options?: { settleMs?: number }): Promise<DocumentSymbolEntry[]> {
 		const proc = await this.ensureInitialized(path);
-		await this.ensureFileOpen(proc, path);
+		await this.ensureFileOpen(proc, path, options?.settleMs);
 		const results =
 			(await proc.request<(LspDocumentSymbol | LspSymbolInformation)[] | null>("textDocument/documentSymbol", {
 				textDocument: { uri: pathToFileURL(path).href },
@@ -564,8 +584,8 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	/** Raw LSP items, `data` intact -- callHierarchy/incomingCalls|outgoingCalls need the exact item prepareCallHierarchy returned, not a normalized copy. */
-	private async prepareCallHierarchyRaw(proc: LanguageServerProcess, at: WorkspaceLocation): Promise<LspCallHierarchyItem[]> {
-		await this.ensureFileOpen(proc, at.path);
+	private async prepareCallHierarchyRaw(proc: LanguageServerProcess, at: WorkspaceLocation, settleMsOverride?: number): Promise<LspCallHierarchyItem[]> {
+		await this.ensureFileOpen(proc, at.path, settleMsOverride);
 		const result = await proc.request<LspCallHierarchyItem[] | null>("textDocument/prepareCallHierarchy", {
 			textDocument: { uri: pathToFileURL(at.path).href },
 			position: toLspPosition(at.line, at.character),
@@ -590,9 +610,9 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		}));
 	}
 
-	async outgoingCalls(at: WorkspaceLocation): Promise<OutgoingCall[]> {
+	async outgoingCalls(at: WorkspaceLocation, options?: { settleMs?: number }): Promise<OutgoingCall[]> {
 		const proc = await this.ensureInitialized(at.path);
-		const root = (await this.prepareCallHierarchyRaw(proc, at))[0];
+		const root = (await this.prepareCallHierarchyRaw(proc, at, options?.settleMs))[0];
 		if (!root) return [];
 		const results = (await proc.request<LspCallHierarchyOutgoingCall[] | null>("callHierarchy/outgoingCalls", { item: root })) ?? [];
 		// fromRanges here are relative to `root` (the item passed to the request), per spec -- not `to`.

@@ -121,6 +121,50 @@ describe("populateSymbolGraph", () => {
 		expect(result.failures[0]?.message.length).toBeLessThanOrEqual(500);
 	});
 
+	it("crawls many real cross-file-calling files fast, without paying the interactive settle wait per file", async () => {
+		// Encodes a real, measured finding, not an assumption: real fixtures (25 and 53
+		// files, both with genuine cross-file outgoingCalls resolution) produced
+		// byte-identical results at zero settle versus the descriptor's normal 2000ms
+		// default, a 50-60x wall-clock speedup. This test uses the REAL, unmodified
+		// TYPESCRIPT_DESCRIPTOR (settleMs: 2000) specifically so it also proves
+		// populateSymbolGraph's own override is actually wired -- if it silently
+		// regressed back to the descriptor's default, this test's own elapsed-time
+		// assertion below would fail, not just run slower unnoticed.
+		const root = mkdtempSync(join(tmpdir(), "lector-symbol-graph-fast-crawl-"));
+		fixtureRoot = root;
+		writeFileSync(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true } }));
+		const fileCount = 10;
+		const files: string[] = [];
+		for (let n = 0; n < fileCount; n++) {
+			const next = n + 1;
+			const body =
+				next < fileCount
+					? `import { fn${next} } from "./f${next}.ts";\nexport function fn${n}(x: number): number {\n\treturn fn${next}(x) + 1;\n}\n`
+					: `export function fn${n}(x: number): number {\n\treturn x;\n}\n`;
+			const file = join(root, `f${n}.ts`);
+			writeFileSync(file, body);
+			files.push(file);
+		}
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "f0.ts");
+		graph = new InMemorySymbolGraph();
+
+		const startedAt = performance.now();
+		const result = await populateSymbolGraph(index, graph, files, 50);
+		const elapsedMs = performance.now() - startedAt;
+
+		expect(result.completeness).toBe("complete");
+		expect(result.filesFailed).toBe(0);
+		expect(result.filesProcessed).toBe(fileCount);
+		expect(result.symbolsProcessed).toBe(fileCount);
+		expect(result.edgesAdded).toBe(fileCount - 1); // one "calls" edge per link in the chain
+
+		// The old per-file-settle behavior would need at least fileCount * descriptor.settleMs
+		// (10 * 2000ms = 20s) just in sleep time, before any real LSP round trip. A generous
+		// but still discriminating bound: real, validated fast behavior finishes in low single
+		// digit seconds even under real test-runner load.
+		expect(elapsedMs).toBeLessThan(15_000);
+	}, 30_000);
+
 	it("releases each file after processing it, so a bulk crawl over more files than the open-file cap fully succeeds", async () => {
 		// Reproduces the real bug in miniature: 5 real files against a 2-slot open-file cap. Before
 		// releaseFile existed, this failed partway through with LanguageFileLimitExceeded and never

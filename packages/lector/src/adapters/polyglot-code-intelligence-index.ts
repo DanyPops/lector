@@ -117,8 +117,8 @@ export class PolyglotCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 		return this.indexForPath(at.path).hover(at);
 	}
 
-	documentSymbols(path: string): Promise<DocumentSymbolEntry[]> {
-		return this.indexForPath(path).documentSymbols(path);
+	documentSymbols(path: string, options?: { settleMs?: number }): Promise<DocumentSymbolEntry[]> {
+		return this.indexForPath(path).documentSymbols(path, options);
 	}
 
 	diagnostics(path: string): Promise<Diagnostic[]> {
@@ -133,8 +133,8 @@ export class PolyglotCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 		return this.indexForPath(at.path).incomingCalls(at);
 	}
 
-	outgoingCalls(at: WorkspaceLocation): Promise<OutgoingCall[]> {
-		return this.indexForPath(at.path).outgoingCalls(at);
+	outgoingCalls(at: WorkspaceLocation, options?: { settleMs?: number }): Promise<OutgoingCall[]> {
+		return this.indexForPath(at.path).outgoingCalls(at, options);
 	}
 
 	releaseFile(path: string): Promise<void> {

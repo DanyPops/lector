@@ -7,6 +7,7 @@ import { TreeSitterSymbolIndex } from "../../src/adapters/tree-sitter/typescript
 import { TypeScriptCompilerSymbolIndex } from "../../src/adapters/typescript-compiler-symbol-index.ts";
 import { documentSymbols } from "../../src/domain/document-symbols.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../src/domain/language-server-descriptor.ts";
+import { findPositionOf } from "../support/find-position.ts";
 import { materializeTypeScriptReferenceFixture, type TypeScriptReferenceFixture } from "../support/typescript-reference-fixture.ts";
 
 let fixture: TypeScriptReferenceFixture | undefined;
@@ -121,4 +122,45 @@ describe("TypeScript/JavaScript reference fixture boundaries", () => {
 
 		expect(() => new LspSymbolIndex(fixture?.root ?? "", { ...TYPESCRIPT_DESCRIPTOR, settleMs: 30_001 })).toThrow(TypeError);
 	});
+
+	it("documentSymbols honors a per-call settleMs override, correctly, for a file the server has never opened", async () => {
+		// This is the validated fast path populateSymbolGraph itself relies on
+		// (POPULATION_SETTLE_MS): a real, never-before-opened file answers documentSymbols
+		// correctly with zero settle wait, not just with the descriptor's normal default.
+		fixture = materializeTypeScriptReferenceFixture();
+		const seed = "packages/app/src/main.ts";
+		lsp = new LspSymbolIndex(fixture.root, TYPESCRIPT_DESCRIPTOR, seed);
+
+		const symbols = await lsp.documentSymbols(join(fixture.root, "packages/app/src/checkout.ts"), { settleMs: 0 });
+
+		expect(symbols.some((entry) => entry.name === "runCheckout")).toBe(true);
+	}, 20_000);
+
+	it("rejects an out-of-range settleMs override the same way construction-time settleMs is rejected", async () => {
+		fixture = materializeTypeScriptReferenceFixture();
+		const seed = "packages/app/src/main.ts";
+		lsp = new LspSymbolIndex(fixture.root, TYPESCRIPT_DESCRIPTOR, seed);
+
+		await expect(lsp.documentSymbols(join(fixture.root, "packages/app/src/checkout.ts"), { settleMs: -1 })).rejects.toBeInstanceOf(TypeError);
+		await expect(lsp.documentSymbols(join(fixture.root, "packages/app/src/checkout.ts"), { settleMs: 30_001 })).rejects.toBeInstanceOf(TypeError);
+	}, 20_000);
+
+	it("a settleMs override on documentSymbols never leaks into goToDefinition/hover's own default settle behavior", async () => {
+		// The correctness boundary this whole optimization depends on: goToDefinition/hover
+		// are NOT validated safe at reduced settle (a real, separately measured finding --
+		// they can return a shallow "import statement" answer instead of the real cross-file
+		// declaration). Calling documentSymbols with settleMs: 0 must never change what
+		// goToDefinition does on the very same index instance afterward.
+		fixture = materializeTypeScriptReferenceFixture();
+		const seed = "packages/app/src/main.ts";
+		lsp = new LspSymbolIndex(fixture.root, TYPESCRIPT_DESCRIPTOR, seed);
+		const checkoutPath = join(fixture.root, "packages/app/src/checkout.ts");
+
+		await lsp.documentSymbols(checkoutPath, { settleMs: 0 });
+		const position = findPositionOf(checkoutPath, "runCheckout");
+		const definitions = await lsp.goToDefinition({ path: checkoutPath, line: position.line, character: position.character });
+
+		expect(definitions.length).toBeGreaterThan(0);
+		expect(definitions[0]?.path).toBe(checkoutPath);
+	}, 20_000);
 });

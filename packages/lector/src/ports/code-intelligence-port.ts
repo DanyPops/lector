@@ -28,16 +28,26 @@ export interface CodeIntelligencePort {
 	findReferences(at: WorkspaceLocation, includeDeclaration: boolean): Promise<WorkspaceLocation[]>;
 	/** Type/doc information for the symbol at `at`, or undefined when the server has none. */
 	hover(at: WorkspaceLocation): Promise<Hover | undefined>;
-	/** Every symbol declared in one file, hierarchically. */
-	documentSymbols(path: string): Promise<DocumentSymbolEntry[]>;
+	/**
+	 * Every symbol declared in one file, hierarchically.
+	 *
+	 * `options.settleMs`, when given, overrides this backend's own default post-open
+	 * settle wait for this call only -- an internal capability, never exposed through
+	 * the daemon's public operation surface. Only populateSymbolGraph's own bulk crawl
+	 * uses it today, with a value validated empirically for that specific call
+	 * pattern; do not assume it's safe to pass a reduced value from anywhere else
+	 * without repeating that validation (see LspSymbolIndex.ensureFileOpen's own
+	 * doc comment for what specifically was and wasn't proven safe).
+	 */
+	documentSymbols(path: string, options?: { settleMs?: number }): Promise<DocumentSymbolEntry[]>;
 	/** Every diagnostic currently known for one file, as of the server's last analysis (push-based, not a live re-check). */
 	diagnostics(path: string): Promise<Diagnostic[]>;
 	/** The call-hierarchy root(s) the symbol at `at` resolves to -- usually zero or one. */
 	prepareCallHierarchy(at: WorkspaceLocation): Promise<CallHierarchyEntry[]>;
 	/** Every real caller of the symbol at `at`, project-wide. */
 	incomingCalls(at: WorkspaceLocation): Promise<IncomingCall[]>;
-	/** Every function/method the symbol at `at` itself calls. */
-	outgoingCalls(at: WorkspaceLocation): Promise<OutgoingCall[]>;
+	/** Every function/method the symbol at `at` itself calls. See documentSymbols's doc comment for `options.settleMs`. */
+	outgoingCalls(at: WorkspaceLocation, options?: { settleMs?: number }): Promise<OutgoingCall[]>;
 	/**
 	 * Optional hint that the caller is done with `path` for now -- a backend
 	 * that keeps a bounded number of documents open (e.g. an LSP process) may
