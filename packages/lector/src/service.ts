@@ -41,6 +41,7 @@ import { hoverAt } from "./domain/hover-at.ts";
 import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts";
 import type { IntelligenceProvenance } from "./domain/intelligence-provenance.ts";
 import { descriptorForPath, LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./domain/language-server-descriptor.ts";
+import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, lineEdit } from "./domain/line-edit.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
 import type { PackageSourceBounds, PackageSourceOperationResult, PackageSourceRequest } from "./domain/package-source.ts";
 import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
@@ -212,6 +213,7 @@ export class JobWaitTooLong extends Error {
 export type OperationName =
 	| "workspace.rawRead"
 	| "workspace.exactEdit"
+	| "workspace.lineEdit"
 	| "workspace.registerPath"
 	| "workspace.findSymbols"
 	| "workspace.goToDefinition"
@@ -251,6 +253,7 @@ export type OperationName =
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
 	"workspace.exactEdit",
+	"workspace.lineEdit",
 	"workspace.registerPath",
 	"workspace.findSymbols",
 	"workspace.goToDefinition",
@@ -299,6 +302,7 @@ interface WorkspacePosition {
 export interface OperationInputs {
 	"workspace.rawRead": { workspaceId: WorkspaceId; path: string };
 	"workspace.exactEdit": { workspaceId: WorkspaceId } & ExpectedHashEdit;
+	"workspace.lineEdit": { workspaceId: WorkspaceId; path: string; edits: readonly LineEdit[] };
 	"workspace.registerPath": { path: string };
 	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string; maxResults?: number; responseFormat?: ResponseFormat };
 	"workspace.goToDefinition": WorkspacePosition;
@@ -370,6 +374,7 @@ type Provenanced<T> = T & { readonly provenance: IntelligenceProvenance };
 export interface OperationOutputs {
 	"workspace.rawRead": RawRead;
 	"workspace.exactEdit": EditOutcome;
+	"workspace.lineEdit": LineEditOutcome;
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
 	"workspace.findSymbols": SymbolSearchResult;
 	"workspace.goToDefinition": Provenanced<{ locations: readonly WorkspaceLocation[] }>;
@@ -1242,6 +1247,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			const { workspaceId, ...edit } = input;
 			return exactEdit(resolveWorkspace(registry, workspaceId), edit);
 		},
+		"workspace.lineEdit": (registry, input) => {
+			return lineEdit(resolveWorkspace(registry, input.workspaceId), { path: input.path, edits: input.edits });
+		},
 		"workspace.registerPath": registerPath,
 		"workspace.findSymbols": findSymbols,
 		"workspace.goToDefinition": goToDefinition,
@@ -1316,4 +1324,4 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 }
 
 export { JobCapacityExceeded, JobNotFound } from "./domain/bounded-job-executor.ts";
-export { StaleExpectedHash, WorkspaceEntryNotFound };
+export { LineEditRace, LineEditRejected, StaleExpectedHash, WorkspaceEntryNotFound };

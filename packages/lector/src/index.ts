@@ -113,6 +113,21 @@ export {
 	PYTHON_DESCRIPTOR,
 	TYPESCRIPT_DESCRIPTOR,
 } from "./domain/language-server-descriptor.ts";
+export {
+	type LineEdit,
+	type LineEditFailure,
+	type LineEditFailureReason,
+	type LineEditInsertAfter,
+	type LineEditInsertBefore,
+	type LineEditOutcome,
+	LineEditRace,
+	LineEditRejected,
+	type LineEditReplace,
+	type LineEditRequest,
+	lineEdit,
+} from "./domain/line-edit.ts";
+export type { LineHash } from "./domain/line-hash.ts";
+export { lineHashOf } from "./domain/line-hash.ts";
 export type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "./domain/npm-package-metadata.ts";
 export { outgoingCalls } from "./domain/outgoing-calls.ts";
 export type {

@@ -11,6 +11,8 @@ import type {
 	IncomingCall,
 	IntelligenceProvenance,
 	JobSnapshot,
+	LineEdit,
+	LineEditOutcome,
 	OutgoingCall,
 	PackageSourceOperationResult,
 	PopulateSymbolGraphResult,
@@ -63,6 +65,8 @@ import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts"
 import { describeFindSymbolSources, formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-rendering.ts";
 import { createLectorGitOperations } from "./git-operations.ts";
 import { formatGitDiffCall, formatGitDiffResult, formatGitLogCall, formatGitLogResult, formatGitStatusCall, formatGitStatusResult } from "./git-rendering.ts";
+import { createLectorLineEditOperations } from "./line-edit-operations.ts";
+import { formatLineEditCall, formatLineEditResult } from "./line-edit-rendering.ts";
 import { nearestGitRoot } from "./nearest-workspace-root.ts";
 import { createLectorPackageSourceOperations } from "./package-source-operations.ts";
 import { formatPackageSourceCall, formatPackageSourceResult } from "./package-source-rendering.ts";
@@ -1093,6 +1097,76 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { result?: FindFilesResult } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatFindFilesResult(details?.result, expanded, theme));
+				return text;
+			},
+		});
+
+		const lineEditOperations = createLectorLineEditOperations();
+		pi.registerTool({
+			name: "line_edit",
+			label: "Line Edit",
+			description:
+				"Applies one or more per-line-hash-guarded edits to a file, atomically -- distinct from the generic edit tool's whole-file hash guard. A concurrent change to a line no edit here references never invalidates this call, unlike a whole-file guard where any edit anywhere in the file forces a re-read. Each edit's lines must currently hold the given hash(es) (from read tool content: hash each line's exact text yourself, or retry using the actualHash a hash-mismatch failure reports). All edits in one call land together, or none do.",
+			promptSnippet: "Apply per-line hash-guarded edits to a file, atomically",
+			promptGuidelines: [
+				"Prefer line_edit over the generic edit tool when editing a large or heavily concurrent file where you only need to touch a few specific lines -- it survives a concurrent change elsewhere in the file that a whole-file hash guard would reject.",
+				"A line's hash is not given to you ahead of time -- compute it yourself from content you already read (same algorithm as lineHashOf: sha256 of the exact line text, first 8 hex characters), or attempt the edit and use the actualHash a hash-mismatch failure reports to retry.",
+			],
+			parameters: Type.Object({
+				path: Type.String({ description: "Absolute or workspace-relative path to the file to edit" }),
+				edits: Type.Array(
+					Type.Union([
+						Type.Object({
+							kind: Type.Literal("replace"),
+							startLine: Type.Number({ description: "1-indexed first line of the inclusive range to replace" }),
+							endLine: Type.Number({ description: "1-indexed last line of the inclusive range to replace (same as startLine for a single line)" }),
+							expectedStartHash: Type.String({ description: "The hash startLine must currently hold" }),
+							expectedEndHash: Type.String({
+								description: "The hash endLine must currently hold (same value as expectedStartHash when startLine === endLine)",
+							}),
+							lines: Type.Array(Type.String(), { description: "Replacement lines -- an empty array deletes the range" }),
+						}),
+						Type.Object({
+							kind: Type.Literal("insertBefore"),
+							atLine: Type.Number({ description: "1-indexed anchor line to insert before" }),
+							expectedHash: Type.String({ description: "The hash atLine must currently hold" }),
+							lines: Type.Array(Type.String(), { description: "Lines to insert" }),
+						}),
+						Type.Object({
+							kind: Type.Literal("insertAfter"),
+							atLine: Type.Number({ description: "1-indexed anchor line to insert after" }),
+							expectedHash: Type.String({ description: "The hash atLine must currently hold" }),
+							lines: Type.Array(Type.String(), { description: "Lines to insert" }),
+						}),
+					]),
+					{ description: "One or more edits, all applied atomically -- non-overlapping line ranges required", minItems: 1 },
+				),
+			}),
+			async execute(_toolCallId, params) {
+				const absolutePath = resolve(cwd, params.path);
+				// The Pi tool schema can only express plain strings for hash fields (TypeBox has no
+				// concept of Lector's branded LineHash) -- the daemon's own domain validation is the
+				// real runtime check regardless of what TypeScript sees at this call site.
+				const result = await lineEditOperations.lineEdit(absolutePath, params.edits as unknown as LineEdit[]);
+				return { content: [{ type: "text", text: `${result.path}: ${result.previousHash} -> ${result.newHash}` }], details: { result } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatLineEditCall(args as { path?: unknown; edits?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Applying line edit..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "line_edit failed"), 0, 0);
+				}
+				const details = result.details as { result?: LineEditOutcome } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatLineEditResult(details?.result, theme));
 				return text;
 			},
 		});

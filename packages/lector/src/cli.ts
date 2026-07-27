@@ -33,6 +33,12 @@ const USAGE = `Usage:
   lector workspace register <dir> [--json]
   lector workspace read <workspace-id> <path> [--json]
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
+  lector workspace line-edit <workspace-id> <path> --edits <json> [--json]
+    --edits is a JSON array of LineEdit objects ({kind:"replace",startLine,endLine,
+    expectedStartHash,expectedEndHash,lines} | {kind:"insertBefore"|"insertAfter",atLine,
+    expectedHash,lines}) -- finer-grained than exactEdit's whole-file guard: a concurrent
+    change to a line no edit references never invalidates this one. All edits in one call
+    land atomically, or none do.
   lector workspace symbols <workspace-id> <query> [--seed-file <path>] [--response-format <concise|detailed>] [--json]
   lector workspace definition <workspace-id> <path> <line> <character> [--json]
   lector workspace implementation <workspace-id> <path> <line> <character> [--json]
@@ -866,6 +872,23 @@ async function runWorkspaceEdit(workspaceId: string | undefined, path: string | 
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.path}: ${result.previousHash ?? "(new)"} -> ${result.newHash}`);
 }
 
+async function runWorkspaceLineEdit(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const editsJson = flagValue(flags, "--edits");
+	if (editsJson === undefined) fail("lector workspace line-edit requires --edits <json>");
+	let edits: unknown;
+	try {
+		edits = JSON.parse(editsJson);
+	} catch (error) {
+		fail(`--edits is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	if (!Array.isArray(edits)) fail("--edits must be a JSON array of LineEdit objects");
+
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.lineEdit", { workspaceId, path, edits });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.path}: ${result.previousHash} -> ${result.newHash}`);
+}
+
 /**
  * systemd user-unit lifecycle (`install|start|stop|restart|status`) for a
  * persistent Lector daemon. `install` always runs `serve
@@ -969,6 +992,7 @@ async function main(): Promise<void> {
 		const [workspaceId, path, ...flags] = actionArgs;
 		if (action === "read") return runWorkspaceRead(workspaceId, path, flags);
 		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
+		if (action === "line-edit") return runWorkspaceLineEdit(workspaceId, path, flags);
 		if (action === "symbols") return runWorkspaceSymbols(workspaceId, path, flags);
 		if (action === "search-text") return runWorkspaceSearchText(workspaceId, path, flags);
 		if (action === "find-files") return runWorkspaceFindFiles(workspaceId, actionArgs.slice(1));
