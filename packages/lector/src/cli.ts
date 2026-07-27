@@ -13,6 +13,7 @@ import type { JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { ContentHash } from "./domain/content-hash.ts";
 import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOperationResult } from "./domain/package-source.ts";
 import type { PopulateSymbolGraphResult } from "./domain/populate-symbol-graph.ts";
+import type { SymbolAnnotation } from "./domain/symbol-annotation.ts";
 import type { SymbolSearchResult } from "./domain/workspace-symbol.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import type { WorkspaceId } from "./service.ts";
@@ -46,6 +47,17 @@ const USAGE = `Usage:
   lector workspace symbol-graph <reachable-from|edges-from|edges-to> <workspace-id> <path> <line> <character>
     [--max-depth <n>] [--kind <calls|references|contains>] [--json]
     --max-depth is required for reachable-from, ignored for edges-from/edges-to
+  lector workspace annotation create <workspace-id> --subtype <s> --title <t> --body <text>
+    --anchor <path>:<line>:<character> (repeatable, at least one required) [--json]
+    each anchor must resolve to a real, currently-known symbol in the populated graph
+  lector workspace annotation get <workspace-id> <annotation-id> [--json]
+    live-checks staleness against the current graph/workspace before returning
+  lector workspace annotation list <workspace-id> [--subtype <s>] [--status <fresh|stale|scrubbed>]
+    [--max-results <n>] [--json]
+  lector workspace annotation refresh <workspace-id> <annotation-id> --subtype <s> --title <t> --body <text>
+    --anchor <path>:<line>:<character> (repeatable, at least one required) [--json]
+  lector workspace annotation scrub <workspace-id> <annotation-id> [--json]
+  lector workspace annotation restore <workspace-id> <annotation-id> [--json]
   lector workspace has-warm-index <workspace-id> [--json]
     never spawns a symbol index -- reports whether one is already warm
   lector workspace cache-status <workspace-id> --max-files <n> --max-symbols-per-file <n> [--json]
@@ -675,6 +687,101 @@ async function runWorkspaceSymbolGraphQuery(
 	fail(USAGE);
 }
 
+/** "<path>:<line>:<character>" -- split from the right so a path containing colons (e.g. a Windows drive letter) is never misparsed as part of the position. */
+function parseAnchorFlag(value: string): { path: string; line: number; character: number } {
+	const lastColon = value.lastIndexOf(":");
+	const secondLastColon = lastColon === -1 ? -1 : value.lastIndexOf(":", lastColon - 1);
+	const path = secondLastColon === -1 ? "" : value.slice(0, secondLastColon);
+	const line = secondLastColon === -1 ? Number.NaN : Number(value.slice(secondLastColon + 1, lastColon));
+	const character = lastColon === -1 ? Number.NaN : Number(value.slice(lastColon + 1));
+	if (!path || !Number.isInteger(line) || !Number.isInteger(character)) fail(`invalid --anchor value "${value}"; expected <path>:<line>:<character>`);
+	return { path, line, character };
+}
+
+function formatAnnotation(annotation: SymbolAnnotation): string {
+	const anchorLines = annotation.anchors.map((anchor) => `  - ${anchor.symbolNodeId}`).join("\n");
+	return `[${annotation.status}] ${annotation.title} (${annotation.subtype}) [${annotation.id}]\n${annotation.body}\nAnchors:\n${anchorLines}`;
+}
+
+function requireAnnotationFields(flags: string[]): {
+	subtype: string;
+	title: string;
+	body: string;
+	anchors: { path: string; line: number; character: number }[];
+} {
+	const subtype = flagValue(flags, "--subtype");
+	const title = flagValue(flags, "--title");
+	const body = flagValue(flags, "--body");
+	if (!subtype || !title || body === undefined) fail("requires --subtype, --title, and --body");
+	const anchors = collectFlagValues(flags, "--anchor").map(parseAnchorFlag);
+	return { subtype, title, body, anchors };
+}
+
+async function runWorkspaceAnnotationCreate(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const { subtype, title, body, anchors } = requireAnnotationFields(flags);
+	const client = await connectLectorClient();
+	const { annotation } = await client.call("workspace.createAnnotation", { workspaceId, subtype, title, body, anchors });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(annotation) : formatAnnotation(annotation));
+}
+
+async function runWorkspaceAnnotationGet(workspaceId: string | undefined, id: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !id) fail(USAGE);
+	const client = await connectLectorClient();
+	const { annotation } = await client.call("workspace.getAnnotation", { workspaceId, id });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(annotation ?? null));
+		return;
+	}
+	console.log(annotation ? formatAnnotation(annotation) : `no annotation "${id}" in workspace "${workspaceId}"`);
+}
+
+async function runWorkspaceAnnotationList(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const subtype = flagValue(flags, "--subtype");
+	const statusFlag = flagValue(flags, "--status");
+	const status = statusFlag as "fresh" | "stale" | "scrubbed" | undefined;
+	const maxResultsFlagValue = flagValue(flags, "--max-results");
+	const maxResults = maxResultsFlagValue === undefined ? undefined : Number(maxResultsFlagValue);
+	const client = await connectLectorClient();
+	const { annotations } = await client.call("workspace.listAnnotations", { workspaceId, subtype, status, maxResults });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(annotations));
+		return;
+	}
+	if (annotations.length === 0) {
+		console.log("no annotations");
+		return;
+	}
+	for (const annotation of annotations) console.log(formatAnnotation(annotation));
+}
+
+async function runWorkspaceAnnotationRefresh(workspaceId: string | undefined, id: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !id) fail(USAGE);
+	const { subtype, title, body, anchors } = requireAnnotationFields(flags);
+	const client = await connectLectorClient();
+	const { annotation } = await client.call("workspace.refreshAnnotation", { workspaceId, id, subtype, title, body, anchors });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(annotation ?? null));
+		return;
+	}
+	console.log(annotation ? formatAnnotation(annotation) : `no annotation "${id}" in workspace "${workspaceId}"`);
+}
+
+async function runWorkspaceAnnotationScrub(workspaceId: string | undefined, id: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !id) fail(USAGE);
+	const client = await connectLectorClient();
+	const { scrubbed } = await client.call("workspace.scrubAnnotation", { workspaceId, id });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify({ scrubbed }) : scrubbed ? `scrubbed ${id}` : `"${id}" was already scrubbed or does not exist`);
+}
+
+async function runWorkspaceAnnotationRestore(workspaceId: string | undefined, id: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !id) fail(USAGE);
+	const client = await connectLectorClient();
+	const { restored } = await client.call("workspace.restoreAnnotation", { workspaceId, id });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify({ restored }) : restored ? `restored "${id}"` : `"${id}" was not scrubbed or does not exist`);
+}
+
 async function runWorkspaceRead(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !path) fail(USAGE);
 	const client = await connectLectorClient();
@@ -842,6 +949,17 @@ async function main(): Promise<void> {
 		if (action === "repo-fetch") {
 			const [spec, ...repoFlags] = actionArgs;
 			return runWorkspaceRepoFetch(spec, repoFlags);
+		}
+		if (action === "annotation") {
+			const [subcommand, annWorkspaceId, ...annRest] = actionArgs;
+			if (subcommand === "create") return runWorkspaceAnnotationCreate(annWorkspaceId, annRest);
+			if (subcommand === "list") return runWorkspaceAnnotationList(annWorkspaceId, annRest);
+			const [annotationId, ...annFlags] = annRest;
+			if (subcommand === "get") return runWorkspaceAnnotationGet(annWorkspaceId, annotationId, annFlags);
+			if (subcommand === "refresh") return runWorkspaceAnnotationRefresh(annWorkspaceId, annotationId, annFlags);
+			if (subcommand === "scrub") return runWorkspaceAnnotationScrub(annWorkspaceId, annotationId, annFlags);
+			if (subcommand === "restore") return runWorkspaceAnnotationRestore(annWorkspaceId, annotationId, annFlags);
+			fail(USAGE);
 		}
 		fail(USAGE);
 	}
