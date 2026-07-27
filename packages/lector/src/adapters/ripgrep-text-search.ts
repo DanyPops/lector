@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { assertSafeGlobPattern } from "../domain/assert-safe-glob-pattern.ts";
 import { assertSafeSearchQuery } from "../domain/assert-safe-search-query.ts";
+import type { FindFilesResult } from "../domain/find-files-result.ts";
 import { SKIP_DIRECTORY_NAMES } from "../domain/skip-directories.ts";
 import type { TextSearchMatch, TextSearchResult } from "../domain/text-search-result.ts";
-import type { TextSearchOptions, TextSearchPort } from "../ports/text-search-port.ts";
+import type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "../ports/text-search-port.ts";
 
 // ripgrep only skips a directory automatically when a real .gitignore names it -- verified
 // empirically (a fixture with no .gitignore let a bare `rg` search node_modules freely).
@@ -93,5 +95,50 @@ export class RipgrepTextSearch implements TextSearchPort {
 		}
 
 		return { matches, truncated };
+	}
+
+	async findFiles(rootPath: string, patterns: readonly string[], options: FindFilesOptions): Promise<FindFilesResult> {
+		for (const pattern of patterns) assertSafeGlobPattern(pattern);
+		const globArgs = patterns.flatMap((pattern) => ["--glob", pattern]);
+		// ripgrep's own --glob precedence is "last matching glob for a path wins", the same rule
+		// .gitignore itself uses -- EXCLUDE_GLOBS must come AFTER the caller's own patterns, not
+		// before, or a broad caller pattern like "*" silently re-includes node_modules/.git by
+		// simply being listed later. Verified empirically: reversing this order let a caller-
+		// supplied "*" defeat every exclusion.
+		// `--` marks the end of flags -- defense in depth beyond assertSafeGlobPattern, mirroring search()'s own two-layer approach.
+		const child = spawn("rg", ["--files", ...globArgs, ...EXCLUDE_GLOBS, "--"], { cwd: rootPath, stdio: ["ignore", "pipe", "pipe"] });
+
+		const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+			child.once("exit", (code, signal) => resolve({ code, signal }));
+			child.once("error", reject);
+		});
+
+		const paths: string[] = [];
+		let bytesUsed = 0;
+		let truncated = false;
+
+		const rl = createInterface({ input: child.stdout });
+		for await (const line of rl) {
+			if (!line) continue;
+			const path = line.replace(/^\.\//, "");
+			paths.push(path);
+			bytesUsed += Buffer.byteLength(path, "utf8");
+
+			if (paths.length >= options.maxResults || bytesUsed >= options.maxBytes) {
+				truncated = true;
+				child.kill();
+				break;
+			}
+		}
+		rl.close();
+
+		const { code } = await exited;
+		// rg --files' own exit codes: 0 = at least one file listed, 1 = zero files matched (not an
+		// error, verified empirically), 2 = a real error (e.g. an invalid glob).
+		if (!truncated && code !== 0 && code !== 1) {
+			throw new Error(`rg exited with code ${code}`);
+		}
+
+		return { paths, truncated };
 	}
 }

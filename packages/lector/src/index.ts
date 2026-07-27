@@ -48,6 +48,7 @@ export {
 export { resolveLectorPaths } from "./constants.ts";
 export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
 export { assertSafeGitArgument, UnsafeGitArgument } from "./domain/assert-safe-git-argument.ts";
+export { assertSafeGlobPattern, UnsafeGlobPattern } from "./domain/assert-safe-glob-pattern.ts";
 export { assertSafePathSegment, UnsafePathSegment } from "./domain/assert-safe-path-segment.ts";
 export { assertSafeRepoReference } from "./domain/assert-safe-repo-reference.ts";
 export { assertSafeSearchQuery, UnsafeSearchQuery } from "./domain/assert-safe-search-query.ts";
@@ -74,6 +75,8 @@ export {
 	exactEdit,
 	StaleExpectedHash,
 } from "./domain/exact-edit.ts";
+export { findFiles } from "./domain/find-files.ts";
+export type { FindFilesResult } from "./domain/find-files-result.ts";
 export { findReferences } from "./domain/find-references.ts";
 export { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 export type { GitDiffResult } from "./domain/git-diff-result.ts";
@@ -141,6 +144,8 @@ export { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
 export { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchPolicy, type RepoFetchResult } from "./domain/repo-fetch-result.ts";
 export type { RepoReference } from "./domain/repo-reference.ts";
 export { InvalidPackageSourceContract, resolvePackageSource } from "./domain/resolve-package-source.ts";
+export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./domain/response-format.ts";
+export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./domain/response-format.ts";
 export { deriveSearchCacheKey, type SearchCacheKey } from "./domain/search-cache-key.ts";
 export { searchText } from "./domain/search-text.ts";
 export type {
@@ -157,11 +162,9 @@ export type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./domain/symbo
 export { deriveSymbolNodeId, type SymbolNodeId } from "./domain/symbol-node-id.ts";
 export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./domain/symbol-query.ts";
 export type { TextSearchMatch, TextSearchResult } from "./domain/text-search-result.ts";
-export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";
-export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./domain/response-format.ts";
-export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./domain/response-format.ts";
 export type { WorkspaceMapEntry, WorkspaceMapOptions, WorkspaceMapResult } from "./domain/workspace-map.ts";
 export { computeWorkspaceMap } from "./domain/workspace-map.ts";
+export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";
 export type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
@@ -174,7 +177,7 @@ export type { SearchCachePort } from "./ports/search-cache-port.ts";
 export type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./ports/symbol-annotation-port.ts";
 export type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
-export type { TextSearchOptions, TextSearchPort } from "./ports/text-search-port.ts";
+export type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "./ports/text-search-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
 export {
 	AnnotationRequiresAnchors,

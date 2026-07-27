@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RipgrepTextSearch } from "../../src/adapters/ripgrep-text-search.ts";
+import { UnsafeGlobPattern } from "../../src/domain/assert-safe-glob-pattern.ts";
 import { UnsafeSearchQuery } from "../../src/domain/assert-safe-search-query.ts";
 
 function buildFixture(): string {
@@ -17,6 +18,9 @@ function buildFixture(): string {
 	writeFileSync(join(root, "node_modules", "ignored.txt"), "hello from node_modules\n");
 	mkdirSync(join(root, ".git"));
 	writeFileSync(join(root, ".git", "config"), "hello from git internals\n");
+	mkdirSync(join(root, "src"));
+	writeFileSync(join(root, "src", "index.ts"), "export const x = 1;\n");
+	writeFileSync(join(root, "src", "index.test.ts"), "// test\n");
 	return root;
 }
 
@@ -97,5 +101,86 @@ describe("RipgrepTextSearch", () => {
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
+	});
+
+	describe("findFiles", () => {
+		it("lists real files matching a glob pattern, by path/name, not content", async () => {
+			const root = buildFixture();
+			try {
+				const result = await new RipgrepTextSearch().findFiles(root, ["*.ts"], { maxResults: 100, maxBytes: 100_000 });
+
+				expect(result.truncated).toBe(false);
+				expect([...result.paths].sort()).toEqual(["src/index.test.ts", "src/index.ts"]);
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+			}
+		});
+
+		it("OR's multiple patterns together, matching ripgrep's own multi-glob semantics", async () => {
+			const root = buildFixture();
+			try {
+				const result = await new RipgrepTextSearch().findFiles(root, ["a.txt", "*.test.ts"], { maxResults: 100, maxBytes: 100_000 });
+
+				expect([...result.paths].sort()).toEqual(["a.txt", "src/index.test.ts"]);
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+			}
+		});
+
+		it("does not list node_modules or .git contents, the same exclusion searchText already applies", async () => {
+			const root = buildFixture();
+			try {
+				const result = await new RipgrepTextSearch().findFiles(root, ["*"], { maxResults: 100, maxBytes: 100_000 });
+
+				expect(result.paths).not.toContain("node_modules/ignored.txt");
+				expect(result.paths).not.toContain(".git/config");
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+			}
+		});
+
+		it("returns an empty, non-truncated result for a pattern matching nothing", async () => {
+			const root = buildFixture();
+			try {
+				const result = await new RipgrepTextSearch().findFiles(root, ["*.this-extension-does-not-exist"], { maxResults: 100, maxBytes: 100_000 });
+
+				expect(result).toEqual({ paths: [], truncated: false });
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+			}
+		});
+
+		it("truncates at maxResults and kills the process rather than listing to completion", async () => {
+			const root = buildFixture();
+			try {
+				const result = await new RipgrepTextSearch().findFiles(root, ["*"], { maxResults: 1, maxBytes: 100_000 });
+
+				expect(result.truncated).toBe(true);
+				expect(result.paths).toHaveLength(1);
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+			}
+		});
+
+		it("truncates at maxBytes even under a generous maxResults", async () => {
+			const root = buildFixture();
+			try {
+				const result = await new RipgrepTextSearch().findFiles(root, ["*"], { maxResults: 1000, maxBytes: 1 });
+
+				expect(result.truncated).toBe(true);
+				expect(result.paths.length).toBeGreaterThan(0);
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+			}
+		});
+
+		it("rejects a pattern that looks like a ripgrep flag before spawning", async () => {
+			const root = buildFixture();
+			try {
+				await expect(new RipgrepTextSearch().findFiles(root, ["--max-count=1"], { maxResults: 100, maxBytes: 1000 })).rejects.toBeInstanceOf(UnsafeGlobPattern);
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+			}
+		});
 	});
 });

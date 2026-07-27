@@ -3,6 +3,7 @@ import type {
 	CallHierarchyEntry,
 	Diagnostic,
 	DocumentSymbolEntry,
+	FindFilesResult,
 	GitDiffResult,
 	GitLogEntry,
 	GitStatusSummary,
@@ -56,6 +57,8 @@ import {
 import { createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-search-operations.ts";
 import { formatCrossWorkspaceCall, formatFindSymbolsAcrossProjectsResult, formatSearchTextAcrossProjectsResult } from "./cross-workspace-search-rendering.ts";
 import { createLectorEditOperations } from "./edit-operations.ts";
+import { createLectorFindFilesOperations } from "./find-files-operations.ts";
+import { formatFindFilesCall, formatFindFilesResult } from "./find-files-rendering.ts";
 import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts";
 import { describeFindSymbolSources, formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-rendering.ts";
 import { createLectorGitOperations } from "./git-operations.ts";
@@ -1044,6 +1047,52 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { result?: TextSearchResult } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatSearchResult(details?.result, expanded, theme));
+				return text;
+			},
+		});
+
+		const findFilesOperations = createLectorFindFilesOperations();
+		pi.registerTool({
+			name: "find_files",
+			label: "Find Files",
+			description:
+				"Find files by glob/name pattern, distinct from content search -- the `find` half of the classic grep+find pair. Backed by ripgrep's own --files listing, respects .gitignore, skips node_modules/.git/build output. Bounded by maxResults and maxBytes.",
+			promptSnippet: "Find files by path/name glob pattern, not content",
+			promptGuidelines: [
+				"Use find_files to locate files by path or name pattern (e.g. every *.test.ts under a directory) -- use search_code instead when you need to match file content, not just the path.",
+			],
+			parameters: Type.Object({
+				directory: Type.String({ description: "Directory inside the project to search, absolute or relative to the current working directory" }),
+				patterns: Type.Array(Type.String(), {
+					description: "Glob pattern(s) to match file paths against, OR'd together -- a file matching any one pattern is included",
+					minItems: 1,
+				}),
+				maxResults: Type.Number({ description: "Maximum number of file paths to return before truncating" }),
+				maxBytes: Type.Number({ description: "Maximum total bytes of matched path text before truncating" }),
+			}),
+			async execute(_toolCallId, params) {
+				const directory = resolve(cwd, params.directory);
+				const result = await findFilesOperations.findFiles(params.patterns, directory, params.maxResults, params.maxBytes);
+				const text = result.paths.length === 0 ? "No files found." : result.paths.join("\n");
+				return { content: [{ type: "text", text }], details: { result } };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatFindFilesCall(args as { directory?: unknown; patterns?: unknown }, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Finding files..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "find_files failed"), 0, 0);
+				}
+				const details = result.details as { result?: FindFilesResult } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatFindFilesResult(details?.result, expanded, theme));
 				return text;
 			},
 		});

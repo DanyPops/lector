@@ -27,6 +27,8 @@ import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
 import type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
 import { documentSymbols as documentSymbolsQuery } from "./domain/document-symbols.ts";
 import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash } from "./domain/exact-edit.ts";
+import { findFiles as findFilesQuery } from "./domain/find-files.ts";
+import type { FindFilesResult } from "./domain/find-files-result.ts";
 import { findReferences as findReferencesQuery } from "./domain/find-references.ts";
 import { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 import type { GitDiffResult } from "./domain/git-diff-result.ts";
@@ -233,6 +235,7 @@ export type OperationName =
 	| "repo.fetch"
 	| "package.resolveSource"
 	| "workspace.searchText"
+	| "workspace.findFiles"
 	| "search.symbols"
 	| "search.text"
 	| "job.submit"
@@ -271,6 +274,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"repo.fetch",
 	"package.resolveSource",
 	"workspace.searchText",
+	"workspace.findFiles",
 	"search.symbols",
 	"search.text",
 	"job.submit",
@@ -318,6 +322,8 @@ export interface OperationInputs {
 	"repo.fetch": RepoReference;
 	"package.resolveSource": { request: PackageSourceRequest; bounds: PackageSourceBounds };
 	"workspace.searchText": { workspaceId: WorkspaceId; query: string; maxMatches: number; maxBytes: number };
+	/** `patterns` are OR'd together -- a file matching any one of them is included. */
+	"workspace.findFiles": { workspaceId: WorkspaceId; patterns: readonly string[]; maxResults: number; maxBytes: number };
 	/**
 	 * No single workspaceId -- fans out across several at once, unlike every other findSymbols-
 	 * shaped operation. `workspaceIds`, when given, restricts the fan-out to exactly those
@@ -387,6 +393,7 @@ export interface OperationOutputs {
 	"repo.fetch": RepoFetchResult & { workspaceId: WorkspaceId };
 	"package.resolveSource": PackageSourceOperationResult;
 	"workspace.searchText": TextSearchResult;
+	"workspace.findFiles": FindFilesResult;
 	"search.symbols": { results: readonly WorkspaceQueryOutcome<SymbolSearchResult>[] };
 	"search.text": { results: readonly WorkspaceQueryOutcome<TextSearchResult>[] };
 	"job.submit": { job: JobSnapshot<PopulateSymbolGraphResult> };
@@ -672,6 +679,13 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
 		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 		return searchTextQuery(textSearch, searchCache, entry.rootPath, input.workspaceId, input.query, { maxMatches: input.maxMatches, maxBytes: input.maxBytes });
+	}
+
+	async function findFilesHandler(registry: MutableRegistry, input: OperationInputs["workspace.findFiles"]): Promise<OperationOutputs["workspace.findFiles"]> {
+		const entry = registry.get(input.workspaceId);
+		if (!entry) throw new UnknownWorkspace(input.workspaceId);
+		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
+		return findFilesQuery(textSearch, entry.rootPath, input.patterns, { maxResults: input.maxResults, maxBytes: input.maxBytes });
 	}
 
 	/** Every workspace with a known root -- the same precondition workspace.findSymbols/searchText already require individually, applied to all of them at once. */
@@ -1251,6 +1265,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"repo.fetch": repoFetchHandler,
 		"package.resolveSource": packageSourceHandler,
 		"workspace.searchText": searchTextHandler,
+		"workspace.findFiles": findFilesHandler,
 		"search.symbols": crossFindSymbols,
 		"search.text": crossSearchText,
 		"job.submit": submitJobHandler,

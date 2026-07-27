@@ -74,6 +74,9 @@ const USAGE = `Usage:
   lector package source <project-dir> <package-name> [--version <exact-version>] [--registry <url>] [--json]
     resolves an installed npm package to verified exact repository source and registers it read-only
   lector workspace search-text <workspace-id> <query> --max-matches <n> --max-bytes <n> [--json]
+  lector workspace find-files <workspace-id> --pattern <glob> (repeatable, at least one required)
+    --max-results <n> --max-bytes <n> [--json]
+    patterns are OR'd together -- a file matching any one of them is included
   lector search symbols <query> [--workspace <id>]... [--timeout-ms <n>] [--json]
   lector search text <query> --max-matches <n> --max-bytes <n> [--workspace <id>]... [--timeout-ms <n>] [--json]
     fans out across the given --workspace id(s); with none given, every currently-registered
@@ -595,6 +598,26 @@ async function runWorkspaceSearchText(workspaceId: string | undefined, query: st
 	if (result.truncated) console.log("... (truncated)");
 }
 
+async function runWorkspaceFindFiles(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const patterns = collectFlagValues(flags, "--pattern");
+	if (patterns.length === 0) fail("workspace find-files requires at least one --pattern");
+	const maxResults = requiredIntFlag(flags, "--max-results");
+	const maxBytes = requiredIntFlag(flags, "--max-bytes");
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.findFiles", { workspaceId, patterns, maxResults, maxBytes });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	if (result.paths.length === 0) {
+		console.log(`no files match ${patterns.map((pattern) => `"${pattern}"`).join(", ")}`);
+		return;
+	}
+	for (const path of result.paths) console.log(path);
+	if (result.truncated) console.log("... (truncated)");
+}
+
 async function runSearchSymbols(query: string | undefined, flags: string[]): Promise<void> {
 	if (!query) fail(USAGE);
 	const timeoutMs = flagValue(flags, "--timeout-ms");
@@ -948,6 +971,7 @@ async function main(): Promise<void> {
 		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
 		if (action === "symbols") return runWorkspaceSymbols(workspaceId, path, flags);
 		if (action === "search-text") return runWorkspaceSearchText(workspaceId, path, flags);
+		if (action === "find-files") return runWorkspaceFindFiles(workspaceId, actionArgs.slice(1));
 		if (action === "definition") return runWorkspaceDefinition(workspaceId, path, flags);
 		if (action === "implementation") return runWorkspaceImplementation(workspaceId, path, flags);
 		if (action === "references") return runWorkspaceReferences(workspaceId, path, flags);

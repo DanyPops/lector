@@ -11,7 +11,7 @@ import { InMemorySearchCache } from "../../src/adapters/in-memory-search-cache.t
 import { RipgrepTextSearch } from "../../src/adapters/ripgrep-text-search.ts";
 import { UnsafeSearchQuery } from "../../src/domain/assert-safe-search-query.ts";
 import { searchText } from "../../src/domain/search-text.ts";
-import type { TextSearchOptions, TextSearchPort } from "../../src/ports/text-search-port.ts";
+import type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "../../src/ports/text-search-port.ts";
 
 class CountingTextSearch implements TextSearchPort {
 	calls = 0;
@@ -19,6 +19,9 @@ class CountingTextSearch implements TextSearchPort {
 	search(rootPath: string, query: string, options: TextSearchOptions) {
 		this.calls++;
 		return this.inner.search(rootPath, query, options);
+	}
+	findFiles(rootPath: string, patterns: readonly string[], options: FindFilesOptions) {
+		return this.inner.findFiles(rootPath, patterns, options);
 	}
 }
 
