@@ -2,6 +2,7 @@ export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from ".
 export { GitRepoFetcher, type GitRepoFetcherOptions } from "./adapters/git-repo-fetcher.ts";
 export { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
 export { InMemorySearchCache, type InMemorySearchCacheOptions } from "./adapters/in-memory-search-cache.ts";
+export { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
 export { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 export { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./adapters/local-filesystem-workspace.ts";
@@ -59,6 +60,7 @@ export {
 	type JobSnapshot,
 } from "./domain/bounded-job-executor.ts";
 export type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
+export { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
 export type { CodeRange } from "./domain/code-range.ts";
 export { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
 export type { Diagnostic, DiagnosticSeverity } from "./domain/diagnostic.ts";
@@ -140,6 +142,14 @@ export type { RepoReference } from "./domain/repo-reference.ts";
 export { InvalidPackageSourceContract, resolvePackageSource } from "./domain/resolve-package-source.ts";
 export { deriveSearchCacheKey, type SearchCacheKey } from "./domain/search-cache-key.ts";
 export { searchText } from "./domain/search-text.ts";
+export type {
+	AnnotationId,
+	AnnotationStatus,
+	CreateSymbolAnnotationInput,
+	SymbolAnnotation,
+	SymbolAnnotationAnchor,
+} from "./domain/symbol-annotation.ts";
+export { type AnchorReality, isAnnotationStale } from "./domain/symbol-annotation-staleness.ts";
 export { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 export { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 export type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
@@ -156,6 +166,7 @@ export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 export type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 export type { SearchCachePort } from "./ports/search-cache-port.ts";
+export type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./ports/symbol-annotation-port.ts";
 export type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { TextSearchOptions, TextSearchPort } from "./ports/text-search-port.ts";
