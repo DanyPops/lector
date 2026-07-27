@@ -173,6 +173,7 @@ export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { TextSearchOptions, TextSearchPort } from "./ports/text-search-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
 export {
+	AnnotationRequiresAnchors,
 	type ClosableSymbolIndex,
 	CodeIntelligenceUnavailable,
 	createLectorService,
@@ -189,6 +190,7 @@ export {
 	PackageSourceResolverNotConfigured,
 	RepoFetcherNotConfigured,
 	SymbolQueryUnavailable,
+	UnknownAnnotationAnchor,
 	UnknownWorkspace,
 	UnsupportedJobOperation,
 	WorkspaceChangedDuringPopulation,

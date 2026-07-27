@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
+import { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
 import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { LocalGit } from "./adapters/local-git.ts";
@@ -19,6 +20,8 @@ import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-si
 import { TypeScriptCompilerSymbolIndex } from "./adapters/typescript-compiler-symbol-index.ts";
 import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
+import { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
+import { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
 import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
 import type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
@@ -47,6 +50,7 @@ import type { RepoFetchResult } from "./domain/repo-fetch-result.ts";
 import type { RepoReference } from "./domain/repo-reference.ts";
 import { resolvePackageSource } from "./domain/resolve-package-source.ts";
 import { searchText as searchTextQuery } from "./domain/search-text.ts";
+import type { AnnotationId, SymbolAnnotation, SymbolAnnotationAnchor } from "./domain/symbol-annotation.ts";
 import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 import type { WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
@@ -60,6 +64,7 @@ import type { GitPort } from "./ports/git-port.ts";
 import type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 import type { SearchCachePort } from "./ports/search-cache-port.ts";
+import type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./ports/symbol-annotation-port.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 import type { TextSearchPort } from "./ports/text-search-port.ts";
@@ -129,6 +134,26 @@ export class CodeIntelligenceUnavailable extends Error {
 			`workspace "${workspaceId}"'s symbol index does not support code-intelligence queries (definition/references/hover/documentSymbols/diagnostics/callHierarchy) -- only findSymbols`,
 		);
 		this.name = "CodeIntelligenceUnavailable";
+	}
+}
+
+/** Raised when a proposed annotation anchor does not resolve to a real, currently-known symbol node (the graph has no record of it) or the anchor's file does not exist -- an annotation must anchor to symbols Lector actually knows about, never a position asserted on faith. */
+export class UnknownAnnotationAnchor extends Error {
+	constructor(
+		readonly path: string,
+		readonly line: number,
+		readonly character: number,
+	) {
+		super(`no known symbol at ${path}:${line}:${character} -- populate the symbol graph first, or check the position`);
+		this.name = "UnknownAnnotationAnchor";
+	}
+}
+
+/** Raised when workspace.createAnnotation/refreshAnnotation is given zero anchors -- an annotation with nothing to invalidate it against is never allowed to exist. */
+export class AnnotationRequiresAnchors extends Error {
+	constructor() {
+		super("an annotation requires at least one anchor");
+		this.name = "AnnotationRequiresAnchors";
 	}
 }
 
@@ -209,7 +234,13 @@ export type OperationName =
 	| "search.symbols"
 	| "search.text"
 	| "job.submit"
-	| "job.status";
+	| "job.status"
+	| "workspace.createAnnotation"
+	| "workspace.getAnnotation"
+	| "workspace.listAnnotations"
+	| "workspace.refreshAnnotation"
+	| "workspace.scrubAnnotation"
+	| "workspace.restoreAnnotation";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
@@ -241,6 +272,12 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"search.text",
 	"job.submit",
 	"job.status",
+	"workspace.createAnnotation",
+	"workspace.getAnnotation",
+	"workspace.listAnnotations",
+	"workspace.refreshAnnotation",
+	"workspace.scrubAnnotation",
+	"workspace.restoreAnnotation",
 ];
 
 /** A single position within a file already registered under `workspaceId`, 1-indexed. */
@@ -295,6 +332,26 @@ export interface OperationInputs {
 		waitMs?: number;
 	};
 	"job.status": { jobId: string };
+	"workspace.createAnnotation": {
+		workspaceId: WorkspaceId;
+		subtype: string;
+		title: string;
+		body: string;
+		/** Positions only -- symbolNodeId and the anchor's baseline file hash are derived server-side from the live graph/workspace, never trusted from the caller. */
+		anchors: readonly { path: string; line: number; character: number }[];
+	};
+	"workspace.getAnnotation": { workspaceId: WorkspaceId; id: AnnotationId };
+	"workspace.listAnnotations": { workspaceId: WorkspaceId; subtype?: string; status?: "fresh" | "stale" | "scrubbed"; maxResults?: number };
+	"workspace.refreshAnnotation": {
+		workspaceId: WorkspaceId;
+		id: AnnotationId;
+		subtype: string;
+		title: string;
+		body: string;
+		anchors: readonly { path: string; line: number; character: number }[];
+	};
+	"workspace.scrubAnnotation": { workspaceId: WorkspaceId; id: AnnotationId };
+	"workspace.restoreAnnotation": { workspaceId: WorkspaceId; id: AnnotationId };
 }
 
 type Provenanced<T> = T & { readonly provenance: IntelligenceProvenance };
@@ -329,6 +386,12 @@ export interface OperationOutputs {
 	"search.text": { results: readonly WorkspaceQueryOutcome<TextSearchResult>[] };
 	"job.submit": { job: JobSnapshot<PopulateSymbolGraphResult> };
 	"job.status": { job: JobSnapshot<PopulateSymbolGraphResult> };
+	"workspace.createAnnotation": { annotation: SymbolAnnotation };
+	"workspace.getAnnotation": { annotation: SymbolAnnotation | undefined };
+	"workspace.listAnnotations": { annotations: readonly SymbolAnnotation[] };
+	"workspace.refreshAnnotation": { annotation: SymbolAnnotation | undefined };
+	"workspace.scrubAnnotation": { scrubbed: boolean };
+	"workspace.restoreAnnotation": { restored: boolean };
 }
 
 /**
@@ -387,6 +450,8 @@ export interface LectorServiceOptions {
 	allowDynamicOnly?: boolean;
 	/** Factory for the graph backing workspace.populateSymbolGraph/reachableFrom/symbolEdgesFrom/symbolEdgesTo. Defaults to an in-memory graph (not durable across a restart). */
 	createSymbolGraph?: (workspaceId: WorkspaceId) => SymbolGraphPort;
+	/** Factory for the store backing workspace.createAnnotation/getAnnotation/listAnnotations/refreshAnnotation/scrubAnnotation/restoreAnnotation. Defaults to an in-memory store (not durable across a restart). */
+	createSymbolAnnotations?: (workspaceId: WorkspaceId) => SymbolAnnotationPort;
 	/** Factory for the git port backing workspace.gitStatus/gitLog/gitDiff. Defaults to LocalGit, the real `git` CLI. Cheap to construct -- never cached, unlike symbol indexes. */
 	createGitPort?: (rootPath: string) => GitPort;
 	/** Factory for the port backing repo.fetch. No default -- unlike createSymbolGraph's safe in-memory fallback, fetching a real external repo always needs a real disk location only a host (daemon.ts) can supply. Called once at construction and reused, not per-call. */
@@ -506,6 +571,19 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			symbolGraphs.set(workspaceId, graph);
 		}
 		return graph;
+	}
+
+	// One annotation store per workspace, same lazy-create-on-first-use shape as symbolGraphs.
+	const symbolAnnotations = new Map<WorkspaceId, SymbolAnnotationPort>();
+	const createSymbolAnnotations = options.createSymbolAnnotations ?? (() => new InMemorySymbolAnnotations());
+
+	function ensureSymbolAnnotations(workspaceId: WorkspaceId): SymbolAnnotationPort {
+		let store = symbolAnnotations.get(workspaceId);
+		if (!store) {
+			store = createSymbolAnnotations(workspaceId);
+			symbolAnnotations.set(workspaceId, store);
+		}
+		return store;
 	}
 
 	const createGitPort = options.createGitPort ?? ((rootPath: string) => new LocalGit(rootPath));
@@ -1001,6 +1079,119 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return { symbols };
 	}
 
+	/** Positions only in, real anchors out -- symbolNodeId and the baseline file hash are derived server-side from the live graph/workspace, never trusted from the caller. */
+	async function resolveAnnotationAnchors(
+		graph: SymbolGraphPort,
+		workspace: WorkspacePort,
+		positions: readonly { path: string; line: number; character: number }[],
+	): Promise<SymbolAnnotationAnchor[]> {
+		if (positions.length === 0) throw new AnnotationRequiresAnchors();
+		const hashByPath = new Map<string, ContentHash>();
+		const anchors: SymbolAnnotationAnchor[] = [];
+		for (const position of positions) {
+			const symbolNodeId = deriveSymbolNodeId(position);
+			const node = await graph.getNode(symbolNodeId);
+			if (!node) throw new UnknownAnnotationAnchor(position.path, position.line, position.character);
+			let hash = hashByPath.get(position.path);
+			if (hash === undefined) {
+				const entry = await workspace.readEntry(position.path);
+				if (!entry.exists) throw new UnknownAnnotationAnchor(position.path, position.line, position.character);
+				hash = contentHashOf(entry.content);
+				hashByPath.set(position.path, hash);
+			}
+			anchors.push({ symbolNodeId, path: position.path, fileContentHash: hash });
+		}
+		return anchors;
+	}
+
+	/**
+	 * Option A: every read live-checks staleness against the current graph/workspace and
+	 * persists a correction before returning -- a caller never sees a status that disagrees
+	 * with reality, at the cost of a live check per read. Never touches a "scrubbed"
+	 * annotation -- that status is a terminal, explicit caller decision staleness detection
+	 * must not override.
+	 */
+	async function withLiveStatus(
+		graph: SymbolGraphPort,
+		workspace: WorkspacePort,
+		store: SymbolAnnotationPort,
+		annotation: SymbolAnnotation,
+	): Promise<SymbolAnnotation> {
+		if (annotation.status === "scrubbed") return annotation;
+		const stale = await checkAnnotationStaleness(graph, workspace, annotation);
+		const wantedStatus: "fresh" | "stale" = stale ? "stale" : "fresh";
+		if (annotation.status === wantedStatus) return annotation;
+		const updated = await store.setStatus(annotation.id, wantedStatus);
+		return updated ?? annotation;
+	}
+
+	async function createAnnotationHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.createAnnotation"],
+	): Promise<OperationOutputs["workspace.createAnnotation"]> {
+		const workspace = resolveWorkspace(registry, input.workspaceId);
+		const graph = ensureSymbolGraph(input.workspaceId);
+		const anchors = await resolveAnnotationAnchors(graph, workspace, input.anchors);
+		const store = ensureSymbolAnnotations(input.workspaceId);
+		const annotation = await store.create({ subtype: input.subtype, title: input.title, body: input.body, anchors });
+		return { annotation };
+	}
+
+	async function getAnnotationHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.getAnnotation"],
+	): Promise<OperationOutputs["workspace.getAnnotation"]> {
+		const workspace = resolveWorkspace(registry, input.workspaceId);
+		const store = ensureSymbolAnnotations(input.workspaceId);
+		const found = await store.get(input.id);
+		if (!found) return { annotation: undefined };
+		const graph = ensureSymbolGraph(input.workspaceId);
+		return { annotation: await withLiveStatus(graph, workspace, store, found) };
+	}
+
+	async function listAnnotationsHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.listAnnotations"],
+	): Promise<OperationOutputs["workspace.listAnnotations"]> {
+		const workspace = resolveWorkspace(registry, input.workspaceId);
+		const store = ensureSymbolAnnotations(input.workspaceId);
+		const graph = ensureSymbolGraph(input.workspaceId);
+		const listOptions: SymbolAnnotationListOptions = { subtype: input.subtype, status: input.status, maxResults: input.maxResults };
+		const found = await store.list(listOptions);
+		const annotations = await Promise.all(found.map((annotation) => withLiveStatus(graph, workspace, store, annotation)));
+		return { annotations };
+	}
+
+	async function refreshAnnotationHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.refreshAnnotation"],
+	): Promise<OperationOutputs["workspace.refreshAnnotation"]> {
+		const workspace = resolveWorkspace(registry, input.workspaceId);
+		const graph = ensureSymbolGraph(input.workspaceId);
+		const anchors = await resolveAnnotationAnchors(graph, workspace, input.anchors);
+		const store = ensureSymbolAnnotations(input.workspaceId);
+		const annotation = await store.refresh(input.id, { subtype: input.subtype, title: input.title, body: input.body, anchors });
+		return { annotation };
+	}
+
+	async function scrubAnnotationHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.scrubAnnotation"],
+	): Promise<OperationOutputs["workspace.scrubAnnotation"]> {
+		resolveWorkspace(registry, input.workspaceId);
+		const store = ensureSymbolAnnotations(input.workspaceId);
+		return { scrubbed: await store.scrub(input.id) };
+	}
+
+	async function restoreAnnotationHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.restoreAnnotation"],
+	): Promise<OperationOutputs["workspace.restoreAnnotation"]> {
+		resolveWorkspace(registry, input.workspaceId);
+		const store = ensureSymbolAnnotations(input.workspaceId);
+		return { restored: await store.restore(input.id) };
+	}
+
 	const handlers: OperationHandlers = {
 		"workspace.rawRead": (registry, input) => rawRead(resolveWorkspace(registry, input.workspaceId), input.path),
 		"workspace.exactEdit": (registry, input) => {
@@ -1034,6 +1225,12 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"search.text": crossSearchText,
 		"job.submit": submitJobHandler,
 		"job.status": jobStatusHandler,
+		"workspace.createAnnotation": createAnnotationHandler,
+		"workspace.getAnnotation": getAnnotationHandler,
+		"workspace.listAnnotations": listAnnotationsHandler,
+		"workspace.refreshAnnotation": refreshAnnotationHandler,
+		"workspace.scrubAnnotation": scrubAnnotationHandler,
+		"workspace.restoreAnnotation": restoreAnnotationHandler,
 	};
 
 	return {
@@ -1054,7 +1251,13 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			symbolIndexes.clear();
 			const graphs = Array.from(symbolGraphs.values());
 			symbolGraphs.clear();
-			await Promise.all([...entries.map((entry) => entry.index.close()), ...graphs.map((graph) => graph.close())]);
+			const annotationStores = Array.from(symbolAnnotations.values());
+			symbolAnnotations.clear();
+			await Promise.all([
+				...entries.map((entry) => entry.index.close()),
+				...graphs.map((graph) => graph.close()),
+				...annotationStores.map((store) => store.close()),
+			]);
 		},
 		async reapIdleSymbolIndexes(maxIdleMs: number): Promise<number> {
 			const now = Date.now();
