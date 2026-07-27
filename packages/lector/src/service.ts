@@ -49,6 +49,7 @@ import { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
 import type { RepoFetchResult } from "./domain/repo-fetch-result.ts";
 import type { RepoReference } from "./domain/repo-reference.ts";
 import { resolvePackageSource } from "./domain/resolve-package-source.ts";
+import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from "./domain/response-format.ts";
 import { searchText as searchTextQuery } from "./domain/search-text.ts";
 import type { AnnotationId, SymbolAnnotation, SymbolAnnotationAnchor } from "./domain/symbol-annotation.ts";
 import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
@@ -295,10 +296,10 @@ export interface OperationInputs {
 	"workspace.rawRead": { workspaceId: WorkspaceId; path: string };
 	"workspace.exactEdit": { workspaceId: WorkspaceId } & ExpectedHashEdit;
 	"workspace.registerPath": { path: string };
-	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string; maxResults?: number };
+	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string; maxResults?: number; responseFormat?: ResponseFormat };
 	"workspace.goToDefinition": WorkspacePosition;
 	"workspace.goToImplementation": WorkspacePosition;
-	"workspace.findReferences": WorkspacePosition & { includeDeclaration: boolean };
+	"workspace.findReferences": WorkspacePosition & { includeDeclaration: boolean; responseFormat?: ResponseFormat };
 	"workspace.hover": WorkspacePosition;
 	"workspace.documentSymbols": { workspaceId: WorkspaceId; path: string };
 	"workspace.diagnostics": { workspaceId: WorkspaceId; path: string };
@@ -847,7 +848,12 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			throw new TypeError(`maxResults must be a positive safe integer no greater than ${MAX_SYMBOL_RESULTS}`);
 		}
 		const { index } = ensureWorkspaceIndex(input.workspaceId, input.seedFile);
-		return findWorkspaceSymbols(index, input.query, { maxResults });
+		const result = await findWorkspaceSymbols(index, input.query, { maxResults });
+		// "concise" narrows the actual JSON payload per domain/response-format.ts; the declared
+		// output type stays SymbolSearchResult (this operation's default, and every untouched
+		// caller's honest shape) -- a caller that opts into responseFormat:"concise" already knows
+		// to treat fields absent from the concise contract as absent, not to trust this type for it.
+		return formatSymbolSearchResult(result, input.responseFormat ?? "detailed") as OperationOutputs["workspace.findSymbols"];
 	}
 
 	async function requireCodeIntelligence(input: {
@@ -884,7 +890,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	): Promise<OperationOutputs["workspace.findReferences"]> {
 		const { index } = await requireCodeIntelligence(input);
 		const locations = await findReferencesQuery(index, { path: input.path, line: input.line, character: input.character }, input.includeDeclaration);
-		return { locations, provenance: index.provenance };
+		// See findSymbols' identical note on the concise/detailed type-vs-runtime tradeoff.
+		return formatProvenanced({ locations, provenance: index.provenance }, input.responseFormat ?? "detailed") as OperationOutputs["workspace.findReferences"];
 	}
 
 	async function hover(_registry: MutableRegistry, input: OperationInputs["workspace.hover"]): Promise<OperationOutputs["workspace.hover"]> {

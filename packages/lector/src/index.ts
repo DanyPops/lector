@@ -158,6 +158,8 @@ export { deriveSymbolNodeId, type SymbolNodeId } from "./domain/symbol-node-id.t
 export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./domain/symbol-query.ts";
 export type { TextSearchMatch, TextSearchResult } from "./domain/text-search-result.ts";
 export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";
+export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./domain/response-format.ts";
+export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./domain/response-format.ts";
 export type { WorkspaceMapEntry, WorkspaceMapOptions, WorkspaceMapResult } from "./domain/workspace-map.ts";
 export { computeWorkspaceMap } from "./domain/workspace-map.ts";
 export type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
