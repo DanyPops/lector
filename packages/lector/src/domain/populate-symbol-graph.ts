@@ -112,42 +112,51 @@ export async function populateSymbolGraph(
 	}
 
 	for (const file of files) {
-		let topLevel: DocumentSymbolEntry[];
+		// Always released, success or failure (finally, not just the happy path): a bulk crawl
+		// over many files doesn't need any of them to stay open once processed -- unlike a live
+		// caller genuinely juggling several files at once, this is a one-shot read per file, and
+		// leaving every one open is what silently exhausts LspSymbolIndex's open-file bound partway
+		// through the very first population run on a real-sized repo.
 		try {
-			topLevel = await index.documentSymbols(file);
-		} catch (error) {
-			recordFailure(file, "document-symbols", error);
-			continue;
-		}
-		const flattened = flattenDocumentSymbols(topLevel).slice(0, maxSymbolsPerFile);
-		filesProcessed++;
-
-		for (const { entry, parentLocation } of flattened) {
-			symbolsProcessed++;
-			const location = toLocation(entry);
-			const node: SymbolNode = { id: deriveSymbolNodeId(location), name: entry.name, kind: entry.kind, location };
-			await ensureNode(node);
-
-			if (parentLocation) {
-				await graph.addEdge(deriveSymbolNodeId(parentLocation), node.id, "contains");
-				edgesAdded++;
+			let topLevel: DocumentSymbolEntry[];
+			try {
+				topLevel = await index.documentSymbols(file);
+			} catch (error) {
+				recordFailure(file, "document-symbols", error);
+				continue;
 			}
+			const flattened = flattenDocumentSymbols(topLevel).slice(0, maxSymbolsPerFile);
+			filesProcessed++;
 
-			if (CALLABLE_KINDS.has(entry.kind)) {
-				let callees: OutgoingCall[];
-				try {
-					callees = await index.outgoingCalls(location);
-				} catch (error) {
-					recordFailure(file, "outgoing-calls", error);
-					continue;
-				}
-				for (const call of callees) {
-					const calleeNode: SymbolNode = { id: deriveSymbolNodeId(call.to.location), name: call.to.name, kind: call.to.kind, location: call.to.location };
-					await ensureNode(calleeNode);
-					await graph.addEdge(node.id, calleeNode.id, "calls");
+			for (const { entry, parentLocation } of flattened) {
+				symbolsProcessed++;
+				const location = toLocation(entry);
+				const node: SymbolNode = { id: deriveSymbolNodeId(location), name: entry.name, kind: entry.kind, location };
+				await ensureNode(node);
+
+				if (parentLocation) {
+					await graph.addEdge(deriveSymbolNodeId(parentLocation), node.id, "contains");
 					edgesAdded++;
 				}
+
+				if (CALLABLE_KINDS.has(entry.kind)) {
+					let callees: OutgoingCall[];
+					try {
+						callees = await index.outgoingCalls(location);
+					} catch (error) {
+						recordFailure(file, "outgoing-calls", error);
+						continue;
+					}
+					for (const call of callees) {
+						const calleeNode: SymbolNode = { id: deriveSymbolNodeId(call.to.location), name: call.to.name, kind: call.to.kind, location: call.to.location };
+						await ensureNode(calleeNode);
+						await graph.addEdge(node.id, calleeNode.id, "calls");
+						edgesAdded++;
+					}
+				}
 			}
+		} finally {
+			await index.releaseFile?.(file);
 		}
 	}
 

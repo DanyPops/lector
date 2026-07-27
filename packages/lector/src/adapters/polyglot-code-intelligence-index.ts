@@ -136,4 +136,8 @@ export class PolyglotCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 	outgoingCalls(at: WorkspaceLocation): Promise<OutgoingCall[]> {
 		return this.indexForPath(at.path).outgoingCalls(at);
 	}
+
+	releaseFile(path: string): Promise<void> {
+		return this.indexForPath(path).releaseFile?.(path) ?? Promise.resolve();
+	}
 }

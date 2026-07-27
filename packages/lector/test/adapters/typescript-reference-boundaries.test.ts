@@ -86,6 +86,36 @@ describe("TypeScript/JavaScript reference fixture boundaries", () => {
 		await expect(documentSymbols(lsp, join(fixture.root, "packages/app/src/checkout.ts"))).rejects.toBeInstanceOf(LanguageFileLimitExceeded);
 	}, 30_000);
 
+	it("releaseFile frees an open-file slot instead of leaving the cap permanently exhausted " +
+		"(regression: a bulk populateSymbolGraph crawl that never released a file left every " +
+		"later query against ANY file, including brand-new ones, permanently failing)", async () => {
+		fixture = materializeTypeScriptReferenceFixture();
+		const seed = "packages/app/src/main.ts";
+		const seedPath = join(fixture.root, seed);
+		const checkoutPath = join(fixture.root, "packages/app/src/checkout.ts");
+		lsp = new LspSymbolIndex(fixture.root, TYPESCRIPT_DESCRIPTOR, seed, { maxOpenFiles: 1 });
+
+		await lsp.findSymbols("runCheckout"); // opens the seed file, filling the one-slot cap
+		await expect(documentSymbols(lsp, checkoutPath)).rejects.toBeInstanceOf(LanguageFileLimitExceeded);
+
+		await lsp.releaseFile(seedPath);
+		const checkoutSymbols = await documentSymbols(lsp, checkoutPath);
+		expect(checkoutSymbols.some((entry) => entry.name === "runCheckout")).toBe(true);
+
+		// The released file still answers correctly afterward -- it reopens transparently, not
+		// permanently broken by having once been closed.
+		await lsp.releaseFile(checkoutPath);
+		const seedSymbols = await documentSymbols(lsp, seedPath);
+		expect(seedSymbols.length).toBeGreaterThan(0);
+	}, 30_000);
+
+	it("releaseFile is a harmless no-op for a file that was never opened, or before the process ever started", async () => {
+		fixture = materializeTypeScriptReferenceFixture();
+		const seed = "packages/app/src/main.ts";
+		lsp = new LspSymbolIndex(fixture.root, TYPESCRIPT_DESCRIPTOR, seed, { maxOpenFiles: 1 });
+		await expect(lsp.releaseFile(join(fixture.root, "packages/app/src/checkout.ts"))).resolves.toBeUndefined();
+	});
+
 	it("rejects unbounded settling configuration before spawning a server", () => {
 		fixture = materializeTypeScriptReferenceFixture();
 

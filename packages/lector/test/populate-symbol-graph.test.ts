@@ -121,6 +121,72 @@ describe("populateSymbolGraph", () => {
 		expect(result.failures[0]?.message.length).toBeLessThanOrEqual(500);
 	});
 
+	it("releases each file after processing it, so a bulk crawl over more files than the open-file cap fully succeeds", async () => {
+		// Reproduces the real bug in miniature: 5 real files against a 2-slot open-file cap. Before
+		// releaseFile existed, this failed partway through with LanguageFileLimitExceeded and never
+		// recovered even for a live retry -- the exact failure mode found live against Lector's own
+		// ~270-file monorepo.
+		const root = mkdtempSync(join(tmpdir(), "lector-symbol-graph-release-"));
+		fixtureRoot = root;
+		writeFileSync(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true } }));
+		const files: string[] = [];
+		for (let n = 0; n < 5; n++) {
+			const file = join(root, `f${n}.ts`);
+			writeFileSync(file, `export function fn${n}(): number {\n\treturn ${n};\n}\n`);
+			files.push(file);
+		}
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "f0.ts", { maxOpenFiles: 2 });
+		graph = new InMemorySymbolGraph();
+
+		const result = await populateSymbolGraph(index, graph, files, 50);
+
+		expect(result.completeness).toBe("complete");
+		expect(result.filesFailed).toBe(0);
+		expect(result.filesProcessed).toBe(5);
+
+		// The live-recovery promise this was breaking: a query against any of the files afterward
+		// still works, proving the index isn't left permanently wedged at the cap.
+		const symbols = await index.documentSymbols(files[4] ?? "");
+		expect(symbols.some((entry) => entry.name === "fn4")).toBe(true);
+	}, 30_000);
+
+	it("calls releaseFile exactly once per attempted file, even when document-symbols or outgoing-calls fails", async () => {
+		const released: string[] = [];
+		let callCount = 0;
+		const flaky: CodeIntelligencePort = {
+			provenance: {
+				fidelity: "semantic",
+				backend: "flaky-test-server",
+				languageId: "test",
+				authority: "language-server",
+				freshness: "live-process",
+				limitations: [],
+			},
+			goToDefinition: async () => [],
+			goToImplementation: async () => [],
+			findReferences: async () => [],
+			hover: async () => undefined,
+			documentSymbols: async (path) => {
+				callCount++;
+				if (path === "/repo/fails.test") throw new Error("cannot index this one");
+				return [];
+			},
+			diagnostics: async () => [],
+			prepareCallHierarchy: async () => [],
+			incomingCalls: async () => [],
+			outgoingCalls: async () => [],
+			releaseFile: async (path) => {
+				released.push(path);
+			},
+		};
+		graph = new InMemorySymbolGraph();
+
+		await populateSymbolGraph(flaky, graph, ["/repo/ok.test", "/repo/fails.test"], 10);
+
+		expect(callCount).toBe(2);
+		expect(released).toEqual(["/repo/ok.test", "/repo/fails.test"]);
+	});
+
 	it("returns honest zero counts for an empty file list, not an error", async () => {
 		const { root } = buildFixture();
 		fixtureRoot = root;

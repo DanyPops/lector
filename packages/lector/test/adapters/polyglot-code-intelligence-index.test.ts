@@ -65,4 +65,33 @@ describe("PolyglotCodeIntelligenceIndex", () => {
 		expect(await index.goToDefinition({ path: "/repo/main.go", line: 1, character: 1 })).toEqual([{ path: "/repo/main.go", line: 1, character: 1 }]);
 		expect(await index.goToDefinition({ path: "/repo/main.py", line: 1, character: 1 })).toEqual([{ path: "/repo/main.py", line: 1, character: 1 }]);
 	});
+
+	it("dispatches releaseFile to the extension-matched backend, and tolerates a backend that doesn't implement it", async () => {
+		const released: string[] = [];
+		const goIndex: SymbolIndexPort & CodeIntelligencePort = {
+			provenance: provenance("go", "gopls"),
+			findSymbols: async () => ({ symbols: [], truncated: false, provenance: provenance("go", "gopls") }),
+			goToDefinition: async () => [],
+			goToImplementation: async () => [],
+			findReferences: async () => [],
+			hover: async () => undefined,
+			documentSymbols: async () => [],
+			diagnostics: async () => [],
+			prepareCallHierarchy: async () => [],
+			incomingCalls: async () => [],
+			outgoingCalls: async () => [],
+			releaseFile: async (path) => {
+				released.push(path);
+			},
+		};
+		const go: PolyglotIndexEntry = { descriptor: GO_DESCRIPTOR, index: goIndex };
+		// python's stub deliberately has no releaseFile at all -- a backend without the capability.
+		const python = stubEntry(PYTHON_DESCRIPTOR, async () => ({ symbols: [], truncated: false, provenance: provenance("python", "pyright") }));
+		const index = new PolyglotCodeIntelligenceIndex([go, python]);
+
+		await index.releaseFile("/repo/main.go");
+		expect(released).toEqual(["/repo/main.go"]);
+
+		await expect(index.releaseFile("/repo/main.py")).resolves.toBeUndefined();
+	});
 });

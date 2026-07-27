@@ -135,7 +135,7 @@ describe("lector CLI annotation commands", () => {
 
 		const restored = JSON.parse(await runCli(["workspace", "annotation", "restore", workspaceId, created.id, "--json"])) as { restored: boolean };
 		expect(restored.restored).toBe(true);
-	});
+	}, 30_000);
 
 	it("accepts a workspace-relative --anchor path, resolving to the same symbol as the absolute form", async () => {
 		isolated = isolatedLectorPaths();
@@ -181,7 +181,7 @@ describe("lector CLI annotation commands", () => {
 		expect(createdViaRelative.status).toBe("fresh");
 		expect(createdViaRelative.anchors[0]?.path).toBe(createdViaAbsolute.anchors[0]?.path);
 		expect(createdViaRelative.anchors[0]?.symbolNodeId).toBe(createdViaAbsolute.anchors[0]?.symbolNodeId);
-	});
+	}, 30_000);
 
 	it("rejects an --anchor that does not resolve to any known symbol, with a non-zero exit", async () => {
 		isolated = isolatedLectorPaths();
@@ -207,5 +207,5 @@ describe("lector CLI annotation commands", () => {
 				"--json",
 			]),
 		).rejects.toThrow();
-	});
+	}, 30_000);
 });

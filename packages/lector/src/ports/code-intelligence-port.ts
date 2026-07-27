@@ -38,4 +38,15 @@ export interface CodeIntelligencePort {
 	incomingCalls(at: WorkspaceLocation): Promise<IncomingCall[]>;
 	/** Every function/method the symbol at `at` itself calls. */
 	outgoingCalls(at: WorkspaceLocation): Promise<OutgoingCall[]>;
+	/**
+	 * Optional hint that the caller is done with `path` for now -- a backend
+	 * that keeps a bounded number of documents open (e.g. an LSP process) may
+	 * free that file's slot; a backend with no such concept (compiler,
+	 * tree-sitter) simply doesn't implement this. A later call against the
+	 * same path still works correctly -- it just re-opens transparently,
+	 * at the normal cost of a cold file. Meant for a bulk one-shot crawl
+	 * (populateSymbolGraph) that has no reason to hold every file open at
+	 * once, not for a live caller genuinely juggling several files together.
+	 */
+	releaseFile?(path: string): Promise<void>;
 }

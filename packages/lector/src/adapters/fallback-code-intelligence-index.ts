@@ -66,6 +66,9 @@ export class FallbackCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 	outgoingCalls(at: WorkspaceLocation): Promise<OutgoingCall[]> {
 		return this.primary.outgoingCalls(at);
 	}
+	releaseFile(path: string): Promise<void> {
+		return this.primary.releaseFile?.(path) ?? Promise.resolve();
+	}
 
 	async close(): Promise<void> {
 		await Promise.allSettled([this.primary.close(), ...this.fallbacks.map((fallback) => fallback.close())]);

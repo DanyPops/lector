@@ -427,6 +427,24 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		await new Promise((resolve) => setTimeout(resolve, this.descriptor.settleMs ?? DEFAULT_SETTLE_MS));
 	}
 
+	/**
+	 * Closes `path` if this index has it open, freeing its open-file slot for
+	 * a bulk crawl's next file. A no-op if the process was never started or
+	 * the file was never opened -- never throws for something this method
+	 * would only have needed to fix anyway. A later real operation against
+	 * the same path reopens it transparently via ensureFileOpen.
+	 */
+	releaseFile(path: string): Promise<void> {
+		path = this.resolveTargetPath(path);
+		if (!this.openedFiles.has(path)) return Promise.resolve();
+		const proc = this.process;
+		if (proc) proc.notify("textDocument/didClose", { textDocument: { uri: pathToFileURL(path).href } });
+		this.openedFiles.delete(path);
+		this.latestDiagnostics.delete(path);
+		this.diagnosticsWaiters.delete(path);
+		return Promise.resolve();
+	}
+
 	/** Resolves as soon as `path`'s next publishDiagnostics notification lands, or after `timeoutMs` -- diagnostics are server-pushed, never a request/response Lector can just await. */
 	private waitForDiagnosticsNotification(path: string, timeoutMs: number): Promise<void> {
 		return new Promise((resolve) => {
