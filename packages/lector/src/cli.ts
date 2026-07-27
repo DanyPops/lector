@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
-import { connectLectorClient } from "./client.ts";
+import { connectLectorClient, resolveLectorDaemonConnection } from "./client.ts";
 import { LECTOR_PATH_NAMES } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
 import type { JobSnapshot } from "./domain/bounded-job-executor.ts";
@@ -33,6 +33,11 @@ const USAGE = `Usage:
   lector workspace register <dir> [--json]
   lector workspace read <workspace-id> <path> [--json]
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
+  lector workspace watch <workspace-id> --pattern <glob> [--json]
+    blocks, printing every real matching file change (created/modified/deleted) as it happens
+    (Ctrl-C to stop) -- connects to the daemon's PushChannel over a real WebSocket, the same
+    channel workspace.watch's own topic is delivered on for any other subscriber
+  lector workspace unwatch <watch-id> [--json]
   lector workspace apply-patch <workspace-id> <path> --patch <unified-diff-text> --expected-hash <hash> [--json]
     applies real unified-diff hunks (as diff -u / git diff produce), whole-file guarded --
     hunk context is searched for near its own line-number hint, tolerating a file that
@@ -893,6 +898,56 @@ async function runWorkspaceLineEdit(workspaceId: string | undefined, path: strin
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.path}: ${result.previousHash} -> ${result.newHash}`);
 }
 
+async function runWorkspaceWatch(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const pattern = flagValue(flags, "--pattern");
+	if (!pattern) fail("lector workspace watch requires --pattern <glob>");
+	const json = hasFlag(flags, "--json");
+
+	const client = await connectLectorClient();
+	const { watchId, topic } = await client.call("workspace.watch", { workspaceId, pattern });
+	const { host, port, token } = resolveLectorDaemonConnection();
+	if (!json) console.error(`watching "${pattern}" in workspace ${workspaceId} (watchId ${watchId}) -- Ctrl-C to stop`);
+
+	const ws = new WebSocket(`ws://${host}:${port}/push?token=${token}`);
+	await new Promise<void>((resolvePromise, reject) => {
+		ws.addEventListener("open", () => resolvePromise());
+		ws.addEventListener("error", () => reject(new Error("failed to connect to the daemon's push channel")));
+	});
+	ws.addEventListener("message", (event) => {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(String(event.data));
+		} catch {
+			return;
+		}
+		const message = parsed as { topic?: string; payload?: { path?: string; kind?: string } };
+		if (message.topic !== topic) return;
+		if (json) {
+			console.log(JSON.stringify(message.payload));
+			return;
+		}
+		console.log(`${message.payload?.kind}\t${message.payload?.path}`);
+	});
+	ws.send(JSON.stringify({ op: "subscribe", topic }));
+
+	// Blocks until Ctrl-C -- the real, intended shape of this command (`tail -f`, not a
+	// request/response call), then cleans up its own registration rather than leaking a watch
+	// (and the OS watcher it may be the last reference to) every time a caller stops watching.
+	await new Promise<void>((resolvePromise) => {
+		process.once("SIGINT", () => resolvePromise());
+	});
+	ws.close();
+	await client.call("workspace.unwatch", { watchId }).catch(() => {});
+}
+
+async function runWorkspaceUnwatch(watchId: string | undefined, flags: string[]): Promise<void> {
+	if (!watchId) fail(USAGE);
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.unwatch", { watchId });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : result.unwatched ? "unwatched" : "no such watch (already removed or never existed)");
+}
+
 async function runWorkspaceApplyPatch(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !path) fail(USAGE);
 	const patchText = flagValue(flags, "--patch");
@@ -1011,6 +1066,8 @@ async function main(): Promise<void> {
 		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
 		if (action === "line-edit") return runWorkspaceLineEdit(workspaceId, path, flags);
 		if (action === "apply-patch") return runWorkspaceApplyPatch(workspaceId, path, flags);
+		if (action === "watch") return runWorkspaceWatch(workspaceId, actionArgs.slice(1));
+		if (action === "unwatch") return runWorkspaceUnwatch(workspaceId, flags);
 		if (action === "symbols") return runWorkspaceSymbols(workspaceId, path, flags);
 		if (action === "search-text") return runWorkspaceSearchText(workspaceId, path, flags);
 		if (action === "find-files") return runWorkspaceFindFiles(workspaceId, actionArgs.slice(1));

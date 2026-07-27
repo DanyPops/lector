@@ -11,8 +11,8 @@ export interface ConnectLectorClientOptions {
 	paths?: DaemonPaths;
 }
 
-/** Connect to a running Lector daemon, probing health before returning. */
-export async function connectLectorClient(options: ConnectLectorClientOptions = {}): Promise<LectorClient> {
+/** host/port/token for a running Lector daemon, without connecting -- the one seam the CLI's own `workspace watch` command reuses to open a raw WebSocket to /push, the same values connectLectorClient resolves internally for its own HTTP client. */
+export function resolveLectorDaemonConnection(options: ConnectLectorClientOptions = {}): { host: string; port: number; token: string } {
 	const paths = options.paths ?? resolveLectorPaths();
 	const handle = readDaemonHandle(paths.handle);
 	if (!handle) throw new Error("Lector daemon is not running; start it with `lector serve`");
@@ -23,8 +23,13 @@ export async function connectLectorClient(options: ConnectLectorClientOptions = 
 	} catch {
 		throw new Error("Lector daemon token is unreadable; restart it with `lector serve`");
 	}
+	return { host: handle.host, port: handle.port, token };
+}
 
-	const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${handle.host}:${handle.port}`, token, {
+/** Connect to a running Lector daemon, probing health before returning. */
+export async function connectLectorClient(options: ConnectLectorClientOptions = {}): Promise<LectorClient> {
+	const { host, port, token } = resolveLectorDaemonConnection(options);
+	const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${host}:${port}`, token, {
 		label: "Lector",
 	});
 	try {

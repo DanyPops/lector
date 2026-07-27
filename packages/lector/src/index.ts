@@ -14,6 +14,7 @@ export {
 	LanguageServerRequestTimedOut,
 } from "./adapters/lsp/language-server-process.ts";
 export { LanguageFileLimitExceeded, LanguageFileOutsideWorkspace, LspSymbolIndex, type LspSymbolIndexOptions } from "./adapters/lsp/lsp-symbol-index.ts";
+export { NodeFsFileWatcher } from "./adapters/node-fs-file-watcher.ts";
 export { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } from "./adapters/npm-lockfile-version-resolver.ts";
 export { NpmPackageSourceResolver, type NpmPackageSourceResolverOptions } from "./adapters/npm-package-source-resolver.ts";
 export {
@@ -44,6 +45,7 @@ export {
 	connectLectorClientAt,
 	type LectorClient,
 	remoteErrorIs,
+	resolveLectorDaemonConnection,
 } from "./client.ts";
 export { resolveLectorPaths } from "./constants.ts";
 export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
@@ -80,6 +82,7 @@ export {
 	exactEdit,
 	StaleExpectedHash,
 } from "./domain/exact-edit.ts";
+export type { FileChangeEvent } from "./domain/file-change-event.ts";
 export { findFiles } from "./domain/find-files.ts";
 export type { FindFilesResult } from "./domain/find-files-result.ts";
 export { findReferences } from "./domain/find-references.ts";
@@ -187,12 +190,14 @@ export {
 	parseUnifiedDiff,
 	type UnifiedDiffHunk,
 } from "./domain/unified-diff.ts";
+export { WatchLimitExceeded, type WatchRegistration, WatchRegistry } from "./domain/watch-registry.ts";
 export type { WorkspaceMapEntry, WorkspaceMapOptions, WorkspaceMapResult } from "./domain/workspace-map.ts";
 export { computeWorkspaceMap } from "./domain/workspace-map.ts";
 export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";
 export type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
+export type { FileWatcherPort } from "./ports/file-watcher-port.ts";
 export type { GitPort } from "./ports/git-port.ts";
 export type { InstalledPackageVersionResolverPort } from "./ports/installed-package-version-resolver-port.ts";
 export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";

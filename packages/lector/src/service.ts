@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import picomatch from "picomatch";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
 import { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
@@ -9,6 +10,7 @@ import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.
 import { LocalGit } from "./adapters/local-git.ts";
 import { discoverWorkspaceDescriptor, discoverWorkspaceDescriptors } from "./adapters/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
+import { NodeFsFileWatcher } from "./adapters/node-fs-file-watcher.ts";
 import { NpmLockfileVersionResolver } from "./adapters/npm-lockfile-version-resolver.ts";
 import { NpmPackageSourceResolver } from "./adapters/npm-package-source-resolver.ts";
 import { NpmRegistryClient } from "./adapters/npm-registry-client.ts";
@@ -28,6 +30,7 @@ import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
 import type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
 import { documentSymbols as documentSymbolsQuery } from "./domain/document-symbols.ts";
 import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash } from "./domain/exact-edit.ts";
+import type { FileChangeEvent } from "./domain/file-change-event.ts";
 import { findFiles as findFilesQuery } from "./domain/find-files.ts";
 import type { FindFilesResult } from "./domain/find-files-result.ts";
 import { findReferences as findReferencesQuery } from "./domain/find-references.ts";
@@ -62,10 +65,12 @@ import type { WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
 import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
 import { assertBoundedSymbolQuery } from "./domain/symbol-query.ts";
 import type { TextSearchResult } from "./domain/text-search-result.ts";
+import { WatchLimitExceeded, WatchRegistry } from "./domain/watch-registry.ts";
 import { computeWorkspaceMap, type WorkspaceMapResult } from "./domain/workspace-map.ts";
 import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts";
 import type { SymbolSearchResult, WorkspaceLocation } from "./domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
+import type { FileWatcherPort } from "./ports/file-watcher-port.ts";
 import type { GitPort } from "./ports/git-port.ts";
 import type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
@@ -240,6 +245,8 @@ export type OperationName =
 	| "package.resolveSource"
 	| "workspace.searchText"
 	| "workspace.findFiles"
+	| "workspace.watch"
+	| "workspace.unwatch"
 	| "search.symbols"
 	| "search.text"
 	| "job.submit"
@@ -281,6 +288,8 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"package.resolveSource",
 	"workspace.searchText",
 	"workspace.findFiles",
+	"workspace.watch",
+	"workspace.unwatch",
 	"search.symbols",
 	"search.text",
 	"job.submit",
@@ -332,6 +341,9 @@ export interface OperationInputs {
 	"workspace.searchText": { workspaceId: WorkspaceId; query: string; maxMatches: number; maxBytes: number };
 	/** `patterns` are OR'd together -- a file matching any one of them is included. */
 	"workspace.findFiles": { workspaceId: WorkspaceId; patterns: readonly string[]; maxResults: number; maxBytes: number };
+	/** Registers a real, ongoing watch for files matching `pattern` under workspaceId, published to the returned topic via the daemon's PushChannel ("/push") going forward. */
+	"workspace.watch": { workspaceId: WorkspaceId; pattern: string };
+	"workspace.unwatch": { watchId: string };
 	/**
 	 * No single workspaceId -- fans out across several at once, unlike every other findSymbols-
 	 * shaped operation. `workspaceIds`, when given, restricts the fan-out to exactly those
@@ -404,6 +416,8 @@ export interface OperationOutputs {
 	"package.resolveSource": PackageSourceOperationResult;
 	"workspace.searchText": TextSearchResult;
 	"workspace.findFiles": FindFilesResult;
+	"workspace.watch": { watchId: string; topic: string };
+	"workspace.unwatch": { unwatched: boolean };
 	"search.symbols": { results: readonly WorkspaceQueryOutcome<SymbolSearchResult>[] };
 	"search.text": { results: readonly WorkspaceQueryOutcome<TextSearchResult>[] };
 	"job.submit": { job: JobSnapshot<PopulateSymbolGraphResult> };
@@ -483,6 +497,10 @@ export interface LectorServiceOptions {
 	createPackageSourceResolver?: () => PackageSourceResolverPort;
 	/** Factory for the port backing workspace.searchText. Defaults to RipgrepTextSearch -- cheap to construct, no disk dependency, safe like createGitPort's default. Called once at construction and reused. */
 	createTextSearch?: () => TextSearchPort;
+	/** Factory for the port backing workspace.watch's real OS-level watching. Defaults to NodeFsFileWatcher. Called once per workspace, lazily, on its first active watch -- never for a workspace nobody has asked to watch. */
+	createFileWatcher?: () => FileWatcherPort;
+	/** Publishes a real file-change event to workspace.watch's own PushChannel topic. Defaults to a no-op -- a host without a real push transport (most embedders, most tests) still gets correct watch registration/matching, just no actual delivery. Wired to a real PushChannel.publish by daemon.ts. */
+	publish?: (topic: string, payload: unknown) => void;
 	/** Factory for workspace.searchText's result cache. Defaults to an in-memory-only InMemorySearchCache -- safe, no disk dependency. A host wanting the disk-backed tier too (surviving a restart) supplies a TieredSearchCache here. Called once at construction and reused. */
 	createSearchCache?: () => SearchCachePort;
 	/** Process-lifetime background executor. Tests inject deterministic ids and tighter bounds. */
@@ -621,6 +639,11 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			: undefined);
 	const textSearch = options.createTextSearch?.() ?? new RipgrepTextSearch();
 	const searchCache = options.createSearchCache?.() ?? new InMemorySearchCache();
+	const createFileWatcher = options.createFileWatcher ?? (() => new NodeFsFileWatcher());
+	const publish = options.publish ?? (() => {});
+	const watchRegistry = new WatchRegistry();
+	/** One real OS watcher per workspace, shared across every pattern registered for it -- lazily created on the first watch, closed once the last one for that workspace is removed. */
+	const osWatchersByWorkspace = new Map<WorkspaceId, { close(): void }>();
 
 	/** Never cached: cheap to construct, and a stale-git-repo check would be wrong to memoize across a repo that could be git-init'd or removed mid-session. */
 	async function requireGitRepository(workspaceId: WorkspaceId): Promise<GitPort> {
@@ -696,6 +719,43 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
 		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 		return findFilesQuery(textSearch, entry.rootPath, input.patterns, { maxResults: input.maxResults, maxBytes: input.maxBytes });
+	}
+
+	/** The one callback every workspace's single shared OS watcher uses, regardless of how many patterns are registered against it -- dispatches a real change to every registered pattern for that workspace, publishing to each match's own topic. */
+	function handleFileChange(workspaceId: WorkspaceId, event: FileChangeEvent): void {
+		for (const registration of watchRegistry.registrationsFor(workspaceId)) {
+			if (picomatch(registration.pattern)(event.path)) publish(registration.topic, event);
+		}
+	}
+
+	async function watchHandler(registry: MutableRegistry, input: OperationInputs["workspace.watch"]): Promise<OperationOutputs["workspace.watch"]> {
+		const entry = registry.get(input.workspaceId);
+		if (!entry) throw new UnknownWorkspace(input.workspaceId);
+		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
+		if (!input.pattern) throw new TypeError("workspace.watch requires a non-empty pattern");
+
+		const watchId = randomUUID();
+		const topic = `watch:${watchId}`;
+		// Registered before the OS watcher is (possibly) created: if WatchLimitExceeded throws
+		// here, no OS watcher is ever touched for a workspace already at its bound.
+		watchRegistry.add(input.workspaceId, input.pattern, watchId, topic);
+
+		if (!osWatchersByWorkspace.has(input.workspaceId)) {
+			const rootPath = entry.rootPath;
+			const handle = createFileWatcher().watch(rootPath, (event) => handleFileChange(input.workspaceId, event));
+			osWatchersByWorkspace.set(input.workspaceId, handle);
+		}
+
+		return { watchId, topic };
+	}
+
+	async function unwatchHandler(_registry: MutableRegistry, input: OperationInputs["workspace.unwatch"]): Promise<OperationOutputs["workspace.unwatch"]> {
+		const removed = watchRegistry.remove(input.watchId);
+		if (removed && !watchRegistry.hasAnyFor(removed.workspaceId)) {
+			osWatchersByWorkspace.get(removed.workspaceId)?.close();
+			osWatchersByWorkspace.delete(removed.workspaceId);
+		}
+		return { unwatched: removed !== undefined };
 	}
 
 	/** Every workspace with a known root -- the same precondition workspace.findSymbols/searchText already require individually, applied to all of them at once. */
@@ -1282,6 +1342,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"package.resolveSource": packageSourceHandler,
 		"workspace.searchText": searchTextHandler,
 		"workspace.findFiles": findFilesHandler,
+		"workspace.watch": watchHandler,
+		"workspace.unwatch": unwatchHandler,
 		"search.symbols": crossFindSymbols,
 		"search.text": crossSearchText,
 		"job.submit": submitJobHandler,
@@ -1315,6 +1377,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			symbolGraphs.clear();
 			const annotationStores = Array.from(symbolAnnotations.values());
 			symbolAnnotations.clear();
+			for (const watcher of osWatchersByWorkspace.values()) watcher.close();
+			osWatchersByWorkspace.clear();
 			await Promise.all([
 				...entries.map((entry) => entry.index.close()),
 				...graphs.map((graph) => graph.close()),
@@ -1332,4 +1396,4 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 }
 
 export { JobCapacityExceeded, JobNotFound } from "./domain/bounded-job-executor.ts";
-export { LineEditRace, LineEditRejected, PatchRejected, StaleExpectedHash, WorkspaceEntryNotFound };
+export { LineEditRace, LineEditRejected, PatchRejected, StaleExpectedHash, WatchLimitExceeded, WorkspaceEntryNotFound };

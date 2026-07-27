@@ -3,6 +3,7 @@ import { type MaintenanceTask, type RunningDaemon, runDaemonProcess, startDaemon
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/daemon-kit/http";
 import type { Logger } from "@danypops/daemon-kit/logging";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/daemon-kit/paths";
+import { PushChannel } from "@danypops/daemon-kit/push-channel";
 import { GitRepoFetcher } from "./adapters/git-repo-fetcher.ts";
 import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
 import { SqliteSearchCache } from "./adapters/sqlite-search-cache.ts";
@@ -92,6 +93,7 @@ export interface LectorDaemonOptions {
 function prepare(options: LectorDaemonOptions): {
 	paths: DaemonPaths;
 	app: { fetch(request: Request): Promise<Response> };
+	pushChannel: PushChannel;
 	onShutdown: () => Promise<void>;
 	maintenanceTasks: MaintenanceTask[];
 } {
@@ -105,6 +107,11 @@ function prepare(options: LectorDaemonOptions): {
 	// manages its own disk-bounded LRU cache of fetched external repos under a sibling
 	// directory of the main database, independent of any single registered workspace.
 	const reposDirectory = join(dirname(paths.database), "repos");
+	// The same token that guards the ops HTTP endpoint also guards the push WebSocket upgrade --
+	// one authenticated boundary for this daemon, not two independently-managed ones. Computed
+	// before createLectorService so its publish callback can close over the real channel instance.
+	const token = ensureAuthToken(paths.token, "Lector");
+	const pushChannel = new PushChannel({ token });
 	// createLectorService throws synchronously on an empty registry (unless allowDynamicOnly is
 	// explicitly set), before startDaemon/runDaemonProcess ever binds a listener or writes a
 	// handle file -- the daemon fails loudly at construction rather than starting and silently
@@ -119,8 +126,8 @@ function prepare(options: LectorDaemonOptions): {
 		// SearchCachePort adapter can only be one or the other, service.ts's own safe default is
 		// in-memory-only.
 		createSearchCache: () => new TieredSearchCache(new InMemorySearchCache(), new SqliteSearchCache(join(dirname(paths.database), "search-cache.db"))),
+		publish: (topic, payload) => pushChannel.publish(topic, payload),
 	});
-	const token = ensureAuthToken(paths.token, "Lector");
 	const idleTtlMs = options.symbolIndexIdleTtlMs ?? DEFAULT_SYMBOL_INDEX_IDLE_TTL_MS;
 	// service.close() stops every warm symbol-index (LSP) subprocess the service spawned --
 	// without this hook a daemon restart would leak one language server per workspace that
@@ -129,6 +136,7 @@ function prepare(options: LectorDaemonOptions): {
 	return {
 		paths,
 		app: buildLectorApp(service, token),
+		pushChannel,
 		onShutdown: () => service.close(),
 		maintenanceTasks: [
 			{
@@ -151,12 +159,21 @@ function prepare(options: LectorDaemonOptions): {
  * instead, a real behavior change, not just a type-signature one.
  */
 export function startLectorDaemon(options: LectorDaemonOptions): Promise<RunningDaemon> {
-	const { paths, app, onShutdown, maintenanceTasks } = prepare(options);
+	const { paths, app, pushChannel, onShutdown, maintenanceTasks } = prepare(options);
 	return startDaemon({
 		daemonLabel: "Lector",
 		handlePath: paths.handle,
 		buildApp: () => app,
 		logger: options.logger,
+		// A real daemon-kit packaging gap, not a Lector bug: @danypops/daemon-kit/daemon resolves
+		// to a separately-compiled dist/daemon.d.ts, whose own PushChannel type comes from a
+		// dist/push-channel.d.ts that isn't itself a public subpath -- while @danypops/daemon-kit
+		// /push-channel (the only public entry point for constructing one) resolves to the raw
+		// src/push-channel.ts. Both are the exact same class body; TypeScript treats them as two
+		// distinct nominal types only because of a private field disagreeing across two
+		// independently-compiled copies of identical source. Filed upstream; safe to cast through
+		// here since the runtime objects are genuinely interchangeable.
+		pushChannel: pushChannel as unknown as NonNullable<Parameters<typeof startDaemon>[0]["pushChannel"]>,
 		onShutdown,
 		maintenanceTasks,
 	});
@@ -164,12 +181,15 @@ export function startLectorDaemon(options: LectorDaemonOptions): Promise<Running
 
 /** The real binary's entry point: wires SIGINT/SIGTERM and process.exit. */
 export function serveMain(options: LectorDaemonOptions & { onListen?: (info: { host: string; port: number }) => void }): void {
-	const { paths, app, onShutdown, maintenanceTasks } = prepare(options);
+	const { paths, app, pushChannel, onShutdown, maintenanceTasks } = prepare(options);
 	runDaemonProcess({
 		daemonLabel: "Lector",
 		handlePath: paths.handle,
 		buildApp: () => app,
 		logger: options.logger,
+		// See startLectorDaemon's own comment on this same cast -- a real daemon-kit packaging
+		// gap, filed upstream, not worked around silently.
+		pushChannel: pushChannel as unknown as NonNullable<Parameters<typeof runDaemonProcess>[0]["pushChannel"]>,
 		onShutdown,
 		maintenanceTasks,
 		onListen: options.onListen,
