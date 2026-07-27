@@ -14,6 +14,7 @@ import type {
 	PackageSourceOperationResult,
 	PopulateSymbolGraphResult,
 	RepoFetchResult,
+	SymbolAnnotation,
 	SymbolNode,
 	SymbolSearchResult,
 	TextSearchResult,
@@ -64,6 +65,8 @@ import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
 import { formatRepoFetchCall, formatRepoFetchResult } from "./repo-fetch-rendering.ts";
 import { createLectorSearchOperations } from "./search-operations.ts";
 import { formatSearchCall, formatSearchResult } from "./search-rendering.ts";
+import { type AnnotationAnchorInput, createLectorSymbolAnnotationOperations } from "./symbol-annotation-operations.ts";
+import { formatAnnotationDetail, formatAnnotationListSummary, formatAnnotationSummary } from "./symbol-annotation-rendering.ts";
 import {
 	type CachePresentationState,
 	cacheContextMessage,
@@ -644,6 +647,138 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { job?: JobSnapshot<PopulateSymbolGraphResult> } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatPopulateSymbolGraphResult(details?.job, theme));
+				return text;
+			},
+		});
+
+		const symbolAnnotationOperations = createLectorSymbolAnnotationOperations();
+		function resolveAnchorInputs(anchors: readonly { path: string; line: number; character: number }[]): AnnotationAnchorInput[] {
+			return anchors.map((anchor) => ({ path: resolve(cwd, anchor.path), line: anchor.line, character: anchor.character }));
+		}
+		interface SymbolAnnotationToolDetails {
+			annotation?: SymbolAnnotation;
+			annotations?: readonly SymbolAnnotation[];
+			scrubbed?: boolean;
+			restored?: boolean;
+		}
+
+		pi.registerTool({
+			name: "symbol_annotations",
+			label: "Symbol Annotations",
+			description:
+				'Agent-authored narrative content anchored to one or more symbols in the workspace\'s persisted graph -- e.g. a "user story dataflow" note spanning every symbol touched end-to-end. Every anchor must resolve to a real, currently-known symbol (run populate_symbol_graph first). get/list live-check staleness against the current graph/workspace on every call and persist a correction before returning, so a returned status never disagrees with reality -- a stale annotation must be refreshed (re-authored and re-anchored) or scrubbed (soft-deleted, restorable) by an explicit decision; Lector never rewrites the narrative itself. Actions: create, get, list, refresh, scrub, restore.',
+			promptSnippet: "Attach, read, or invalidate narrative annotations on the symbol graph",
+			promptGuidelines: [
+				"Resolve real anchor positions first (find_symbols/document_symbols/go_to_definition) -- an anchor position must match populate_symbol_graph's own recorded position for that symbol, not just any occurrence of its name.",
+				"A stale annotation's body may no longer describe the code accurately -- read it, decide whether to refresh (re-author) or scrub (remove), never trust it as-is.",
+			],
+			parameters: Type.Object({
+				action: Type.String({ description: "create | get | list | refresh | scrub | restore" }),
+				path: Type.String({ description: "Absolute or cwd-relative path used to resolve which workspace this annotation belongs to" }),
+				id: Type.Optional(Type.String({ description: "Annotation id -- required for get/refresh/scrub/restore" })),
+				subtype: Type.Optional(Type.String({ description: 'Free-form kind, e.g. "user-story-dataflow" or "comment" -- required for create/refresh' })),
+				title: Type.Optional(Type.String({ description: "Required for create/refresh" })),
+				body: Type.Optional(Type.String({ description: "The narrative content -- required for create/refresh" })),
+				anchors: Type.Optional(
+					Type.Array(
+						Type.Object({
+							path: Type.String({ description: "Absolute or cwd-relative path to the anchored file" }),
+							line: Type.Number({ description: "1-indexed line number" }),
+							character: Type.Number({ description: "1-indexed character offset within the line" }),
+						}),
+						{ description: "At least one required for create/refresh -- each must resolve to a real, currently-known symbol" },
+					),
+				),
+				listStatus: Type.Optional(Type.String({ description: "fresh | stale | scrubbed -- for list; defaults to excluding scrubbed" })),
+				listSubtype: Type.Optional(Type.String({ description: "For list: filter by subtype" })),
+				maxResults: Type.Optional(Type.Number({ description: "For list: bounds the number of results" })),
+			}),
+			async execute(_toolCallId, params) {
+				const path = resolve(cwd, params.path);
+				const details: SymbolAnnotationToolDetails = {};
+				let text: string;
+				if (params.action === "create") {
+					if (!params.subtype || !params.title || params.body === undefined || !params.anchors || params.anchors.length === 0) {
+						throw new Error("symbol_annotations create requires subtype, title, body, and at least one anchor");
+					}
+					const { annotation } = await symbolAnnotationOperations.create(path, params.subtype, params.title, params.body, resolveAnchorInputs(params.anchors));
+					details.annotation = annotation;
+					text = formatAnnotationDetail(annotation);
+				} else if (params.action === "get") {
+					if (!params.id) throw new Error("symbol_annotations get requires id");
+					const { annotation } = await symbolAnnotationOperations.get(path, params.id);
+					details.annotation = annotation;
+					text = annotation ? formatAnnotationDetail(annotation) : `no annotation "${params.id}"`;
+				} else if (params.action === "list") {
+					const status = params.listStatus === "fresh" || params.listStatus === "stale" || params.listStatus === "scrubbed" ? params.listStatus : undefined;
+					const { annotations } = await symbolAnnotationOperations.list(path, { subtype: params.listSubtype, status, maxResults: params.maxResults });
+					details.annotations = annotations;
+					text = annotations.length === 0 ? "no annotations" : annotations.map(formatAnnotationDetail).join("\n\n");
+				} else if (params.action === "refresh") {
+					if (!params.id || !params.subtype || !params.title || params.body === undefined || !params.anchors || params.anchors.length === 0) {
+						throw new Error("symbol_annotations refresh requires id, subtype, title, body, and at least one anchor");
+					}
+					const { annotation } = await symbolAnnotationOperations.refresh(
+						path,
+						params.id,
+						params.subtype,
+						params.title,
+						params.body,
+						resolveAnchorInputs(params.anchors),
+					);
+					details.annotation = annotation;
+					text = annotation ? formatAnnotationDetail(annotation) : `no annotation "${params.id}"`;
+				} else if (params.action === "scrub") {
+					if (!params.id) throw new Error("symbol_annotations scrub requires id");
+					const { scrubbed } = await symbolAnnotationOperations.scrub(path, params.id);
+					details.scrubbed = scrubbed;
+					text = scrubbed ? `scrubbed ${params.id}` : `"${params.id}" was already scrubbed or does not exist`;
+				} else if (params.action === "restore") {
+					if (!params.id) throw new Error("symbol_annotations restore requires id");
+					const { restored } = await symbolAnnotationOperations.restore(path, params.id);
+					details.restored = restored;
+					text = restored ? `restored ${params.id}` : `"${params.id}" was not scrubbed or does not exist`;
+				} else {
+					throw new Error(`unknown symbol_annotations action: ${String(params.action)}`);
+				}
+				return { content: [{ type: "text", text }], details };
+			},
+			renderCall(args, theme, context) {
+				const action = typeof args.action === "string" ? args.action : "";
+				const id = typeof args.id === "string" ? ` ${args.id}` : "";
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(`${theme.fg("toolTitle", theme.bold("symbol_annotations"))} ${theme.fg("accent", action)}${theme.fg("dim", id)}`);
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Working on annotation..."), 0, 0);
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					text.setText(theme.fg("error", errorText || "symbol_annotations failed"));
+					return text;
+				}
+				const details = result.details as SymbolAnnotationToolDetails | undefined;
+				if (details?.annotations) {
+					text.setText(formatAnnotationListSummary(details.annotations, theme));
+					return text;
+				}
+				if (details?.annotation) {
+					text.setText(formatAnnotationSummary(details.annotation, theme));
+					return text;
+				}
+				if (details?.scrubbed !== undefined) {
+					text.setText(details.scrubbed ? theme.fg("success", "scrubbed") : theme.fg("muted", "already scrubbed or not found"));
+					return text;
+				}
+				if (details?.restored !== undefined) {
+					text.setText(details.restored ? theme.fg("success", "restored") : theme.fg("muted", "not scrubbed or not found"));
+					return text;
+				}
+				text.setText(theme.fg("muted", "done"));
 				return text;
 			},
 		});
