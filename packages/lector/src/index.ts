@@ -33,6 +33,7 @@ export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
 export { SqliteContentCache } from "./adapters/sqlite-content-cache.ts";
 export { SqliteSearchCache, type SqliteSearchCacheOptions } from "./adapters/sqlite-search-cache.ts";
+export { SqliteSymbolAnnotations } from "./adapters/sqlite-symbol-annotations.ts";
 export { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 export { TieredSearchCache } from "./adapters/tiered-search-cache.ts";
 export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
