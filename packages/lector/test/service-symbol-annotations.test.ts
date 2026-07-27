@@ -75,6 +75,29 @@ describe("createLectorService's annotation operations", () => {
 		expect(fetched?.status).toBe("fresh");
 	});
 
+	it("resolves a workspace-relative anchor path to the same symbol a caller would reach with the absolute form", async () => {
+		fixtureRoot = buildFixture();
+		const { service: svc, graphs } = createServiceWithCapturedGraphs();
+		service = svc;
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		const absolutePath = join(fixtureRoot, "src", "a.ts");
+		await warmGraph(service, workspaceId, absolutePath);
+		graphs.get(workspaceId)?.addNode({ id: `${absolutePath}:1:1`, name: "add", kind: "function", location: { path: absolutePath, line: 1, character: 1 } });
+
+		const { annotation } = await service.dispatch("workspace.createAnnotation", {
+			workspaceId,
+			subtype: "note",
+			title: "relative anchor",
+			body: "created via a workspace-relative path, not the graph's own absolute form",
+			anchors: [{ path: "src/a.ts", line: 1, character: 1 }],
+		});
+		expect(annotation.status).toBe("fresh");
+		expect(annotation.anchors[0]?.path).toBe(absolutePath);
+
+		const { annotation: fetched } = await service.dispatch("workspace.getAnnotation", { workspaceId, id: annotation.id });
+		expect(fetched?.status).toBe("fresh");
+	});
+
 	it("rejects an anchor that does not resolve to any known symbol", async () => {
 		fixtureRoot = buildFixture();
 		const { service: svc } = createServiceWithCapturedGraphs();

@@ -1101,17 +1101,24 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		const hashByPath = new Map<string, ContentHash>();
 		const anchors: SymbolAnnotationAnchor[] = [];
 		for (const position of positions) {
-			const symbolNodeId = deriveSymbolNodeId(position);
+			// A caller may give a workspace-relative path (the convention every other path
+			// argument in this service accepts); the graph's own node ids are always keyed by
+			// whatever absolute form the language server reported, so resolve to that same
+			// identity before deriving the id -- otherwise a perfectly correct relative anchor
+			// looks indistinguishable from a genuinely unknown position.
+			const resolvedPath = workspace.resolvePath(position.path);
+			const resolvedPosition = { ...position, path: resolvedPath };
+			const symbolNodeId = deriveSymbolNodeId(resolvedPosition);
 			const node = await graph.getNode(symbolNodeId);
 			if (!node) throw new UnknownAnnotationAnchor(position.path, position.line, position.character);
-			let hash = hashByPath.get(position.path);
+			let hash = hashByPath.get(resolvedPath);
 			if (hash === undefined) {
-				const entry = await workspace.readEntry(position.path);
+				const entry = await workspace.readEntry(resolvedPath);
 				if (!entry.exists) throw new UnknownAnnotationAnchor(position.path, position.line, position.character);
 				hash = contentHashOf(entry.content);
-				hashByPath.set(position.path, hash);
+				hashByPath.set(resolvedPath, hash);
 			}
-			anchors.push({ symbolNodeId, path: position.path, fileContentHash: hash });
+			anchors.push({ symbolNodeId, path: resolvedPath, fileContentHash: hash });
 		}
 		return anchors;
 	}

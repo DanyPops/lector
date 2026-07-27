@@ -137,6 +137,52 @@ describe("lector CLI annotation commands", () => {
 		expect(restored.restored).toBe(true);
 	});
 
+	it("accepts a workspace-relative --anchor path, resolving to the same symbol as the absolute form", async () => {
+		isolated = isolatedLectorPaths();
+		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		const { workspaceId, path, line, character } = await registerAndPopulate();
+
+		const createdViaAbsolute = JSON.parse(
+			await runCli([
+				"workspace",
+				"annotation",
+				"create",
+				workspaceId,
+				"--subtype",
+				"note",
+				"--title",
+				"absolute",
+				"--body",
+				"b",
+				"--anchor",
+				`${path}:${line}:${character}`,
+				"--json",
+			]),
+		) as SymbolAnnotation;
+
+		const createdViaRelative = JSON.parse(
+			await runCli([
+				"workspace",
+				"annotation",
+				"create",
+				workspaceId,
+				"--subtype",
+				"note",
+				"--title",
+				"relative",
+				"--body",
+				"b",
+				"--anchor",
+				`index.ts:${line}:${character}`,
+				"--json",
+			]),
+		) as SymbolAnnotation;
+
+		expect(createdViaRelative.status).toBe("fresh");
+		expect(createdViaRelative.anchors[0]?.path).toBe(createdViaAbsolute.anchors[0]?.path);
+		expect(createdViaRelative.anchors[0]?.symbolNodeId).toBe(createdViaAbsolute.anchors[0]?.symbolNodeId);
+	});
+
 	it("rejects an --anchor that does not resolve to any known symbol, with a non-zero exit", async () => {
 		isolated = isolatedLectorPaths();
 		daemon = startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });

@@ -38,7 +38,7 @@ export class LocalFilesystemWorkspace implements WorkspacePort {
 		this.root = resolve(root);
 	}
 
-	private resolvePath(path: string): string {
+	resolvePath(path: string): string {
 		const absolute = resolve(this.root, path);
 		// node:path's relative(), not string-prefix concatenation: `this.root + sep` breaks for
 		// the filesystem root itself ("/" + "/" = "//", which no real absolute path starts

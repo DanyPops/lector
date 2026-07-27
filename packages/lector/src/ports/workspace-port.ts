@@ -23,6 +23,16 @@ export type WorkspaceEntry = MissingWorkspaceEntry | PresentWorkspaceEntry;
  * tests, and later by a local-filesystem adapter for real workspaces.
  */
 export interface WorkspacePort {
+	/**
+	 * Normalizes `path` (relative or already-absolute) to this workspace's own
+	 * canonical identity for it -- the same string this workspace would use
+	 * internally regardless of which form a caller supplied. Callers that need
+	 * to derive a stable cross-call identity from a path (e.g. matching a
+	 * symbol graph node's own stored path) must resolve through this first,
+	 * rather than assuming every path argument arrives pre-normalized.
+	 */
+	resolvePath(path: string): string;
+
 	readEntry(path: string): Promise<WorkspaceEntry>;
 
 	/**

@@ -11,6 +11,11 @@ import type { WorkspaceEntry, WorkspacePort } from "../ports/workspace-port.ts";
 export class InMemoryWorkspace implements WorkspacePort {
 	private readonly entries = new Map<string, string>();
 
+	/** No real filesystem root to resolve against -- whatever string a caller uses is already this workspace's own identity for it. */
+	resolvePath(path: string): string {
+		return path;
+	}
+
 	async readEntry(path: string): Promise<WorkspaceEntry> {
 		const content = this.entries.get(path);
 		return content === undefined ? { exists: false } : { exists: true, content };

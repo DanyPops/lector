@@ -27,6 +27,21 @@ export function runWorkspacePortConformanceSuite(name: string, harness: Conforma
 	}
 
 	describe(`WorkspacePort conformance: ${name}`, () => {
+		describe("resolvePath", () => {
+			it("is idempotent -- resolving an already-resolved path returns the same identity", () =>
+				withWorkspace(async (workspace) => {
+					const once = workspace.resolvePath("a.txt");
+					expect(workspace.resolvePath(once)).toBe(once);
+				}));
+
+			it("resolves to an identity that reads/writes agree with", () =>
+				withWorkspace(async (workspace) => {
+					const resolved = workspace.resolvePath("a.txt");
+					await exactEdit(workspace, { path: resolved, expectedHash: null, content: "hello" });
+					await expect(rawRead(workspace, resolved)).resolves.toMatchObject({ content: "hello" });
+				}));
+		});
+
 		describe("rawRead", () => {
 			it("returns content and its hash for an existing entry", () =>
 				withWorkspace(async (workspace) => {

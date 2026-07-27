@@ -13,6 +13,10 @@ export class WorkspaceIsReadOnly extends Error {
 export class ReadOnlyWorkspace implements WorkspacePort {
 	constructor(private readonly inner: WorkspacePort) {}
 
+	resolvePath(path: string): string {
+		return this.inner.resolvePath(path);
+	}
+
 	readEntry(path: string): Promise<WorkspaceEntry> {
 		return this.inner.readEntry(path);
 	}

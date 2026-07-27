@@ -77,6 +77,23 @@ describe("LocalFilesystemWorkspace atomic writes", () => {
 		);
 	});
 
+	it("resolvePath agrees on the same identity whether given a relative or an already-absolute path", async () => {
+		const dir = await freshRoot();
+		const workspace = new LocalFilesystemWorkspace(dir);
+
+		const viaRelative = workspace.resolvePath("src/index.ts");
+		const viaAbsolute = workspace.resolvePath(join(dir, "src/index.ts"));
+		expect(viaRelative).toBe(viaAbsolute);
+		expect(viaRelative).toBe(join(dir, "src/index.ts"));
+	});
+
+	it("resolvePath rejects an escaping path the same way read/write already do", async () => {
+		const dir = await freshRoot();
+		const workspace = new LocalFilesystemWorkspace(dir);
+
+		expect(() => workspace.resolvePath("../../etc/passwd")).toThrow(PathEscapesWorkspaceRoot);
+	});
+
 	it(
 		"accepts real, non-escaping paths when the workspace root is the filesystem root itself " +
 			"(regression: root + sep string concatenation produced '//', which no real absolute " +
