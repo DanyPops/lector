@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { InMemorySymbolGraph } from "../../src/adapters/in-memory-symbol-graph.ts";
 import { InMemoryWorkspace } from "../../src/adapters/in-memory-workspace.ts";
+import { LocalFilesystemWorkspace } from "../../src/adapters/local-filesystem-workspace.ts";
 import { computeWorkspaceMap } from "../../src/domain/workspace-map.ts";
 
 const DEFAULT_OPTIONS = { maxNodes: 1_000, maxEdges: 1_000, maxEntries: 100, maxBytes: 1_000_000 };
@@ -72,6 +76,26 @@ describe("computeWorkspaceMap", () => {
 		const result = await computeWorkspaceMap(graph, workspace, DEFAULT_OPTIONS);
 		expect(result.entries).toHaveLength(1);
 		expect(result.entries[0]?.signature).toBeUndefined();
+	});
+
+	it("omits the signature (but still includes the entry, and never throws) for a node whose path lives entirely outside the workspace root", async () => {
+		// Reproduces a real failure found live: an outgoingCalls edge target resolved into a
+		// non-npm ecosystem's stdlib (e.g. Rust's rustup toolchain source), an absolute path with
+		// no node_modules-shaped segment for pathHasSkippedDirectorySegment to catch, and with a
+		// LocalFilesystemWorkspace root, readEntry throws PathEscapesWorkspaceRoot rather than
+		// reporting the file missing -- computeWorkspaceMap must not let that propagate uncaught.
+		const root = mkdtempSync(join(tmpdir(), "lector-workspace-map-escape-"));
+		try {
+			const graph = new InMemorySymbolGraph();
+			const workspace = new LocalFilesystemWorkspace(root);
+			await seedNode(graph, "outside", "outside", "/definitely/outside/the/workspace/root.rs", 1);
+
+			const result = await computeWorkspaceMap(graph, workspace, DEFAULT_OPTIONS);
+			expect(result.entries).toHaveLength(1);
+			expect(result.entries[0]?.signature).toBeUndefined();
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 
 	it("truncates to maxEntries and reports totalRanked/truncated correctly", async () => {

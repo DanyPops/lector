@@ -76,8 +76,19 @@ export async function computeWorkspaceMap(graph: SymbolGraphPort, workspace: Wor
 	for (const { node, score } of ranked) {
 		if (entries.length >= options.maxEntries) break;
 		if (!linesByPath.has(node.location.path)) {
-			const fileEntry = await workspace.readEntry(node.location.path);
-			linesByPath.set(node.location.path, fileEntry.exists ? fileEntry.content.split("\n") : undefined);
+			// A node's path can legitimately live entirely outside this workspace's own root --
+			// e.g. a non-npm ecosystem's stdlib (Rust's rustup toolchain has no node_modules-shaped
+			// segment for pathHasSkippedDirectorySegment to catch above). readEntry throws for such a
+			// path rather than reporting "missing"; treated the same as any other unreadable file --
+			// signature absent, ranking unaffected -- rather than letting the whole call fail.
+			let lines: readonly string[] | undefined;
+			try {
+				const fileEntry = await workspace.readEntry(node.location.path);
+				lines = fileEntry.exists ? fileEntry.content.split("\n") : undefined;
+			} catch {
+				lines = undefined;
+			}
+			linesByPath.set(node.location.path, lines);
 		}
 		const signature = linesByPath.get(node.location.path)?.[node.location.line - 1]?.trim();
 		const entry: WorkspaceMapEntry = {
