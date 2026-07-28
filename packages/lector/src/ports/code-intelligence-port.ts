@@ -1,6 +1,7 @@
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../domain/call-hierarchy.ts";
 import type { Diagnostic } from "../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../domain/document-symbol.ts";
+import type { FileChangeEvent } from "../domain/file-change-event.ts";
 import type { Hover } from "../domain/hover.ts";
 import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
 import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
@@ -59,4 +60,12 @@ export interface CodeIntelligencePort {
 	 * once, not for a live caller genuinely juggling several files together.
 	 */
 	releaseFile?(path: string): Promise<void>;
+	/**
+	 * Optional hint that a real filesystem change happened -- a backend backed by a live LSP
+	 * session may forward it to the server as workspace/didChangeWatchedFiles if the server
+	 * dynamically registered interest in a matching pattern; a backend with no such concept
+	 * (compiler, tree-sitter) simply doesn't implement this. Never spawns a cold backend just to
+	 * deliver a notification nothing warm is listening for.
+	 */
+	notifyFileChanged?(event: FileChangeEvent): void;
 }

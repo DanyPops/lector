@@ -25,6 +25,7 @@ import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-execu
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
 import { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
+import { DebouncedScheduler } from "./domain/debounced-scheduler.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
 import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
 import type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
@@ -505,6 +506,8 @@ export interface LectorServiceOptions {
 	createSearchCache?: () => SearchCachePort;
 	/** Process-lifetime background executor. Tests inject deterministic ids and tighter bounds. */
 	createJobExecutor?: () => BoundedJobExecutor<PopulateSymbolGraphResult>;
+	/** Debounce window before a real file change under a graph-watched workspace triggers an automatic re-population. Default 1000ms; tests use a much smaller value for speed. */
+	graphRefreshDebounceMs?: number;
 }
 
 function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): WorkspacePort {
@@ -642,8 +645,65 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const createFileWatcher = options.createFileWatcher ?? (() => new NodeFsFileWatcher());
 	const publish = options.publish ?? (() => {});
 	const watchRegistry = new WatchRegistry();
-	/** One real OS watcher per workspace, shared across every pattern registered for it -- lazily created on the first watch, closed once the last one for that workspace is removed. */
+	/**
+	 * One real OS watcher per workspace, shared across every pattern registered for it AND
+	 * graph-freshness watching -- lazily created on the first workspace.watch call or the first
+	 * successful population (whichever comes first), closed only once BOTH reasons are gone
+	 * (see graphWatchedWorkspaces below).
+	 */
 	const osWatchersByWorkspace = new Map<WorkspaceId, { close(): void }>();
+	/** Workspaces with at least one completed symbol-graph generation -- a real file change under one of these schedules a debounced automatic re-population, independent of whether any agent also called workspace.watch. */
+	const graphWatchedWorkspaces = new Set<WorkspaceId>();
+	const graphRefreshDebouncer = new DebouncedScheduler(options.graphRefreshDebounceMs ?? 1000);
+
+	/** Ensures a workspace's shared OS watcher exists, for either reason (agent watch or graph freshness) -- idempotent, safe to call when one already exists for the other reason. */
+	function ensureOsWatcher(workspaceId: WorkspaceId, rootPath: string): void {
+		if (osWatchersByWorkspace.has(workspaceId)) return;
+		const handle = createFileWatcher().watch(rootPath, (event) => handleFileChange(workspaceId, event));
+		osWatchersByWorkspace.set(workspaceId, handle);
+	}
+
+	/**
+	 * Submits a fresh background population for `workspaceId` using its last generation's own
+	 * bounds, deduplicated against any already-in-flight population the same way
+	 * job.submit's own dedup works. If a population is already running, re-arms the debounce
+	 * instead of dropping this change silently -- once the in-flight run settles (success or
+	 * the protective WorkspaceChangedDuringPopulation failure a genuinely concurrent change can
+	 * trigger), a fresh run picks up the current state rather than the change being lost forever.
+	 */
+	async function scheduleGraphRefresh(workspaceId: WorkspaceId): Promise<void> {
+		const workspace = registry.get(workspaceId);
+		if (!workspace) return; // workspace no longer known -- nothing to refresh
+		const existingJobId = activePopulationJobByWorkspace.get(workspaceId);
+		if (existingJobId) {
+			const existing = jobs.status(existingJobId);
+			if (existing.status === "queued" || existing.status === "running") {
+				graphRefreshDebouncer.schedule(workspaceId, () => {
+					void scheduleGraphRefresh(workspaceId);
+				});
+				return;
+			}
+			activePopulationJobByWorkspace.delete(workspaceId);
+		}
+		const graph = ensureSymbolGraph(workspaceId);
+		const generation = await graph.getGeneration();
+		if (!generation) return; // never populated (or its cache was reset) -- nothing to keep warm
+		const input = { workspaceId, maxFiles: generation.maxFiles, maxSymbolsPerFile: generation.maxSymbolsPerFile };
+		let submittedJobId = "";
+		const submitted = jobs.submit({
+			operation: "workspace.populateSymbolGraph",
+			priority: workspace.origin,
+			run: async () => {
+				try {
+					return await populateSymbolGraphHandler(registry, input);
+				} finally {
+					if (activePopulationJobByWorkspace.get(workspaceId) === submittedJobId) activePopulationJobByWorkspace.delete(workspaceId);
+				}
+			},
+		});
+		submittedJobId = submitted.id;
+		activePopulationJobByWorkspace.set(workspaceId, submitted.id);
+	}
 
 	/** Never cached: cheap to construct, and a stale-git-repo check would be wrong to memoize across a repo that could be git-init'd or removed mid-session. */
 	async function requireGitRepository(workspaceId: WorkspaceId): Promise<GitPort> {
@@ -721,10 +781,27 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return findFilesQuery(textSearch, entry.rootPath, input.patterns, { maxResults: input.maxResults, maxBytes: input.maxBytes });
 	}
 
-	/** The one callback every workspace's single shared OS watcher uses, regardless of how many patterns are registered against it -- dispatches a real change to every registered pattern for that workspace, publishing to each match's own topic. */
+	/**
+	 * The one callback every workspace's single shared OS watcher uses, regardless of how many
+	 * patterns are registered against it. Three independent effects, none gating the others:
+	 * (1) dispatch to every agent-registered workspace.watch pattern, publishing to each match's
+	 * own topic; (2) forward to the workspace's warm code-intelligence index(es), which decide
+	 * for themselves (via their own dynamically registered LSP patterns) whether the server cares;
+	 * (3) schedule a debounced automatic symbol-graph refresh if this workspace has ever been
+	 * populated.
+	 */
 	function handleFileChange(workspaceId: WorkspaceId, event: FileChangeEvent): void {
 		for (const registration of watchRegistry.registrationsFor(workspaceId)) {
 			if (picomatch(registration.pattern)(event.path)) publish(registration.topic, event);
+		}
+		for (const entry of symbolIndexes.values()) {
+			if (entry.workspaceId !== workspaceId) continue;
+			if (supportsCodeIntelligence(entry.index)) entry.index.notifyFileChanged?.(event);
+		}
+		if (graphWatchedWorkspaces.has(workspaceId)) {
+			graphRefreshDebouncer.schedule(workspaceId, () => {
+				void scheduleGraphRefresh(workspaceId);
+			});
 		}
 	}
 
@@ -740,18 +817,17 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		// here, no OS watcher is ever touched for a workspace already at its bound.
 		watchRegistry.add(input.workspaceId, input.pattern, watchId, topic);
 
-		if (!osWatchersByWorkspace.has(input.workspaceId)) {
-			const rootPath = entry.rootPath;
-			const handle = createFileWatcher().watch(rootPath, (event) => handleFileChange(input.workspaceId, event));
-			osWatchersByWorkspace.set(input.workspaceId, handle);
-		}
+		ensureOsWatcher(input.workspaceId, entry.rootPath);
 
 		return { watchId, topic };
 	}
 
 	async function unwatchHandler(_registry: MutableRegistry, input: OperationInputs["workspace.unwatch"]): Promise<OperationOutputs["workspace.unwatch"]> {
 		const removed = watchRegistry.remove(input.watchId);
-		if (removed && !watchRegistry.hasAnyFor(removed.workspaceId)) {
+		// Only close the shared OS watcher once NEITHER reason to keep it open remains -- a
+		// workspace whose graph is being kept warm must keep observing disk changes even after
+		// every agent-registered watch on it is gone.
+		if (removed && !watchRegistry.hasAnyFor(removed.workspaceId) && !graphWatchedWorkspaces.has(removed.workspaceId)) {
 			osWatchersByWorkspace.get(removed.workspaceId)?.close();
 			osWatchersByWorkspace.delete(removed.workspaceId);
 		}
@@ -1053,6 +1129,10 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			sources: workspaceIndex.sources,
 			result,
 		});
+		// A workspace that has been populated at least once stays graph-watched for the rest of
+		// the daemon's uptime -- the whole point of "keeps the symbol graph warm on disk changes".
+		graphWatchedWorkspaces.add(input.workspaceId);
+		ensureOsWatcher(input.workspaceId, rootPath);
 		return result;
 	}
 
@@ -1371,6 +1451,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		},
 		async close(): Promise<void> {
 			jobs.close();
+			graphRefreshDebouncer.clear();
 			const entries = Array.from(symbolIndexes.values());
 			symbolIndexes.clear();
 			const graphs = Array.from(symbolGraphs.values());
@@ -1379,6 +1460,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			symbolAnnotations.clear();
 			for (const watcher of osWatchersByWorkspace.values()) watcher.close();
 			osWatchersByWorkspace.clear();
+			graphWatchedWorkspaces.clear();
 			await Promise.all([
 				...entries.map((entry) => entry.index.close()),
 				...graphs.map((graph) => graph.close()),

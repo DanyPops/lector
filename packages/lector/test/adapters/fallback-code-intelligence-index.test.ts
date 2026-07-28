@@ -18,7 +18,10 @@ const PROVENANCE: IntelligenceProvenance = {
 	limitations: [],
 };
 
-function stubPrimary(releaseFile?: (path: string) => Promise<void>): ClosableIntelligenceIndex & CodeIntelligencePort {
+function stubPrimary(
+	releaseFile?: (path: string) => Promise<void>,
+	notifyFileChanged?: (event: { path: string; kind: "created" | "modified" | "deleted" }) => void,
+): ClosableIntelligenceIndex & CodeIntelligencePort {
 	return {
 		provenance: PROVENANCE,
 		findSymbols: async () => ({ symbols: [], truncated: false, provenance: PROVENANCE }),
@@ -32,6 +35,7 @@ function stubPrimary(releaseFile?: (path: string) => Promise<void>): ClosableInt
 		incomingCalls: async () => [],
 		outgoingCalls: async () => [],
 		releaseFile,
+		notifyFileChanged,
 		close: async () => {},
 	};
 }
@@ -53,5 +57,23 @@ describe("FallbackCodeIntelligenceIndex releaseFile delegation", () => {
 		const index = new FallbackCodeIntelligenceIndex(stubPrimary(undefined), []);
 
 		await expect(index.releaseFile("/repo/a.ts")).resolves.toBeUndefined();
+	});
+});
+
+describe("FallbackCodeIntelligenceIndex notifyFileChanged delegation", () => {
+	it("delegates to the primary when it implements notifyFileChanged", () => {
+		const notified: Array<{ path: string; kind: string }> = [];
+		const primary = stubPrimary(undefined, (event) => notified.push(event));
+		const index = new FallbackCodeIntelligenceIndex(primary, []);
+
+		index.notifyFileChanged?.({ path: "a.ts", kind: "modified" });
+
+		expect(notified).toEqual([{ path: "a.ts", kind: "modified" }]);
+	});
+
+	it("is a safe no-op when the primary does not implement notifyFileChanged", () => {
+		const index = new FallbackCodeIntelligenceIndex(stubPrimary(undefined, undefined), []);
+
+		expect(() => index.notifyFileChanged?.({ path: "a.ts", kind: "modified" })).not.toThrow();
 	});
 });

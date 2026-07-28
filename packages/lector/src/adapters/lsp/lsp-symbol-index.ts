@@ -14,7 +14,9 @@ import {
 	parseUnregistrationRequest,
 } from "../../domain/dynamic-capability-registry.ts";
 import type { FileSystemWatcherPattern } from "../../domain/dynamic-capability-registry.ts";
+import type { FileChangeEvent } from "../../domain/file-change-event.ts";
 import type { Hover } from "../../domain/hover.ts";
+import { toLspFileChangeType } from "../../domain/lsp-file-change-type.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
 import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
 import { type ParsedServerCapabilities, parseServerCapabilities } from "../../domain/lsp-server-capabilities.ts";
@@ -22,6 +24,7 @@ import { SerialExecutionQueue } from "../../domain/serial-execution-queue.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
+import picomatch from "picomatch";
 import { TypeScriptCompilerSymbolIndex } from "../typescript-compiler-symbol-index.ts";
 import { resolveSeedFile } from "./discover-seed-file.ts";
 import { LanguageServerProcess } from "./language-server-process.ts";
@@ -456,6 +459,11 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 						// progress reporting with Lector, which a spec-compliant one otherwise wouldn't
 						// attempt without this client capability present.
 						window: { workDoneProgress: true },
+						// Also genuinely honored end to end (client/registerCapability is answered, patterns
+						// are tracked, notifyFileChanged() actually sends workspace/didChangeWatchedFiles for a
+						// matching path) -- without this, a spec-compliant server has no reason to ever
+						// dynamically register for these notifications at all.
+						workspace: { didChangeWatchedFiles: { dynamicRegistration: true } },
 					},
 					initializationOptions: {},
 				});
@@ -526,6 +534,26 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	/** The latest $/progress value reported for every token seen so far (bounded). */
 	get latestProgress(): ReadonlyMap<string | number, unknown> {
 		return this.dynamicCapabilities.progressByToken;
+	}
+
+	/**
+	 * Tells the warm server about a real filesystem change via workspace/didChangeWatchedFiles,
+	 * if -- and only if -- it dynamically registered interest in a pattern this path matches.
+	 * Never spawns a server just to check: this is a best-effort notification for an already-warm
+	 * session, matching hasWarmIndex's own "don't pay a cold-start cost just to check" philosophy.
+	 * A cold LspSymbolIndex (nothing to tell) or a warm one that never registered any pattern
+	 * (nothing it asked to hear about) are both silent no-ops.
+	 */
+	notifyFileChanged(event: FileChangeEvent): void {
+		const proc = this.process;
+		if (!proc) return;
+		const patterns = this.dynamicCapabilities.watchedFilePatterns;
+		if (patterns.length === 0) return;
+		if (!patterns.some((pattern) => picomatch(pattern.globPattern)(event.path))) return;
+		const absolutePath = resolve(this.cwd, event.path);
+		proc.notify("workspace/didChangeWatchedFiles", {
+			changes: [{ uri: pathToFileURL(absolutePath).href, type: toLspFileChangeType(event.kind) }],
+		});
 	}
 
 	private readBoundedFile(path: string): string {
