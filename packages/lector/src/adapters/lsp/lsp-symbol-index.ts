@@ -5,9 +5,18 @@ import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../domai
 import type { CodeRange } from "../../domain/code-range.ts";
 import type { Diagnostic, DiagnosticSeverity } from "../../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../../domain/document-symbol.ts";
+import {
+	DynamicCapabilityRegistry,
+	parseConfigurationItemCount,
+	parseProgressCreateToken,
+	parseRegistrationRequest,
+	parseUnregistrationRequest,
+} from "../../domain/dynamic-capability-registry.ts";
+import type { FileSystemWatcherPattern } from "../../domain/dynamic-capability-registry.ts";
 import type { Hover } from "../../domain/hover.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
 import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
+import { type ParsedServerCapabilities, parseServerCapabilities } from "../../domain/lsp-server-capabilities.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
@@ -293,6 +302,8 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private readonly diagnosticsWaiters = new Map<string, Array<() => void>>();
 	private process: LanguageServerProcess | undefined;
 	private initializing: Promise<LanguageServerProcess> | undefined;
+	private negotiatedCapabilities: ParsedServerCapabilities | undefined;
+	private dynamicCapabilities = new DynamicCapabilityRegistry();
 
 	constructor(cwd: string, descriptor: LanguageServerDescriptor, seedFile?: string, options: LspSymbolIndexOptions = {}) {
 		this.cwd = resolve(cwd);
@@ -342,6 +353,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 					cwd: this.cwd,
 				});
 				spawned = proc;
+				this.dynamicCapabilities = new DynamicCapabilityRegistry();
 				proc.onNotification("textDocument/publishDiagnostics", (params) => {
 					const { uri, diagnostics } = params as LspPublishDiagnosticsParams;
 					const path = fileURLToPath(uri);
@@ -355,7 +367,8 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 						for (const resolve of waiters) resolve();
 					}
 				});
-				await proc.request("initialize", {
+				this.registerServerInitiatedRequestHandlers(proc);
+				const initializeResult = await proc.request<{ capabilities?: unknown }>("initialize", {
 					processId: process.pid,
 					rootUri: pathToFileURL(this.cwd).href,
 					// pyright needs this to resolve its own workspace root -- without it, workspace/symbol
@@ -371,6 +384,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 					},
 					initializationOptions: {},
 				});
+				this.negotiatedCapabilities = parseServerCapabilities(initializeResult.capabilities);
 				proc.notify("initialized", {});
 
 				const configuredSeedFile = this.fallbackSeedFile ?? this.explicitSeedFile;
@@ -386,10 +400,52 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				// A failed initialize must not permanently poison this workspace's index --
 				// the next call retries fresh rather than replaying the same rejection forever.
 				this.initializing = undefined;
+				this.negotiatedCapabilities = undefined;
 				throw error;
 			});
 		}
 		return this.initializing;
+	}
+
+	/**
+	 * Registers replies for the server-initiated requests a warm LSP session may issue.
+	 * Every one of these must answer -- a spec-compliant server blocks waiting for a
+	 * reply, so leaving any of them unhandled (falling through to MethodNotFound, the
+	 * LanguageServerProcess default) would be a real protocol violation, not a safe gap.
+	 */
+	private registerServerInitiatedRequestHandlers(proc: LanguageServerProcess): void {
+		proc.onRequest("client/registerCapability", (params) => {
+			for (const registration of parseRegistrationRequest(params)) {
+				this.dynamicCapabilities.register(registration.id, registration.method, registration.registerOptions);
+			}
+			return null;
+		});
+		proc.onRequest("client/unregisterCapability", (params) => {
+			for (const id of parseUnregistrationRequest(params)) this.dynamicCapabilities.unregister(id);
+			return null;
+		});
+		proc.onRequest("workspace/configuration", (params) => Array.from({ length: parseConfigurationItemCount(params) }, () => null));
+		proc.onRequest("workspace/applyEdit", () => ({
+			applied: false,
+			failureReason: "Lector does not yet support a server-initiated workspace edit",
+		}));
+		proc.onRequest("window/workDoneProgress/create", (params) => {
+			const token = parseProgressCreateToken(params);
+			if (token !== undefined) this.dynamicCapabilities.createProgressToken(token);
+			return null;
+		});
+		proc.onRequest("workspace/workspaceFolders", () => [{ uri: pathToFileURL(this.cwd).href, name: this.cwd }]);
+		proc.onRequest("workspace/diagnostic/refresh", () => null);
+	}
+
+	/** The capabilities this workspace's server negotiated at `initialize`, or undefined before the first warm session. */
+	get capabilities(): ParsedServerCapabilities | undefined {
+		return this.negotiatedCapabilities;
+	}
+
+	/** Every glob pattern the warm server has dynamically registered via workspace/didChangeWatchedFiles, for a future local watcher to honor. */
+	get dynamicWatchedFilePatterns(): readonly FileSystemWatcherPattern[] {
+		return this.dynamicCapabilities.watchedFilePatterns;
 	}
 
 	private readBoundedFile(path: string): string {

@@ -14,6 +14,9 @@
  *   sends-notification    responds to `initialize`, then pushes a fake
  *                          textDocument/publishDiagnostics notification
  *   oversized-response    responds after initialize with a deliberately large body
+ *   sends-server-request   responds to `initialize`, then issues a sequence of
+ *                          server-initiated requests and reports each response
+ *                          back via a test/serverRequestResult notification
  */
 import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/adapters/lsp/json-rpc-stream.ts";
 
@@ -28,7 +31,58 @@ function notify(method: string, params: unknown): void {
 	process.stdout.write(encodeJsonRpcMessage({ jsonrpc: "2.0", method, params }));
 }
 
+let nextServerRequestId = 1;
+const pendingServerRequests = new Map<string, (message: JsonRpcMessage) => void>();
+
+/** Issues a request FROM this server TO the client, resolving once the client replies. */
+function requestFromClient(method: string, params: unknown): Promise<JsonRpcMessage> {
+	const id = `srv-${nextServerRequestId++}`;
+	return new Promise((resolve) => {
+		pendingServerRequests.set(id, resolve);
+		process.stdout.write(encodeJsonRpcMessage({ jsonrpc: "2.0", id, method, params }));
+	});
+}
+
+/**
+ * Exercises every server-initiated request Lector's client is expected to
+ * handle, one at a time, reporting each real response back via a
+ * notification so the test asserts against the client's actual reply
+ * rather than assuming it worked.
+ */
+async function runServerInitiatedRequestSequence(): Promise<void> {
+	const steps: Array<{ step: string; method: string; params: unknown }> = [
+		{
+			step: "register",
+			method: "client/registerCapability",
+			params: { registrations: [{ id: "reg-1", method: "workspace/didChangeWatchedFiles", registerOptions: { watchers: [{ globPattern: "**/*.ts" }] } }] },
+		},
+		{ step: "unregister", method: "client/unregisterCapability", params: { unregisterations: [{ id: "reg-1" }] } },
+		{ step: "configuration", method: "workspace/configuration", params: { items: [{ section: "a" }, { section: "b" }] } },
+		{ step: "applyEdit", method: "workspace/applyEdit", params: { edit: { changes: {} } } },
+		{ step: "progressCreate", method: "window/workDoneProgress/create", params: { token: "progress-1" } },
+		{ step: "workspaceFolders", method: "workspace/workspaceFolders", params: null },
+		{ step: "diagnosticRefresh", method: "workspace/diagnostic/refresh", params: null },
+		{ step: "unsupported", method: "window/showMessageRequest", params: { type: 1, message: "hi" } },
+	];
+	for (const { step, method, params } of steps) {
+		const response = await requestFromClient(method, params);
+		notify("test/serverRequestResult", { step, result: response.result ?? null, error: response.error ?? null });
+	}
+}
+
 function handle(message: JsonRpcMessage): void {
+	if (message.method === undefined) {
+		// A response to one of this server's own outbound (server-initiated) requests --
+		// never a request needing a reply from us, unlike everything handled below.
+		if (typeof message.id === "string") {
+			const pending = pendingServerRequests.get(message.id);
+			if (pending) {
+				pendingServerRequests.delete(message.id);
+				pending(message);
+			}
+		}
+		return;
+	}
 	if (message.method === "exit") {
 		process.exit(0);
 	}
@@ -40,6 +94,9 @@ function handle(message: JsonRpcMessage): void {
 		if (mode === "exit-after-initialize") process.exit(1);
 		if (mode === "sends-notification") {
 			notify("textDocument/publishDiagnostics", { uri: "file:///fake.ts", diagnostics: [] });
+		}
+		if (mode === "sends-server-request") {
+			void runServerInitiatedRequestSequence();
 		}
 		return;
 	}

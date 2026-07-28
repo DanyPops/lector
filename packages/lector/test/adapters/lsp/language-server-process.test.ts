@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JsonRpcMessageLimitExceeded } from "../../../src/adapters/lsp/json-rpc-stream.ts";
 import {
+	DuplicateRequestHandler,
 	LanguageServerCapacityExceeded,
 	LanguageServerProcess,
 	LanguageServerProcessExited,
@@ -84,6 +85,100 @@ describe("LanguageServerProcess against a well-behaved mock", () => {
 		// A second stop() must be a safe no-op, not hang or throw, regardless of how the
 		// first one actually terminated the process.
 		await expect(proc.stop()).resolves.toBeUndefined();
+	});
+});
+
+describe("LanguageServerProcess handling server-initiated requests", () => {
+	it("answers every real server-initiated request with the registered handler's actual reply", async () => {
+		const proc = spawnEvil("sends-server-request");
+		const results: Array<{ step: string; result: unknown; error: unknown }> = [];
+		const allStepsSeen = new Promise<void>((resolveAll) => {
+			proc.onNotification("test/serverRequestResult", (params) => {
+				results.push(params as { step: string; result: unknown; error: unknown });
+				if (results.length === 8) resolveAll();
+			});
+		});
+
+		proc.onRequest("client/registerCapability", () => null);
+		proc.onRequest("client/unregisterCapability", () => null);
+		proc.onRequest("workspace/configuration", (params) => (params as { items: unknown[] }).items.map(() => null));
+		proc.onRequest("workspace/applyEdit", () => ({ applied: false, failureReason: "not supported" }));
+		proc.onRequest("window/workDoneProgress/create", () => null);
+		proc.onRequest("workspace/workspaceFolders", () => [{ uri: "file:///repo", name: "repo" }]);
+		proc.onRequest("workspace/diagnostic/refresh", () => null);
+		// window/showMessageRequest is deliberately left unregistered -- must come back as MethodNotFound.
+
+		await proc.request("initialize", {});
+		await allStepsSeen;
+
+		const byStep = new Map(results.map((entry) => [entry.step, entry]));
+		expect(byStep.get("register")).toEqual({ step: "register", result: null, error: null });
+		expect(byStep.get("unregister")).toEqual({ step: "unregister", result: null, error: null });
+		expect(byStep.get("configuration")).toEqual({ step: "configuration", result: [null, null], error: null });
+		expect(byStep.get("applyEdit")).toEqual({ step: "applyEdit", result: { applied: false, failureReason: "not supported" }, error: null });
+		expect(byStep.get("progressCreate")).toEqual({ step: "progressCreate", result: null, error: null });
+		expect(byStep.get("workspaceFolders")).toEqual({ step: "workspaceFolders", result: [{ uri: "file:///repo", name: "repo" }], error: null });
+		expect(byStep.get("diagnosticRefresh")).toEqual({ step: "diagnosticRefresh", result: null, error: null });
+		const unsupported = byStep.get("unsupported");
+		expect(unsupported?.result).toBeNull();
+		expect(unsupported?.error).toMatchObject({ code: -32601 });
+	});
+
+	it("an unhandled server-initiated request answers MethodNotFound instead of hanging the server forever", async () => {
+		const proc = spawnEvil("sends-server-request");
+		const methodNotFound = new Promise<{ code: number; message: string }>((resolveResult) => {
+			proc.onNotification("test/serverRequestResult", (params) => {
+				const { step, error } = params as { step: string; error: { code: number; message: string } | null };
+				if (step === "unsupported" && error) resolveResult(error);
+			});
+		});
+		// Every other server-initiated request is left unhandled too in this test -- every one of
+		// them must still get a reply (MethodNotFound), never silence, or this server would hang
+		// waiting on "register" and never even reach "unsupported".
+
+		await proc.request("initialize", {});
+		const error = await methodNotFound;
+		expect(error.code).toBe(-32601);
+		expect(error.message).toContain("window/showMessageRequest");
+	});
+
+	it("a request handler that throws answers InternalError rather than leaving the server waiting", async () => {
+		const proc = spawnEvil("sends-server-request");
+		const registerResult = new Promise<{ error: { code: number; message: string } | null }>((resolveResult) => {
+			proc.onNotification("test/serverRequestResult", (params) => {
+				const entry = params as { step: string; error: { code: number; message: string } | null };
+				if (entry.step === "register") resolveResult(entry);
+			});
+		});
+		proc.onRequest("client/registerCapability", () => {
+			throw new Error("deliberate handler failure");
+		});
+
+		await proc.request("initialize", {});
+		const { error } = await registerResult;
+		expect(error).toMatchObject({ code: -32603, message: "deliberate handler failure" });
+	});
+
+	it("onRequest refuses a second handler for the same method", () => {
+		const proc = spawnEvil("normal");
+		proc.onRequest("workspace/configuration", () => []);
+		expect(() => proc.onRequest("workspace/configuration", () => [])).toThrow(DuplicateRequestHandler);
+	});
+
+	it("onRequest's returned unregister function stops answering, falling back to MethodNotFound", async () => {
+		const proc = spawnEvil("sends-server-request");
+		const unregister = proc.onRequest("client/registerCapability", () => null);
+		unregister();
+		const registerResult = new Promise<{ error: { code: number } | null }>((resolveResult) => {
+			proc.onNotification("test/serverRequestResult", (params) => {
+				const entry = params as { step: string; error: { code: number } | null };
+				if (entry.step === "register") resolveResult(entry);
+			});
+		});
+
+		await proc.request("initialize", {});
+		const { error } = await registerResult;
+		expect(error).toMatchObject({ code: -32601 });
 	});
 });
 
