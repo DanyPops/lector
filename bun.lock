@@ -30,7 +30,7 @@
         "lector": "src/cli.ts",
       },
       "dependencies": {
-        "@danypops/daemon-kit": "^0.15.0",
+        "@danypops/daemon-kit": "^0.22.1",
         "@yarnpkg/parsers": "^3.0.3",
         "fetch-retry": "^6.0.0",
         "graphology": "^0.26.0",
@@ -57,7 +57,7 @@
       "name": "@danypops/pi-lector",
       "version": "0.2.2",
       "dependencies": {
-        "@danypops/daemon-kit": "^0.4.0",
+        "@danypops/daemon-kit": "^0.22.1",
         "@danypops/lector": "^0.2.0",
       },
       "devDependencies": {
@@ -148,7 +148,7 @@
 
     "@danypops/alef-lector": ["@danypops/alef-lector@workspace:packages/alef-lector"],
 
-    "@danypops/daemon-kit": ["@danypops/daemon-kit@0.15.0", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typescript": "^5" }, "optionalPeers": ["@earendil-works/pi-coding-agent"] }, "sha512-T/xn7M5vZCd/qWTXiBo9a4CTuqTOox4v1S6aREKopUx9k5NXfao9ybb7M5Xtt9WNCJ7DI/kzO7OgJHLntlGsCw=="],
+    "@danypops/daemon-kit": ["@danypops/daemon-kit@0.22.1", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typescript": "^5" }, "optionalPeers": ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"] }, "sha512-DM/NQQznBfwRoapERNwvfQsBt2zSkSWJBOEq3hnpnT6HduTCzlFElgLFJzzKcz/S5GceoiYe+zAAssEmGCyAtw=="],
 
     "@danypops/lector": ["@danypops/lector@workspace:packages/lector"],
 
@@ -705,8 +705,6 @@
     "@aws-sdk/nested-clients/@smithy/node-http-handler": ["@smithy/node-http-handler@4.9.12", "", { "dependencies": { "@smithy/core": "^3.31.0", "@smithy/types": "^4.16.1", "tslib": "^2.6.2" } }, "sha512-dWW5KRt4mnEvjNzbGqGeCuAvgum85Y9ZoyuMQqcTEfapndyVJ1k9BEHK7kdXJZ32enyRmmwcFjMwlB/KgLKI3Q=="],
 
     "@danypops/alef-lector/@danypops/lector": ["@danypops/lector@0.1.16", "", { "dependencies": { "@danypops/daemon-kit": "^0.14.0", "@yarnpkg/parsers": "^3.0.3", "fetch-retry": "^6.0.0", "graphology": "^0.26.0", "graphology-metrics": "^2.4.0", "jsonc-parser": "^3.3.1", "lru-cache": "^11.5.2", "picomatch": "^4.0.5", "pyright": "^1.1.411", "simple-git": "^3.36.0", "tree-sitter-wasms": "^0.1.13", "typescript": "^5.9.3", "typescript-language-server": "^5.3.0", "web-tree-sitter": "0.20.8", "yaml": "^2.9.0", "yaml-language-server": "^1.24.0" }, "bin": { "lector": "src/cli.ts" } }, "sha512-TmdZVk7qD+AuRLPIEJGGbGoJs+0N4PNic37iLiquzzyIA8096VVvHOvv4jMXlh3Bf088lfXIe5M/xMnZGzz6xQ=="],
-
-    "@danypops/pi-lector/@danypops/daemon-kit": ["@danypops/daemon-kit@0.4.0", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "typescript": "^5" } }, "sha512-oZ1Ryen4r9TpaoRdHPgxqvNo1EKO4erPCRTf4v2qlnF3RUYb6Rz/YHCacZF3WtWi0hr1qL9nmmR5YdT6RI6rgw=="],
 
     "@earendil-works/pi-agent-core/ignore": ["ignore@7.0.5", "", {}, "sha512-Hs59xBNfUIunMFgWAbGX5cq6893IbWg4KnrjbYwX3tx0ztorVgTDA6B2sxf8ejHJ4wz8BqGUMYlnzNBer5NvGg=="],
 
