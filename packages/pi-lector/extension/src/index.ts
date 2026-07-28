@@ -236,7 +236,7 @@ export default function (pi: ExtensionAPI) {
 					return new Text(theme.fg("error", errorText || "find_symbols failed"), 0, 0);
 				}
 				const details = result.details as SymbolSearchResult | undefined;
-				const query = typeof context.args?.query === "string" ? context.args.query : "";
+				const query = typeof context.args.query === "string" ? context.args.query : "";
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatFindSymbolsResult(details, query, expanded, theme));
 				return text;

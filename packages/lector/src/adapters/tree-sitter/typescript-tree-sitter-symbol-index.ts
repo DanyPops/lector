@@ -45,7 +45,7 @@ const DECLARATION_KINDS: readonly DeclarationKind[] = [
 
 let parserInitialization: Promise<void> | undefined;
 function ensureParserInitialized(): Promise<void> {
-	if (!parserInitialization) parserInitialization = Parser.init();
+	parserInitialization ??= Parser.init();
 	return parserInitialization;
 }
 
@@ -153,7 +153,7 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 
 		const parser = await this.parserFor(wasmPath);
 		const tree = parser.parse(content);
-		const symbols = tree ? extractContentSymbols(tree.rootNode) : [];
+		const symbols = extractContentSymbols(tree.rootNode);
 		await this.contentCache.putSymbols(hash, symbols);
 		return symbols;
 	}

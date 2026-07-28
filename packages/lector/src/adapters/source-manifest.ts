@@ -34,6 +34,8 @@ export async function deriveSourceManifest(rootPath: string, extensions: readonl
 		hash.update(String(expectedSize));
 		hash.update(":");
 		for await (const chunk of createReadStream(absolutePath)) {
+			// Binary stream (no setEncoding above) always yields Buffer; Node types it as any regardless.
+			if (!(chunk instanceof Buffer)) throw new TypeError("expected a Buffer chunk from a binary read stream");
 			bytesHashed += chunk.byteLength;
 			if (bytesHashed > maxBytes) throw new SourceManifestLimitExceeded(maxBytes);
 			hash.update(chunk);

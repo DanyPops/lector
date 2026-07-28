@@ -121,8 +121,11 @@ function validateVerified(outcome: VerifiedPackageSource, request: PackageSource
 	} else if (outcome.repository.commit !== null && !COMMIT_HASH.test(outcome.repository.commit)) {
 		throw new InvalidPackageSourceContract("repository.commit");
 	}
+	// Type says always true/"verified"; a non-compliant adapter at this port boundary might not.
+	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 	if (outcome.workspace.readOnly !== true) throw new InvalidPackageSourceContract("workspace must be read-only");
 	assertText(outcome.workspace.cachePath, "workspace.cachePath", 4096);
+	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- see comment above
 	if (outcome.verification.status !== "verified") throw new InvalidPackageSourceContract("verification.status");
 	assertAllowed(outcome.verification.method, VERIFICATION_METHODS, "verification.method");
 	assertText(outcome.verification.integrity, "verification.integrity", 1024);

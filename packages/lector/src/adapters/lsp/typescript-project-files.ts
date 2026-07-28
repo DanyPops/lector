@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
+import type * as TypeScriptModule from "typescript";
 
 // Bun resolves the bare specifier "typescript" from a directly-executed .ts entrypoint to an
 // unrelated global stub (`~/.cache/.bun/install/cache/typescript@<version>/lib/version.cjs`,
@@ -7,7 +8,8 @@ import { dirname, join, relative } from "node:path";
 // `import`, and `import.meta.resolve` on the bare specifier all hit it, only a deep import path
 // resolves the real, project-local package. This is a real, working typescript package once
 // resolved this way, not the version that bun hijacks.
-const ts = createRequire(import.meta.url)("typescript/lib/typescript.js") as typeof import("typescript");
+// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- require() returns any
+const ts = createRequire(import.meta.url)("typescript/lib/typescript.js") as typeof TypeScriptModule;
 
 /**
  * Refines a seed-file candidate against TypeScript's own real project-file resolution
@@ -30,6 +32,7 @@ export function refineTypescriptSeedFile(rootPath: string, candidateRelativePath
 		const configPath = ts.findConfigFile(candidateDir, ts.sys.fileExists);
 		if (!configPath) return candidateRelativePath;
 
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- readConfigFile's own config field is typed any
 		const { config, error } = ts.readConfigFile(configPath, ts.sys.readFile);
 		if (error) return candidateRelativePath;
 

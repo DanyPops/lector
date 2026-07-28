@@ -68,10 +68,8 @@ export class SerialExecutionQueue {
 			} else {
 				this.depths.set(key, remaining);
 			}
-			// Guaranteed assigned: Promise executors run synchronously, so settleOwnTail is set before `new
-			// Promise()` above returns. `?.()` would silently skip the resolve if that invariant were ever broken
-			// by a refactor, hanging the next queued operation for this key forever instead of throwing
-			// immediately -- a loud failure here is strictly safer than a silent one.
+			// Guaranteed assigned (Promise executors run synchronously); `?.()` would hang the next queue
+			// entry silently instead of throwing if that were ever wrong.
 			// biome-ignore lint/style/noNonNullAssertion: see comment above
 			settleOwnTail!();
 		}
