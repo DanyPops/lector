@@ -25,7 +25,7 @@ export interface SymbolAnnotationOperations {
 	get(path: string, id: string): Promise<OperationOutputs["workspace.getAnnotation"]>;
 	list(
 		path: string,
-		options?: { subtype?: string; status?: OperationInputs["workspace.listAnnotations"]["status"]; maxResults?: number },
+		options?: { subtype?: string; status?: OperationInputs["workspace.listAnnotations"]["status"]; maxResults?: number; query?: string },
 	): Promise<OperationOutputs["workspace.listAnnotations"]>;
 	refresh(
 		path: string,
@@ -64,7 +64,13 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					return client.call("workspace.listAnnotations", { workspaceId, subtype: options.subtype, status: options.status, maxResults: options.maxResults });
+					return client.call("workspace.listAnnotations", {
+						workspaceId,
+						subtype: options.subtype,
+						status: options.status,
+						maxResults: options.maxResults,
+						query: options.query,
+					});
 				},
 			);
 		},

@@ -69,7 +69,7 @@ const USAGE = `Usage:
     each anchor must resolve to a real, currently-known symbol in the populated graph
   lector workspace annotation get <workspace-id> <annotation-id> [--json]
     live-checks staleness against the current graph/workspace before returning
-  lector workspace annotation list <workspace-id> [--subtype <s>] [--status <fresh|stale|scrubbed>]
+  lector workspace annotation list <workspace-id> [--subtype <s>] [--status <fresh|stale|scrubbed>] [--query <text>]
     [--max-results <n>] [--json]
   lector workspace annotation refresh <workspace-id> <annotation-id> --subtype <s> --title <t> --body <text>
     --anchor <path>:<line>:<character> (repeatable, at least one required) [--json]
@@ -824,8 +824,9 @@ async function runWorkspaceAnnotationList(workspaceId: string | undefined, flags
 	const status = statusFlag as "fresh" | "stale" | "scrubbed" | undefined;
 	const maxResultsFlagValue = flagValue(flags, "--max-results");
 	const maxResults = maxResultsFlagValue === undefined ? undefined : Number(maxResultsFlagValue);
+	const query = flagValue(flags, "--query");
 	const client = await connectLectorClient();
-	const { annotations } = await client.call("workspace.listAnnotations", { workspaceId, subtype, status, maxResults });
+	const { annotations } = await client.call("workspace.listAnnotations", { workspaceId, subtype, status, maxResults, query });
 	if (hasFlag(flags, "--json")) {
 		console.log(JSON.stringify(annotations));
 		return;

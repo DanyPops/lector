@@ -94,4 +94,21 @@ describe("Lector-backed annotation operations", () => {
 		const ops = createLectorSymbolAnnotationOperations();
 		await expect(ops.create(mathFile, "comment", "t", "b", [{ path: mathFile, line: 999, character: 1 }])).rejects.toThrow();
 	}, 20_000);
+
+	it("list(query) filters by title/body via a running Lector daemon", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const anchor = await realAnchor(mathFile);
+		const ops = createLectorSymbolAnnotationOperations();
+		await ops.create(mathFile, "comment", "addition dataflow", "explains how add() combines its inputs", [anchor]);
+		await ops.create(mathFile, "comment", "unrelated note", "nothing to do with it", [anchor]);
+
+		const { annotations } = await ops.list(mathFile, { query: "dataflow" });
+
+		expect(annotations.map((a) => a.title)).toEqual(["addition dataflow"]);
+	}, 20_000);
 });

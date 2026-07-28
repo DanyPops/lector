@@ -5,6 +5,8 @@ export interface SymbolAnnotationListOptions {
 	/** Defaults to excluding "scrubbed" -- pass it explicitly to include scrubbed annotations (e.g. a trash-listing view). */
 	readonly status?: AnnotationStatus;
 	readonly maxResults?: number;
+	/** Case-insensitive substring match against title or body -- the near-term "good enough" free-text search over agent-authored annotations. */
+	readonly query?: string;
 }
 
 /**

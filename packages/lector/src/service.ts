@@ -375,7 +375,7 @@ export interface OperationInputs {
 		anchors: readonly { path: string; line: number; character: number }[];
 	};
 	"workspace.getAnnotation": { workspaceId: WorkspaceId; id: AnnotationId };
-	"workspace.listAnnotations": { workspaceId: WorkspaceId; subtype?: string; status?: "fresh" | "stale" | "scrubbed"; maxResults?: number };
+	"workspace.listAnnotations": { workspaceId: WorkspaceId; subtype?: string; status?: "fresh" | "stale" | "scrubbed"; maxResults?: number; query?: string };
 	"workspace.refreshAnnotation": {
 		workspaceId: WorkspaceId;
 		id: AnnotationId;
@@ -1402,7 +1402,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		const workspace = resolveWorkspace(registry, input.workspaceId);
 		const store = ensureSymbolAnnotations(input.workspaceId);
 		const graph = ensureSymbolGraph(input.workspaceId);
-		const listOptions: SymbolAnnotationListOptions = { subtype: input.subtype, status: input.status, maxResults: input.maxResults };
+		const listOptions: SymbolAnnotationListOptions = { subtype: input.subtype, status: input.status, maxResults: input.maxResults, query: input.query };
 		const found = await store.list(listOptions);
 		const annotations = await Promise.all(found.map((annotation) => withLiveStatus(graph, workspace, store, annotation)));
 		return { annotations };

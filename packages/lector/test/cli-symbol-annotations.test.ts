@@ -137,6 +137,48 @@ describe("lector CLI annotation commands", () => {
 		expect(restored.restored).toBe(true);
 	}, 30_000);
 
+	it("annotation list --query filters by title/body against a real daemon", async () => {
+		isolated = isolatedLectorPaths();
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		const { workspaceId, path, line, character } = await registerAndPopulate();
+		const anchor = `${path}:${line}:${character}`;
+
+		await runCli([
+			"workspace",
+			"annotation",
+			"create",
+			workspaceId,
+			"--subtype",
+			"comment",
+			"--title",
+			"addition dataflow",
+			"--body",
+			"explains how add() combines its inputs",
+			"--anchor",
+			anchor,
+			"--json",
+		]);
+		await runCli([
+			"workspace",
+			"annotation",
+			"create",
+			workspaceId,
+			"--subtype",
+			"comment",
+			"--title",
+			"unrelated note",
+			"--body",
+			"nothing to do with it",
+			"--anchor",
+			anchor,
+			"--json",
+		]);
+
+		const listed = JSON.parse(await runCli(["workspace", "annotation", "list", workspaceId, "--query", "dataflow", "--json"])) as SymbolAnnotation[];
+
+		expect(listed.map((a) => a.title)).toEqual(["addition dataflow"]);
+	}, 30_000);
+
 	it("accepts a workspace-relative --anchor path, resolving to the same symbol as the absolute form", async () => {
 		isolated = isolatedLectorPaths();
 		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });

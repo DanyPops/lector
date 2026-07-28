@@ -31,6 +31,7 @@ export class InMemorySymbolAnnotations implements SymbolAnnotationPort {
 	async list(options: SymbolAnnotationListOptions = {}): Promise<readonly SymbolAnnotation[]> {
 		const maxResults = options.maxResults ?? DEFAULT_MAX_RESULTS;
 		const wantedStatus = options.status ?? undefined;
+		const query = options.query?.toLowerCase();
 		const results: SymbolAnnotation[] = [];
 		for (const annotation of this.annotations.values()) {
 			if (options.subtype !== undefined && annotation.subtype !== options.subtype) continue;
@@ -39,6 +40,7 @@ export class InMemorySymbolAnnotations implements SymbolAnnotationPort {
 			} else if (annotation.status === "scrubbed") {
 				continue;
 			}
+			if (query !== undefined && !annotation.title.toLowerCase().includes(query) && !annotation.body.toLowerCase().includes(query)) continue;
 			results.push(annotation);
 			if (results.length >= maxResults) break;
 		}

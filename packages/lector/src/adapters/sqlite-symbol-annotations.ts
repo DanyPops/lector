@@ -7,6 +7,11 @@ import type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "../ports
 
 const DEFAULT_MAX_RESULTS = 200;
 
+/** Escapes SQLite LIKE's own wildcards so a literal `%`/`_` in a query (plausible in agent prose, e.g. "reduces latency by 40%") matches literally instead of acting as a wildcard. */
+function likePattern(query: string): string {
+	return `%${query.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+}
+
 const MIGRATIONS: Migration[] = [
 	{
 		version: 1,
@@ -102,6 +107,11 @@ export class SqliteSymbolAnnotations implements SymbolAnnotationPort {
 			params.push(options.status);
 		} else {
 			clauses.push("status != 'scrubbed'");
+		}
+		if (options.query !== undefined) {
+			clauses.push("(title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')");
+			const pattern = likePattern(options.query);
+			params.push(pattern, pattern);
 		}
 		const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 		const rows = this.db

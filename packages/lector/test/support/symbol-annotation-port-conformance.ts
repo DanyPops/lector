@@ -137,6 +137,40 @@ export function runSymbolAnnotationPortConformanceSuite(name: string, harness: S
 				expect(await port.restore(created.id)).toBe(false);
 			}));
 
+		it("filters list() by query, matching title or body, case-insensitively", () =>
+			withPort(async (port) => {
+				const byTitle = await port.create(input({ title: "PaymentProcessor dataflow", body: "unrelated body" }));
+				const byBody = await port.create(input({ title: "unrelated title", body: "touches PaymentProcessor internally" }));
+				await port.create(input({ title: "nothing to do with it", body: "still nothing" }));
+
+				const listed = await port.list({ query: "paymentprocessor" });
+				expect(listed.map((a) => a.id).sort()).toEqual([byBody.id, byTitle.id].sort());
+			}));
+
+		it("query matches a literal '%' in the annotation body instead of treating it as a wildcard", () =>
+			withPort(async (port) => {
+				const withPercent = await port.create(input({ title: "perf note", body: "reduces latency by 40% in the common case" }));
+				await port.create(input({ title: "unrelated", body: "reduces latency by some amount" }));
+
+				const listed = await port.list({ query: "40%" });
+				expect(listed.map((a) => a.id)).toEqual([withPercent.id]);
+			}));
+
+		it("query combines with subtype -- both must match", () =>
+			withPort(async (port) => {
+				const match = await port.create(input({ subtype: "user-story-dataflow", title: "checkout flow", body: "n/a" }));
+				await port.create(input({ subtype: "comment", title: "checkout flow", body: "n/a" }));
+
+				const listed = await port.list({ subtype: "user-story-dataflow", query: "checkout" });
+				expect(listed.map((a) => a.id)).toEqual([match.id]);
+			}));
+
+		it("query matching nothing returns an empty list, not an error", () =>
+			withPort(async (port) => {
+				await port.create(input());
+				expect(await port.list({ query: "definitely-not-present-anywhere" })).toEqual([]);
+			}));
+
 		it("list() is bounded by maxResults", () =>
 			withPort(async (port) => {
 				await port.create(input({ title: "one" }));

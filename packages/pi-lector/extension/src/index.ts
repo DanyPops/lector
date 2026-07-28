@@ -662,6 +662,9 @@ export default function (pi: ExtensionAPI) {
 				),
 				listStatus: Type.Optional(Type.String({ description: "fresh | stale | scrubbed -- for list; defaults to excluding scrubbed" })),
 				listSubtype: Type.Optional(Type.String({ description: "For list: filter by subtype" })),
+				listQuery: Type.Optional(
+					Type.String({ description: "For list: case-insensitive substring match against title or body -- the near-term free-text search over annotations" }),
+				),
 				maxResults: Type.Optional(Type.Number({ description: "For list: bounds the number of results" })),
 			}),
 			async execute(_toolCallId, params) {
@@ -682,7 +685,12 @@ export default function (pi: ExtensionAPI) {
 					text = annotation ? formatAnnotationDetail(annotation) : `no annotation "${params.id}"`;
 				} else if (params.action === "list") {
 					const status = params.listStatus === "fresh" || params.listStatus === "stale" || params.listStatus === "scrubbed" ? params.listStatus : undefined;
-					const { annotations } = await symbolAnnotationOperations.list(path, { subtype: params.listSubtype, status, maxResults: params.maxResults });
+					const { annotations } = await symbolAnnotationOperations.list(path, {
+						subtype: params.listSubtype,
+						status,
+						maxResults: params.maxResults,
+						query: params.listQuery,
+					});
 					details.annotations = annotations;
 					text = annotations.length === 0 ? "no annotations" : annotations.map(formatAnnotationDetail).join("\n\n");
 				} else if (params.action === "refresh") {
