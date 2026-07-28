@@ -49,6 +49,14 @@ export class DuplicateRequestHandler extends Error {
 	}
 }
 
+/** Raised when request()'s AbortSignal fires -- the promise settles immediately, it never waits for a late response or the timeout. */
+export class LanguageServerRequestCanceled extends Error {
+	constructor(readonly method: string) {
+		super(`language server request "${method}" was canceled`);
+		this.name = "LanguageServerRequestCanceled";
+	}
+}
+
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_STOP_TIMEOUT_MS = 3_000;
 
@@ -60,11 +68,28 @@ interface PendingRequest {
 
 type NotificationHandler = (params: unknown) => void;
 
-/** A server-initiated request handler. May return synchronously or asynchronously; a thrown error becomes a JSON-RPC InternalError response. */
-type RequestHandler = (params: unknown) => unknown | Promise<unknown>;
+/**
+ * A server-initiated request handler. May return synchronously or asynchronously; a thrown
+ * error becomes a JSON-RPC InternalError response. The signal fires if the server sends
+ * $/cancelRequest for this same request before the handler settles -- a handler that ignores
+ * it still gets its result discarded in favor of a RequestCancelled reply, so honoring it
+ * early is a performance optimization for the handler, not a correctness requirement.
+ */
+type RequestHandler = (params: unknown, signal: AbortSignal) => unknown | Promise<unknown>;
 
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
 const JSON_RPC_INTERNAL_ERROR = -32603;
+const JSON_RPC_REQUEST_CANCELLED = -32800;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+/** Extracts the id from a $/cancelRequest notification's params ({ id: number | string }). */
+function extractCancelRequestId(params: unknown): number | string | undefined {
+	if (!isRecord(params)) return undefined;
+	return typeof params.id === "number" || typeof params.id === "string" ? params.id : undefined;
+}
 
 /**
  * A spawned language server subprocess with safe lifecycle management:
@@ -80,6 +105,8 @@ export class LanguageServerProcess {
 	private readonly pending = new Map<number, PendingRequest>();
 	private readonly notificationHandlers = new Map<string, Set<NotificationHandler>>();
 	private readonly requestHandlers = new Map<string, RequestHandler>();
+	/** In-flight server-initiated requests this client is still computing a reply for, keyed by the server's own request id -- lets an incoming $/cancelRequest actually signal the running handler. */
+	private readonly inFlightServerRequests = new Map<number | string, AbortController>();
 	private readonly requestTimeoutMs: number;
 	private readonly maxPendingRequests: number;
 	private readonly maxMessageBytes: number;
@@ -150,6 +177,11 @@ export class LanguageServerProcess {
 			return;
 		}
 		if (message.id === undefined) {
+			if (message.method === "$/cancelRequest") {
+				const id = extractCancelRequestId(message.params);
+				if (id !== undefined) this.inFlightServerRequests.get(id)?.abort();
+				return;
+			}
 			for (const handler of this.notificationHandlers.get(message.method) ?? []) handler(message.params);
 			return;
 		}
@@ -165,11 +197,23 @@ export class LanguageServerProcess {
 			this.respond(id, undefined, { code: JSON_RPC_METHOD_NOT_FOUND, message: `method not found: ${method}` });
 			return;
 		}
+		const controller = new AbortController();
+		this.inFlightServerRequests.set(id, controller);
 		try {
-			const result = await handler(params);
+			const result = await handler(params, controller.signal);
+			if (controller.signal.aborted) {
+				this.respond(id, undefined, { code: JSON_RPC_REQUEST_CANCELLED, message: `request "${method}" was canceled` });
+				return;
+			}
 			this.respond(id, result);
 		} catch (error) {
+			if (controller.signal.aborted) {
+				this.respond(id, undefined, { code: JSON_RPC_REQUEST_CANCELLED, message: `request "${method}" was canceled` });
+				return;
+			}
 			this.respond(id, undefined, { code: JSON_RPC_INTERNAL_ERROR, message: error instanceof Error ? error.message : String(error) });
+		} finally {
+			this.inFlightServerRequests.delete(id);
 		}
 	}
 
@@ -202,18 +246,50 @@ export class LanguageServerProcess {
 		return () => this.requestHandlers.delete(method);
 	}
 
-	async request<T>(method: string, params: unknown): Promise<T> {
+	/**
+	 * `options.signal`, if given, cancels this specific request: the promise settles immediately
+	 * with LanguageServerRequestCanceled (never waiting for a late response or the timeout), and a
+	 * best-effort $/cancelRequest notification tells the server to stop working on it too.
+	 */
+	async request<T>(method: string, params: unknown, options: { signal?: AbortSignal } = {}): Promise<T> {
 		if (this.processExited) throw this.exitError;
+		if (options.signal?.aborted) throw new LanguageServerRequestCanceled(method);
 		if (this.pending.size >= this.maxPendingRequests) throw new LanguageServerCapacityExceeded(this.maxPendingRequests);
 		const id = this.nextId++;
 		const message = encodeJsonRpcMessage({ jsonrpc: "2.0", id, method, params });
 		if (message.byteLength > this.maxMessageBytes) throw new JsonRpcMessageLimitExceeded("message-bytes", this.maxMessageBytes, message.byteLength);
 		return new Promise<T>((resolve, reject) => {
+			const signal = options.signal;
+			const onAbort = () => {
+				clearTimeout(timer);
+				this.pending.delete(id);
+				this.notify("$/cancelRequest", { id });
+				reject(new LanguageServerRequestCanceled(method));
+			};
 			const timer = setTimeout(() => {
+				signal?.removeEventListener("abort", onAbort);
 				this.pending.delete(id);
 				reject(new LanguageServerRequestTimedOut(method, this.requestTimeoutMs));
 			}, this.requestTimeoutMs);
-			this.pending.set(id, { resolve: resolve as (result: unknown) => void, reject, timer });
+			signal?.addEventListener("abort", onAbort, { once: true });
+			this.pending.set(id, {
+				resolve: (result) => {
+					signal?.removeEventListener("abort", onAbort);
+					// PendingRequest.resolve is necessarily typed `(result: unknown) => void` -- the
+					// pending map holds every in-flight request's callback in one shared collection,
+					// so it cannot carry each call's own generic T. The wire payload is genuinely
+					// unknown until the caller's declared T is trusted at this exact boundary; no
+					// runtime validation is possible without a per-call schema, which this minimal
+					// JSON-RPC transport deliberately doesn't require of every caller.
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+					resolve(result as T);
+				},
+				reject: (error) => {
+					signal?.removeEventListener("abort", onAbort);
+					reject(error);
+				},
+				timer,
+			});
 			this.child.stdin.write(message);
 		});
 	}
@@ -264,6 +340,15 @@ export class LanguageServerProcess {
 			new Promise<void>((resolve) => setTimeout(resolve, stopTimeoutMs)),
 		]);
 
+		// TypeScript's control-flow narrowing does not model that `this.processExited` can flip
+		// to true concurrently while the `await` above is suspended (the constructor's own "exit"
+		// listener sets it from an independent callback) -- it treats the field as still narrowed
+		// to `false` from the guard at the top of this method, and flags this check as therefore
+		// always true. It is not: this is exactly the race "stop() against a server that hangs on
+		// shutdown" exercises, proven live by that test. Removing the guard would work by accident
+		// (killProcessGroup()'s own try/catch swallows the resulting ESRCH), but would misstate the
+		// method's real intent -- kill only if it hasn't already exited.
+		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 		if (!this.processExited) this.killProcessGroup();
 
 		// Bounded wait for the exit event to actually land; stop() must itself never hang

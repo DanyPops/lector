@@ -3,12 +3,13 @@ import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../domain/call-hierarchy.ts";
 import type { CodeRange } from "../../domain/code-range.ts";
-import type { Diagnostic, DiagnosticSeverity } from "../../domain/diagnostic.ts";
+import { type Diagnostic, type DiagnosticSeverity, mergeDiagnostics } from "../../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../../domain/document-symbol.ts";
 import {
 	DynamicCapabilityRegistry,
 	parseConfigurationItemCount,
 	parseProgressCreateToken,
+	parseProgressNotification,
 	parseRegistrationRequest,
 	parseUnregistrationRequest,
 } from "../../domain/dynamic-capability-registry.ts";
@@ -17,6 +18,7 @@ import type { Hover } from "../../domain/hover.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
 import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
 import { type ParsedServerCapabilities, parseServerCapabilities } from "../../domain/lsp-server-capabilities.ts";
+import { SerialExecutionQueue } from "../../domain/serial-execution-queue.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
@@ -168,6 +170,66 @@ interface LspPublishDiagnosticsParams {
 	diagnostics: LspDiagnostic[];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function parseLspPosition(value: unknown): LspPosition | undefined {
+	if (!isRecord(value) || typeof value.line !== "number" || typeof value.character !== "number") return undefined;
+	return { line: value.line, character: value.character };
+}
+
+function parseLspRange(value: unknown): LspRange | undefined {
+	if (!isRecord(value)) return undefined;
+	const start = parseLspPosition(value.start);
+	const end = parseLspPosition(value.end);
+	if (!start || !end) return undefined;
+	return { start, end };
+}
+
+function parseLspDiagnostic(value: unknown): LspDiagnostic | undefined {
+	if (!isRecord(value) || typeof value.message !== "string") return undefined;
+	const range = parseLspRange(value.range);
+	if (!range) return undefined;
+	return {
+		range,
+		message: value.message,
+		severity: typeof value.severity === "number" ? value.severity : undefined,
+		code: typeof value.code === "string" || typeof value.code === "number" ? value.code : undefined,
+		source: typeof value.source === "string" ? value.source : undefined,
+	};
+}
+
+/**
+ * Parses textDocument/publishDiagnostics' params. A malformed envelope
+ * (missing uri/diagnostics) yields undefined; a malformed individual
+ * diagnostic entry is skipped rather than discarding the whole batch --
+ * either way, an unexpected shape from a misbehaving server must never
+ * throw and crash the whole connection via LanguageServerProcess's own
+ * catch-and-fail around every dispatched message.
+ */
+function parsePublishDiagnosticsParams(params: unknown): LspPublishDiagnosticsParams | undefined {
+	if (!isRecord(params) || typeof params.uri !== "string" || !Array.isArray(params.diagnostics)) return undefined;
+	const diagnostics: LspDiagnostic[] = [];
+	for (const item of params.diagnostics) {
+		const diagnostic = parseLspDiagnostic(item);
+		if (diagnostic) diagnostics.push(diagnostic);
+	}
+	return { uri: params.uri, diagnostics };
+}
+
+/** DocumentDiagnosticReport: textDocument/diagnostic's response. "unchanged" means the server's prior report (identified by resultId) is still current -- Lector always requests fresh (no previousResultId sent), so it never receives "unchanged" in practice, but must still not crash if a server sends one anyway. */
+interface LspFullDocumentDiagnosticReport {
+	kind: "full";
+	resultId?: string;
+	items: LspDiagnostic[];
+}
+interface LspUnchangedDocumentDiagnosticReport {
+	kind: "unchanged";
+	resultId: string;
+}
+type LspDocumentDiagnosticReport = LspFullDocumentDiagnosticReport | LspUnchangedDocumentDiagnosticReport;
+
 /** LSP DiagnosticSeverity is 1-4; the spec recommends treating an absent severity as an error. */
 const RUNTIME_EXECUTABLE = realpathSync(process.execPath);
 
@@ -304,6 +366,8 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private initializing: Promise<LanguageServerProcess> | undefined;
 	private negotiatedCapabilities: ParsedServerCapabilities | undefined;
 	private dynamicCapabilities = new DynamicCapabilityRegistry();
+	/** Serializes mutation-dependent operations per file path -- two concurrent queries touching the same file must never race textDocument/didChange's version bookkeeping. */
+	private readonly mutationQueue = new SerialExecutionQueue();
 
 	constructor(cwd: string, descriptor: LanguageServerDescriptor, seedFile?: string, options: LspSymbolIndexOptions = {}) {
 		this.cwd = resolve(cwd);
@@ -355,7 +419,9 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				spawned = proc;
 				this.dynamicCapabilities = new DynamicCapabilityRegistry();
 				proc.onNotification("textDocument/publishDiagnostics", (params) => {
-					const { uri, diagnostics } = params as LspPublishDiagnosticsParams;
+					const parsed = parsePublishDiagnosticsParams(params);
+					if (!parsed) return;
+					const { uri, diagnostics } = parsed;
 					const path = fileURLToPath(uri);
 					this.latestDiagnostics.set(
 						path,
@@ -368,6 +434,10 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 					}
 				});
 				this.registerServerInitiatedRequestHandlers(proc);
+				proc.onNotification("$/progress", (params) => {
+					const progress = parseProgressNotification(params);
+					if (progress) this.dynamicCapabilities.recordProgress(progress.token, progress.value);
+				});
 				const initializeResult = await proc.request<{ capabilities?: unknown }>("initialize", {
 					processId: process.pid,
 					rootUri: pathToFileURL(this.cwd).href,
@@ -381,6 +451,11 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 							hover: { contentFormat: ["markdown", "plaintext"] },
 							...this.descriptor.extraCapabilities,
 						},
+						// Genuinely honored end to end (window/workDoneProgress/create is answered, tokens
+						// and $/progress values are tracked) -- declaring it lets a real server actually use
+						// progress reporting with Lector, which a spec-compliant one otherwise wouldn't
+						// attempt without this client capability present.
+						window: { workDoneProgress: true },
 					},
 					initializationOptions: {},
 				});
@@ -448,6 +523,11 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		return this.dynamicCapabilities.watchedFilePatterns;
 	}
 
+	/** The latest $/progress value reported for every token seen so far (bounded). */
+	get latestProgress(): ReadonlyMap<string | number, unknown> {
+		return this.dynamicCapabilities.progressByToken;
+	}
+
 	private readBoundedFile(path: string): string {
 		const content = readFileSync(path);
 		if (content.byteLength > this.maxFileBytes) throw new LanguageFileLimitExceeded("file-bytes", this.maxFileBytes, content.byteLength);
@@ -477,30 +557,35 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		if (!Number.isSafeInteger(settleMs) || settleMs < 0 || settleMs > MAX_SETTLE_MS)
 			throw new TypeError(`settleMs must be an integer from 0 through ${MAX_SETTLE_MS}`);
 		path = this.resolveTargetPath(path);
-		const content = this.readBoundedFile(path);
-		const opened = this.openedFiles.get(path);
-		if (opened?.content === content) return;
-		if (!opened) {
-			if (this.openedFiles.size >= this.maxOpenFiles) throw new LanguageFileLimitExceeded("open-files", this.maxOpenFiles, this.openedFiles.size + 1);
-			proc.notify("textDocument/didOpen", {
-				textDocument: {
-					uri: pathToFileURL(path).href,
-					languageId: this.descriptor.documentLanguageIds?.[extname(path)] ?? this.descriptor.languageId,
-					version: 1,
-					text: content,
-				},
-			});
-			this.openedFiles.set(path, { version: 1, content });
-		} else {
-			const version = opened.version + 1;
-			this.latestDiagnostics.delete(path);
-			proc.notify("textDocument/didChange", {
-				textDocument: { uri: pathToFileURL(path).href, version },
-				contentChanges: [{ text: content }],
-			});
-			this.openedFiles.set(path, { version, content });
-		}
-		await new Promise((resolve) => setTimeout(resolve, settleMs));
+		// Serialized per path: two concurrent callers touching the same file must read the prior
+		// version, decide open-vs-change, and write the new version back as one atomic step -- not
+		// race each other into sending the server two didChange notifications with the same version.
+		return this.mutationQueue.run(path, async () => {
+			const content = this.readBoundedFile(path);
+			const opened = this.openedFiles.get(path);
+			if (opened?.content === content) return;
+			if (!opened) {
+				if (this.openedFiles.size >= this.maxOpenFiles) throw new LanguageFileLimitExceeded("open-files", this.maxOpenFiles, this.openedFiles.size + 1);
+				proc.notify("textDocument/didOpen", {
+					textDocument: {
+						uri: pathToFileURL(path).href,
+						languageId: this.descriptor.documentLanguageIds?.[extname(path)] ?? this.descriptor.languageId,
+						version: 1,
+						text: content,
+					},
+				});
+				this.openedFiles.set(path, { version: 1, content });
+			} else {
+				const version = opened.version + 1;
+				this.latestDiagnostics.delete(path);
+				proc.notify("textDocument/didChange", {
+					textDocument: { uri: pathToFileURL(path).href, version },
+					contentChanges: [{ text: content }],
+				});
+				this.openedFiles.set(path, { version, content });
+			}
+			await new Promise((resolve) => setTimeout(resolve, settleMs));
+		});
 	}
 
 	/**
@@ -512,13 +597,15 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	 */
 	releaseFile(path: string): Promise<void> {
 		path = this.resolveTargetPath(path);
-		if (!this.openedFiles.has(path)) return Promise.resolve();
-		const proc = this.process;
-		if (proc) proc.notify("textDocument/didClose", { textDocument: { uri: pathToFileURL(path).href } });
-		this.openedFiles.delete(path);
-		this.latestDiagnostics.delete(path);
-		this.diagnosticsWaiters.delete(path);
-		return Promise.resolve();
+		return this.mutationQueue.run(path, () => {
+			if (!this.openedFiles.has(path)) return Promise.resolve();
+			const proc = this.process;
+			if (proc) proc.notify("textDocument/didClose", { textDocument: { uri: pathToFileURL(path).href } });
+			this.openedFiles.delete(path);
+			this.latestDiagnostics.delete(path);
+			this.diagnosticsWaiters.delete(path);
+			return Promise.resolve();
+		});
 	}
 
 	/** Resolves as soon as `path`'s next publishDiagnostics notification lands, or after `timeoutMs` -- diagnostics are server-pushed, never a request/response Lector can just await. */
@@ -634,9 +721,26 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 
 	async diagnostics(path: string): Promise<Diagnostic[]> {
 		const proc = await this.ensureInitialized(path);
-		await this.ensureFileOpen(proc, path);
-		if (!this.latestDiagnostics.has(path)) await this.waitForDiagnosticsNotification(path, 5000);
-		return this.latestDiagnostics.get(path) ?? [];
+		const resolvedPath = this.resolveTargetPath(path);
+		await this.ensureFileOpen(proc, resolvedPath);
+		// Pull-model support is only known after initialize -- when declared, request fresh rather
+		// than waiting on push's own timing, and merge with whatever push has already delivered
+		// (a server may run both models at once, or have pushed before pull was even requested).
+		if (this.negotiatedCapabilities?.diagnosticProvider) {
+			const pulled = await this.pullDiagnostics(proc, resolvedPath);
+			return mergeDiagnostics(this.latestDiagnostics.get(resolvedPath) ?? [], pulled);
+		}
+		if (!this.latestDiagnostics.has(resolvedPath)) await this.waitForDiagnosticsNotification(resolvedPath, 5000);
+		return this.latestDiagnostics.get(resolvedPath) ?? [];
+	}
+
+	/** Requests textDocument/diagnostic directly rather than waiting on the server's own push timing. Returns [] for an "unchanged" report -- Lector never sends previousResultId, so it has nothing cached under that resultId to fall back to besides what push already holds. */
+	private async pullDiagnostics(proc: LanguageServerProcess, path: string): Promise<Diagnostic[]> {
+		const report = await proc.request<LspDocumentDiagnosticReport | null>("textDocument/diagnostic", {
+			textDocument: { uri: pathToFileURL(path).href },
+		});
+		if (!report || report.kind !== "full") return [];
+		return report.items.map((item) => normalizeDiagnostic(path, item));
 	}
 
 	/** Raw LSP items, `data` intact -- callHierarchy/incomingCalls|outgoingCalls need the exact item prepareCallHierarchy returned, not a normalized copy. */
