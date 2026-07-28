@@ -30,6 +30,15 @@ export class InMemorySymbolGraph implements SymbolGraphPort {
 		if (!this.graph.hasEdge(edgeKey)) this.graph.addEdgeWithKey(edgeKey, from, to, { kind });
 	}
 
+	async removeNodesForFile(path: string): Promise<void> {
+		for (const [id, node] of this.nodes) {
+			if (node.location.path !== path) continue;
+			this.nodes.delete(id);
+			// dropNode also removes every edge touching it, in both directions.
+			if (this.graph.hasNode(id)) this.graph.dropNode(id);
+		}
+	}
+
 	async edgesFrom(id: SymbolNodeId, kind?: SymbolEdgeKind): Promise<readonly SymbolNodeId[]> {
 		if (!this.graph.hasNode(id)) return [];
 		return this.graph

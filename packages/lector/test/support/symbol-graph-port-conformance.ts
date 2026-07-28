@@ -200,6 +200,34 @@ export function runSymbolGraphPortConformanceSuite(name: string, harness: Symbol
 				expect(await graph.allEdges(10)).toEqual([]);
 			}));
 
+		it("removeNodesForFile deletes every node at that path plus every edge touching one of them", () =>
+			withGraph(async (graph) => {
+				// a, b both live in the same deleted file; c is untouched.
+				const a: SymbolNode = { id: "a", name: "a", kind: "function", location: { path: "/src/gone.ts", line: 1, character: 1 } };
+				const b: SymbolNode = { id: "b", name: "b", kind: "function", location: { path: "/src/gone.ts", line: 5, character: 1 } };
+				const c: SymbolNode = { id: "c", name: "c", kind: "function", location: { path: "/src/stays.ts", line: 1, character: 1 } };
+				await graph.addNode(a);
+				await graph.addNode(b);
+				await graph.addNode(c);
+				await graph.addEdge("a", "b", "calls");
+				await graph.addEdge("c", "a", "calls"); // an edge from a surviving file into the deleted one
+
+				await graph.removeNodesForFile("/src/gone.ts");
+
+				expect(await graph.getNode("a")).toBeUndefined();
+				expect(await graph.getNode("b")).toBeUndefined();
+				expect(await graph.getNode("c")).toEqual(c);
+				expect(await graph.edgesFrom("c")).toEqual([]);
+				expect(await graph.edgesTo("b")).toEqual([]);
+			}));
+
+		it("removeNodesForFile is a no-op when no node has that path", () =>
+			withGraph(async (graph) => {
+				await graph.addNode(node("a", "a"));
+				await graph.removeNodesForFile("/src/never-added.ts");
+				expect(await graph.getNode("a")).toEqual(node("a", "a"));
+			}));
+
 		it("does not let edges/nodes touching one graph affect a separately created one", () =>
 			withGraph(async (graphA) => {
 				await withGraph(async (graphB) => {

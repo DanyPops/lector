@@ -158,4 +158,51 @@ describe("SqliteSymbolGraph durability", () => {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
+
+	it("keeps walkedFiles after reopen, and removeNodesForFile survives a real reopen too", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "lector-sqlite-symbol-graph-walked-files-"));
+		const dbPath = join(dir, "symbol-graph.db");
+		try {
+			const first = new SqliteSymbolGraph(dbPath);
+			await first.addNode({ id: "a", name: "a", kind: "function", location: { path: "/src/a.ts", line: 1, character: 1 } });
+			await first.addNode({ id: "b", name: "b", kind: "function", location: { path: "/src/deleted.ts", line: 1, character: 1 } });
+			await first.addEdge("a", "b", "calls");
+			await first.setGeneration({
+				sourceFingerprint: "gen1",
+				maxFiles: 10,
+				maxSymbolsPerFile: 20,
+				completedAt: 1,
+				walkedFiles: ["/src/a.ts", "/src/deleted.ts"],
+				result: {
+					completeness: "complete",
+					filesAttempted: 2,
+					filesProcessed: 2,
+					filesFailed: 0,
+					symbolsProcessed: 2,
+					nodesAdded: 2,
+					edgesAdded: 1,
+					failureCount: 0,
+					failures: [],
+					failuresTruncated: false,
+				},
+			});
+			await first.close();
+
+			const second = new SqliteSymbolGraph(dbPath);
+			try {
+				expect((await second.getGeneration())?.walkedFiles).toEqual(["/src/a.ts", "/src/deleted.ts"]);
+
+				// The behavior walkedFiles exists to drive: purging a file that disappeared, surviving
+				// the exact process restart a SQLite-backed graph is for.
+				await second.removeNodesForFile("/src/deleted.ts");
+				expect(await second.getNode("b")).toBeUndefined();
+				expect(await second.getNode("a")).toBeDefined();
+				expect(await second.edgesFrom("a")).toEqual([]);
+			} finally {
+				await second.close();
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 });

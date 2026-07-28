@@ -21,6 +21,13 @@ export interface SymbolGraphGeneration {
 	/** Per-language authorities included when provenance is polyglot. */
 	readonly sources?: readonly IntelligenceProvenance[];
 	readonly result: PopulateSymbolGraphResult;
+	/**
+	 * The exact absolute paths walked to produce this generation, bounded by maxFiles. The next
+	 * regeneration diffs its own walked set against this one to find files that disappeared, so a
+	 * deleted file's stale nodes/edges are purged instead of surviving forever. Absent only for
+	 * generations persisted before purge-on-regeneration existed.
+	 */
+	readonly walkedFiles?: readonly string[];
 }
 
 export type WorkspaceCacheStatus =

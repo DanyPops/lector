@@ -53,6 +53,7 @@ import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts"
 import type { PackageSourceBounds, PackageSourceOperationResult, PackageSourceRequest } from "./domain/package-source.ts";
 import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
+import { purgeFilesNoLongerWalked } from "./domain/purge-stale-graph-entries.ts";
 import { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 import { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
@@ -1165,6 +1166,10 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		const extensions = workspaceSourceExtensions(workspaceIndex.descriptors);
 		const before = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		const graph = ensureSymbolGraph(input.workspaceId);
+		// Purge before repopulating: a file walked last generation but absent from this one was
+		// deleted (or moved out of scope), and its stale nodes/edges must not survive indefinitely.
+		const previousGeneration = await graph.getGeneration();
+		await purgeFilesNoLongerWalked(graph, previousGeneration?.walkedFiles, before.absoluteFiles);
 		const result = await populateSymbolGraphQuery(workspaceIndex.index, graph, before.absoluteFiles, input.maxSymbolsPerFile);
 		const after = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		if (after.fingerprint !== before.fingerprint) throw new WorkspaceChangedDuringPopulation(input.workspaceId);
@@ -1177,6 +1182,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			sources: workspaceIndex.sources,
 			result,
 			gitHeadSha: await captureGitHeadShaIfClean(rootPath),
+			walkedFiles: before.absoluteFiles,
 		});
 		// A workspace that has been populated at least once stays graph-watched for the rest of
 		// the daemon's uptime -- the whole point of "keeps the symbol graph warm on disk changes".

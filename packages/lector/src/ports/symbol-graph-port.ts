@@ -30,6 +30,8 @@ export interface SymbolGraphPort {
 	addNode(node: SymbolNode): Promise<void>;
 	getNode(id: SymbolNodeId): Promise<SymbolNode | undefined>;
 	addEdge(from: SymbolNodeId, to: SymbolNodeId, kind: SymbolEdgeKind): Promise<void>;
+	/** Removes every node at this exact path and every edge touching one of them (both directions). A no-op if no node has this path. */
+	removeNodesForFile(path: string): Promise<void>;
 	/** Direct out-edges from `id` -- who/what `id` points to. */
 	edgesFrom(id: SymbolNodeId, kind?: SymbolEdgeKind): Promise<readonly SymbolNodeId[]>;
 	/** Direct in-edges to `id` -- who/what points to `id`. */
