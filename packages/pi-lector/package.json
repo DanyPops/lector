@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/pi-lector",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"description": "Pi host adapter for Lector: overrides read/write/edit with a daemon-backed, hash-guarded filesystem",
 	"license": "MIT",
 	"type": "module",
@@ -19,7 +19,7 @@
 	},
 	"dependencies": {
 		"@danypops/daemon-kit": "^0.4.0",
-		"@danypops/lector": "^0.1.15"
+		"@danypops/lector": "^0.2.0"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-ai": "^0.81.1",
