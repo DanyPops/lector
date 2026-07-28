@@ -165,15 +165,7 @@ export function startLectorDaemon(options: LectorDaemonOptions): Promise<Running
 		handlePath: paths.handle,
 		buildApp: () => app,
 		logger: options.logger,
-		// A real daemon-kit packaging gap, not a Lector bug: @danypops/daemon-kit/daemon resolves
-		// to a separately-compiled dist/daemon.d.ts, whose own PushChannel type comes from a
-		// dist/push-channel.d.ts that isn't itself a public subpath -- while @danypops/daemon-kit
-		// /push-channel (the only public entry point for constructing one) resolves to the raw
-		// src/push-channel.ts. Both are the exact same class body; TypeScript treats them as two
-		// distinct nominal types only because of a private field disagreeing across two
-		// independently-compiled copies of identical source. Filed upstream; safe to cast through
-		// here since the runtime objects are genuinely interchangeable.
-		pushChannel: pushChannel as unknown as NonNullable<Parameters<typeof startDaemon>[0]["pushChannel"]>,
+		pushChannel,
 		onShutdown,
 		maintenanceTasks,
 	});
