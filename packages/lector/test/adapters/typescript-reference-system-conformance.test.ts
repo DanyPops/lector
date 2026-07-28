@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { appendFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { InMemorySymbolGraph } from "../../src/adapters/in-memory-symbol-graph.ts";
 import { LspSymbolIndex } from "../../src/adapters/lsp/lsp-symbol-index.ts";
 import { RipgrepTextSearch } from "../../src/adapters/ripgrep-text-search.ts";
@@ -47,6 +47,22 @@ describe("TypeScript/JavaScript reference fixture system conformance", () => {
 			matchEnd: 51,
 		});
 		expect(ignored).toEqual({ matches: [], truncated: false });
+	});
+
+	it("excludes gitignored source files from deriveSourceManifest's scanned set, closing the git-fast-path's own documented blind spot", async () => {
+		fixture = materializeTypeScriptReferenceGitFixture();
+		const fixtureRoot = fixture.root;
+		const manifest = await deriveSourceManifest(fixtureRoot, TYPESCRIPT_DESCRIPTOR.extensions, 200, 2_000_000);
+		const relativePaths = manifest.absoluteFiles.map((absolutePath) => relative(fixtureRoot, absolutePath));
+
+		// generated/, history/, and ignored/ are all real .ts-extension paths this fixture's own
+		// committed gitignore.fixture declares -- see typescript-reference-fixture.ts.
+		expect(relativePaths).not.toContain("generated/client.ts");
+		expect(relativePaths).not.toContain("history/v1/payment.ts");
+		expect(relativePaths).not.toContain("history/v2/payment.ts");
+		expect(relativePaths).not.toContain("ignored/raw-text.ts");
+		// A real, un-ignored source file from the same fixture still gets scanned normally.
+		expect(relativePaths).toContain("packages/app/src/checkout.ts");
 	});
 
 	it("changes the source generation fingerprint after a fixture mutation", async () => {
