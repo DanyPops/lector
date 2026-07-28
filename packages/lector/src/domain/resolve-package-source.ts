@@ -1,4 +1,5 @@
 import type { PackageSourceResolverPort } from "../ports/package-source-resolver-port.ts";
+import { assertAbsolutePath } from "./assert-absolute-path.ts";
 import type {
 	AmbiguousPackageSource,
 	MismatchedPackageSource,
@@ -74,6 +75,10 @@ function assertNonNegativeSafeInteger(value: number, name: string): void {
 
 function validateRequest(request: PackageSourceRequest): void {
 	assertText(request.projectRoot, "projectRoot", 4096);
+	// Same trust boundary as workspace.registerPath: a daemon has no caller-relative cwd of its
+	// own, so a relative projectRoot must be rejected here rather than trusted to already be
+	// pre-resolved by every current and future caller.
+	assertAbsolutePath(request.projectRoot);
 	assertAllowed(request.coordinate.ecosystem, ECOSYSTEMS, "coordinate.ecosystem");
 	assertText(request.coordinate.name, "coordinate.name", 512);
 	assertOptionalText(request.coordinate.registry, "coordinate.registry", 2048);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { RelativeWorkspacePath } from "../../src/domain/assert-absolute-path.ts";
 import type { PackageSourceOutcome, PackageSourceRequest } from "../../src/domain/package-source.ts";
 import { InvalidPackageSourceContract, resolvePackageSource } from "../../src/domain/resolve-package-source.ts";
 import type { PackageSourceResolverPort } from "../../src/ports/package-source-resolver-port.ts";
@@ -49,6 +50,13 @@ describe("resolvePackageSource", () => {
 			await expect(resolvePackageSource(resolver, request, BOUNDS)).rejects.toBeInstanceOf(InvalidPackageSourceContract);
 			expect(resolver.calls).toBe(0);
 		}
+	});
+
+	it("rejects a relative projectRoot before calling the adapter -- a daemon has no caller-relative cwd of its own", async () => {
+		const request = { ...REQUEST, projectRoot: "relative/path" };
+		const resolver = new FixedResolver(VERIFIED_NPM_SOURCE);
+		await expect(resolvePackageSource(resolver, request, BOUNDS)).rejects.toBeInstanceOf(RelativeWorkspacePath);
+		expect(resolver.calls).toBe(0);
 	});
 
 	it("rejects a non-positive resource bound before calling the adapter", async () => {
