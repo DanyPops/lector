@@ -179,9 +179,7 @@ export function serveMain(options: LectorDaemonOptions & { onListen?: (info: { h
 		handlePath: paths.handle,
 		buildApp: () => app,
 		logger: options.logger,
-		// See startLectorDaemon's own comment on this same cast -- a real daemon-kit packaging
-		// gap, filed upstream, not worked around silently.
-		pushChannel: pushChannel as unknown as NonNullable<Parameters<typeof runDaemonProcess>[0]["pushChannel"]>,
+		pushChannel,
 		onShutdown,
 		maintenanceTasks,
 		onListen: options.onListen,
