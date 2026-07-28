@@ -43,9 +43,8 @@ export interface RetryingLectorClient {
 }
 
 // Kept async even though its own body has no await: every call site across this package does
-// `await lectorClient()`, and dropping async here (just to satisfy require-await) would turn an
-// internal implementation detail into a signature change rippling through every one of them.
-// eslint-disable-next-line @typescript-eslint/require-await
+// `await lectorClient()`, and dropping async here would turn an internal implementation detail
+// into a signature change rippling through every one of them.
 export async function lectorClient(): Promise<RetryingLectorClient> {
 	return {
 		call: (operation, input) => retryingClient.call((client) => client.call(operation, input)),

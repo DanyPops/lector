@@ -75,6 +75,25 @@ export default tseslint.config(
 			"@typescript-eslint/no-empty-object-type": "off",
 			"@typescript-eslint/unbound-method": "off",
 			"@typescript-eslint/no-redundant-type-constituents": "off",
+			// Ports (SymbolGraphPort, ContentCachePort, SearchCachePort, SymbolAnnotationPort,
+			// WorkspacePort) are correctly async for backends that genuinely need it (LSP, network);
+			// the in-memory/sqlite adapters and service.ts's operation handlers share that contract
+			// while wrapping synchronous work. Confirmed real across 15+ call sites, not a one-off.
+			"@typescript-eslint/require-await": "off",
+		},
+	},
+
+	// better-sqlite3's .get()/.all() return untyped rows by design -- each of these adapters'
+	// whole job is casting a row to the domain shape of a schema it also owns and migrates itself.
+	{
+		files: [
+			"packages/lector/src/adapters/sqlite-content-cache.ts",
+			"packages/lector/src/adapters/sqlite-search-cache.ts",
+			"packages/lector/src/adapters/sqlite-symbol-annotations.ts",
+			"packages/lector/src/adapters/sqlite-symbol-graph.ts",
+		],
+		rules: {
+			"@typescript-eslint/no-unsafe-type-assertion": "off",
 		},
 	},
 

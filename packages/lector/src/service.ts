@@ -1020,6 +1020,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		// output type stays SymbolSearchResult (this operation's default, and every untouched
 		// caller's honest shape) -- a caller that opts into responseFormat:"concise" already knows
 		// to treat fields absent from the concise contract as absent, not to trust this type for it.
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- see comment above
 		return formatSymbolSearchResult(result, input.responseFormat ?? "detailed") as OperationOutputs["workspace.findSymbols"];
 	}
 
@@ -1058,6 +1059,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		const { index } = await requireCodeIntelligence(input);
 		const locations = await findReferencesQuery(index, { path: input.path, line: input.line, character: input.character }, input.includeDeclaration);
 		// See findSymbols' identical note on the concise/detailed type-vs-runtime tradeoff.
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 		return formatProvenanced({ locations, provenance: index.provenance }, input.responseFormat ?? "detailed") as OperationOutputs["workspace.findReferences"];
 	}
 

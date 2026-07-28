@@ -21,5 +21,8 @@ const LINE_HASH_LENGTH = 8;
 
 /** Compute the LineHash for one line's exact content (no trailing-whitespace normalization). */
 export function lineHashOf(line: string): LineHash {
+	// The one place LineHash is minted from a plain string -- the brand exists precisely so
+	// nowhere else can.
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 	return createHash("sha256").update(line, "utf-8").digest("hex").slice(0, LINE_HASH_LENGTH) as LineHash;
 }

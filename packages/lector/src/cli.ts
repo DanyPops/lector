@@ -819,6 +819,8 @@ async function runWorkspaceAnnotationList(workspaceId: string | undefined, flags
 	if (!workspaceId) fail(USAGE);
 	const subtype = flagValue(flags, "--subtype");
 	const statusFlag = flagValue(flags, "--status");
+	// A raw CLI flag; the daemon rejects an invalid value with a clear domain error either way.
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 	const status = statusFlag as "fresh" | "stale" | "scrubbed" | undefined;
 	const maxResultsFlagValue = flagValue(flags, "--max-results");
 	const maxResults = maxResultsFlagValue === undefined ? undefined : Number(maxResultsFlagValue);
@@ -878,6 +880,8 @@ async function runWorkspaceEdit(workspaceId: string | undefined, path: string | 
 	if (create === (expectedHashFlag !== undefined)) {
 		fail("lector workspace edit requires exactly one of --create or --expected-hash <hash>");
 	}
+	// A raw CLI flag; the daemon rejects an invalid hash with a clear domain error either way.
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 	const expectedHash = create ? null : (expectedHashFlag as ContentHash);
 
 	const client = await connectLectorClient();
@@ -925,6 +929,9 @@ async function runWorkspaceWatch(workspaceId: string | undefined, flags: string[
 		} catch {
 			return;
 		}
+		// Naming the two expected top-level keys while leaving their values as-is; every access
+		// below already treats them as possibly absent.
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 		const message = parsed as { topic?: string; payload?: { path?: string; kind?: string } };
 		if (message.topic !== topic) return;
 		if (json) {
@@ -958,6 +965,8 @@ async function runWorkspaceApplyPatch(workspaceId: string | undefined, path: str
 	if (patchText === undefined) fail("lector workspace apply-patch requires --patch <unified-diff-text>");
 	const expectedHashFlag = flagValue(flags, "--expected-hash");
 	if (expectedHashFlag === undefined) fail("lector workspace apply-patch requires --expected-hash <hash>");
+	// A raw CLI flag; the daemon rejects an invalid hash with a clear domain error either way.
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 	const expectedHash = expectedHashFlag as ContentHash;
 
 	const client = await connectLectorClient();

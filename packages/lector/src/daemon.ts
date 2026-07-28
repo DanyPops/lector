@@ -35,17 +35,24 @@ export function buildLectorApp(service: LectorService, token: string): { fetch(r
 			if (request.method === "POST" && url.pathname === "/api/v1/ops") {
 				let body: { op?: unknown; input?: unknown };
 				try {
+					// request.json() is typed Promise<any>; naming its two expected top-level keys while
+					// leaving their values unknown forces every access below to actually narrow.
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 					body = (await request.json()) as { op?: unknown; input?: unknown };
 				} catch {
 					return errorResponse("invalid JSON body", 400);
 				}
-				if (typeof body.op !== "string" || !service.operations.includes(body.op as OperationName)) {
+				// Widen the array, not the value, so this membership check needs no assertion at all.
+				if (typeof body.op !== "string" || !(service.operations as readonly string[]).includes(body.op)) {
 					return errorResponse(`unknown operation: ${String(body.op)}`, 400);
 				}
 				if (typeof body.input !== "object" || body.input === null) {
 					return errorResponse("input must be an object", 400);
 				}
 				try {
+					// The includes() check above just proved body.op is a real OperationName; body.input's
+					// specific shape can only be known once dispatch itself switches on which operation this is.
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 					const result = await service.dispatch(body.op as OperationName, body.input as never);
 					return jsonResponse({ result });
 				} catch (error) {

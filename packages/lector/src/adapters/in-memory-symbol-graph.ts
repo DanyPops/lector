@@ -72,6 +72,9 @@ export class InMemorySymbolGraph implements SymbolGraphPort {
 		const records: SymbolEdgeRecord[] = [];
 		for (const edgeKey of this.graph.edges()) {
 			if (records.length >= maxEdges) break;
+			// graphology's edge attributes are untyped by design; addEdge above is the only writer and
+			// always sets a real SymbolEdgeKind.
+			// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 			records.push({ from: this.graph.source(edgeKey), to: this.graph.target(edgeKey), kind: this.graph.getEdgeAttribute(edgeKey, "kind") as SymbolEdgeKind });
 		}
 		return records;

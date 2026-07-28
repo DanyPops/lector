@@ -1151,6 +1151,7 @@ export default function (pi: ExtensionAPI) {
 				// The Pi tool schema can only express plain strings for hash fields (TypeBox has no
 				// concept of Lector's branded LineHash) -- the daemon's own domain validation is the
 				// real runtime check regardless of what TypeScript sees at this call site.
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 				const result = await lineEditOperations.lineEdit(absolutePath, params.edits as unknown as LineEdit[]);
 				return { content: [{ type: "text", text: `${result.path}: ${result.previousHash} -> ${result.newHash}` }], details: { result } };
 			},
@@ -1197,6 +1198,7 @@ export default function (pi: ExtensionAPI) {
 				const absolutePath = resolve(cwd, params.path);
 				// TypeBox has no concept of Lector's branded ContentHash -- the daemon's own domain
 				// validation is the real runtime check regardless of what TypeScript sees here.
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 				const result = await applyPatchOperations.applyPatch(absolutePath, params.expectedHash as ContentHash, params.patchText);
 				return { content: [{ type: "text", text: `${result.path}: ${result.previousHash ?? "(new)"} -> ${result.newHash}` }], details: { result } };
 			},
