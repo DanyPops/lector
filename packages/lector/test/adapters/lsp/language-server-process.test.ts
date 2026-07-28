@@ -218,7 +218,10 @@ describe("LanguageServerProcess request cancellation", () => {
 		// request would reject with LanguageServerCapacityExceeded instead of being accepted (and
 		// then just sitting pending, since this mock server hangs on every non-initialize request).
 		const second = proc.request("workspace/symbol", {});
-		const outcome = await Promise.race([second.then(() => "resolved").catch((error: unknown) => error), new Promise((resolve) => setTimeout(() => resolve("still-pending"), 100))]);
+		const outcome = await Promise.race([
+			second.then(() => "resolved").catch((error: unknown) => error),
+			new Promise((resolve) => setTimeout(() => resolve("still-pending"), 100)),
+		]);
 		expect(outcome).toBe("still-pending");
 	});
 

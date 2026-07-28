@@ -46,7 +46,7 @@ export class LocalFilesystemWorkspace implements WorkspacePort {
 		// falls back to it, per pi-lector's workspaceForPath, and every such read was rejected
 		// as "escaping" a root it did not actually escape at all).
 		const relativeToRoot = relative(this.root, absolute);
-		if (relativeToRoot === ".." || relativeToRoot.startsWith(".." + sep) || isAbsolute(relativeToRoot)) {
+		if (relativeToRoot === ".." || relativeToRoot.startsWith(`..${sep}`) || isAbsolute(relativeToRoot)) {
 			throw new PathEscapesWorkspaceRoot(path, this.root);
 		}
 		return absolute;

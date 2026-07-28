@@ -139,7 +139,7 @@ export class SqliteSymbolAnnotations implements SymbolAnnotationPort {
 
 	async restore(id: AnnotationId): Promise<boolean> {
 		const existing = await this.get(id);
-		if (!existing || existing.status !== "scrubbed") return false;
+		if (existing?.status !== "scrubbed") return false;
 		this.db.query("UPDATE symbol_annotations SET status = 'stale', updated_at = ? WHERE id = ?").run(Date.now(), id);
 		return true;
 	}

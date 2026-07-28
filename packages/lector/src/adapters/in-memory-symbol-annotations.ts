@@ -78,7 +78,7 @@ export class InMemorySymbolAnnotations implements SymbolAnnotationPort {
 
 	async restore(id: AnnotationId): Promise<boolean> {
 		const existing = this.annotations.get(id);
-		if (!existing || existing.status !== "scrubbed") return false;
+		if (existing?.status !== "scrubbed") return false;
 		this.annotations.set(id, { ...existing, status: "stale", updatedAt: Date.now() });
 		return true;
 	}

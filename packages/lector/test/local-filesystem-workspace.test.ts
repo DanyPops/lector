@@ -102,7 +102,7 @@ describe("LocalFilesystemWorkspace atomic writes", () => {
 			const dir = await freshRoot();
 			const workspace = new LocalFilesystemWorkspace("/");
 			// A relative path expressed from "/" down to a real tmp file this test owns.
-			const relativeFromFilesystemRoot = dir.replace(/^\//, "") + "/a.txt";
+			const relativeFromFilesystemRoot = `${dir.replace(/^\//, "")}/a.txt`;
 
 			await exactEdit(workspace, { path: relativeFromFilesystemRoot, expectedHash: null, content: "hello from root" });
 			const read = await rawRead(workspace, relativeFromFilesystemRoot);

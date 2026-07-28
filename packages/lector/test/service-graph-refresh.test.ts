@@ -11,12 +11,12 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";
-import { createLectorService } from "../src/service.ts";
-import type { FileChangeEvent } from "../src/domain/file-change-event.ts";
 import type { DocumentSymbolEntry } from "../src/domain/document-symbol.ts";
+import type { FileChangeEvent } from "../src/domain/file-change-event.ts";
 import type { IntelligenceProvenance } from "../src/domain/intelligence-provenance.ts";
 import type { CodeIntelligencePort } from "../src/ports/code-intelligence-port.ts";
+import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";
+import { createLectorService } from "../src/service.ts";
 
 const PROVENANCE: IntelligenceProvenance = {
 	fidelity: "semantic",

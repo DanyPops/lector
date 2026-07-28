@@ -27,7 +27,6 @@ import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/ca
 import { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
 import { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
 import { DebouncedScheduler } from "./domain/debounced-scheduler.ts";
-import { isCacheFreshByGit } from "./domain/git-cache-freshness.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
 import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
 import type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
@@ -38,6 +37,7 @@ import { findFiles as findFilesQuery } from "./domain/find-files.ts";
 import type { FindFilesResult } from "./domain/find-files-result.ts";
 import { findReferences as findReferencesQuery } from "./domain/find-references.ts";
 import { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
+import { isCacheFreshByGit } from "./domain/git-cache-freshness.ts";
 import type { GitDiffResult } from "./domain/git-diff-result.ts";
 import type { GitLogEntry } from "./domain/git-log-entry.ts";
 import type { GitStatusSummary } from "./domain/git-status.ts";

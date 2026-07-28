@@ -1,10 +1,12 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import picomatch from "picomatch";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../domain/call-hierarchy.ts";
 import type { CodeRange } from "../../domain/code-range.ts";
 import { type Diagnostic, type DiagnosticSeverity, mergeDiagnostics } from "../../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../../domain/document-symbol.ts";
+import type { FileSystemWatcherPattern } from "../../domain/dynamic-capability-registry.ts";
 import {
 	DynamicCapabilityRegistry,
 	parseConfigurationItemCount,
@@ -13,18 +15,16 @@ import {
 	parseRegistrationRequest,
 	parseUnregistrationRequest,
 } from "../../domain/dynamic-capability-registry.ts";
-import type { FileSystemWatcherPattern } from "../../domain/dynamic-capability-registry.ts";
 import type { FileChangeEvent } from "../../domain/file-change-event.ts";
 import type { Hover } from "../../domain/hover.ts";
-import { toLspFileChangeType } from "../../domain/lsp-file-change-type.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
 import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
+import { toLspFileChangeType } from "../../domain/lsp-file-change-type.ts";
 import { type ParsedServerCapabilities, parseServerCapabilities } from "../../domain/lsp-server-capabilities.ts";
 import { SerialExecutionQueue } from "../../domain/serial-execution-queue.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
-import picomatch from "picomatch";
 import { TypeScriptCompilerSymbolIndex } from "../typescript-compiler-symbol-index.ts";
 import { resolveSeedFile } from "./discover-seed-file.ts";
 import { LanguageServerProcess } from "./language-server-process.ts";
@@ -767,7 +767,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		const report = await proc.request<LspDocumentDiagnosticReport | null>("textDocument/diagnostic", {
 			textDocument: { uri: pathToFileURL(path).href },
 		});
-		if (!report || report.kind !== "full") return [];
+		if (report?.kind !== "full") return [];
 		return report.items.map((item) => normalizeDiagnostic(path, item));
 	}
 
