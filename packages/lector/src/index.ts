@@ -49,6 +49,7 @@ export {
 } from "./client.ts";
 export { resolveLectorPaths } from "./constants.ts";
 export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
+export { annotationsContainedFrom, type ContainmentReader, wouldCreateContainmentCycle } from "./domain/annotation-containment.ts";
 export {
 	type ApplyPatchRequest,
 	applyPatch,
@@ -210,6 +211,7 @@ export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "./ports/text-search-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
 export {
+	AnnotationContainmentCycle,
 	AnnotationRequiresAnchors,
 	type ClosableSymbolIndex,
 	CodeIntelligenceUnavailable,
@@ -228,6 +230,7 @@ export {
 	RepoFetcherNotConfigured,
 	SymbolQueryUnavailable,
 	UnknownAnnotationAnchor,
+	UnknownAnnotationForContainment,
 	UnknownWorkspace,
 	UnsupportedJobOperation,
 	WorkspaceChangedDuringPopulation,

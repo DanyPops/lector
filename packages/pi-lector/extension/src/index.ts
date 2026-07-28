@@ -631,20 +631,24 @@ export default function (pi: ExtensionAPI) {
 			annotations?: readonly SymbolAnnotation[];
 			scrubbed?: boolean;
 			restored?: boolean;
+			contained?: boolean;
+			uncontained?: boolean;
 		}
 
 		pi.registerTool({
 			name: "symbol_annotations",
 			label: "Symbol Annotations",
 			description:
-				'Agent-authored narrative content anchored to one or more symbols in the workspace\'s persisted graph -- e.g. a "user story dataflow" note spanning every symbol touched end-to-end. Every anchor must resolve to a real, currently-known symbol (run populate_symbol_graph first). get/list live-check staleness against the current graph/workspace on every call and persist a correction before returning, so a returned status never disagrees with reality -- a stale annotation must be refreshed (re-authored and re-anchored) or scrubbed (soft-deleted, restorable) by an explicit decision; Lector never rewrites the narrative itself. Actions: create, get, list, refresh, scrub, restore.',
+				'Agent-authored narrative content anchored to one or more symbols in the workspace\'s persisted graph -- e.g. a "user story dataflow" note spanning every symbol touched end-to-end. Every anchor must resolve to a real, currently-known symbol (run populate_symbol_graph first). get/list/tree live-check staleness against the current graph/workspace on every call and persist a correction before returning, so a returned status never disagrees with reality -- a stale annotation must be refreshed (re-authored and re-anchored) or scrubbed (soft-deleted, restorable) by an explicit decision; Lector never rewrites the narrative itself. contain/uncontain build a reusable, nestable structure on top of plain annotations: a container (e.g. a "data flow") can contain other annotations -- including per-symbol notes shared by more than one container (DRY reuse) or another container one level deeper (nested data flows) -- without duplicating their content. tree reads a whole bounded subtree in one call. Actions: create, get, list, refresh, scrub, restore, contain, uncontain, tree.',
 			promptSnippet: "Attach, read, or invalidate narrative annotations on the symbol graph",
 			promptGuidelines: [
 				"Resolve real anchor positions first (find_symbols/document_symbols/go_to_definition) -- an anchor position must match populate_symbol_graph's own recorded position for that symbol, not just any occurrence of its name.",
 				"A stale annotation's body may no longer describe the code accurately -- read it, decide whether to refresh (re-author) or scrub (remove), never trust it as-is.",
+				"Prefer reusing an existing per-symbol annotation as a shared child of several containers over re-authoring the same explanation in each -- that reuse is the reason contain/uncontain exist.",
+				"contain/uncontain are idempotent (containing an already-contained child, or uncontaining an already-absent relationship, is a no-op, not an error) and reject a cycle up front rather than accepting one.",
 			],
 			parameters: Type.Object({
-				action: Type.String({ description: "create | get | list | refresh | scrub | restore" }),
+				action: Type.String({ description: "create | get | list | refresh | scrub | restore | contain | uncontain | tree" }),
 				path: Type.String({ description: "Absolute or cwd-relative path used to resolve which workspace this annotation belongs to" }),
 				id: Type.Optional(Type.String({ description: "Annotation id -- required for get/refresh/scrub/restore" })),
 				subtype: Type.Optional(Type.String({ description: 'Free-form kind, e.g. "user-story-dataflow" or "comment" -- required for create/refresh' })),
@@ -666,6 +670,10 @@ export default function (pi: ExtensionAPI) {
 					Type.String({ description: "For list: case-insensitive substring match against title or body -- the near-term free-text search over annotations" }),
 				),
 				maxResults: Type.Optional(Type.Number({ description: "For list: bounds the number of results" })),
+				parentId: Type.Optional(Type.String({ description: "The containing annotation's id -- required for contain/uncontain" })),
+				childId: Type.Optional(Type.String({ description: "The contained annotation's id -- required for contain/uncontain" })),
+				rootId: Type.Optional(Type.String({ description: "The subtree's root annotation id -- required for tree" })),
+				maxDepth: Type.Optional(Type.Number({ description: "Maximum containment hops from rootId to include -- required for tree" })),
 			}),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
@@ -717,6 +725,21 @@ export default function (pi: ExtensionAPI) {
 					const { restored } = await symbolAnnotationOperations.restore(path, params.id);
 					details.restored = restored;
 					text = restored ? `restored ${params.id}` : `"${params.id}" was not scrubbed or does not exist`;
+				} else if (params.action === "contain") {
+					if (!params.parentId || !params.childId) throw new Error("symbol_annotations contain requires parentId and childId");
+					const { contained } = await symbolAnnotationOperations.contain(path, params.parentId, params.childId);
+					details.contained = contained;
+					text = `"${params.parentId}" now contains "${params.childId}"`;
+				} else if (params.action === "uncontain") {
+					if (!params.parentId || !params.childId) throw new Error("symbol_annotations uncontain requires parentId and childId");
+					const { uncontained } = await symbolAnnotationOperations.uncontain(path, params.parentId, params.childId);
+					details.uncontained = uncontained;
+					text = uncontained ? `"${params.parentId}" no longer contains "${params.childId}"` : `"${params.parentId}" did not contain "${params.childId}"`;
+				} else if (params.action === "tree") {
+					if (!params.rootId || params.maxDepth === undefined) throw new Error("symbol_annotations tree requires rootId and maxDepth");
+					const { annotations } = await symbolAnnotationOperations.tree(path, params.rootId, params.maxDepth);
+					details.annotations = annotations;
+					text = annotations.length === 0 ? `no annotation "${params.rootId}"` : annotations.map(formatAnnotationDetail).join("\n\n");
 				} else {
 					throw new Error(`unknown symbol_annotations action: ${String(params.action)}`);
 				}
@@ -724,7 +747,14 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const action = typeof args.action === "string" ? args.action : "";
-				const id = typeof args.id === "string" ? ` ${args.id}` : "";
+				const id =
+					typeof args.id === "string"
+						? ` ${args.id}`
+						: typeof args.parentId === "string" && typeof args.childId === "string"
+							? ` ${args.parentId} -> ${args.childId}`
+							: typeof args.rootId === "string"
+								? ` ${args.rootId}`
+								: "";
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(`${theme.fg("toolTitle", theme.bold("symbol_annotations"))} ${theme.fg("accent", action)}${theme.fg("dim", id)}`);
 				return text;
@@ -755,6 +785,14 @@ export default function (pi: ExtensionAPI) {
 				}
 				if (details?.restored !== undefined) {
 					text.setText(details.restored ? theme.fg("success", "restored") : theme.fg("muted", "not scrubbed or not found"));
+					return text;
+				}
+				if (details?.contained !== undefined) {
+					text.setText(theme.fg("success", "contained"));
+					return text;
+				}
+				if (details?.uncontained !== undefined) {
+					text.setText(details.uncontained ? theme.fg("success", "uncontained") : theme.fg("muted", "was not contained"));
 					return text;
 				}
 				text.setText(theme.fg("muted", "done"));

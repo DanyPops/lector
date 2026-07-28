@@ -7,6 +7,10 @@ const DEFAULT_MAX_RESULTS = 200;
 /** In-memory SymbolAnnotationPort for tests and small/ephemeral workspaces. */
 export class InMemorySymbolAnnotations implements SymbolAnnotationPort {
 	private readonly annotations = new Map<AnnotationId, SymbolAnnotation>();
+	/** parentId -> ordered list of childIds, insertion order preserved. */
+	private readonly childrenOf = new Map<AnnotationId, AnnotationId[]>();
+	/** childId -> set of parentIds -- kept in sync with childrenOf on every mutation, not derived on read. */
+	private readonly parentsOf = new Map<AnnotationId, Set<AnnotationId>>();
 
 	async create(input: CreateSymbolAnnotationInput): Promise<SymbolAnnotation> {
 		const now = Date.now();
@@ -85,7 +89,37 @@ export class InMemorySymbolAnnotations implements SymbolAnnotationPort {
 		return true;
 	}
 
+	async addContainmentEdge(parentId: AnnotationId, childId: AnnotationId): Promise<boolean> {
+		const existingChildren = this.childrenOf.get(parentId) ?? [];
+		if (existingChildren.includes(childId)) return false;
+		existingChildren.push(childId);
+		this.childrenOf.set(parentId, existingChildren);
+		const parentSet = this.parentsOf.get(childId) ?? new Set<AnnotationId>();
+		parentSet.add(parentId);
+		this.parentsOf.set(childId, parentSet);
+		return true;
+	}
+
+	async removeContainmentEdge(parentId: AnnotationId, childId: AnnotationId): Promise<boolean> {
+		const existingChildren = this.childrenOf.get(parentId);
+		const index = existingChildren?.indexOf(childId) ?? -1;
+		if (index === -1) return false;
+		existingChildren?.splice(index, 1);
+		this.parentsOf.get(childId)?.delete(parentId);
+		return true;
+	}
+
+	async children(parentId: AnnotationId): Promise<readonly AnnotationId[]> {
+		return [...(this.childrenOf.get(parentId) ?? [])];
+	}
+
+	async parents(childId: AnnotationId): Promise<readonly AnnotationId[]> {
+		return [...(this.parentsOf.get(childId) ?? [])];
+	}
+
 	async close(): Promise<void> {
 		this.annotations.clear();
+		this.childrenOf.clear();
+		this.parentsOf.clear();
 	}
 }

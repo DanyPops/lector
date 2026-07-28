@@ -14,7 +14,11 @@ export interface SymbolAnnotationListOptions {
  * to one or more SymbolGraphPort nodes. This port is a pure store: it never
  * computes staleness itself (see domain/check-annotation-staleness.ts for
  * that), only records the status a caller determined and persists/serves
- * annotations and their anchors.
+ * annotations and their anchors. Containment (contains/contained-by) is the
+ * same philosophy applied to the edge between two annotations: this port
+ * only stores and reports the edge -- existence validation and cycle
+ * safety are a caller's business rule (see domain/annotation-containment.ts
+ * and service.ts's containAnnotationHandler), never enforced here.
  */
 export interface SymbolAnnotationPort {
 	create(input: CreateSymbolAnnotationInput): Promise<SymbolAnnotation>;
@@ -29,5 +33,13 @@ export interface SymbolAnnotationPort {
 	scrub(id: AnnotationId): Promise<boolean>;
 	/** Restores a scrubbed annotation to "stale" (never "fresh") -- a restore does not re-validate freshness on its own. */
 	restore(id: AnnotationId): Promise<boolean>;
+	/** Idempotent: adding an already-present edge is a no-op. Returns true if the edge was newly created, false if it already existed. Never validates that either id exists or that it wouldn't create a cycle -- a caller's business rule. */
+	addContainmentEdge(parentId: AnnotationId, childId: AnnotationId): Promise<boolean>;
+	/** Idempotent: removing an already-absent edge is a no-op. Returns true if an edge was actually removed, false if it was already absent. */
+	removeContainmentEdge(parentId: AnnotationId, childId: AnnotationId): Promise<boolean>;
+	/** Direct children only, one hop, insertion order -- never a recursive tree (see domain/annotation-containment.ts's annotationsContainedFrom for that). */
+	children(parentId: AnnotationId): Promise<readonly AnnotationId[]>;
+	/** Direct parents only, one hop -- every container currently holding this annotation. */
+	parents(childId: AnnotationId): Promise<readonly AnnotationId[]>;
 	close(): Promise<void>;
 }

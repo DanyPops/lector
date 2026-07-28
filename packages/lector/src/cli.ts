@@ -75,6 +75,12 @@ const USAGE = `Usage:
     --anchor <path>:<line>:<character> (repeatable, at least one required) [--json]
   lector workspace annotation scrub <workspace-id> <annotation-id> [--json]
   lector workspace annotation restore <workspace-id> <annotation-id> [--json]
+  lector workspace annotation contain <workspace-id> <parent-id> <child-id> [--json]
+    idempotent -- containing an already-contained child is a no-op, not an error
+  lector workspace annotation uncontain <workspace-id> <parent-id> <child-id> [--json]
+    idempotent -- uncontaining an already-absent relationship is a no-op, not an error
+  lector workspace annotation tree <workspace-id> <root-id> --max-depth <n> [--json]
+    every annotation reachable via contains from root-id (including root-id itself), BFS-bounded
   lector workspace has-warm-index <workspace-id> [--json]
     never spawns a symbol index -- reports whether one is already warm
   lector workspace map <workspace-id> --max-nodes <n> --max-edges <n> --max-entries <n> --max-bytes <n> [--json]
@@ -864,6 +870,53 @@ async function runWorkspaceAnnotationRestore(workspaceId: string | undefined, id
 	console.log(hasFlag(flags, "--json") ? JSON.stringify({ restored }) : restored ? `restored "${id}"` : `"${id}" was not scrubbed or does not exist`);
 }
 
+async function runWorkspaceAnnotationContain(
+	workspaceId: string | undefined,
+	parentId: string | undefined,
+	childId: string | undefined,
+	flags: string[],
+): Promise<void> {
+	if (!workspaceId || !parentId || !childId) fail(USAGE);
+	const client = await connectLectorClient();
+	const { contained } = await client.call("workspace.containAnnotation", { workspaceId, parentId, childId });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify({ contained }) : `"${parentId}" now contains "${childId}"`);
+}
+
+async function runWorkspaceAnnotationUncontain(
+	workspaceId: string | undefined,
+	parentId: string | undefined,
+	childId: string | undefined,
+	flags: string[],
+): Promise<void> {
+	if (!workspaceId || !parentId || !childId) fail(USAGE);
+	const client = await connectLectorClient();
+	const { uncontained } = await client.call("workspace.uncontainAnnotation", { workspaceId, parentId, childId });
+	console.log(
+		hasFlag(flags, "--json")
+			? JSON.stringify({ uncontained })
+			: uncontained
+				? `"${parentId}" no longer contains "${childId}"`
+				: `"${parentId}" did not contain "${childId}"`,
+	);
+}
+
+async function runWorkspaceAnnotationTree(workspaceId: string | undefined, rootId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !rootId) fail(USAGE);
+	const maxDepthFlagValue = flagValue(flags, "--max-depth");
+	if (maxDepthFlagValue === undefined) fail(USAGE);
+	const client = await connectLectorClient();
+	const { annotations } = await client.call("workspace.annotationTree", { workspaceId, rootId, maxDepth: Number(maxDepthFlagValue) });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(annotations));
+		return;
+	}
+	if (annotations.length === 0) {
+		console.log(`no annotation "${rootId}"`);
+		return;
+	}
+	for (const annotation of annotations) console.log(formatAnnotation(annotation));
+}
+
 async function runWorkspaceRead(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !path) fail(USAGE);
 	const client = await connectLectorClient();
@@ -1132,11 +1185,18 @@ async function main(): Promise<void> {
 			const [subcommand, annWorkspaceId, ...annRest] = actionArgs;
 			if (subcommand === "create") return runWorkspaceAnnotationCreate(annWorkspaceId, annRest);
 			if (subcommand === "list") return runWorkspaceAnnotationList(annWorkspaceId, annRest);
+			if (subcommand === "contain" || subcommand === "uncontain") {
+				const [parentId, childId, ...containFlags] = annRest;
+				return subcommand === "contain"
+					? runWorkspaceAnnotationContain(annWorkspaceId, parentId, childId, containFlags)
+					: runWorkspaceAnnotationUncontain(annWorkspaceId, parentId, childId, containFlags);
+			}
 			const [annotationId, ...annFlags] = annRest;
 			if (subcommand === "get") return runWorkspaceAnnotationGet(annWorkspaceId, annotationId, annFlags);
 			if (subcommand === "refresh") return runWorkspaceAnnotationRefresh(annWorkspaceId, annotationId, annFlags);
 			if (subcommand === "scrub") return runWorkspaceAnnotationScrub(annWorkspaceId, annotationId, annFlags);
 			if (subcommand === "restore") return runWorkspaceAnnotationRestore(annWorkspaceId, annotationId, annFlags);
+			if (subcommand === "tree") return runWorkspaceAnnotationTree(annWorkspaceId, annotationId, annFlags);
 			fail(USAGE);
 		}
 		fail(USAGE);

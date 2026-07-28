@@ -179,5 +179,69 @@ export function runSymbolAnnotationPortConformanceSuite(name: string, harness: S
 
 				expect((await port.list({ maxResults: 2 })).length).toBe(2);
 			}));
+
+		it("addContainmentEdge reports whether the edge was newly created, and children()/parents() see it from both ends", () =>
+			withPort(async (port) => {
+				const parent = await port.create(input({ title: "parent" }));
+				const child = await port.create(input({ title: "child" }));
+
+				expect(await port.addContainmentEdge(parent.id, child.id)).toBe(true);
+				expect(await port.addContainmentEdge(parent.id, child.id)).toBe(false);
+				expect(await port.children(parent.id)).toEqual([child.id]);
+				expect(await port.parents(child.id)).toEqual([parent.id]);
+			}));
+
+		it("children() reflects insertion order across multiple children", () =>
+			withPort(async (port) => {
+				const parent = await port.create(input({ title: "parent" }));
+				const first = await port.create(input({ title: "first" }));
+				const second = await port.create(input({ title: "second" }));
+
+				await port.addContainmentEdge(parent.id, first.id);
+				await port.addContainmentEdge(parent.id, second.id);
+
+				expect(await port.children(parent.id)).toEqual([first.id, second.id]);
+			}));
+
+		it("one child can be contained by more than one parent -- the reuse this feature exists for", () =>
+			withPort(async (port) => {
+				const flowA = await port.create(input({ title: "flow A" }));
+				const flowB = await port.create(input({ title: "flow B" }));
+				const sharedSymbolNote = await port.create(input({ title: "shared per-symbol note" }));
+
+				await port.addContainmentEdge(flowA.id, sharedSymbolNote.id);
+				await port.addContainmentEdge(flowB.id, sharedSymbolNote.id);
+
+				expect(await port.parents(sharedSymbolNote.id)).toEqual(expect.arrayContaining([flowA.id, flowB.id]));
+				expect(await port.children(flowA.id)).toEqual([sharedSymbolNote.id]);
+				expect(await port.children(flowB.id)).toEqual([sharedSymbolNote.id]);
+			}));
+
+		it("removeContainmentEdge reports whether an edge was actually removed, and is idempotent on an already-absent edge", () =>
+			withPort(async (port) => {
+				const parent = await port.create(input({ title: "parent" }));
+				const child = await port.create(input({ title: "child" }));
+				await port.addContainmentEdge(parent.id, child.id);
+
+				expect(await port.removeContainmentEdge(parent.id, child.id)).toBe(true);
+				expect(await port.children(parent.id)).toEqual([]);
+				expect(await port.removeContainmentEdge(parent.id, child.id)).toBe(false);
+			}));
+
+		it("removeContainmentEdge on ids that never had any relationship is a harmless no-op, not an error", () =>
+			withPort(async (port) => {
+				const a = await port.create(input({ title: "a" }));
+				const b = await port.create(input({ title: "b" }));
+
+				expect(await port.removeContainmentEdge(a.id, b.id)).toBe(false);
+			}));
+
+		it("children()/parents() return an empty list for an id with no relationships, not an error", () =>
+			withPort(async (port) => {
+				const lone = await port.create(input({ title: "lone" }));
+
+				expect(await port.children(lone.id)).toEqual([]);
+				expect(await port.parents(lone.id)).toEqual([]);
+			}));
 	});
 }

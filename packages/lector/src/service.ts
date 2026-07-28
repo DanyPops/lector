@@ -20,6 +20,7 @@ import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "./adapters/source-manifest.ts";
 import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "./adapters/typescript-compiler-symbol-index.ts";
+import { annotationsContainedFrom, wouldCreateContainmentCycle } from "./domain/annotation-containment.ts";
 import { applyPatch, PatchRejected } from "./domain/apply-patch.ts";
 import { assertAbsolutePath, RelativeWorkspacePath } from "./domain/assert-absolute-path.ts";
 import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-executor.ts";
@@ -172,6 +173,25 @@ export class AnnotationRequiresAnchors extends Error {
 	}
 }
 
+/** Raised when workspace.containAnnotation names a parentId or childId that get() cannot find -- containment is a relation between two real annotations, never asserted on faith. */
+export class UnknownAnnotationForContainment extends Error {
+	constructor(readonly id: string) {
+		super(`no annotation "${id}" -- containment requires both the parent and the child to already exist`);
+		this.name = "UnknownAnnotationForContainment";
+	}
+}
+
+/** Raised when workspace.containAnnotation would create a cycle (a self-loop, or the child can already reach the parent) -- rejected up front, never silently accepted. */
+export class AnnotationContainmentCycle extends Error {
+	constructor(
+		readonly parentId: string,
+		readonly childId: string,
+	) {
+		super(`making "${childId}" a child of "${parentId}" would create a containment cycle`);
+		this.name = "AnnotationContainmentCycle";
+	}
+}
+
 /** Raised when repo.fetch is called on a service constructed without a createRepoFetcher option -- fetching an external repo needs a real disk location a host must explicitly provide, unlike e.g. createSymbolGraph's safe in-memory default. */
 export class RepoFetcherNotConfigured extends Error {
 	constructor() {
@@ -261,6 +281,9 @@ export type OperationName =
 	| "workspace.refreshAnnotation"
 	| "workspace.scrubAnnotation"
 	| "workspace.restoreAnnotation"
+	| "workspace.containAnnotation"
+	| "workspace.uncontainAnnotation"
+	| "workspace.annotationTree"
 	| "workspace.map";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
@@ -304,6 +327,9 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.refreshAnnotation",
 	"workspace.scrubAnnotation",
 	"workspace.restoreAnnotation",
+	"workspace.containAnnotation",
+	"workspace.uncontainAnnotation",
+	"workspace.annotationTree",
 	"workspace.map",
 ];
 
@@ -386,6 +412,9 @@ export interface OperationInputs {
 	};
 	"workspace.scrubAnnotation": { workspaceId: WorkspaceId; id: AnnotationId };
 	"workspace.restoreAnnotation": { workspaceId: WorkspaceId; id: AnnotationId };
+	"workspace.containAnnotation": { workspaceId: WorkspaceId; parentId: AnnotationId; childId: AnnotationId };
+	"workspace.uncontainAnnotation": { workspaceId: WorkspaceId; parentId: AnnotationId; childId: AnnotationId };
+	"workspace.annotationTree": { workspaceId: WorkspaceId; rootId: AnnotationId; maxDepth: number };
 	"workspace.map": { workspaceId: WorkspaceId; maxNodes: number; maxEdges: number; maxEntries: number; maxBytes: number };
 }
 
@@ -432,6 +461,9 @@ export interface OperationOutputs {
 	"workspace.refreshAnnotation": { annotation: SymbolAnnotation | undefined };
 	"workspace.scrubAnnotation": { scrubbed: boolean };
 	"workspace.restoreAnnotation": { restored: boolean };
+	"workspace.containAnnotation": { contained: boolean };
+	"workspace.uncontainAnnotation": { uncontained: boolean };
+	"workspace.annotationTree": { annotations: readonly SymbolAnnotation[] };
 	"workspace.map": WorkspaceMapResult;
 }
 
@@ -1438,6 +1470,41 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return { restored: await store.restore(input.id) };
 	}
 
+	async function containAnnotationHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.containAnnotation"],
+	): Promise<OperationOutputs["workspace.containAnnotation"]> {
+		resolveWorkspace(registry, input.workspaceId);
+		const store = ensureSymbolAnnotations(input.workspaceId);
+		if (!(await store.get(input.parentId))) throw new UnknownAnnotationForContainment(input.parentId);
+		if (!(await store.get(input.childId))) throw new UnknownAnnotationForContainment(input.childId);
+		if (await wouldCreateContainmentCycle(store, input.parentId, input.childId)) {
+			throw new AnnotationContainmentCycle(input.parentId, input.childId);
+		}
+		return { contained: await store.addContainmentEdge(input.parentId, input.childId) };
+	}
+
+	async function uncontainAnnotationHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.uncontainAnnotation"],
+	): Promise<OperationOutputs["workspace.uncontainAnnotation"]> {
+		resolveWorkspace(registry, input.workspaceId);
+		const store = ensureSymbolAnnotations(input.workspaceId);
+		return { uncontained: await store.removeContainmentEdge(input.parentId, input.childId) };
+	}
+
+	async function annotationTreeHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.annotationTree"],
+	): Promise<OperationOutputs["workspace.annotationTree"]> {
+		const workspace = resolveWorkspace(registry, input.workspaceId);
+		const store = ensureSymbolAnnotations(input.workspaceId);
+		const graph = ensureSymbolGraph(input.workspaceId);
+		const found = await annotationsContainedFrom(store, input.rootId, input.maxDepth);
+		const annotations = await Promise.all(found.map((annotation) => withLiveStatus(graph, workspace, store, annotation)));
+		return { annotations };
+	}
+
 	async function workspaceMapHandler(registry: MutableRegistry, input: OperationInputs["workspace.map"]): Promise<OperationOutputs["workspace.map"]> {
 		const workspace = resolveWorkspace(registry, input.workspaceId);
 		const graph = ensureSymbolGraph(input.workspaceId);
@@ -1497,6 +1564,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.refreshAnnotation": refreshAnnotationHandler,
 		"workspace.scrubAnnotation": scrubAnnotationHandler,
 		"workspace.restoreAnnotation": restoreAnnotationHandler,
+		"workspace.containAnnotation": containAnnotationHandler,
+		"workspace.uncontainAnnotation": uncontainAnnotationHandler,
+		"workspace.annotationTree": annotationTreeHandler,
 		"workspace.map": workspaceMapHandler,
 	};
 

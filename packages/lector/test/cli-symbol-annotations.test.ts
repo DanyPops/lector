@@ -250,4 +250,51 @@ describe("lector CLI annotation commands", () => {
 			]),
 		).rejects.toThrow();
 	}, 30_000);
+
+	it("contains, reads via tree, and uncontains an annotation end-to-end against a real daemon", async () => {
+		isolated = isolatedLectorPaths();
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		const { workspaceId, path, line, character } = await registerAndPopulate();
+		const anchor = `${path}:${line}:${character}`;
+
+		const flow = JSON.parse(
+			await runCli(["workspace", "annotation", "create", workspaceId, "--subtype", "comment", "--title", "flow", "--body", "b", "--anchor", anchor, "--json"]),
+		) as SymbolAnnotation;
+		const step = JSON.parse(
+			await runCli(["workspace", "annotation", "create", workspaceId, "--subtype", "comment", "--title", "step", "--body", "b", "--anchor", anchor, "--json"]),
+		) as SymbolAnnotation;
+
+		const contained = JSON.parse(await runCli(["workspace", "annotation", "contain", workspaceId, flow.id, step.id, "--json"])) as { contained: boolean };
+		expect(contained.contained).toBe(true);
+
+		const tree = JSON.parse(await runCli(["workspace", "annotation", "tree", workspaceId, flow.id, "--max-depth", "5", "--json"])) as SymbolAnnotation[];
+		expect(tree.map((a) => a.id).sort()).toEqual([flow.id, step.id].sort());
+
+		const uncontained = JSON.parse(await runCli(["workspace", "annotation", "uncontain", workspaceId, flow.id, step.id, "--json"])) as {
+			uncontained: boolean;
+		};
+		expect(uncontained.uncontained).toBe(true);
+
+		const treeAfterUncontain = JSON.parse(
+			await runCli(["workspace", "annotation", "tree", workspaceId, flow.id, "--max-depth", "5", "--json"]),
+		) as SymbolAnnotation[];
+		expect(treeAfterUncontain.map((a) => a.id)).toEqual([flow.id]);
+	}, 30_000);
+
+	it("rejects a containment cycle via the CLI, with a non-zero exit", async () => {
+		isolated = isolatedLectorPaths();
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		const { workspaceId, path, line, character } = await registerAndPopulate();
+		const anchor = `${path}:${line}:${character}`;
+
+		const a = JSON.parse(
+			await runCli(["workspace", "annotation", "create", workspaceId, "--subtype", "comment", "--title", "a", "--body", "b", "--anchor", anchor, "--json"]),
+		) as SymbolAnnotation;
+		const b = JSON.parse(
+			await runCli(["workspace", "annotation", "create", workspaceId, "--subtype", "comment", "--title", "b", "--body", "b", "--anchor", anchor, "--json"]),
+		) as SymbolAnnotation;
+		await runCli(["workspace", "annotation", "contain", workspaceId, a.id, b.id, "--json"]);
+
+		await expect(runCli(["workspace", "annotation", "contain", workspaceId, b.id, a.id, "--json"])).rejects.toThrow();
+	}, 30_000);
 });

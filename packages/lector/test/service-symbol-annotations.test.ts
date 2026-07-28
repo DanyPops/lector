@@ -14,7 +14,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemorySymbolGraph } from "../src/adapters/in-memory-symbol-graph.ts";
-import { AnnotationRequiresAnchors, createLectorService, type LectorService, UnknownAnnotationAnchor, type WorkspaceId } from "../src/service.ts";
+import {
+	AnnotationContainmentCycle,
+	AnnotationRequiresAnchors,
+	createLectorService,
+	type LectorService,
+	UnknownAnnotationAnchor,
+	UnknownAnnotationForContainment,
+	type WorkspaceId,
+} from "../src/service.ts";
 
 let fixtureRoot: string | undefined;
 let service: LectorService | undefined;
@@ -211,5 +219,122 @@ describe("createLectorService's annotation operations", () => {
 		expect(restored?.status).toBe("fresh");
 		const { annotations: listedAfterRestore } = await service.dispatch("workspace.listAnnotations", { workspaceId });
 		expect(listedAfterRestore.map((a) => a.id)).toContain(annotation.id);
+	});
+});
+
+describe("createLectorService's annotation containment operations", () => {
+	async function createAnnotation(service: LectorService, workspaceId: WorkspaceId, path: string, title: string): Promise<{ id: string }> {
+		const { annotation } = await service.dispatch("workspace.createAnnotation", {
+			workspaceId,
+			subtype: "comment",
+			title,
+			body: "narrative content",
+			anchors: [{ path, line: 1, character: 1 }],
+		});
+		return { id: annotation.id };
+	}
+
+	async function setUp(): Promise<{ service: LectorService; workspaceId: WorkspaceId; path: string }> {
+		fixtureRoot = buildFixture();
+		const { service: svc, graphs } = createServiceWithCapturedGraphs();
+		service = svc;
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		const path = join(fixtureRoot, "src", "a.ts");
+		await warmGraph(service, workspaceId, path);
+		graphs.get(workspaceId)?.addNode({ id: `${path}:1:1`, name: "add", kind: "function", location: { path, line: 1, character: 1 } });
+		return { service, workspaceId, path };
+	}
+
+	it("contains, reports children/parents via annotationTree, and uncontains", async () => {
+		const { service: svc, workspaceId, path } = await setUp();
+		const flow = await createAnnotation(svc, workspaceId, path, "checkout flow");
+		const step = await createAnnotation(svc, workspaceId, path, "validate payment");
+
+		const { contained } = await svc.dispatch("workspace.containAnnotation", { workspaceId, parentId: flow.id, childId: step.id });
+		expect(contained).toBe(true);
+
+		const { annotations } = await svc.dispatch("workspace.annotationTree", { workspaceId, rootId: flow.id, maxDepth: 5 });
+		expect(annotations.map((a) => a.id)).toEqual([flow.id, step.id]);
+
+		const { uncontained } = await svc.dispatch("workspace.uncontainAnnotation", { workspaceId, parentId: flow.id, childId: step.id });
+		expect(uncontained).toBe(true);
+		const { annotations: afterUncontain } = await svc.dispatch("workspace.annotationTree", { workspaceId, rootId: flow.id, maxDepth: 5 });
+		expect(afterUncontain.map((a) => a.id)).toEqual([flow.id]);
+	});
+
+	it("reuses one child annotation under two different parent flows -- the DRY reuse this feature exists for", async () => {
+		const { service: svc, workspaceId, path } = await setUp();
+		const flowA = await createAnnotation(svc, workspaceId, path, "flow A");
+		const flowB = await createAnnotation(svc, workspaceId, path, "flow B");
+		const shared = await createAnnotation(svc, workspaceId, path, "shared per-symbol note");
+
+		await svc.dispatch("workspace.containAnnotation", { workspaceId, parentId: flowA.id, childId: shared.id });
+		await svc.dispatch("workspace.containAnnotation", { workspaceId, parentId: flowB.id, childId: shared.id });
+
+		const { annotations: fromA } = await svc.dispatch("workspace.annotationTree", { workspaceId, rootId: flowA.id, maxDepth: 5 });
+		const { annotations: fromB } = await svc.dispatch("workspace.annotationTree", { workspaceId, rootId: flowB.id, maxDepth: 5 });
+		expect(fromA.map((a) => a.id)).toContain(shared.id);
+		expect(fromB.map((a) => a.id)).toContain(shared.id);
+	});
+
+	it("nests a data flow of data flows, bounded by annotationTree's own maxDepth", async () => {
+		const { service: svc, workspaceId, path } = await setUp();
+		const outer = await createAnnotation(svc, workspaceId, path, "outer flow");
+		const inner = await createAnnotation(svc, workspaceId, path, "inner flow");
+		const leaf = await createAnnotation(svc, workspaceId, path, "leaf note");
+		await svc.dispatch("workspace.containAnnotation", { workspaceId, parentId: outer.id, childId: inner.id });
+		await svc.dispatch("workspace.containAnnotation", { workspaceId, parentId: inner.id, childId: leaf.id });
+
+		const { annotations: shallow } = await svc.dispatch("workspace.annotationTree", { workspaceId, rootId: outer.id, maxDepth: 1 });
+		expect(shallow.map((a) => a.id)).toEqual([outer.id, inner.id]);
+
+		const { annotations: full } = await svc.dispatch("workspace.annotationTree", { workspaceId, rootId: outer.id, maxDepth: 5 });
+		expect(full.map((a) => a.id)).toEqual([outer.id, inner.id, leaf.id]);
+	});
+
+	it("rejects a containment cycle up front", async () => {
+		const { service: svc, workspaceId, path } = await setUp();
+		const a = await createAnnotation(svc, workspaceId, path, "a");
+		const b = await createAnnotation(svc, workspaceId, path, "b");
+		await svc.dispatch("workspace.containAnnotation", { workspaceId, parentId: a.id, childId: b.id });
+
+		await expect(svc.dispatch("workspace.containAnnotation", { workspaceId, parentId: b.id, childId: a.id })).rejects.toThrow(AnnotationContainmentCycle);
+	});
+
+	it("rejects a direct self-containment", async () => {
+		const { service: svc, workspaceId, path } = await setUp();
+		const a = await createAnnotation(svc, workspaceId, path, "a");
+
+		await expect(svc.dispatch("workspace.containAnnotation", { workspaceId, parentId: a.id, childId: a.id })).rejects.toThrow(AnnotationContainmentCycle);
+	});
+
+	it("rejects containment naming an id that does not exist", async () => {
+		const { service: svc, workspaceId, path } = await setUp();
+		const a = await createAnnotation(svc, workspaceId, path, "a");
+
+		await expect(svc.dispatch("workspace.containAnnotation", { workspaceId, parentId: a.id, childId: "never-created" })).rejects.toThrow(
+			UnknownAnnotationForContainment,
+		);
+	});
+
+	it("uncontainAnnotation is idempotent on an already-absent relationship", async () => {
+		const { service: svc, workspaceId, path } = await setUp();
+		const a = await createAnnotation(svc, workspaceId, path, "a");
+		const b = await createAnnotation(svc, workspaceId, path, "b");
+
+		const { uncontained } = await svc.dispatch("workspace.uncontainAnnotation", { workspaceId, parentId: a.id, childId: b.id });
+		expect(uncontained).toBe(false);
+	});
+
+	it("annotationTree applies live staleness to every node, not just the root", async () => {
+		const { service: svc, workspaceId, path } = await setUp();
+		const flow = await createAnnotation(svc, workspaceId, path, "flow");
+		const step = await createAnnotation(svc, workspaceId, path, "step");
+		await svc.dispatch("workspace.containAnnotation", { workspaceId, parentId: flow.id, childId: step.id });
+
+		writeFileSync(path, "export function add() {}\nexport function extra() {}\n");
+
+		const { annotations } = await svc.dispatch("workspace.annotationTree", { workspaceId, rootId: flow.id, maxDepth: 5 });
+		expect(annotations.every((a) => a.status === "stale")).toBe(true);
 	});
 });

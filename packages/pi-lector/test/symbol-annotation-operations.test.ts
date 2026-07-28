@@ -111,4 +111,44 @@ describe("Lector-backed annotation operations", () => {
 
 		expect(annotations.map((a) => a.title)).toEqual(["addition dataflow"]);
 	}, 20_000);
+
+	it("contains, reads via tree, and uncontains via a running Lector daemon", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const anchor = await realAnchor(mathFile);
+		const ops = createLectorSymbolAnnotationOperations();
+		const { annotation: flow } = await ops.create(mathFile, "comment", "flow", "b", [anchor]);
+		const { annotation: step } = await ops.create(mathFile, "comment", "step", "b", [anchor]);
+
+		const { contained } = await ops.contain(mathFile, flow.id, step.id);
+		expect(contained).toBe(true);
+
+		const { annotations } = await ops.tree(mathFile, flow.id, 5);
+		expect(annotations.map((a) => a.id).sort()).toEqual([flow.id, step.id].sort());
+
+		const { uncontained } = await ops.uncontain(mathFile, flow.id, step.id);
+		expect(uncontained).toBe(true);
+		const { annotations: afterUncontain } = await ops.tree(mathFile, flow.id, 5);
+		expect(afterUncontain.map((a) => a.id)).toEqual([flow.id]);
+	}, 20_000);
+
+	it("rejects a containment cycle via a running Lector daemon", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const anchor = await realAnchor(mathFile);
+		const ops = createLectorSymbolAnnotationOperations();
+		const { annotation: a } = await ops.create(mathFile, "comment", "a", "b", [anchor]);
+		const { annotation: b } = await ops.create(mathFile, "comment", "b", "b", [anchor]);
+		await ops.contain(mathFile, a.id, b.id);
+
+		await expect(ops.contain(mathFile, b.id, a.id)).rejects.toThrow();
+	}, 20_000);
 });

@@ -26,6 +26,15 @@ const MIGRATIONS: Migration[] = [
 			);
 		},
 	},
+	{
+		version: 2,
+		up: (db) => {
+			db.exec(
+				"CREATE TABLE symbol_annotation_contains (parent_id TEXT NOT NULL REFERENCES symbol_annotations(id) ON DELETE CASCADE, child_id TEXT NOT NULL REFERENCES symbol_annotations(id) ON DELETE CASCADE, created_at INTEGER NOT NULL, PRIMARY KEY (parent_id, child_id))",
+			);
+			db.exec("CREATE INDEX symbol_annotation_contains_child_idx ON symbol_annotation_contains (child_id)");
+		},
+	},
 ];
 
 interface AnnotationRow {
@@ -152,6 +161,34 @@ export class SqliteSymbolAnnotations implements SymbolAnnotationPort {
 		if (existing?.status !== "scrubbed") return false;
 		this.db.query("UPDATE symbol_annotations SET status = 'stale', updated_at = ? WHERE id = ?").run(Date.now(), id);
 		return true;
+	}
+
+	async addContainmentEdge(parentId: AnnotationId, childId: AnnotationId): Promise<boolean> {
+		const result = this.db
+			.query("INSERT OR IGNORE INTO symbol_annotation_contains (parent_id, child_id, created_at) VALUES (?, ?, ?)")
+			.run(parentId, childId, Date.now());
+		return result.changes > 0;
+	}
+
+	async removeContainmentEdge(parentId: AnnotationId, childId: AnnotationId): Promise<boolean> {
+		const result = this.db.query("DELETE FROM symbol_annotation_contains WHERE parent_id = ? AND child_id = ?").run(parentId, childId);
+		return result.changes > 0;
+	}
+
+	async children(parentId: AnnotationId): Promise<readonly AnnotationId[]> {
+		// ORDER BY rowid, not created_at: two inserts in the same millisecond tie on created_at,
+		// but rowid is always strictly insertion-ordered -- confirmed live by a real test failure.
+		const rows = this.db.query("SELECT child_id FROM symbol_annotation_contains WHERE parent_id = ? ORDER BY rowid ASC").all(parentId) as {
+			child_id: string;
+		}[];
+		return rows.map((row) => row.child_id);
+	}
+
+	async parents(childId: AnnotationId): Promise<readonly AnnotationId[]> {
+		const rows = this.db.query("SELECT parent_id FROM symbol_annotation_contains WHERE child_id = ? ORDER BY rowid ASC").all(childId) as {
+			parent_id: string;
+		}[];
+		return rows.map((row) => row.parent_id);
 	}
 
 	async close(): Promise<void> {

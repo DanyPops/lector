@@ -37,6 +37,9 @@ export interface SymbolAnnotationOperations {
 	): Promise<OperationOutputs["workspace.refreshAnnotation"]>;
 	scrub(path: string, id: string): Promise<OperationOutputs["workspace.scrubAnnotation"]>;
 	restore(path: string, id: string): Promise<OperationOutputs["workspace.restoreAnnotation"]>;
+	contain(path: string, parentId: string, childId: string): Promise<OperationOutputs["workspace.containAnnotation"]>;
+	uncontain(path: string, parentId: string, childId: string): Promise<OperationOutputs["workspace.uncontainAnnotation"]>;
+	tree(path: string, rootId: string, maxDepth: number): Promise<OperationOutputs["workspace.annotationTree"]>;
 }
 
 export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperations {
@@ -98,6 +101,33 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.call("workspace.restoreAnnotation", { workspaceId, id });
+				},
+			);
+		},
+		async contain(path, parentId, childId) {
+			return withWorkspace(
+				() => workspaceForCodeIntelligencePath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					return client.call("workspace.containAnnotation", { workspaceId, parentId, childId });
+				},
+			);
+		},
+		async uncontain(path, parentId, childId) {
+			return withWorkspace(
+				() => workspaceForCodeIntelligencePath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					return client.call("workspace.uncontainAnnotation", { workspaceId, parentId, childId });
+				},
+			);
+		},
+		async tree(path, rootId, maxDepth) {
+			return withWorkspace(
+				() => workspaceForCodeIntelligencePath(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					return client.call("workspace.annotationTree", { workspaceId, rootId, maxDepth });
 				},
 			);
 		},
