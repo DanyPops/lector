@@ -13,7 +13,14 @@ import { join } from "node:path";
 import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
-import { createLectorService, InvalidWorkspaceRoot, type OperationInputs, type OperationName, type OperationOutputs, RelativeWorkspacePath } from "../src/service.ts";
+import {
+	createLectorService,
+	InvalidWorkspaceRoot,
+	type OperationInputs,
+	type OperationName,
+	type OperationOutputs,
+	RelativeWorkspacePath,
+} from "../src/service.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 let cleanupFns: Array<() => void | Promise<void>> = [];
