@@ -6,12 +6,30 @@ const DEFAULT_VISIBLE_FILES = 20;
 const DEFAULT_VISIBLE_COMMITS = 10;
 const DEFAULT_VISIBLE_DIFF_LINES = 60;
 
-export function formatGitStatusCall(args: { directory?: unknown }, theme: LectorTheme): string {
-	const directory = typeof args.directory === "string" ? args.directory : "";
-	return `${theme.fg("toolTitle", theme.bold("git_status"))} ${theme.fg("accent", directory)}`;
+export type GitAction = "status" | "log" | "diff";
+
+export interface GitToolDetails {
+	readonly action: GitAction;
+	readonly summary?: GitStatusSummary;
+	readonly entries?: readonly GitLogEntry[];
+	readonly result?: GitDiffResult;
 }
 
-export function formatGitStatusResult(summary: GitStatusSummary | undefined, expanded: boolean, theme: LectorTheme): string {
+export function formatGitCall(args: { action?: unknown; directory?: unknown; ref?: unknown }, theme: LectorTheme): string {
+	const action = typeof args.action === "string" ? args.action : "";
+	const directory = typeof args.directory === "string" ? args.directory : "";
+	const ref = typeof args.ref === "string" ? ` ${args.ref}` : "";
+	return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)}${ref}`;
+}
+
+export function formatGitResult(details: GitToolDetails | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!details) return theme.fg("dim", "No result.");
+	if (details.action === "status") return formatGitStatusResult(details.summary, expanded, theme);
+	if (details.action === "log") return formatGitLogResult(details.entries, expanded, theme);
+	return formatGitDiffResult(details.result, expanded, theme);
+}
+
+function formatGitStatusResult(summary: GitStatusSummary | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!summary) return theme.fg("dim", "No status available.");
 	const branch = summary.current ?? "(detached)";
 	const tracking = summary.tracking ? `, tracking ${summary.tracking} (+${summary.ahead}/-${summary.behind})` : "";
@@ -30,12 +48,7 @@ export function formatGitStatusResult(summary: GitStatusSummary | undefined, exp
 	return lines.join("\n");
 }
 
-export function formatGitLogCall(args: { directory?: unknown; maxCount?: unknown }, theme: LectorTheme): string {
-	const directory = typeof args.directory === "string" ? args.directory : "";
-	return `${theme.fg("toolTitle", theme.bold("git_log"))} ${theme.fg("accent", directory)}`;
-}
-
-export function formatGitLogResult(entries: readonly GitLogEntry[] | undefined, expanded: boolean, theme: LectorTheme): string {
+function formatGitLogResult(entries: readonly GitLogEntry[] | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!entries || entries.length === 0) return theme.fg("dim", "No commits found.");
 	const displayCount = expanded ? entries.length : Math.min(DEFAULT_VISIBLE_COMMITS, entries.length);
 	const lines = entries
@@ -46,13 +59,7 @@ export function formatGitLogResult(entries: readonly GitLogEntry[] | undefined, 
 	return lines.join("\n");
 }
 
-export function formatGitDiffCall(args: { directory?: unknown; ref?: unknown }, theme: LectorTheme): string {
-	const directory = typeof args.directory === "string" ? args.directory : "";
-	const ref = typeof args.ref === "string" ? ` ${args.ref}` : "";
-	return `${theme.fg("toolTitle", theme.bold("git_diff"))} ${theme.fg("accent", directory)}${ref}`;
-}
-
-export function formatGitDiffResult(result: GitDiffResult | undefined, expanded: boolean, theme: LectorTheme): string {
+function formatGitDiffResult(result: GitDiffResult | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!result || result.diff.length === 0) return theme.fg("dim", "No differences.");
 	const lines = result.diff.split("\n");
 	const displayCount = expanded ? lines.length : Math.min(DEFAULT_VISIBLE_DIFF_LINES, lines.length);

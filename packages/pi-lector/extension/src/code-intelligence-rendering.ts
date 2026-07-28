@@ -4,6 +4,7 @@ import type {
 	DocumentSymbolEntry,
 	Hover,
 	IncomingCall,
+	IntelligenceProvenance,
 	JobSnapshot,
 	OutgoingCall,
 	PopulateSymbolGraphResult,
@@ -159,20 +160,29 @@ function formatCallHierarchyEntry(entry: { kind: string; name: string; location:
 	return `${kind} ${name} -- ${location}`;
 }
 
-export function formatPrepareCallHierarchyCall(args: { path?: unknown; line?: unknown; character?: unknown }, theme: LectorTheme): string {
-	return formatPositionalCall("prepare_call_hierarchy", args, theme);
+export type CallHierarchyDirection = "prepare" | "incoming" | "outgoing";
+
+// A real discriminated union, not one shape with optional fields -- lets formatCallHierarchyResult
+// narrow `items`/`calls` per branch without an unsafe assertion.
+export type CallHierarchyToolDetails =
+	| { readonly direction: "prepare"; readonly items: readonly CallHierarchyEntry[]; readonly provenance?: IntelligenceProvenance }
+	| { readonly direction: "incoming"; readonly calls: readonly IncomingCall[]; readonly provenance?: IntelligenceProvenance }
+	| { readonly direction: "outgoing"; readonly calls: readonly OutgoingCall[]; readonly provenance?: IntelligenceProvenance };
+
+export function formatCallHierarchyCall(args: { direction?: unknown; path?: unknown; line?: unknown; character?: unknown }, theme: LectorTheme): string {
+	const direction = typeof args.direction === "string" ? args.direction : "";
+	const path = typeof args.path === "string" ? args.path : "";
+	const line = typeof args.line === "number" ? args.line : "?";
+	const character = typeof args.character === "number" ? args.character : "?";
+	return `${theme.fg("toolTitle", theme.bold("call_hierarchy"))} ${theme.fg("muted", direction)} ${theme.fg("accent", `${path}:${line}:${character}`)}`;
 }
 
-export function formatPrepareCallHierarchyResult(items: readonly CallHierarchyEntry[] | undefined, theme: LectorTheme): string {
+function formatPrepareCallHierarchyResult(items: readonly CallHierarchyEntry[] | undefined, theme: LectorTheme): string {
 	if (!items || items.length === 0) return theme.fg("dim", "No call-hierarchy root at this position.");
 	return items.map((item) => formatCallHierarchyEntry(item, theme)).join("\n");
 }
 
-export function formatIncomingCallsCall(args: { path?: unknown; line?: unknown; character?: unknown }, theme: LectorTheme): string {
-	return formatPositionalCall("incoming_calls", args, theme);
-}
-
-export function formatIncomingCallsResult(calls: readonly IncomingCall[] | undefined, expanded: boolean, theme: LectorTheme): string {
+function formatIncomingCallsResult(calls: readonly IncomingCall[] | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!calls || calls.length === 0) return theme.fg("dim", "No incoming calls found.");
 
 	const displayCount = expanded ? calls.length : Math.min(calls.length, DEFAULT_VISIBLE_CALLS);
@@ -184,11 +194,7 @@ export function formatIncomingCallsResult(calls: readonly IncomingCall[] | undef
 	return lines.join("\n");
 }
 
-export function formatOutgoingCallsCall(args: { path?: unknown; line?: unknown; character?: unknown }, theme: LectorTheme): string {
-	return formatPositionalCall("outgoing_calls", args, theme);
-}
-
-export function formatOutgoingCallsResult(calls: readonly OutgoingCall[] | undefined, expanded: boolean, theme: LectorTheme): string {
+function formatOutgoingCallsResult(calls: readonly OutgoingCall[] | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!calls || calls.length === 0) return theme.fg("dim", "No outgoing calls found.");
 
 	const displayCount = expanded ? calls.length : Math.min(calls.length, DEFAULT_VISIBLE_CALLS);
@@ -198,6 +204,13 @@ export function formatOutgoingCallsResult(calls: readonly OutgoingCall[] | undef
 	const remaining = calls.length - displayCount;
 	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
 	return lines.join("\n");
+}
+
+export function formatCallHierarchyResult(details: CallHierarchyToolDetails | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!details) return theme.fg("dim", "No result.");
+	if (details.direction === "prepare") return formatPrepareCallHierarchyResult(details.items, theme);
+	if (details.direction === "incoming") return formatIncomingCallsResult(details.calls, expanded, theme);
+	return formatOutgoingCallsResult(details.calls, expanded, theme);
 }
 
 export function formatPopulateSymbolGraphCall(args: { path?: unknown; maxFiles?: unknown; maxSymbolsPerFile?: unknown }, theme: LectorTheme): string {

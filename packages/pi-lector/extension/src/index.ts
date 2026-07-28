@@ -1,21 +1,15 @@
 import { resolve } from "node:path";
 import type {
-	CallHierarchyEntry,
 	ContentHash,
 	Diagnostic,
 	DocumentSymbolEntry,
 	EditOutcome,
 	FindFilesResult,
-	GitDiffResult,
-	GitLogEntry,
-	GitStatusSummary,
 	Hover,
-	IncomingCall,
 	IntelligenceProvenance,
 	JobSnapshot,
 	LineEdit,
 	LineEditOutcome,
-	OutgoingCall,
 	PackageSourceOperationResult,
 	PopulateSymbolGraphResult,
 	RepoFetchResult,
@@ -27,14 +21,23 @@ import type {
 	WorkspaceMapResult,
 	WorkspaceQueryOutcome,
 } from "@danypops/lector";
-import { createEditToolDefinition, createReadToolDefinition, createWriteToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	type AgentToolResult,
+	createEditToolDefinition,
+	createReadToolDefinition,
+	createWriteToolDefinition,
+	type ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { createLectorApplyPatchOperations } from "./apply-patch-operations.ts";
 import { formatApplyPatchCall, formatApplyPatchResult } from "./apply-patch-rendering.ts";
 import { createLectorCodeIntelligenceOperations } from "./code-intelligence-operations.ts";
 import {
+	type CallHierarchyToolDetails,
 	describePopulateSymbolGraphJob,
+	formatCallHierarchyCall,
+	formatCallHierarchyResult,
 	formatDiagnosticsCall,
 	formatDiagnosticsResult,
 	formatDocumentSymbolsCall,
@@ -47,14 +50,8 @@ import {
 	formatGoToImplementationResult,
 	formatHoverCall,
 	formatHoverResult,
-	formatIncomingCallsCall,
-	formatIncomingCallsResult,
-	formatOutgoingCallsCall,
-	formatOutgoingCallsResult,
 	formatPopulateSymbolGraphCall,
 	formatPopulateSymbolGraphResult,
-	formatPrepareCallHierarchyCall,
-	formatPrepareCallHierarchyResult,
 	formatReachableFromCall,
 	formatReachableFromResult,
 	formatWorkspaceMapCall,
@@ -68,7 +65,7 @@ import { formatFindFilesCall, formatFindFilesResult } from "./find-files-renderi
 import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts";
 import { describeFindSymbolSources, formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-rendering.ts";
 import { createLectorGitOperations } from "./git-operations.ts";
-import { formatGitDiffCall, formatGitDiffResult, formatGitLogCall, formatGitLogResult, formatGitStatusCall, formatGitStatusResult } from "./git-rendering.ts";
+import { formatGitCall, formatGitResult, type GitToolDetails } from "./git-rendering.ts";
 import { createLectorLineEditOperations } from "./line-edit-operations.ts";
 import { formatLineEditCall, formatLineEditResult } from "./line-edit-rendering.ts";
 import { nearestGitRoot } from "./nearest-workspace-root.ts";
@@ -479,118 +476,67 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		pi.registerTool({
-			name: "prepare_call_hierarchy",
-			label: "Prepare Call Hierarchy",
-			description: "Resolve the symbol at an exact file position to its call-hierarchy root -- the first step before incoming_calls or outgoing_calls.",
-			promptSnippet: "Resolve a position to a call-hierarchy root",
+			name: "call_hierarchy",
+			label: "Call Hierarchy",
+			description:
+				"Resolve the symbol at an exact file position to its call-hierarchy root, or find its real callers/callees, project-wide, in one tool. ACTIONS: prepare (confirm what the position resolves to), incoming (who actually calls it, as distinct from find_references which also finds non-call usages), outgoing (what it itself calls).",
+			promptSnippet: "Resolve a position to a call-hierarchy root, or find its callers/callees",
 			promptGuidelines: [
-				"Use prepare_call_hierarchy to confirm what a position resolves to before asking for its callers or callees; incoming_calls and outgoing_calls also do this internally, so calling it first is optional, not required.",
+				"direction=prepare is optional -- incoming/outgoing already resolve the position internally, so calling prepare first is never required, only useful to confirm what a position resolves to.",
+				"direction=incoming finds real callers, distinct from find_references which also finds non-call usages like type positions or re-exports.",
 			],
-			parameters: Type.Object(positionParameters),
-			async execute(_toolCallId, params) {
+			parameters: Type.Object({
+				direction: Type.String({ description: "prepare | incoming | outgoing" }),
+				...positionParameters,
+			}),
+			async execute(_toolCallId, params): Promise<AgentToolResult<CallHierarchyToolDetails>> {
 				const path = resolve(cwd, params.path);
-				const details = await codeIntelligenceOperations.prepareCallHierarchy(path, params.line, params.character);
-				const text =
-					details.items.length === 0
-						? "No call-hierarchy root at this position."
-						: details.items.map((i) => `${i.kind} ${i.name} -- ${i.location.path}:${i.location.line}:${i.location.character}`).join("\n");
-				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
-			},
-			renderCall(args, theme, context) {
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatPrepareCallHierarchyCall(args, theme));
-				return text;
-			},
-			renderResult(result, { isPartial }, theme, context) {
-				if (isPartial) return new Text(theme.fg("warning", "Resolving position..."), 0, 0);
-				if (context.isError) {
-					const errorText = result.content
-						.filter((block) => block.type === "text")
-						.map((block) => block.text)
-						.join("\n");
-					return new Text(theme.fg("error", errorText || "prepare_call_hierarchy failed"), 0, 0);
+				if (params.direction === "prepare") {
+					const { items, provenance } = await codeIntelligenceOperations.prepareCallHierarchy(path, params.line, params.character);
+					const text =
+						items.length === 0
+							? "No call-hierarchy root at this position."
+							: items.map((i) => `${i.kind} ${i.name} -- ${i.location.path}:${i.location.line}:${i.location.character}`).join("\n");
+					const details: CallHierarchyToolDetails = { direction: "prepare", items, provenance };
+					return { content: [{ type: "text", text: `${describeIntelligenceSource(provenance)}\n${text}` }], details };
 				}
-				const details = result.details as { items?: readonly CallHierarchyEntry[]; provenance?: IntelligenceProvenance } | undefined;
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(renderIntelligenceSource(formatPrepareCallHierarchyResult(details?.items, theme), details?.provenance, theme));
-				return text;
-			},
-		});
-
-		pi.registerTool({
-			name: "incoming_calls",
-			label: "Incoming Calls",
-			description: "Find every real caller of the function/method at an exact file position, project-wide.",
-			promptSnippet: "Find every caller of a function from an exact position",
-			promptGuidelines: [
-				"Use incoming_calls to see who actually calls a function, as distinct from find_references, which also finds non-call usages like type positions or re-exports.",
-			],
-			parameters: Type.Object(positionParameters),
-			async execute(_toolCallId, params) {
-				const path = resolve(cwd, params.path);
-				const details = await codeIntelligenceOperations.incomingCalls(path, params.line, params.character);
-				const text =
-					details.calls.length === 0
-						? "No incoming calls found."
-						: details.calls
-								.map((c) => `${c.from.kind} ${c.from.name} -- ${c.from.location.path}:${c.from.location.line}:${c.from.location.character}`)
-								.join("\n");
-				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
+				if (params.direction === "incoming") {
+					const { calls, provenance } = await codeIntelligenceOperations.incomingCalls(path, params.line, params.character);
+					const text =
+						calls.length === 0
+							? "No incoming calls found."
+							: calls.map((c) => `${c.from.kind} ${c.from.name} -- ${c.from.location.path}:${c.from.location.line}:${c.from.location.character}`).join("\n");
+					const details: CallHierarchyToolDetails = { direction: "incoming", calls, provenance };
+					return { content: [{ type: "text", text: `${describeIntelligenceSource(provenance)}\n${text}` }], details };
+				}
+				if (params.direction === "outgoing") {
+					const { calls, provenance } = await codeIntelligenceOperations.outgoingCalls(path, params.line, params.character);
+					const text =
+						calls.length === 0
+							? "No outgoing calls found."
+							: calls.map((c) => `${c.to.kind} ${c.to.name} -- ${c.to.location.path}:${c.to.location.line}:${c.to.location.character}`).join("\n");
+					const details: CallHierarchyToolDetails = { direction: "outgoing", calls, provenance };
+					return { content: [{ type: "text", text: `${describeIntelligenceSource(provenance)}\n${text}` }], details };
+				}
+				throw new Error(`unknown call_hierarchy direction: ${String(params.direction)}`);
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatIncomingCallsCall(args, theme));
+				text.setText(formatCallHierarchyCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
-				if (isPartial) return new Text(theme.fg("warning", "Searching for callers..."), 0, 0);
+				if (isPartial) return new Text(theme.fg("warning", "Resolving call hierarchy..."), 0, 0);
 				if (context.isError) {
 					const errorText = result.content
 						.filter((block) => block.type === "text")
 						.map((block) => block.text)
 						.join("\n");
-					return new Text(theme.fg("error", errorText || "incoming_calls failed"), 0, 0);
+					return new Text(theme.fg("error", errorText || "call_hierarchy failed"), 0, 0);
 				}
-				const details = result.details as { calls?: readonly IncomingCall[]; provenance?: IntelligenceProvenance } | undefined;
+				const details = result.details as CallHierarchyToolDetails | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(renderIntelligenceSource(formatIncomingCallsResult(details?.calls, expanded, theme), details?.provenance, theme));
-				return text;
-			},
-		});
-
-		pi.registerTool({
-			name: "outgoing_calls",
-			label: "Outgoing Calls",
-			description: "Find every function/method the function at an exact file position itself calls.",
-			promptSnippet: "Find every function a function itself calls",
-			promptGuidelines: ["Use outgoing_calls to see what a function calls internally, e.g. to trace a code path forward without opening every file by hand."],
-			parameters: Type.Object(positionParameters),
-			async execute(_toolCallId, params) {
-				const path = resolve(cwd, params.path);
-				const details = await codeIntelligenceOperations.outgoingCalls(path, params.line, params.character);
-				const text =
-					details.calls.length === 0
-						? "No outgoing calls found."
-						: details.calls.map((c) => `${c.to.kind} ${c.to.name} -- ${c.to.location.path}:${c.to.location.line}:${c.to.location.character}`).join("\n");
-				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
-			},
-			renderCall(args, theme, context) {
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatOutgoingCallsCall(args, theme));
-				return text;
-			},
-			renderResult(result, { expanded, isPartial }, theme, context) {
-				if (isPartial) return new Text(theme.fg("warning", "Searching for callees..."), 0, 0);
-				if (context.isError) {
-					const errorText = result.content
-						.filter((block) => block.type === "text")
-						.map((block) => block.text)
-						.join("\n");
-					return new Text(theme.fg("error", errorText || "outgoing_calls failed"), 0, 0);
-				}
-				const details = result.details as { calls?: readonly OutgoingCall[]; provenance?: IntelligenceProvenance } | undefined;
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(renderIntelligenceSource(formatOutgoingCallsResult(details?.calls, expanded, theme), details?.provenance, theme));
+				text.setText(renderIntelligenceSource(formatCallHierarchyResult(details, expanded, theme), details?.provenance, theme));
 				return text;
 			},
 		});
@@ -599,7 +545,7 @@ export default function (pi: ExtensionAPI) {
 			name: "populate_symbol_graph",
 			label: "Populate Symbol Graph",
 			description:
-				"Walk a workspace's real call relationships into a persisted graph, so reachable_from can answer multi-hop questions (transitive callers, reachability) without chaining many find_references/outgoing_calls calls by hand. Run this once before reachable_from.",
+				"Walk a workspace's real call relationships into a persisted graph, so reachable_from can answer multi-hop questions (transitive callers, reachability) without chaining many find_references/call_hierarchy calls by hand. Run this once before reachable_from.",
 			promptSnippet: "Populate a workspace's symbol graph for multi-hop queries",
 			promptGuidelines: [
 				"Run populate_symbol_graph once for a workspace before using reachable_from against it; an unpopulated workspace's graph is empty, not an error.",
@@ -812,10 +758,10 @@ export default function (pi: ExtensionAPI) {
 			name: "reachable_from",
 			label: "Reachable From",
 			description:
-				"Every symbol reachable from an exact file position by following the workspace's persisted call graph up to maxDepth hops -- transitive callers/reachability that would otherwise require chaining many find_references/outgoing_calls calls by hand. Requires populate_symbol_graph to have been run for this workspace first.",
+				"Every symbol reachable from an exact file position by following the workspace's persisted call graph up to maxDepth hops -- transitive callers/reachability that would otherwise require chaining many find_references/call_hierarchy calls by hand. Requires populate_symbol_graph to have been run for this workspace first.",
 			promptSnippet: "Find symbols reachable from a position, up to N hops, via the persisted graph",
 			promptGuidelines: [
-				"Use reachable_from for multi-hop questions (does A eventually call C through B); use outgoing_calls/incoming_calls for a single direct hop live against the language server.",
+				"Use reachable_from for multi-hop questions (does A eventually call C through B); use call_hierarchy (direction=incoming/outgoing) for a single direct hop live against the language server.",
 			],
 			parameters: Type.Object({
 				...positionParameters,
@@ -909,111 +855,61 @@ export default function (pi: ExtensionAPI) {
 
 		const gitOperations = createLectorGitOperations();
 		pi.registerTool({
-			name: "git_status",
-			label: "Git Status",
+			name: "git",
+			label: "Git",
 			description:
-				"Working tree status for a real git repository -- modified/staged/untracked/renamed files, plus current branch and ahead/behind tracking. Fails clearly if `directory` is not inside a git repository.",
-			promptSnippet: "Show a repository's working tree status",
+				"Working tree status, recent commit log, and unified diff for a real git repository, in one tool. Fails clearly if `directory` is not inside a git repository. ACTIONS: status (working tree state, ahead/behind tracking), log (recent commits, bounded by maxCount), diff (unified diff against `ref`, defaulting to HEAD, bounded by maxBytes).",
+			promptSnippet: "Show a repository's status, log, or diff",
+			promptGuidelines: [
+				"maxCount is required for action=log; maxBytes is required for action=diff -- every bounded query needs its bound stated explicitly, never defaulted silently.",
+			],
 			parameters: Type.Object({
+				action: Type.String({ description: "status | log | diff" }),
 				directory: Type.String({ description: "Directory inside the repository to check, absolute or relative to the current working directory" }),
+				maxCount: Type.Optional(Type.Number({ description: "Maximum number of commits to return, most recent first -- required for action=log" })),
+				ref: Type.Optional(Type.String({ description: "Ref to diff against; defaults to HEAD -- only used for action=diff" })),
+				maxBytes: Type.Optional(Type.Number({ description: "Maximum diff size in bytes before truncating -- required for action=diff" })),
 			}),
 			async execute(_toolCallId, params) {
 				const directory = resolve(cwd, params.directory);
-				const summary = await gitOperations.status(directory);
-				return { content: [{ type: "text", text: JSON.stringify(summary) }], details: { summary } };
+				if (params.action === "status") {
+					const summary = await gitOperations.status(directory);
+					const details: GitToolDetails = { action: "status", summary };
+					return { content: [{ type: "text", text: JSON.stringify(summary) }], details };
+				}
+				if (params.action === "log") {
+					if (params.maxCount === undefined) throw new Error("git action=log requires maxCount");
+					const entries = await gitOperations.log(directory, params.maxCount);
+					const text =
+						entries.length === 0 ? "No commits found." : entries.map((e) => `${e.sha.slice(0, 8)} ${e.authoredAt} ${e.authorName} -- ${e.message}`).join("\n");
+					const details: GitToolDetails = { action: "log", entries };
+					return { content: [{ type: "text", text }], details };
+				}
+				if (params.action === "diff") {
+					if (params.maxBytes === undefined) throw new Error("git action=diff requires maxBytes");
+					const result = await gitOperations.diff(directory, params.ref, params.maxBytes);
+					const details: GitToolDetails = { action: "diff", result };
+					return { content: [{ type: "text", text: result.diff.length === 0 ? "No differences." : result.diff }], details };
+				}
+				throw new Error(`unknown git action: ${String(params.action)}`);
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGitStatusCall(args, theme));
+				text.setText(formatGitCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
-				if (isPartial) return new Text(theme.fg("warning", "Checking status..."), 0, 0);
+				if (isPartial) return new Text(theme.fg("warning", "Running git..."), 0, 0);
 				if (context.isError) {
 					const errorText = result.content
 						.filter((block) => block.type === "text")
 						.map((block) => block.text)
 						.join("\n");
-					return new Text(theme.fg("error", errorText || "git_status failed"), 0, 0);
+					return new Text(theme.fg("error", errorText || "git failed"), 0, 0);
 				}
-				const details = result.details as { summary?: GitStatusSummary } | undefined;
+				const details = result.details as GitToolDetails | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGitStatusResult(details?.summary, expanded, theme));
-				return text;
-			},
-		});
-
-		pi.registerTool({
-			name: "git_log",
-			label: "Git Log",
-			description:
-				"Recent commits for a real git repository, most recent first, bounded to maxCount. Fails clearly if `directory` is not inside a git repository.",
-			promptSnippet: "List a repository's recent commits",
-			parameters: Type.Object({
-				directory: Type.String({ description: "Directory inside the repository to check, absolute or relative to the current working directory" }),
-				maxCount: Type.Number({ description: "Maximum number of commits to return, most recent first" }),
-			}),
-			async execute(_toolCallId, params) {
-				const directory = resolve(cwd, params.directory);
-				const entries = await gitOperations.log(directory, params.maxCount);
-				const text =
-					entries.length === 0 ? "No commits found." : entries.map((e) => `${e.sha.slice(0, 8)} ${e.authoredAt} ${e.authorName} -- ${e.message}`).join("\n");
-				return { content: [{ type: "text", text }], details: { entries } };
-			},
-			renderCall(args, theme, context) {
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGitLogCall(args, theme));
-				return text;
-			},
-			renderResult(result, { expanded, isPartial }, theme, context) {
-				if (isPartial) return new Text(theme.fg("warning", "Reading log..."), 0, 0);
-				if (context.isError) {
-					const errorText = result.content
-						.filter((block) => block.type === "text")
-						.map((block) => block.text)
-						.join("\n");
-					return new Text(theme.fg("error", errorText || "git_log failed"), 0, 0);
-				}
-				const details = result.details as { entries?: readonly GitLogEntry[] } | undefined;
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGitLogResult(details?.entries, expanded, theme));
-				return text;
-			},
-		});
-
-		pi.registerTool({
-			name: "git_diff",
-			label: "Git Diff",
-			description:
-				"Unified diff of the working tree against `ref` (defaults to HEAD) for a real git repository, bounded to maxBytes. Fails clearly if `directory` is not inside a git repository.",
-			promptSnippet: "Show a repository's working tree diff",
-			parameters: Type.Object({
-				directory: Type.String({ description: "Directory inside the repository to check, absolute or relative to the current working directory" }),
-				ref: Type.Optional(Type.String({ description: "Ref to diff against; defaults to HEAD" })),
-				maxBytes: Type.Number({ description: "Maximum diff size in bytes before truncating" }),
-			}),
-			async execute(_toolCallId, params) {
-				const directory = resolve(cwd, params.directory);
-				const result = await gitOperations.diff(directory, params.ref, params.maxBytes);
-				return { content: [{ type: "text", text: result.diff.length === 0 ? "No differences." : result.diff }], details: { result } };
-			},
-			renderCall(args, theme, context) {
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGitDiffCall(args, theme));
-				return text;
-			},
-			renderResult(result, { expanded, isPartial }, theme, context) {
-				if (isPartial) return new Text(theme.fg("warning", "Computing diff..."), 0, 0);
-				if (context.isError) {
-					const errorText = result.content
-						.filter((block) => block.type === "text")
-						.map((block) => block.text)
-						.join("\n");
-					return new Text(theme.fg("error", errorText || "git_diff failed"), 0, 0);
-				}
-				const details = result.details as { result?: GitDiffResult } | undefined;
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGitDiffResult(details?.result, expanded, theme));
+				text.setText(formatGitResult(details, expanded, theme));
 				return text;
 			},
 		});

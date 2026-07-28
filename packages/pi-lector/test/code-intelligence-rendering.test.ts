@@ -8,6 +8,8 @@ import { describe, expect, it } from "bun:test";
 import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, SymbolNode, WorkspaceLocation, WorkspaceMapResult } from "@danypops/lector";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import {
+	formatCallHierarchyCall,
+	formatCallHierarchyResult,
 	formatDiagnosticsCall,
 	formatDiagnosticsResult,
 	formatDocumentSymbolsCall,
@@ -18,14 +20,8 @@ import {
 	formatGoToDefinitionResult,
 	formatHoverCall,
 	formatHoverResult,
-	formatIncomingCallsCall,
-	formatIncomingCallsResult,
-	formatOutgoingCallsCall,
-	formatOutgoingCallsResult,
 	formatPopulateSymbolGraphCall,
 	formatPopulateSymbolGraphResult,
-	formatPrepareCallHierarchyCall,
-	formatPrepareCallHierarchyResult,
 	formatReachableFromCall,
 	formatReachableFromResult,
 	formatWorkspaceMapCall,
@@ -191,59 +187,50 @@ function callHierarchyEntry(overrides: Partial<CallHierarchyEntry> = {}): CallHi
 	};
 }
 
-describe("formatPrepareCallHierarchyCall/Result", () => {
-	it("shows the tool name and position", () => {
-		const text = formatPrepareCallHierarchyCall({ path: "src/math.ts", line: 1, character: 17 }, plainTheme);
-		expect(text).toContain("prepare_call_hierarchy");
+describe("formatCallHierarchyCall/Result", () => {
+	it("shows the tool name, direction, and position", () => {
+		const text = formatCallHierarchyCall({ direction: "prepare", path: "src/math.ts", line: 1, character: 17 }, plainTheme);
+		expect(text).toContain("call_hierarchy");
+		expect(text).toContain("prepare");
 		expect(text).toContain("src/math.ts:1:17");
 	});
 
-	it("shows a clear message when nothing resolves at that position", () => {
-		expect(formatPrepareCallHierarchyResult([], plainTheme)).toContain("No call-hierarchy root");
+	it("shows a clear message when nothing resolves at that position (direction=prepare)", () => {
+		expect(formatCallHierarchyResult({ direction: "prepare", items: [] }, false, plainTheme)).toContain("No call-hierarchy root");
 	});
 
-	it("shows every resolved item's kind, name, and location", () => {
-		const text = formatPrepareCallHierarchyResult([callHierarchyEntry()], plainTheme);
+	it("shows every resolved item's kind, name, and location (direction=prepare)", () => {
+		const text = formatCallHierarchyResult({ direction: "prepare", items: [callHierarchyEntry()] }, false, plainTheme);
 		expect(text).toContain("function");
 		expect(text).toContain("add");
 		expect(text).toContain("src/math.ts:1:17");
 	});
-});
 
-describe("formatIncomingCallsCall/Result", () => {
-	it("shows the tool name and position", () => {
-		const text = formatIncomingCallsCall({ path: "src/math.ts", line: 1, character: 17 }, plainTheme);
-		expect(text).toContain("incoming_calls");
+	it("shows a clear message when there are no callers (direction=incoming)", () => {
+		expect(formatCallHierarchyResult({ direction: "incoming", calls: [] }, false, plainTheme)).toContain("No incoming calls found");
 	});
 
-	it("shows a clear message when there are no callers", () => {
-		expect(formatIncomingCallsResult([], false, plainTheme)).toContain("No incoming calls found");
-	});
-
-	it("lists each caller", () => {
-		const text = formatIncomingCallsResult([{ from: callHierarchyEntry({ name: "addTwice" }), fromRanges: [] }], false, plainTheme);
+	it("lists each caller (direction=incoming)", () => {
+		const text = formatCallHierarchyResult(
+			{ direction: "incoming", calls: [{ from: callHierarchyEntry({ name: "addTwice" }), fromRanges: [] }] },
+			false,
+			plainTheme,
+		);
 		expect(text).toContain("addTwice");
 	});
 
-	it("truncates past the default visible count", () => {
+	it("truncates past the default visible count (direction=incoming)", () => {
 		const calls = Array.from({ length: 14 }, (_, i) => ({ from: callHierarchyEntry({ name: `caller${i}` }), fromRanges: [] }));
-		const text = formatIncomingCallsResult(calls, false, plainTheme);
+		const text = formatCallHierarchyResult({ direction: "incoming", calls }, false, plainTheme);
 		expect(text).toContain("2 more");
 	});
-});
 
-describe("formatOutgoingCallsCall/Result", () => {
-	it("shows the tool name and position", () => {
-		const text = formatOutgoingCallsCall({ path: "src/math.ts", line: 4, character: 17 }, plainTheme);
-		expect(text).toContain("outgoing_calls");
+	it("shows a clear message when there are no callees (direction=outgoing)", () => {
+		expect(formatCallHierarchyResult({ direction: "outgoing", calls: [] }, false, plainTheme)).toContain("No outgoing calls found");
 	});
 
-	it("shows a clear message when there are no callees", () => {
-		expect(formatOutgoingCallsResult([], false, plainTheme)).toContain("No outgoing calls found");
-	});
-
-	it("lists each callee", () => {
-		const text = formatOutgoingCallsResult([{ to: callHierarchyEntry({ name: "add" }), fromRanges: [] }], false, plainTheme);
+	it("lists each callee (direction=outgoing)", () => {
+		const text = formatCallHierarchyResult({ direction: "outgoing", calls: [{ to: callHierarchyEntry({ name: "add" }), fromRanges: [] }] }, false, plainTheme);
 		expect(text).toContain("add");
 	});
 });
