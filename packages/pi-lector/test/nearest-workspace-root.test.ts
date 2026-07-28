@@ -7,10 +7,10 @@
  * touched, never from a fixed session-wide value.
  */
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { nearestGitRoot } from "../extension/src/nearest-workspace-root.ts";
+import { nearestGitRoot, nearestProjectRoot } from "../extension/src/nearest-workspace-root.ts";
 
 describe("nearestGitRoot", () => {
 	it("finds a git root several directories above the starting point", () => {
@@ -58,6 +58,75 @@ describe("nearestGitRoot", () => {
 			expect(nearestGitRoot(root)).toBeUndefined();
 		} finally {
 			rmSync(root, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("nearestProjectRoot", () => {
+	it("prefers a monorepo subproject's own root marker over the outer repo's .git", () => {
+		const repo = mkdtempSync(join(tmpdir(), "nearest-project-root-monorepo-"));
+		try {
+			mkdirSync(join(repo, ".git"));
+			const subproject = join(repo, "packages", "app");
+			mkdirSync(subproject, { recursive: true });
+			writeFileSync(join(subproject, "tsconfig.json"), "{}");
+			const deep = join(subproject, "src");
+			mkdirSync(deep);
+
+			expect(nearestProjectRoot(deep, ["tsconfig.json", "package.json"])).toBe(subproject);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("falls back to the nearest .git when no closer root marker exists", () => {
+		const repo = mkdtempSync(join(tmpdir(), "nearest-project-root-fallback-"));
+		try {
+			mkdirSync(join(repo, ".git"));
+			const deep = join(repo, "src", "lib");
+			mkdirSync(deep, { recursive: true });
+
+			expect(nearestProjectRoot(deep, ["go.mod"])).toBe(repo);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("checks every declared marker, not just the first, at each directory", () => {
+		const repo = mkdtempSync(join(tmpdir(), "nearest-project-root-multi-marker-"));
+		try {
+			mkdirSync(join(repo, ".git"));
+			const project = join(repo, "service");
+			mkdirSync(project, { recursive: true });
+			writeFileSync(join(project, "go.work"), "");
+			const deep = join(project, "internal");
+			mkdirSync(deep);
+
+			expect(nearestProjectRoot(deep, ["go.mod", "go.work"])).toBe(project);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("returns undefined when neither a root marker nor .git exists anywhere", () => {
+		const root = mkdtempSync(join(tmpdir(), "nearest-project-root-none-"));
+		try {
+			expect(nearestProjectRoot(root, ["Cargo.toml"])).toBeUndefined();
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("resolves exactly like nearestGitRoot when given no root markers", () => {
+		const repo = mkdtempSync(join(tmpdir(), "nearest-project-root-no-markers-"));
+		try {
+			mkdirSync(join(repo, ".git"));
+			const deep = join(repo, "src");
+			mkdirSync(deep);
+
+			expect(nearestProjectRoot(deep, [])).toBe(nearestGitRoot(deep));
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
 		}
 	});
 });

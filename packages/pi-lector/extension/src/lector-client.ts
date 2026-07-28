@@ -1,8 +1,9 @@
 import { existsSync, statSync } from "node:fs";
-import { dirname, parse } from "node:path";
+import { dirname, extname, parse } from "node:path";
 import { createRetryingClient, type RetryingClient } from "@danypops/daemon-kit/pi-client";
 import {
 	connectLectorClient,
+	descriptorForExtension,
 	type LectorClient,
 	type OperationInputs,
 	type OperationName,
@@ -10,7 +11,7 @@ import {
 	remoteErrorIs,
 	type WorkspaceId,
 } from "@danypops/lector";
-import { nearestGitRoot } from "./nearest-workspace-root.ts";
+import { nearestGitRoot, nearestProjectRoot } from "./nearest-workspace-root.ts";
 
 /**
  * Lazily connects to a running Lector daemon and caches, per project root,
@@ -106,9 +107,17 @@ export function workspaceForDirectory(directory: string): Promise<ResolvedWorksp
  * whose filesystem-root fallback would point a real server at scanning the
  * whole disk. Falls back to the file's own containing directory instead,
  * same bound as workspaceForDirectory.
+ *
+ * Unlike workspaceForDirectory, prefers the file's own language's root markers
+ * (tsconfig.json, go.mod, Cargo.toml, ...) over the nearest .git when both exist --
+ * a monorepo subproject's own root marker is nearer and wins, so its language server
+ * gets that subproject's rootUri instead of the whole repo's.
  */
 export function workspaceForCodeIntelligencePath(absolutePath: string): Promise<ResolvedWorkspace> {
-	return workspaceForDirectory(dirname(absolutePath));
+	const directory = dirname(absolutePath);
+	const descriptor = descriptorForExtension(extname(absolutePath));
+	const root = descriptor ? (nearestProjectRoot(directory, descriptor.rootMarkers) ?? directory) : (nearestGitRoot(directory) ?? directory);
+	return workspaceForRoot(root);
 }
 
 /**

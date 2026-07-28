@@ -21,14 +21,30 @@ import { dirname, join, parse } from "node:path";
  * workspace root" error -- discovered live, in a separate session, working
  * against a completely different, unrelated repository.)
  */
-export function nearestGitRoot(startDirectory: string): string | undefined {
+function walkUpForMarkers(startDirectory: string, markers: readonly string[]): string | undefined {
 	let dir = startDirectory;
 	const fsRoot = parse(dir).root;
 	while (dir !== fsRoot) {
-		if (existsSync(join(dir, ".git"))) return dir;
+		if (markers.some((marker) => existsSync(join(dir, marker)))) return dir;
 		const parent = dirname(dir);
 		if (parent === dir) break; // defensive: dirname must be strictly ascending
 		dir = parent;
 	}
-	return existsSync(join(fsRoot, ".git")) ? fsRoot : undefined;
+	return markers.some((marker) => existsSync(join(fsRoot, marker))) ? fsRoot : undefined;
+}
+
+export function nearestGitRoot(startDirectory: string): string | undefined {
+	return walkUpForMarkers(startDirectory, [".git"]);
+}
+
+/**
+ * Same nearest-enclosing-root walk as nearestGitRoot, but also checks a language's own root
+ * markers (tsconfig.json, go.mod, Cargo.toml, ...) at each directory, nearest first -- so a
+ * monorepo subproject with its own root marker resolves to itself, not the outer repo's .git.
+ * Found via @arvoretech/pi-lsp comparison: without this, a file inside a monorepo subproject
+ * misattributes its whole project to the repo root, handing the language server the wrong
+ * rootUri (and, for TypeScript, the wrong tsconfig.json) even though a closer one exists.
+ */
+export function nearestProjectRoot(startDirectory: string, rootMarkers: readonly string[]): string | undefined {
+	return walkUpForMarkers(startDirectory, [...rootMarkers, ".git"]);
 }

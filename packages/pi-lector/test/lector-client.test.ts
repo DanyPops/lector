@@ -5,7 +5,7 @@
  * different workspaces in the very same running session.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectLectorClient, type LectorClient, resolveLectorPaths } from "@danypops/lector";
@@ -139,6 +139,47 @@ describe("workspaceForPath vs. workspaceForDirectory fallback when no git repo i
 			expect(resolved.root).not.toBe("/");
 		} finally {
 			rmSync(plainDir, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+});
+
+describe("workspaceForCodeIntelligencePath prefers a nearer language-specific root marker over the outer .git", () => {
+	it("resolves a monorepo TypeScript subproject to its own tsconfig.json directory, not the outer repo root", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const repo = fakeRepo("pi-lector-monorepo-");
+		const subproject = join(repo, "packages", "app");
+		try {
+			mkdirSync(subproject, { recursive: true });
+			writeFileSync(join(subproject, "tsconfig.json"), "{}");
+			mkdirSync(join(subproject, "src"));
+
+			const resolved = await workspaceForCodeIntelligencePath(join(subproject, "src", "index.ts"));
+
+			expect(resolved.root).toBe(subproject);
+			expect(resolved.root).not.toBe(repo);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("falls back to the outer .git when the file's own language has no closer root marker", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const repo = fakeRepo("pi-lector-no-marker-");
+		try {
+			const deep = join(repo, "scripts");
+			mkdirSync(deep);
+
+			const resolved = await workspaceForCodeIntelligencePath(join(deep, "a.sh"));
+
+			expect(resolved.root).toBe(repo);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
 			await daemon.stop();
 		}
 	});
