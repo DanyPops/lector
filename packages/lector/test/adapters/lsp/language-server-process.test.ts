@@ -14,6 +14,7 @@ import {
 	LanguageServerCapacityExceeded,
 	LanguageServerProcess,
 	LanguageServerProcessExited,
+	LanguageServerRequestCanceled,
 	LanguageServerRequestTimedOut,
 } from "../../../src/adapters/lsp/language-server-process.ts";
 
@@ -179,6 +180,80 @@ describe("LanguageServerProcess handling server-initiated requests", () => {
 		await proc.request("initialize", {});
 		const { error } = await registerResult;
 		expect(error).toMatchObject({ code: -32601 });
+	});
+});
+
+describe("LanguageServerProcess request cancellation", () => {
+	it("aborting an outbound request's signal settles it immediately with LanguageServerRequestCanceled, not the timeout", async () => {
+		const proc = spawnEvil("hang-on-request", 10_000); // deliberately long timeout -- must not be what settles this
+		await proc.request("initialize", {});
+		const controller = new AbortController();
+
+		const started = Date.now();
+		const pending = proc.request("workspace/symbol", { query: "x" }, { signal: controller.signal });
+		controller.abort();
+
+		await expect(pending).rejects.toBeInstanceOf(LanguageServerRequestCanceled);
+		expect(Date.now() - started).toBeLessThan(500);
+	});
+
+	it("an already-aborted signal rejects immediately without ever sending the request", async () => {
+		const proc = spawnEvil("normal");
+		await proc.request("initialize", {});
+		const controller = new AbortController();
+		controller.abort();
+
+		await expect(proc.request("workspace/symbol", {}, { signal: controller.signal })).rejects.toBeInstanceOf(LanguageServerRequestCanceled);
+	});
+
+	it("a canceled request's slot is freed, not leaked -- capacity is available again immediately", async () => {
+		const proc = spawnEvil("hang-on-request", 10_000, { maxPendingRequests: 1 });
+		await proc.request("initialize", {});
+		const controller = new AbortController();
+		const pending = proc.request("workspace/symbol", {}, { signal: controller.signal });
+		controller.abort();
+		await expect(pending).rejects.toBeInstanceOf(LanguageServerRequestCanceled);
+
+		// The capacity limit is 1 -- if the canceled slot were still counted as held, this next
+		// request would reject with LanguageServerCapacityExceeded instead of being accepted (and
+		// then just sitting pending, since this mock server hangs on every non-initialize request).
+		const second = proc.request("workspace/symbol", {});
+		const outcome = await Promise.race([second.then(() => "resolved").catch((error: unknown) => error), new Promise((resolve) => setTimeout(() => resolve("still-pending"), 100))]);
+		expect(outcome).toBe("still-pending");
+	});
+
+	it("canceling an outbound request actually notifies the server via $/cancelRequest", async () => {
+		const proc = spawnEvil("hang-on-request", 10_000);
+		const received = new Promise<{ id: number | string }>((resolve) => {
+			proc.onNotification("test/cancelRequestReceived", (params) => resolve(params as { id: number | string }));
+		});
+		await proc.request("initialize", {});
+		const controller = new AbortController();
+		const pending = proc.request("workspace/symbol", {}, { signal: controller.signal });
+		controller.abort();
+		await expect(pending).rejects.toBeInstanceOf(LanguageServerRequestCanceled);
+
+		const { id } = await received;
+		expect(typeof id).toBe("number");
+	});
+
+	it("a server-initiated request the server itself cancels answers RequestCancelled, not the handler's real (now-stale) result", async () => {
+		const proc = spawnEvil("cancels-own-request");
+		const resultPromise = new Promise<{ result: unknown; error: { code: number; message: string } | null }>((resolve) => {
+			proc.onNotification("test/serverRequestResult", (params) => resolve(params as { result: unknown; error: { code: number; message: string } | null }));
+		});
+		// The evil server sends $/cancelRequest immediately after issuing the request, well before
+		// this handler's own 200ms delay elapses -- proving the cancellation actually overrides an
+		// otherwise-successful in-flight reply, not just a fast-failing one.
+		proc.onRequest("custom/cancelMe", async () => {
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			return "should never reach the server -- request was canceled first";
+		});
+
+		await proc.request("initialize", {});
+		const { result, error } = await resultPromise;
+		expect(result).toBeNull();
+		expect(error).toMatchObject({ code: -32800 });
 	});
 });
 

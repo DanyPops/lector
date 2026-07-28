@@ -10,7 +10,6 @@ describe("parseServerCapabilities", () => {
 				renameProvider: false,
 				prepareRenameProvider: false,
 				workspaceFileOperations: { willRename: false, didRename: false, willDelete: false, didDelete: false, willCreate: false, didCreate: false },
-				workDoneProgress: false,
 				diagnosticProvider: undefined,
 			});
 		}
@@ -40,10 +39,6 @@ describe("parseServerCapabilities", () => {
 	it("reads workspace file-operation capabilities by presence, not by their (often empty) options object", () => {
 		const capabilities = parseServerCapabilities({ workspace: { fileOperations: { willRename: {}, didRename: {} } } });
 		expect(capabilities.workspaceFileOperations).toEqual({ willRename: true, didRename: true, willDelete: false, didDelete: false, willCreate: false, didCreate: false });
-	});
-
-	it("reads window.workDoneProgress", () => {
-		expect(parseServerCapabilities({ window: { workDoneProgress: true } }).workDoneProgress).toBe(true);
 	});
 
 	it("distinguishes a server that never declared pull diagnostics from one that declared it with both flags false", () => {

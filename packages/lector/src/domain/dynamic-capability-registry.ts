@@ -39,6 +39,7 @@ export interface DynamicCapabilityRegistryOptions {
 export class DynamicCapabilityRegistry {
 	private readonly registrations = new Map<string, DynamicRegistration>();
 	private readonly progressTokens = new Set<string | number>();
+	private readonly latestProgress = new Map<string | number, unknown>();
 	private readonly maxRegistrations: number;
 	private readonly maxProgressTokens: number;
 
@@ -64,6 +65,22 @@ export class DynamicCapabilityRegistry {
 			throw new DynamicCapabilityCapacityExceeded("progress-token", this.maxProgressTokens);
 		}
 		this.progressTokens.add(token);
+	}
+
+	/**
+	 * Records a $/progress notification's latest value for `token`. A notification has no reply
+	 * to withhold, so unlike register()/createProgressToken() this never throws on overflow --
+	 * it silently drops the update, matching best-effort telemetry semantics rather than risking
+	 * an uncaught exception inside the notification-dispatch path killing the whole connection.
+	 */
+	recordProgress(token: string | number, value: unknown): void {
+		if (!this.latestProgress.has(token) && this.latestProgress.size >= this.maxProgressTokens) return;
+		this.latestProgress.set(token, value);
+	}
+
+	/** The latest $/progress value seen for every token reported so far (bounded; oldest silently dropped once full). */
+	get progressByToken(): ReadonlyMap<string | number, unknown> {
+		return this.latestProgress;
 	}
 
 	get registrationCount(): number {
@@ -151,4 +168,17 @@ export function parseProgressCreateToken(params: unknown): string | number | und
 	if (!isRecord(params)) return undefined;
 	const token = params.token;
 	return typeof token === "string" || typeof token === "number" ? token : undefined;
+}
+
+export interface ParsedProgressNotification {
+	readonly token: string | number;
+	readonly value: unknown;
+}
+
+/** Parses a $/progress notification's params ({ token: ProgressToken, value: unknown }); undefined if the token is missing or malformed. */
+export function parseProgressNotification(params: unknown): ParsedProgressNotification | undefined {
+	if (!isRecord(params)) return undefined;
+	const token = params.token;
+	if (typeof token !== "string" && typeof token !== "number") return undefined;
+	return { token, value: params.value };
 }

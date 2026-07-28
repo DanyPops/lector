@@ -23,7 +23,6 @@ export interface ParsedServerCapabilities {
 	readonly renameProvider: boolean;
 	readonly prepareRenameProvider: boolean;
 	readonly workspaceFileOperations: WorkspaceFileOperationCapabilities;
-	readonly workDoneProgress: boolean;
 	/** undefined means the server never declared pull-model diagnostics at all -- distinct from declaring it with both flags false. */
 	readonly diagnosticProvider: DiagnosticProviderCapabilities | undefined;
 }
@@ -61,9 +60,11 @@ export function parseServerCapabilities(raw: unknown): ParsedServerCapabilities 
 		didCreate: fileOperations.didCreate !== undefined,
 	};
 
-	const windowCapabilities = isRecord(capabilities.window) ? capabilities.window : {};
-	const workDoneProgress = windowCapabilities.workDoneProgress === true;
-
+	// Deliberately no top-level "workDoneProgress" field here: ServerCapabilities has no such
+	// property in the LSP spec (verified against the 3.17 specification directly, not assumed --
+	// `window.workDoneProgress` is a *client* capability declaring "I can handle a server asking
+	// me to create a progress token", not something a server reports back). Progress support is
+	// instead declared per-feature via each provider's own optional WorkDoneProgressOptions.
 	const diagnosticProviderValue = capabilities.diagnosticProvider;
 	const diagnosticProvider: DiagnosticProviderCapabilities | undefined = isRecord(diagnosticProviderValue)
 		? {
@@ -72,7 +73,7 @@ export function parseServerCapabilities(raw: unknown): ParsedServerCapabilities 
 			}
 		: undefined;
 
-	return { positionEncoding, textDocumentSyncKind, renameProvider, prepareRenameProvider, workspaceFileOperations, workDoneProgress, diagnosticProvider };
+	return { positionEncoding, textDocumentSyncKind, renameProvider, prepareRenameProvider, workspaceFileOperations, diagnosticProvider };
 }
 
 function parseTextDocumentSyncKind(value: unknown): TextDocumentSyncKind {

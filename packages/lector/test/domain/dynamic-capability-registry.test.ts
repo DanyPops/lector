@@ -4,6 +4,7 @@ import {
 	DynamicCapabilityRegistry,
 	parseConfigurationItemCount,
 	parseProgressCreateToken,
+	parseProgressNotification,
 	parseRegistrationRequest,
 	parseUnregistrationRequest,
 } from "../../src/domain/dynamic-capability-registry.ts";
@@ -65,6 +66,21 @@ describe("DynamicCapabilityRegistry", () => {
 		expect(() => registry.createProgressToken("token-1")).not.toThrow(); // same token again: no growth
 		expect(() => registry.createProgressToken("token-2")).toThrow(DynamicCapabilityCapacityExceeded);
 	});
+
+	it("records and overwrites the latest $/progress value per token", () => {
+		const registry = new DynamicCapabilityRegistry();
+		registry.recordProgress("token-1", { kind: "begin", title: "indexing" });
+		registry.recordProgress("token-1", { kind: "report", percentage: 50 });
+		expect(registry.progressByToken.get("token-1")).toEqual({ kind: "report", percentage: 50 });
+	});
+
+	it("silently drops a progress update beyond the bounded token count rather than throwing -- a notification has no reply to withhold", () => {
+		const registry = new DynamicCapabilityRegistry({ maxProgressTokens: 1 });
+		registry.recordProgress("token-1", { kind: "begin" });
+		expect(() => registry.recordProgress("token-2", { kind: "begin" })).not.toThrow();
+		expect(registry.progressByToken.has("token-2")).toBe(false);
+		expect(registry.progressByToken.get("token-1")).toEqual({ kind: "begin" });
+	});
 });
 
 describe("server-initiated request parameter parsing", () => {
@@ -99,5 +115,16 @@ describe("server-initiated request parameter parsing", () => {
 		expect(parseProgressCreateToken({ token: 42 })).toBe(42);
 		expect(parseProgressCreateToken({ token: {} })).toBeUndefined();
 		expect(parseProgressCreateToken({})).toBeUndefined();
+	});
+
+	it("parseProgressNotification reads token and value, and undefined for a missing/malformed token", () => {
+		expect(parseProgressNotification({ token: "abc", value: { kind: "report", percentage: 50 } })).toEqual({
+			token: "abc",
+			value: { kind: "report", percentage: 50 },
+		});
+		expect(parseProgressNotification({ token: 42, value: null })).toEqual({ token: 42, value: null });
+		expect(parseProgressNotification({ value: {} })).toBeUndefined();
+		expect(parseProgressNotification({})).toBeUndefined();
+		expect(parseProgressNotification(null)).toBeUndefined();
 	});
 });

@@ -17,6 +17,9 @@
  *   sends-server-request   responds to `initialize`, then issues a sequence of
  *                          server-initiated requests and reports each response
  *                          back via a test/serverRequestResult notification
+ *   cancels-own-request    responds to `initialize`, then issues one server-initiated
+ *                          request and immediately sends $/cancelRequest for it, then
+ *                          reports the eventual reply via test/serverRequestResult
  */
 import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/adapters/lsp/json-rpc-stream.ts";
 
@@ -49,6 +52,18 @@ function requestFromClient(method: string, params: unknown): Promise<JsonRpcMess
  * notification so the test asserts against the client's actual reply
  * rather than assuming it worked.
  */
+/** Issues one server-initiated request, cancels it before the client can have answered yet, then reports the client's actual (post-cancellation) reply. */
+async function runCancelOwnRequestSequence(): Promise<void> {
+	const id = `srv-${nextServerRequestId++}`;
+	const responsePromise = new Promise<JsonRpcMessage>((resolve) => {
+		pendingServerRequests.set(id, resolve);
+	});
+	process.stdout.write(encodeJsonRpcMessage({ jsonrpc: "2.0", id, method: "custom/cancelMe", params: {} }));
+	process.stdout.write(encodeJsonRpcMessage({ jsonrpc: "2.0", method: "$/cancelRequest", params: { id } }));
+	const response = await responsePromise;
+	notify("test/serverRequestResult", { step: "canceled", result: response.result ?? null, error: response.error ?? null });
+}
+
 async function runServerInitiatedRequestSequence(): Promise<void> {
 	const steps: Array<{ step: string; method: string; params: unknown }> = [
 		{
@@ -86,6 +101,13 @@ function handle(message: JsonRpcMessage): void {
 	if (message.method === "exit") {
 		process.exit(0);
 	}
+	if (message.method === "$/cancelRequest") {
+		// Reports receipt back to the test -- proves the client actually sent this notification
+		// for an outbound request it canceled, not just that its own promise settled locally.
+		const params = message.params as { id?: number | string } | undefined;
+		if (params?.id !== undefined) notify("test/cancelRequestReceived", { id: params.id });
+		return;
+	}
 	if (message.id === undefined) return; // ignore other notifications
 
 	if (message.method === "initialize") {
@@ -97,6 +119,9 @@ function handle(message: JsonRpcMessage): void {
 		}
 		if (mode === "sends-server-request") {
 			void runServerInitiatedRequestSequence();
+		}
+		if (mode === "cancels-own-request") {
+			void runCancelOwnRequestSequence();
 		}
 		return;
 	}
