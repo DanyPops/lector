@@ -221,7 +221,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatFindSymbolsCall(args as { query?: unknown; directory?: unknown }, theme));
+				text.setText(formatFindSymbolsCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -265,7 +265,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGoToDefinitionCall(args as { path?: unknown; line?: unknown; character?: unknown }, theme));
+				text.setText(formatGoToDefinitionCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -303,7 +303,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGoToImplementationCall(args as { path?: unknown; line?: unknown; character?: unknown }, theme));
+				text.setText(formatGoToImplementationCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -348,7 +348,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatFindReferencesCall(args as { path?: unknown; line?: unknown; character?: unknown }, theme));
+				text.setText(formatFindReferencesCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -388,7 +388,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatHoverCall(args as { path?: unknown; line?: unknown; character?: unknown }, theme));
+				text.setText(formatHoverCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -422,7 +422,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatDocumentSymbolsCall(args as { path?: unknown }, theme));
+				text.setText(formatDocumentSymbolsCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -459,7 +459,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatDiagnosticsCall(args as { path?: unknown }, theme));
+				text.setText(formatDiagnosticsCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -498,7 +498,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatPrepareCallHierarchyCall(args as { path?: unknown; line?: unknown; character?: unknown }, theme));
+				text.setText(formatPrepareCallHierarchyCall(args, theme));
 				return text;
 			},
 			renderResult(result, { isPartial }, theme, context) {
@@ -539,7 +539,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatIncomingCallsCall(args as { path?: unknown; line?: unknown; character?: unknown }, theme));
+				text.setText(formatIncomingCallsCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -576,7 +576,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatOutgoingCallsCall(args as { path?: unknown; line?: unknown; character?: unknown }, theme));
+				text.setText(formatOutgoingCallsCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -622,7 +622,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatPopulateSymbolGraphCall(args as { path?: unknown; maxFiles?: unknown; maxSymbolsPerFile?: unknown }, theme));
+				text.setText(formatPopulateSymbolGraphCall(args, theme));
 				return text;
 			},
 			renderResult(result, { isPartial }, theme, context) {
@@ -837,7 +837,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatReachableFromCall(args as { path?: unknown; line?: unknown; character?: unknown; maxDepth?: unknown }, theme));
+				text.setText(formatReachableFromCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -888,7 +888,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatWorkspaceMapCall(args as { path?: unknown; maxEntries?: unknown }, theme));
+				text.setText(formatWorkspaceMapCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -924,7 +924,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGitStatusCall(args as { directory?: unknown }, theme));
+				text.setText(formatGitStatusCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -962,7 +962,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGitLogCall(args as { directory?: unknown; maxCount?: unknown }, theme));
+				text.setText(formatGitLogCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -999,7 +999,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatGitDiffCall(args as { directory?: unknown; ref?: unknown }, theme));
+				text.setText(formatGitDiffCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1040,7 +1040,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatSearchCall(args as { directory?: unknown; query?: unknown }, theme));
+				text.setText(formatSearchCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1086,7 +1086,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatFindFilesCall(args as { directory?: unknown; patterns?: unknown }, theme));
+				text.setText(formatFindFilesCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1156,7 +1156,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatLineEditCall(args as { path?: unknown; edits?: unknown }, theme));
+				text.setText(formatLineEditCall(args, theme));
 				return text;
 			},
 			renderResult(result, { isPartial }, theme, context) {
@@ -1202,7 +1202,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatApplyPatchCall(args as { path?: unknown }, theme));
+				text.setText(formatApplyPatchCall(args, theme));
 				return text;
 			},
 			renderResult(result, { isPartial }, theme, context) {
@@ -1241,7 +1241,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatPackageSourceCall(args as { directory?: unknown; name?: unknown; version?: unknown }, theme));
+				text.setText(formatPackageSourceCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1279,7 +1279,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatRepoFetchCall(args as { owner?: unknown; repo?: unknown; ref?: unknown; host?: unknown }, theme));
+				text.setText(formatRepoFetchCall(args, theme));
 				return text;
 			},
 			renderResult(result, { isPartial }, theme, context) {
@@ -1317,7 +1317,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatCrossWorkspaceCall(args as { directories?: unknown; query?: unknown }, theme));
+				text.setText(formatCrossWorkspaceCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1356,7 +1356,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatCrossWorkspaceCall(args as { directories?: unknown; query?: unknown }, theme));
+				text.setText(formatCrossWorkspaceCall(args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
