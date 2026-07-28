@@ -162,8 +162,12 @@ async function runServe(args: string[]): Promise<void> {
 
 async function runWorkspaceRegister(dir: string | undefined, flags: string[]): Promise<void> {
 	if (!dir) fail(USAGE);
+	// Resolved here, against THIS process's own cwd -- the daemon is a long-running shared
+	// service with no meaningful "current directory" relative to any particular caller, so it
+	// rejects a relative path outright rather than guessing. The CLI is the one process that
+	// actually knows what the invoking shell meant by "." or a bare relative directory name.
 	const client = await connectLectorClient();
-	const result = await client.call("workspace.registerPath", { path: dir });
+	const result = await client.call("workspace.registerPath", { path: resolve(dir) });
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.workspaceId} (${result.created ? "created" : "already registered"})`);
 }
 

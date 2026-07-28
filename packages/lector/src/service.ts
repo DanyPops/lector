@@ -21,6 +21,7 @@ import { deriveSourceManifest } from "./adapters/source-manifest.ts";
 import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "./adapters/typescript-compiler-symbol-index.ts";
 import { applyPatch, PatchRejected } from "./domain/apply-patch.ts";
+import { assertAbsolutePath, RelativeWorkspacePath } from "./domain/assert-absolute-path.ts";
 import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
@@ -479,12 +480,13 @@ export interface LectorServiceOptions {
 	/**
 	 * Explicit opt-in to start with zero registered workspaces, relying entirely on
 	 * workspace.registerPath at runtime -- the shape a long-lived background daemon that
-	 * attaches to whatever project a host adapter (pi-lector) is used from actually needs,
-	 * since workspace.registerPath already validates its own explicit absolute path (no
-	 * implicit fallback reappears just because the registry started empty). Without this,
-	 * zero workspaces at construction is still refused (Locus LCS-BUG-88 class): the default
-	 * stays "fail loud on likely misconfiguration," and a caller must say what it actually
-	 * intends rather than the guard being silently loosened for everyone.
+	 * attaches to whatever project a host adapter (pi-lector) is used from actually needs.
+	 * workspace.registerPath itself now rejects a non-absolute path outright (RelativeWorkspacePath)
+	 * rather than resolving it against this process's own irrelevant cwd -- no implicit fallback
+	 * reappears just because the registry started empty. Without this option, zero workspaces at
+	 * construction is still refused (Locus LCS-BUG-88 class): the default stays "fail loud on
+	 * likely misconfiguration," and a caller must say what it actually intends rather than the
+	 * guard being silently loosened for everyone.
 	 */
 	allowDynamicOnly?: boolean;
 	/** Factory for the graph backing workspace.populateSymbolGraph/reachableFrom/symbolEdgesFrom/symbolEdgesTo. Defaults to an in-memory graph (not durable across a restart). */
@@ -527,6 +529,10 @@ type OperationHandlers = {
 };
 
 async function registerPath(registry: MutableRegistry, input: OperationInputs["workspace.registerPath"]): Promise<OperationOutputs["workspace.registerPath"]> {
+	// Rejected outright, not resolved -- a daemon has no caller-relative "current directory" of
+	// its own; resolve() on a relative path would silently use this PROCESS's own cwd (e.g. a
+	// systemd unit's fixed WorkingDirectory), not whatever the real caller actually meant.
+	assertAbsolutePath(input.path);
 	const absolutePath = resolve(input.path);
 	const workspaceId = deriveWorkspaceId(absolutePath);
 	if (registry.has(workspaceId)) {
@@ -1527,4 +1533,4 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 }
 
 export { JobCapacityExceeded, JobNotFound } from "./domain/bounded-job-executor.ts";
-export { LineEditRace, LineEditRejected, PatchRejected, StaleExpectedHash, WatchLimitExceeded, WorkspaceEntryNotFound };
+export { LineEditRace, LineEditRejected, PatchRejected, RelativeWorkspacePath, StaleExpectedHash, WatchLimitExceeded, WorkspaceEntryNotFound };

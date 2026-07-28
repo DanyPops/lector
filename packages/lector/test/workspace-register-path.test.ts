@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
-import { createLectorService, InvalidWorkspaceRoot, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
+import { createLectorService, InvalidWorkspaceRoot, type OperationInputs, type OperationName, type OperationOutputs, RelativeWorkspacePath } from "../src/service.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 let cleanupFns: Array<() => void | Promise<void>> = [];
@@ -71,6 +71,25 @@ describe("workspace.registerPath", () => {
 		const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]));
 
 		await expect(service.dispatch("workspace.registerPath", { path: filePath })).rejects.toBeInstanceOf(InvalidWorkspaceRoot);
+	});
+
+	it("rejects a relative path outright, rather than silently resolving it against the daemon's own process cwd", async () => {
+		// Real, previously-shipped bug this fixes: a daemon has no meaningful "current directory"
+		// of its own relative to any caller -- resolve(".") inside the daemon process silently
+		// registered the daemon's own cwd (e.g. a systemd unit's WorkingDirectory) instead of
+		// whatever directory the CLI-invoking shell actually meant.
+		const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]));
+
+		await expect(service.dispatch("workspace.registerPath", { path: "." })).rejects.toBeInstanceOf(RelativeWorkspacePath);
+		await expect(service.dispatch("workspace.registerPath", { path: "relative/dir" })).rejects.toBeInstanceOf(RelativeWorkspacePath);
+	});
+
+	it("a relative path is rejected before any filesystem access, distinct from a real-but-relative path's own existence", async () => {
+		const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]));
+		// Deliberately a directory that genuinely exists relative to this test's own cwd (the repo
+		// root) -- if the rejection only worked by accident (e.g. the path just didn't exist), this
+		// case would slip through as InvalidWorkspaceRoot instead of the real RelativeWorkspacePath.
+		await expect(service.dispatch("workspace.registerPath", { path: "src" })).rejects.toBeInstanceOf(RelativeWorkspacePath);
 	});
 
 	it("a dynamically registered workspace is immediately usable by rawRead/exactEdit over the real daemon", async () => {
