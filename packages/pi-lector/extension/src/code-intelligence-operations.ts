@@ -1,5 +1,5 @@
 import type { JobSnapshot, OperationInputs, OperationOutputs, PopulateSymbolGraphResult, SymbolEdgeKind, SymbolNode } from "@danypops/lector";
-import { lectorClient, withWorkspace, workspaceForCodeIntelligencePath } from "./lector-client.ts";
+import { lectorClient, withWorkspace, workspaceForCodeIntelligencePath, workspaceForPathOrDirectory } from "./lector-client.ts";
 
 /**
  * Thin wrappers over Lector's code-intelligence operations: goToDefinition,
@@ -13,6 +13,13 @@ import { lectorClient, withWorkspace, workspaceForCodeIntelligencePath } from ".
  * falling back to the file's own containing directory, never the filesystem
  * root -- every one of these operations spawns a real language server,
  * unlike read/write/edit) -- never a value captured once at session start.
+ *
+ * Exception: populateSymbolGraph, workspaceMap, and hasWarmIndex are not file-anchored --
+ * their `path` genuinely means "the project itself", so they resolve via
+ * workspaceForPathOrDirectory instead, which does not blindly take dirname() first. A real,
+ * confirmed live bug: passing a project's own root directory through workspaceForCodeIntelligencePath
+ * silently resolved to that directory's *parent* (dirname strips the final segment even when the
+ * given path was already a directory with its own .git), mixing in every sibling project's graph.
  */
 export interface CodeIntelligenceOperations {
 	goToDefinition(path: string, line: number, character: number): Promise<OperationOutputs["workspace.goToDefinition"]>;
@@ -123,7 +130,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async populateSymbolGraph(path, maxFiles, maxSymbolsPerFile, waitMs = 500) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForPathOrDirectory(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { job } = await client.call("job.submit", {
@@ -152,7 +159,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async hasWarmIndex(path) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForPathOrDirectory(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { warm } = await client.call("workspace.hasWarmIndex", { workspaceId });
@@ -162,7 +169,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 		},
 		async workspaceMap(path, maxNodes, maxEdges, maxEntries, maxBytes) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForPathOrDirectory(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.call("workspace.map", { workspaceId, maxNodes, maxEdges, maxEntries, maxBytes });

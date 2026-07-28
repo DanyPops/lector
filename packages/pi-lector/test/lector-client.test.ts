@@ -17,6 +17,7 @@ import {
 	workspaceForCodeIntelligencePath,
 	workspaceForDirectory,
 	workspaceForPath,
+	workspaceForPathOrDirectory,
 } from "../extension/src/lector-client.ts";
 import { startIsolatedLectorDaemon } from "./support/isolated-lector-daemon.ts";
 
@@ -138,6 +139,61 @@ describe("workspaceForPath vs. workspaceForDirectory fallback when no git repo i
 			expect(resolved.root).not.toBe("/");
 		} finally {
 			rmSync(plainDir, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+});
+
+describe("workspaceForPathOrDirectory", () => {
+	it("resolves a real directory to itself, not its parent -- the exact bug this fixes (previously dirname()'d every path unconditionally)", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const repo = fakeRepo("pi-lector-path-or-dir-");
+		const sibling = fakeRepo("pi-lector-path-or-dir-sibling-");
+		try {
+			const byRepoDirectory = await workspaceForPathOrDirectory(repo);
+			const byFileInsideRepo = await workspaceForPath(join(repo, "a.ts"));
+			expect(byRepoDirectory.workspaceId).toBe(byFileInsideRepo.workspaceId);
+			expect(byRepoDirectory.root).toBe(repo);
+
+			// A sibling's own workspace must stay distinct -- proves this isn't accidentally
+			// resolving to some shared broader ancestor.
+			const bySibling = await workspaceForPathOrDirectory(sibling);
+			expect(bySibling.workspaceId).not.toBe(byRepoDirectory.workspaceId);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+			rmSync(sibling, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("falls back to dirname() for a file path, same as workspaceForCodeIntelligencePath", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const repo = fakeRepo("pi-lector-path-or-dir-file-");
+		try {
+			const byFile = await workspaceForPathOrDirectory(join(repo, "a.ts"));
+			const byCodeIntelligence = await workspaceForCodeIntelligencePath(join(repo, "a.ts"));
+			expect(byFile.workspaceId).toBe(byCodeIntelligence.workspaceId);
+			expect(byFile.root).toBe(repo);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("falls back to dirname() for a path that does not exist yet (e.g. a file about to be created)", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const repo = fakeRepo("pi-lector-path-or-dir-missing-");
+		try {
+			const resolved = await workspaceForPathOrDirectory(join(repo, "not-yet-created.ts"));
+			expect(resolved.root).toBe(repo);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
 			await daemon.stop();
 		}
 	});

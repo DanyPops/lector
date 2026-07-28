@@ -1,3 +1,4 @@
+import { existsSync, statSync } from "node:fs";
 import { dirname, parse } from "node:path";
 import { createRetryingClient, type RetryingClient } from "@danypops/daemon-kit/pi-client";
 import {
@@ -109,6 +110,24 @@ export function workspaceForDirectory(directory: string): Promise<ResolvedWorksp
  */
 export function workspaceForCodeIntelligencePath(absolutePath: string): Promise<ResolvedWorkspace> {
 	return workspaceForDirectory(dirname(absolutePath));
+}
+
+/**
+ * For an operation whose `path` genuinely means "the project/workspace itself"
+ * (populateSymbolGraph, workspaceMap, hasWarmIndex) rather than one specific file
+ * to act on -- unlike workspaceForCodeIntelligencePath, does NOT blindly take
+ * dirname() first. A real, confirmed live bug: passing a project's own root
+ * directory (e.g. "/repo", which has its own .git right there) through
+ * dirname() strips its final segment, silently resolving to the *parent*
+ * directory's own nearest git root instead -- for a project nested one level
+ * under a broader already-registered workspace, this mixes in every sibling
+ * project's own graph, with no error at all. Checks whether the path is
+ * itself a real, existing directory first; only takes dirname() when it is
+ * not (a file, or a not-yet-existing path).
+ */
+export function workspaceForPathOrDirectory(path: string): Promise<ResolvedWorkspace> {
+	const isRealDirectory = existsSync(path) && statSync(path).isDirectory();
+	return workspaceForDirectory(isRealDirectory ? path : dirname(path));
 }
 
 /**

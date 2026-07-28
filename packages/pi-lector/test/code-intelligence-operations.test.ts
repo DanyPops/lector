@@ -196,6 +196,34 @@ describe("Lector-backed code-intelligence operations", () => {
 		expect(map.entries.find((entry) => entry.name === "add")?.signature).toContain("add");
 	}, 20_000);
 
+	it("populateSymbolGraph and workspaceMap resolve the project's own root directory to the project itself, not its parent", async () => {
+		// Real, confirmed live bug: passing a project's own root directory (which has its own
+		// .git right there) through the file-anchored resolution used elsewhere in this file
+		// silently took dirname() first, resolving one level too high -- for a project nested
+		// under a broader already-registered parent workspace, this mixed in every sibling
+		// project's own graph with no error at all. Proven here by asserting the *directory*
+		// path resolves to the exact same workspace (and populates the exact same graph) as an
+		// explicit file already known to live inside it.
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const ops = createLectorCodeIntelligenceOperations();
+		const byDirectory = await ops.populateSymbolGraph(root, 100, 50, 20_000);
+		expect(byDirectory.status).toBe("succeeded");
+		if (byDirectory.status !== "succeeded") throw new Error(`expected succeeded job, got ${byDirectory.status}`);
+		expect(byDirectory.result.filesProcessed).toBeGreaterThan(0);
+
+		// The graph populated via the directory path must be the *same* project's graph: a
+		// query anchored to a real file inside it must see real results, not an empty/wrong
+		// workspace's graph.
+		const map = await ops.workspaceMap(mathFile, 1_000, 1_000, 100, 1_000_000);
+		expect(map.entries.map((entry) => entry.name)).toContain("add");
+		expect(await ops.hasWarmIndex(root)).toBe(true);
+	}, 20_000);
+
 	it("populateSymbolGraph returns a pollable job immediately instead of blocking on a cold language server", async () => {
 		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
