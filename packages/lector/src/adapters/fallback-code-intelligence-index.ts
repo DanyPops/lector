@@ -4,6 +4,7 @@ import type { DocumentSymbolEntry } from "../domain/document-symbol.ts";
 import type { FileChangeEvent } from "../domain/file-change-event.ts";
 import type { Hover } from "../domain/hover.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../domain/intelligence-provenance.ts";
+import type { ParsedWorkspaceEdit, RenameRange } from "../domain/workspace-edit.ts";
 import type { SymbolSearchResult, WorkspaceLocation } from "../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../ports/symbol-index-port.ts";
@@ -72,6 +73,19 @@ export class FallbackCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 	}
 	notifyFileChanged(event: FileChangeEvent): void {
 		this.primary.notifyFileChanged?.(event);
+	}
+	prepareRename(at: WorkspaceLocation): Promise<RenameRange | null> {
+		return this.primary.prepareRename?.(at) ?? Promise.resolve(null);
+	}
+	async rename(at: WorkspaceLocation, newName: string): Promise<ParsedWorkspaceEdit> {
+		if (!this.primary.rename) throw new Error("the primary code-intelligence backend does not support rename");
+		return this.primary.rename(at, newName);
+	}
+	notifyFilesWillRename(pairs: readonly { readonly fromPath: string; readonly toPath: string }[]): Promise<void> {
+		return this.primary.notifyFilesWillRename?.(pairs) ?? Promise.resolve();
+	}
+	notifyFilesDidRename(pairs: readonly { readonly fromPath: string; readonly toPath: string }[]): void {
+		this.primary.notifyFilesDidRename?.(pairs);
 	}
 
 	async close(): Promise<void> {

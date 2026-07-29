@@ -11,6 +11,7 @@ import type {
 	LineEdit,
 	LineEditOutcome,
 	MutationHistoryEntry,
+	OperationOutputs,
 	PackageSourceOperationResult,
 	PopulateSymbolGraphResult,
 	RepoFetchResult,
@@ -76,6 +77,7 @@ import { createLectorPackageSourceOperations } from "./package-source-operations
 import { formatPackageSourceCall, formatPackageSourceResult } from "./package-source-rendering.ts";
 import { createLectorReadOperations } from "./read-operations.ts";
 import { createReferenceBasedRenameOperations } from "./reference-based-rename-operations.ts";
+import { createRenameOperations } from "./rename-operations.ts";
 import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
 import { formatRepoFetchCall, formatRepoFetchResult } from "./repo-fetch-rendering.ts";
 import { createLectorSearchOperations } from "./search-operations.ts";
@@ -298,6 +300,7 @@ export default function (pi: ExtensionAPI) {
 
 		const codeIntelligenceOperations = createLectorCodeIntelligenceOperations();
 		const referenceBasedRenameOperations = createReferenceBasedRenameOperations();
+		const renameOperations = createRenameOperations();
 		const positionParameters = {
 			path: Type.String({ description: "Absolute or cwd-relative path to the file" }),
 			line: Type.Number({ description: "1-indexed line number" }),
@@ -734,6 +737,67 @@ export default function (pi: ExtensionAPI) {
 						: theme.fg("success", "rename complete"),
 				);
 				return text;
+			},
+		});
+
+		interface RenameToolDetails {
+			prepared?: OperationOutputs["workspace.prepareRename"];
+			applied?: OperationOutputs["workspace.rename"];
+		}
+
+		pi.registerTool({
+			name: "rename",
+			label: "Rename",
+			description:
+				"LSP-driven rename via the negotiated language server's own textDocument/prepareRename and textDocument/rename -- the semantic sibling of reference_based_rename, cross-file and identity-aware (resolves through re-exports/aliasing, not just static import specifiers), but only where the workspace's language server actually implements rename. prepare checks whether the symbol at a position can be renamed at all before committing; apply requests the rename and applies the server's own WorkspaceEdit atomically across every file it touches, rolled back entirely on any failure. Actions: prepare, apply.",
+			promptSnippet: "Rename a symbol everywhere it's used, via the language server",
+			promptGuidelines: [
+				"Call prepare first when unsure a position is renameable -- a null range means nothing to rename there, not an error.",
+				"apply fails outright if the negotiated server never advertised rename support -- reference_based_rename is the non-LSP fallback for that case.",
+			],
+			parameters: Type.Object({
+				action: Type.String({ description: "prepare | apply" }),
+				...positionParameters,
+				newName: Type.Optional(Type.String({ description: "Required for apply" })),
+			}),
+			async execute(_toolCallId, params): Promise<{ content: [{ type: "text"; text: string }]; details: RenameToolDetails }> {
+				const path = resolve(cwd, params.path);
+				if (params.action === "prepare") {
+					const prepared = await renameOperations.prepareRename(path, params.line, params.character);
+					const text = prepared.range
+						? `renameable${prepared.range.placeholder ? `: "${prepared.range.placeholder}"` : ""}`
+						: "nothing renameable at this position";
+					return { content: [{ type: "text", text }], details: { prepared } };
+				}
+				if (params.action === "apply") {
+					if (!params.newName) throw new Error("rename apply requires newName");
+					const applied = await renameOperations.rename(path, params.line, params.character, params.newName);
+					const text = `renamed to "${params.newName}" -- updated ${applied.touchedPaths.length} file(s): ${applied.touchedPaths.join(", ")}`;
+					return { content: [{ type: "text", text }], details: { applied } };
+				}
+				throw new Error(`unknown rename action "${params.action}" -- expected prepare or apply`);
+			},
+			renderCall(args, theme, context) {
+				const action = typeof args.action === "string" ? args.action : "";
+				const path = typeof args.path === "string" ? args.path : "";
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(`${theme.fg("toolTitle", theme.bold("rename"))} ${theme.fg("dim", action)} ${theme.fg("accent", path)}`);
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Renaming..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "rename failed"), 0, 0);
+				}
+				const text = result.content
+					.filter((block) => block.type === "text")
+					.map((block) => block.text)
+					.join("\n");
+				return new Text(theme.fg("success", text), 0, 0);
 			},
 		});
 

@@ -102,6 +102,11 @@ const USAGE = `Usage:
     on any failure. Refuses outright (touches nothing) unless the graph is fully "cached" (never
     "partial"/"not-cached") for these exact bounds. Does not follow dynamic import(expr)/
     require(expr) or any plain string reference -- see the returned caveats.
+  lector workspace prepare-rename <workspace-id> <path> <line> <character> [--json]
+    where/what could be renamed at this position -- null when nothing is renameable there
+  lector workspace rename <workspace-id> <path> <line> <character> <new-name> [--json]
+    LSP-driven: applies the negotiated server's own WorkspaceEdit atomically across every file it
+    touches, validated against a fresh per-file hash snapshot taken immediately before applying
   lector workspace git-status <workspace-id> [--json]
   lector workspace git-log <workspace-id> --max-count <n> [--json]
   lector workspace git-diff <workspace-id> [--ref <ref>] --max-bytes <n> [--json]
@@ -508,6 +513,44 @@ async function runWorkspaceReferenceBasedRename(
 	if (outcome.filesUpdated.length === 0) console.log("no other files referenced it");
 	else for (const path of outcome.filesUpdated) console.log(`updated import: ${path}`);
 	for (const caveat of outcome.caveats) console.log(`caveat: ${caveat}`);
+}
+
+async function runWorkspacePrepareRename(workspaceId: string | undefined, path: string | undefined, rest: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const [lineArg, characterArg, ...flags] = rest;
+	const { line, character } = parsePosition(lineArg, characterArg);
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.prepareRename", { workspaceId, path, line, character });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	console.log(formatIntelligenceSource(result.provenance));
+	if (!result.range) {
+		console.log("nothing renameable at this position");
+		return;
+	}
+	if (!result.range.range) {
+		console.log("renameable here (server left the exact range to the client)");
+		return;
+	}
+	const { path: rangePath, start, end } = result.range.range;
+	console.log(`renameable: ${rangePath}:${start.line}:${start.character}-${end.character}`);
+}
+
+async function runWorkspaceRename(workspaceId: string | undefined, path: string | undefined, rest: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const [lineArg, characterArg, newName, ...flags] = rest;
+	const { line, character } = parsePosition(lineArg, characterArg);
+	if (!newName) fail(USAGE);
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.rename", { workspaceId, path, line, character, newName });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	console.log(formatIntelligenceSource(result.provenance));
+	for (const touched of result.touchedPaths) console.log(`updated: ${touched}`);
 }
 
 async function runWorkspaceMap(workspaceId: string | undefined, flags: string[]): Promise<void> {
@@ -1228,6 +1271,14 @@ async function main(): Promise<void> {
 		if (action === "reference-based-rename") {
 			const [rbrWorkspaceId, rbrFromPath, rbrToPath, ...rbrFlags] = actionArgs;
 			return runWorkspaceReferenceBasedRename(rbrWorkspaceId, rbrFromPath, rbrToPath, rbrFlags);
+		}
+		if (action === "prepare-rename") {
+			const [prWorkspaceId, prPath, ...prRest] = actionArgs;
+			return runWorkspacePrepareRename(prWorkspaceId, prPath, prRest);
+		}
+		if (action === "rename") {
+			const [renWorkspaceId, renPath, ...renRest] = actionArgs;
+			return runWorkspaceRename(renWorkspaceId, renPath, renRest);
 		}
 		if (action === "map") {
 			const [mapWorkspaceId, ...mapFlags] = actionArgs;

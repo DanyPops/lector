@@ -77,3 +77,61 @@ describe("FallbackCodeIntelligenceIndex notifyFileChanged delegation", () => {
 		expect(() => index.notifyFileChanged?.({ path: "a.ts", kind: "modified" })).not.toThrow();
 	});
 });
+
+describe("FallbackCodeIntelligenceIndex rename delegation", () => {
+	it("delegates prepareRename to the primary when it implements it", async () => {
+		const primary = { ...stubPrimary(), prepareRename: async () => ({ range: undefined, placeholder: undefined }) };
+		const index = new FallbackCodeIntelligenceIndex(primary, []);
+
+		await expect(index.prepareRename({ path: "a.ts", line: 1, character: 1 })).resolves.toEqual({ range: undefined, placeholder: undefined });
+	});
+
+	it("resolves to null when the primary does not implement prepareRename", async () => {
+		const index = new FallbackCodeIntelligenceIndex(stubPrimary(), []);
+
+		await expect(index.prepareRename({ path: "a.ts", line: 1, character: 1 })).resolves.toBeNull();
+	});
+
+	it("delegates rename to the primary when it implements it", async () => {
+		const edit = { operations: [] };
+		const primary = { ...stubPrimary(), rename: async () => edit };
+		const index = new FallbackCodeIntelligenceIndex(primary, []);
+
+		await expect(index.rename({ path: "a.ts", line: 1, character: 1 }, "newName")).resolves.toBe(edit);
+	});
+
+	it("throws when the primary does not implement rename, rather than silently no-opping an action the caller explicitly requested", async () => {
+		const index = new FallbackCodeIntelligenceIndex(stubPrimary(), []);
+
+		await expect(index.rename({ path: "a.ts", line: 1, character: 1 }, "newName")).rejects.toThrow(/does not support rename/);
+	});
+
+	it("delegates notifyFilesWillRename/notifyFilesDidRename to the primary when it implements them", async () => {
+		const willCalls: unknown[] = [];
+		const didCalls: unknown[] = [];
+		const primary = {
+			...stubPrimary(),
+			notifyFilesWillRename: async (pairs: unknown) => {
+				willCalls.push(pairs);
+			},
+			notifyFilesDidRename: (pairs: unknown) => {
+				didCalls.push(pairs);
+			},
+		};
+		const index = new FallbackCodeIntelligenceIndex(primary, []);
+		const pairs = [{ fromPath: "a.ts", toPath: "b.ts" }];
+
+		await index.notifyFilesWillRename(pairs);
+		index.notifyFilesDidRename(pairs);
+
+		expect(willCalls).toEqual([pairs]);
+		expect(didCalls).toEqual([pairs]);
+	});
+
+	it("is a safe no-op for notifyFilesWillRename/notifyFilesDidRename when the primary does not implement them", async () => {
+		const index = new FallbackCodeIntelligenceIndex(stubPrimary(), []);
+
+		await expect(index.notifyFilesWillRename([{ fromPath: "a.ts", toPath: "b.ts" }])).resolves.toBeUndefined();
+		expect(() => index.notifyFilesDidRename([{ fromPath: "a.ts", toPath: "b.ts" }])).not.toThrow();
+	});
+});

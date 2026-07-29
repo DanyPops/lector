@@ -409,3 +409,77 @@ describe("LspSymbolIndex content-cache wiring", () => {
 		expect(symbols.some((symbol) => symbol.name === "cachedFn")).toBe(true);
 	}, 20_000);
 });
+
+describe("LspSymbolIndex prepareRename/rename", () => {
+	let fixtureRoot: string | undefined;
+	afterEach(() => {
+		if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
+		fixtureRoot = undefined;
+	});
+
+	function buildFixture(): { root: string; mathFile: string; consumerFile: string } {
+		const root = mkdtempSync(join(tmpdir(), "lector-lsp-rename-"));
+		mkdirSync(join(root, "src"));
+		const mathFile = join(root, "src", "math.ts");
+		writeFileSync(mathFile, "export function add(a: number, b: number): number {\n\treturn a + b;\n}\n\n// just a comment, nothing renameable here\n");
+		const consumerFile = join(root, "src", "consumer.ts");
+		writeFileSync(consumerFile, 'import { add } from "./math";\n\nexport function total(): number {\n\treturn add(1, 2);\n}\n');
+		writeFileSync(
+			join(root, "tsconfig.json"),
+			JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true }, include: ["src"] }),
+		);
+		return { root, mathFile, consumerFile };
+	}
+
+	it("prepareRename resolves a real declaration's own range and placeholder text", async () => {
+		const { root, mathFile } = buildFixture();
+		fixtureRoot = root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
+
+		// "add" starts at column 17 (1-indexed) on line 1: "export function add(..."
+		const result = await index.prepareRename?.({ path: mathFile, line: 1, character: 17 });
+
+		expect(result).not.toBeNull();
+		expect(result?.placeholder ?? "add").toContain("add");
+	});
+
+	it("prepareRename returns null for a position with no renameable symbol, even when the server signals it via a JSON-RPC error rather than a null result", async () => {
+		const { root, mathFile } = buildFixture();
+		fixtureRoot = root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
+
+		// typescript-language-server answers this position with a JSON-RPC error ("You cannot
+		// rename this element."), not a null result -- per spec both mean the same thing.
+		const result = await index.prepareRename?.({ path: mathFile, line: 5, character: 5 });
+
+		expect(result).toBeNull();
+	});
+
+	it("rename returns a real WorkspaceEdit touching both the declaration and its cross-file usage", async () => {
+		const { root, mathFile, consumerFile } = buildFixture();
+		fixtureRoot = root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
+		// Opens consumer.ts first so the server has it loaded and includes its usage -- the same
+		// "findReferences reliably includes a consumer file's usage once queried" precedent already
+		// proven elsewhere in this file.
+		await documentSymbols(index, consumerFile);
+
+		const edit = await index.rename?.({ path: mathFile, line: 1, character: 17 }, "sum");
+
+		expect(edit).toBeDefined();
+		const touchedPaths = edit?.operations.filter((op) => op.kind === "text").map((op) => op.path) ?? [];
+		expect(touchedPaths).toContain(mathFile);
+		expect(touchedPaths).toContain(consumerFile);
+	}, 20_000);
+
+	it("exposes negotiated rename capabilities after a real initialize", async () => {
+		const { root, mathFile } = buildFixture();
+		fixtureRoot = root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
+
+		await documentSymbols(index, mathFile);
+
+		expect(index.capabilities?.renameProvider).toBe(true);
+		expect(index.capabilities?.prepareRenameProvider).toBe(true);
+	});
+});

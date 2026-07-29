@@ -26,6 +26,7 @@ import { TypeScriptCompilerSymbolIndex } from "./adapters/typescript-compiler-sy
 import { annotationsContainedFrom, wouldCreateContainmentCycle } from "./domain/annotation-containment.ts";
 import { applyPatch, PatchRejected } from "./domain/apply-patch.ts";
 import { applyReferenceBasedRename, type ReferenceBasedRenameOutcome } from "./domain/apply-reference-based-rename.ts";
+import { applyWorkspaceEdit, collectTouchedPaths } from "./domain/apply-workspace-edit.ts";
 import { assertAbsolutePath, RelativeWorkspacePath } from "./domain/assert-absolute-path.ts";
 import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
@@ -71,6 +72,7 @@ import type { RepoReference } from "./domain/repo-reference.ts";
 import { resolvePackageSource } from "./domain/resolve-package-source.ts";
 import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from "./domain/response-format.ts";
 import { searchText as searchTextQuery } from "./domain/search-text.ts";
+import { SerialExecutionQueue } from "./domain/serial-execution-queue.ts";
 import type { AnnotationId, SymbolAnnotation, SymbolAnnotationAnchor } from "./domain/symbol-annotation.ts";
 import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
@@ -79,6 +81,7 @@ import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
 import { assertBoundedSymbolQuery } from "./domain/symbol-query.ts";
 import type { TextSearchResult } from "./domain/text-search-result.ts";
 import { WatchLimitExceeded, WatchRegistry } from "./domain/watch-registry.ts";
+import type { ParsedWorkspaceEdit, RenameRange } from "./domain/workspace-edit.ts";
 import { computeWorkspaceMap, type WorkspaceMapResult } from "./domain/workspace-map.ts";
 import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts";
 import type { SymbolSearchResult, WorkspaceLocation } from "./domain/workspace-symbol.ts";
@@ -132,6 +135,14 @@ export class SymbolQueryUnavailable extends Error {
 }
 
 /** Raised when a git operation targets a workspace whose root is not inside a git repository -- a real, expected case, not every registered workspace is one. */
+/** Raised when the negotiated backend has no rename/prepareRename support at all (e.g. a tree-sitter fallback, or a real server that never advertised renameProvider). */
+export class RenameNotSupported extends Error {
+	constructor(readonly workspaceId: WorkspaceId) {
+		super(`workspace "${workspaceId}"'s symbol index does not support rename -- the negotiated backend never advertised renameProvider`);
+		this.name = "RenameNotSupported";
+	}
+}
+
 export class NotAGitRepository extends Error {
 	constructor(readonly workspaceId: WorkspaceId) {
 		super(`workspace "${workspaceId}" is not inside a git repository`);
@@ -306,6 +317,8 @@ export type OperationName =
 	| "workspace.hasWarmIndex"
 	| "workspace.cacheStatus"
 	| "workspace.referenceBasedRename"
+	| "workspace.prepareRename"
+	| "workspace.rename"
 	| "workspace.gitStatus"
 	| "workspace.gitLog"
 	| "workspace.gitDiff"
@@ -355,6 +368,8 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.hasWarmIndex",
 	"workspace.cacheStatus",
 	"workspace.referenceBasedRename",
+	"workspace.prepareRename",
+	"workspace.rename",
 	"workspace.gitStatus",
 	"workspace.gitLog",
 	"workspace.gitDiff",
@@ -414,6 +429,8 @@ export interface OperationInputs {
 	"workspace.cacheStatus": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
 	/** maxFiles/maxSymbolsPerFile gate the same freshness check cacheStatus uses -- this rename refuses outright unless the graph is fully "cached" (never "partial") for those exact bounds. */
 	"workspace.referenceBasedRename": { workspaceId: WorkspaceId; fromPath: string; toPath: string; maxFiles: number; maxSymbolsPerFile: number };
+	"workspace.prepareRename": WorkspacePosition;
+	"workspace.rename": WorkspacePosition & { newName: string };
 	"workspace.gitStatus": { workspaceId: WorkspaceId };
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
@@ -497,6 +514,8 @@ export interface OperationOutputs {
 	"workspace.hasWarmIndex": { warm: boolean };
 	"workspace.cacheStatus": WorkspaceCacheStatus;
 	"workspace.referenceBasedRename": ReferenceBasedRenameOutcome;
+	"workspace.prepareRename": Provenanced<{ range: RenameRange | null }>;
+	"workspace.rename": Provenanced<{ touchedPaths: readonly string[] }>;
 	"workspace.gitStatus": GitStatusSummary;
 	"workspace.gitLog": { entries: readonly GitLogEntry[] };
 	"workspace.gitDiff": GitDiffResult;
@@ -789,6 +808,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const createFileWatcher = options.createFileWatcher ?? (() => new NodeFsFileWatcher());
 	const publish = options.publish ?? (() => {});
 	const watchRegistry = new WatchRegistry();
+	/** Serializes workspace.rename's atomic multi-file apply per workspace root -- a concurrent second rename (or reference-based rename) for the same workspace waits its turn rather than interleaving mid-apply. */
+	const renameMutationBarrier = new SerialExecutionQueue();
 	/**
 	 * One real OS watcher per workspace, shared across every pattern registered for it AND
 	 * graph-freshness watching -- lazily created on the first workspace.watch call or the first
@@ -1480,6 +1501,46 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return applyReferenceBasedRename(entry.port, plan);
 	}
 
+	async function prepareRenameHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.prepareRename"],
+	): Promise<OperationOutputs["workspace.prepareRename"]> {
+		const { index } = await requireCodeIntelligence(input);
+		if (!index.prepareRename) throw new RenameNotSupported(input.workspaceId);
+		const range = await index.prepareRename({ path: input.path, line: input.line, character: input.character });
+		return { range, provenance: index.provenance };
+	}
+
+	async function renameHandler(_registry: MutableRegistry, input: OperationInputs["workspace.rename"]): Promise<OperationOutputs["workspace.rename"]> {
+		const entry = registry.get(input.workspaceId);
+		if (!entry) throw new UnknownWorkspace(input.workspaceId);
+		const { index } = await requireCodeIntelligence(input);
+		if (!index.rename) throw new RenameNotSupported(input.workspaceId);
+		const rename = index.rename.bind(index);
+
+		return renameMutationBarrier.run(input.workspaceId, async () => {
+			const edit: ParsedWorkspaceEdit = await rename({ path: input.path, line: input.line, character: input.character }, input.newName);
+			const renamePairs = edit.operations.filter((op) => op.kind === "rename").map((op) => ({ fromPath: op.fromPath, toPath: op.toPath }));
+
+			// The caller's own snapshot of every touched path's current hash -- taken immediately
+			// before applying, as close as Lector can get to "what the server actually saw" without
+			// re-running its own analysis. applyWorkspaceEdit validates every step against this,
+			// never a fresh read taken mid-apply (see its own doc comment for why that would catch
+			// nothing).
+			const expectedHashes = new Map<string, ContentHash | null>();
+			for (const path of collectTouchedPaths(edit)) {
+				const read = await entry.port.readEntry(path);
+				expectedHashes.set(path, read.exists ? contentHashOf(read.content) : null);
+			}
+
+			await index.notifyFilesWillRename?.(renamePairs);
+			const outcome = await applyWorkspaceEdit(entry.port, edit, expectedHashes);
+			index.notifyFilesDidRename?.(renamePairs);
+
+			return { touchedPaths: outcome.touchedPaths, provenance: index.provenance };
+		});
+	}
+
 	async function mutationHistoryHandler(
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.mutationHistory"],
@@ -1814,6 +1875,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.hasWarmIndex": hasWarmIndex,
 		"workspace.cacheStatus": cacheStatusHandler,
 		"workspace.referenceBasedRename": referenceBasedRenameHandler,
+		"workspace.prepareRename": prepareRenameHandler,
+		"workspace.rename": renameHandler,
 		"workspace.gitStatus": gitStatusHandler,
 		"workspace.gitLog": gitLogHandler,
 		"workspace.gitDiff": gitDiffHandler,

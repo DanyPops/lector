@@ -5,6 +5,7 @@ import type { DocumentSymbolEntry } from "../domain/document-symbol.ts";
 import type { Hover } from "../domain/hover.ts";
 import type { IntelligenceProvenance, IntelligenceSourceOutcome, SymbolSearchBounds } from "../domain/intelligence-provenance.ts";
 import type { LanguageServerDescriptor } from "../domain/language-server-descriptor.ts";
+import type { ParsedWorkspaceEdit, RenameRange } from "../domain/workspace-edit.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../ports/symbol-index-port.ts";
@@ -139,5 +140,33 @@ export class PolyglotCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 
 	releaseFile(path: string): Promise<void> {
 		return this.indexForPath(path).releaseFile?.(path) ?? Promise.resolve();
+	}
+
+	prepareRename(at: WorkspaceLocation): Promise<RenameRange | null> {
+		return this.indexForPath(at.path).prepareRename?.(at) ?? Promise.resolve(null);
+	}
+
+	async rename(at: WorkspaceLocation, newName: string): Promise<ParsedWorkspaceEdit> {
+		const index = this.indexForPath(at.path);
+		if (!index.rename) throw new Error(`no code-intelligence backend for "${at.path}" supports rename`);
+		return index.rename(at, newName);
+	}
+
+	/**
+	 * Dispatches to whichever single backend produced the rename's own edit (the first touched
+	 * path's own index) -- a rename spanning two DIFFERENT language backends is beyond what a
+	 * single textDocument/rename request can produce anyway (rename() above dispatches to exactly
+	 * one index too), so there is exactly one relevant backend to notify here.
+	 */
+	notifyFilesWillRename(pairs: readonly { readonly fromPath: string; readonly toPath: string }[]): Promise<void> {
+		const first = pairs[0];
+		if (!first) return Promise.resolve();
+		return this.indexForPath(first.fromPath).notifyFilesWillRename?.(pairs) ?? Promise.resolve();
+	}
+
+	notifyFilesDidRename(pairs: readonly { readonly fromPath: string; readonly toPath: string }[]): void {
+		const first = pairs[0];
+		if (!first) return;
+		this.indexForPath(first.fromPath).notifyFilesDidRename?.(pairs);
 	}
 }

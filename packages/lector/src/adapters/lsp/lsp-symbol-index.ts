@@ -23,6 +23,7 @@ import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/l
 import { toLspFileChangeType } from "../../domain/lsp-file-change-type.ts";
 import { type ParsedServerCapabilities, parseServerCapabilities, shouldSyncDocuments } from "../../domain/lsp-server-capabilities.ts";
 import { SerialExecutionQueue } from "../../domain/serial-execution-queue.ts";
+import { type ParsedWorkspaceEdit, parsePrepareRenameResult, parseWorkspaceEdit, type RenameRange } from "../../domain/workspace-edit.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { ContentCachePort } from "../../ports/content-cache-port.ts";
@@ -465,6 +466,9 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 							documentSymbol: { hierarchicalDocumentSymbolSupport: true },
 							definition: { linkSupport: true },
 							hover: { contentFormat: ["markdown", "plaintext"] },
+							// typescript-language-server withholds renameProvider entirely without this --
+							// the same gating pattern its diagnostics/callHierarchy flags already use.
+							rename: { prepareSupport: true },
 							...this.descriptor.extraCapabilities,
 						},
 						// Genuinely honored end to end (window/workDoneProgress/create is answered, tokens
@@ -816,6 +820,56 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		const proc = await this.ensureInitialized(at.path);
 		const items = await this.prepareCallHierarchyRaw(proc, at);
 		return items.map((item) => normalizeCallHierarchyItem(item));
+	}
+
+	async prepareRename(at: WorkspaceLocation): Promise<RenameRange | null> {
+		const proc = await this.ensureInitialized(at.path);
+		await this.ensureFileOpen(proc, at.path);
+		try {
+			const result = await proc.request<unknown>("textDocument/prepareRename", {
+				textDocument: { uri: pathToFileURL(at.path).href },
+				position: toLspPosition(at.line, at.character),
+			});
+			return parsePrepareRenameResult(result, at.path);
+		} catch {
+			// Per spec a server may reject with a JSON-RPC error instead of a null result when
+			// nothing is renameable here (typescript-language-server does this) -- same outcome.
+			return null;
+		}
+	}
+
+	async rename(at: WorkspaceLocation, newName: string): Promise<ParsedWorkspaceEdit> {
+		const proc = await this.ensureInitialized(at.path);
+		await this.ensureFileOpen(proc, at.path);
+		const result = await proc.request<unknown>("textDocument/rename", {
+			textDocument: { uri: pathToFileURL(at.path).href },
+			position: toLspPosition(at.line, at.character),
+			newName,
+		});
+		return parseWorkspaceEdit(result);
+	}
+
+	/**
+	 * workspace/willRenameFiles participation for the RenameFile resource operations a rename's
+	 * own WorkspaceEdit contains -- sent before applying anything, only when this server
+	 * negotiated workspace.fileOperations.willRename. A response WorkspaceEdit the server may
+	 * return is not merged in (a documented, narrower scope than full spec support) -- this call
+	 * exists for multi-client cooperation/spec compliance, not to compute additional edits.
+	 */
+	async notifyFilesWillRename(pairs: readonly { readonly fromPath: string; readonly toPath: string }[]): Promise<void> {
+		if (!this.negotiatedCapabilities?.workspaceFileOperations.willRename || pairs.length === 0) return;
+		const proc = await this.ensureInitialized();
+		await proc.request("workspace/willRenameFiles", {
+			files: pairs.map((pair) => ({ oldUri: pathToFileURL(pair.fromPath).href, newUri: pathToFileURL(pair.toPath).href })),
+		});
+	}
+
+	/** workspace/didRenameFiles participation -- sent only after the rename has actually committed, only when this server negotiated workspace.fileOperations.didRename. A notification, not a request: no response to wait for or act on. */
+	notifyFilesDidRename(pairs: readonly { readonly fromPath: string; readonly toPath: string }[]): void {
+		if (!this.negotiatedCapabilities?.workspaceFileOperations.didRename || pairs.length === 0 || !this.process) return;
+		this.process.notify("workspace/didRenameFiles", {
+			files: pairs.map((pair) => ({ oldUri: pathToFileURL(pair.fromPath).href, newUri: pathToFileURL(pair.toPath).href })),
+		});
 	}
 
 	async incomingCalls(at: WorkspaceLocation): Promise<IncomingCall[]> {

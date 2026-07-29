@@ -4,6 +4,7 @@ import type { DocumentSymbolEntry } from "../domain/document-symbol.ts";
 import type { FileChangeEvent } from "../domain/file-change-event.ts";
 import type { Hover } from "../domain/hover.ts";
 import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
+import type { ParsedWorkspaceEdit, RenameRange } from "../domain/workspace-edit.ts";
 import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
 
 /**
@@ -68,4 +69,12 @@ export interface CodeIntelligencePort {
 	 * deliver a notification nothing warm is listening for.
 	 */
 	notifyFileChanged?(event: FileChangeEvent): void;
+	/** Optional: only a server that negotiated prepareRenameProvider implements this. Where/what could be renamed at `at`, or null if a rename is not valid there. */
+	prepareRename?(at: WorkspaceLocation): Promise<RenameRange | null>;
+	/** Optional: only a server that negotiated renameProvider implements this. The full set of changes needed to rename the symbol at `at` to `newName` -- not yet applied. */
+	rename?(at: WorkspaceLocation, newName: string): Promise<ParsedWorkspaceEdit>;
+	/** Optional: workspace/willRenameFiles participation for a rename's own RenameFile resource operations, sent before applying anything. A no-op when the negotiated server doesn't support it. */
+	notifyFilesWillRename?(pairs: readonly { readonly fromPath: string; readonly toPath: string }[]): Promise<void>;
+	/** Optional: workspace/didRenameFiles participation, sent only after the rename has committed. A no-op when the negotiated server doesn't support it. */
+	notifyFilesDidRename?(pairs: readonly { readonly fromPath: string; readonly toPath: string }[]): void;
 }
