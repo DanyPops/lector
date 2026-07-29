@@ -30,4 +30,14 @@ export class InMemoryWorkspace implements WorkspacePort {
 		this.entries.set(path, content);
 		return { previousHash, newHash: contentHashOf(content) };
 	}
+
+	async deleteEntry(path: string, expectedHash: ContentHash): Promise<{ previousHash: ContentHash }> {
+		const existing = this.entries.get(path);
+		const previousHash = existing === undefined ? null : contentHashOf(existing);
+		if (previousHash !== expectedHash) {
+			throw new StaleExpectedHash(path, expectedHash, previousHash);
+		}
+		this.entries.delete(path);
+		return { previousHash };
+	}
 }

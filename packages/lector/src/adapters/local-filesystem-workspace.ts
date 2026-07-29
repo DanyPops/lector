@@ -93,4 +93,23 @@ export class LocalFilesystemWorkspace implements WorkspacePort {
 
 		return { previousHash, newHash: contentHashOf(content) };
 	}
+
+	async deleteEntry(path: string, expectedHash: ContentHash): Promise<{ previousHash: ContentHash }> {
+		const absolute = this.resolvePath(path);
+
+		let previousHash: ContentHash | null = null;
+		try {
+			const existingContent = await readFile(absolute, "utf-8");
+			previousHash = contentHashOf(existingContent);
+		} catch (error) {
+			if (!isEnoent(error)) throw error;
+		}
+
+		if (previousHash !== expectedHash) {
+			throw new StaleExpectedHash(path, expectedHash, previousHash);
+		}
+
+		await rm(absolute, { force: true });
+		return { previousHash };
+	}
 }

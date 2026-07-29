@@ -42,4 +42,14 @@ export interface WorkspacePort {
 	 *   `expectedHash`.
 	 */
 	writeEntry(path: string, expectedHash: ContentHash | null, content: string): Promise<{ previousHash: ContentHash | null; newHash: ContentHash }>;
+
+	/**
+	 * Removes an entry, guarded the same way writeEntry is -- `expectedHash` must match the
+	 * entry's current hash. A missing entry has no hash to match, so deleting one that doesn't
+	 * exist rejects via the same StaleExpectedHash a mismatched hash would (no separate
+	 * not-found error): a caller must always have actually read the entry first, never delete
+	 * on a guess.
+	 * @throws StaleExpectedHash when the entry's current hash does not match `expectedHash`.
+	 */
+	deleteEntry(path: string, expectedHash: ContentHash): Promise<{ previousHash: ContentHash }>;
 }

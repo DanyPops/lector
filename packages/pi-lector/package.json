@@ -19,7 +19,7 @@
 	},
 	"dependencies": {
 		"@danypops/daemon-kit": "^0.22.1",
-		"@danypops/lector": "^0.3.0"
+		"@danypops/lector": "^0.4.0"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-ai": "^0.81.1",

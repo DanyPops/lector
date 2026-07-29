@@ -87,6 +87,13 @@ const USAGE = `Usage:
     ranked, budget-bounded workspace summary (aider-repomap-shaped): the most structurally
     central symbols by PageRank over the populated graph, signature-only, highest-ranked first
   lector workspace cache-status <workspace-id> --max-files <n> --max-symbols-per-file <n> [--json]
+  lector workspace reference-based-rename <workspace-id> <from-path> <to-path>
+    --max-files <n> --max-symbols-per-file <n> [--json]
+    non-LSP: rewrites every static import/export specifier this workspace's own populated symbol
+    graph knows references the moved file, then physically moves it -- all atomically, rolled back
+    on any failure. Refuses outright (touches nothing) unless the graph is fully "cached" (never
+    "partial"/"not-cached") for these exact bounds. Does not follow dynamic import(expr)/
+    require(expr) or any plain string reference -- see the returned caveats.
   lector workspace git-status <workspace-id> [--json]
   lector workspace git-log <workspace-id> --max-count <n> [--json]
   lector workspace git-diff <workspace-id> [--ref <ref>] --max-bytes <n> [--json]
@@ -472,6 +479,27 @@ async function runWorkspaceCacheStatus(workspaceId: string | undefined, flags: s
 	else if (status.status === "caching") console.log(`caching -- job ${status.jobId}`);
 	else if (status.status === "partial") console.log(`partially cached -- ${formatPopulationResult(status.generation.result)}`);
 	else console.log(`cached -- completed ${new Date(status.generation.completedAt).toISOString()}`);
+}
+
+async function runWorkspaceReferenceBasedRename(
+	workspaceId: string | undefined,
+	fromPath: string | undefined,
+	toPath: string | undefined,
+	flags: string[],
+): Promise<void> {
+	if (!workspaceId || !fromPath || !toPath) fail(USAGE);
+	const maxFiles = requiredIntFlag(flags, "--max-files");
+	const maxSymbolsPerFile = requiredIntFlag(flags, "--max-symbols-per-file");
+	const client = await connectLectorClient();
+	const outcome = await client.call("workspace.referenceBasedRename", { workspaceId, fromPath, toPath, maxFiles, maxSymbolsPerFile });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(outcome));
+		return;
+	}
+	console.log(`moved to ${outcome.movedTo}`);
+	if (outcome.filesUpdated.length === 0) console.log("no other files referenced it");
+	else for (const path of outcome.filesUpdated) console.log(`updated import: ${path}`);
+	for (const caveat of outcome.caveats) console.log(`caveat: ${caveat}`);
 }
 
 async function runWorkspaceMap(workspaceId: string | undefined, flags: string[]): Promise<void> {
@@ -1163,6 +1191,10 @@ async function main(): Promise<void> {
 		if (action === "cache-status") {
 			const [cacheWorkspaceId, ...cacheFlags] = actionArgs;
 			return runWorkspaceCacheStatus(cacheWorkspaceId, cacheFlags);
+		}
+		if (action === "reference-based-rename") {
+			const [rbrWorkspaceId, rbrFromPath, rbrToPath, ...rbrFlags] = actionArgs;
+			return runWorkspaceReferenceBasedRename(rbrWorkspaceId, rbrFromPath, rbrToPath, rbrFlags);
 		}
 		if (action === "map") {
 			const [mapWorkspaceId, ...mapFlags] = actionArgs;

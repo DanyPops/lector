@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import picomatch from "picomatch";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
@@ -18,10 +18,12 @@ import { PolyglotCodeIntelligenceIndex } from "./adapters/polyglot-code-intellig
 import { ReadOnlyWorkspace } from "./adapters/read-only-workspace.ts";
 import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "./adapters/source-manifest.ts";
+import { findImportSpecifiers } from "./adapters/tree-sitter/import-specifiers.ts";
 import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "./adapters/typescript-compiler-symbol-index.ts";
 import { annotationsContainedFrom, wouldCreateContainmentCycle } from "./domain/annotation-containment.ts";
 import { applyPatch, PatchRejected } from "./domain/apply-patch.ts";
+import { applyReferenceBasedRename, type ReferenceBasedRenameOutcome } from "./domain/apply-reference-based-rename.ts";
 import { assertAbsolutePath, RelativeWorkspacePath } from "./domain/assert-absolute-path.ts";
 import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
@@ -58,6 +60,7 @@ import { purgeFilesNoLongerWalked } from "./domain/purge-stale-graph-entries.ts"
 import { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 import { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
+import { planReferenceBasedRename } from "./domain/reference-based-rename.ts";
 import { shouldRefetchFromRemote } from "./domain/remote-cache-freshness.ts";
 import type { RepoFetchResult } from "./domain/repo-fetch-result.ts";
 import type { RepoReference } from "./domain/repo-reference.ts";
@@ -231,6 +234,19 @@ export class WorkspaceChangedDuringPopulation extends Error {
 	}
 }
 
+/** A partial multi-file change scores worse than no change at all -- CodeScaleBench's own finding. Refuses to touch anything rather than rename against a symbol graph that doesn't honestly know every reference yet. */
+export class ReferenceBasedRenameRequiresFreshGraph extends Error {
+	constructor(
+		readonly workspaceId: WorkspaceId,
+		readonly status: string,
+	) {
+		super(
+			`workspace "${workspaceId}"'s symbol graph is "${status}", not fully cached -- refusing to rename against an incomplete reference set; populate the graph first`,
+		);
+		this.name = "ReferenceBasedRenameRequiresFreshGraph";
+	}
+}
+
 export class JobWaitTooLong extends Error {
 	constructor(
 		readonly waitMs: number,
@@ -263,6 +279,7 @@ export type OperationName =
 	| "workspace.symbolEdgesTo"
 	| "workspace.hasWarmIndex"
 	| "workspace.cacheStatus"
+	| "workspace.referenceBasedRename"
 	| "workspace.gitStatus"
 	| "workspace.gitLog"
 	| "workspace.gitDiff"
@@ -309,6 +326,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.symbolEdgesTo",
 	"workspace.hasWarmIndex",
 	"workspace.cacheStatus",
+	"workspace.referenceBasedRename",
 	"workspace.gitStatus",
 	"workspace.gitLog",
 	"workspace.gitDiff",
@@ -364,6 +382,8 @@ export interface OperationInputs {
 	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind };
 	"workspace.hasWarmIndex": { workspaceId: WorkspaceId; path?: string };
 	"workspace.cacheStatus": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
+	/** maxFiles/maxSymbolsPerFile gate the same freshness check cacheStatus uses -- this rename refuses outright unless the graph is fully "cached" (never "partial") for those exact bounds. */
+	"workspace.referenceBasedRename": { workspaceId: WorkspaceId; fromPath: string; toPath: string; maxFiles: number; maxSymbolsPerFile: number };
 	"workspace.gitStatus": { workspaceId: WorkspaceId };
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
@@ -443,6 +463,7 @@ export interface OperationOutputs {
 	"workspace.symbolEdgesTo": { symbols: readonly SymbolNode[] };
 	"workspace.hasWarmIndex": { warm: boolean };
 	"workspace.cacheStatus": WorkspaceCacheStatus;
+	"workspace.referenceBasedRename": ReferenceBasedRenameOutcome;
 	"workspace.gitStatus": GitStatusSummary;
 	"workspace.gitLog": { entries: readonly GitLogEntry[] };
 	"workspace.gitDiff": GitDiffResult;
@@ -1320,6 +1341,65 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return generation.result.completeness === "partial" ? { status: "partial", generation } : { status: "cached", generation };
 	}
 
+	/** Every top-level document symbol's own selectionRange -- deliberately not descending into `children` (a class method can't itself be reached via a module specifier, only the file's own top-level exports can be). */
+	function flattenTopLevelPositions(symbols: readonly DocumentSymbolEntry[], path: string): Array<{ path: string; line: number; character: number }> {
+		return symbols.map((symbol) => ({ path, line: symbol.selectionRange.start.line, character: symbol.selectionRange.start.character }));
+	}
+
+	async function referenceBasedRenameHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.referenceBasedRename"],
+	): Promise<OperationOutputs["workspace.referenceBasedRename"]> {
+		const entry = registry.get(input.workspaceId);
+		if (!entry) throw new UnknownWorkspace(input.workspaceId);
+		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
+
+		// Point 6 of this operation's own design: refuse outright, before touching anything, unless
+		// the symbol graph is fully "cached" for these exact bounds -- a "partial" or "not-cached"
+		// graph cannot honestly enumerate every reference, and CodeScaleBench's own finding is that a
+		// partial multi-file change scores WORSE than no change at all.
+		const status = await cacheStatusHandler(registry, { workspaceId: input.workspaceId, maxFiles: input.maxFiles, maxSymbolsPerFile: input.maxSymbolsPerFile });
+		if (status.status !== "cached") throw new ReferenceBasedRenameRequiresFreshGraph(input.workspaceId, status.status);
+
+		const fromPath = entry.port.resolvePath(input.fromPath);
+		const toPath = entry.port.resolvePath(input.toPath);
+
+		const { index } = await requireCodeIntelligence({ workspaceId: input.workspaceId, path: fromPath });
+		const topLevelSymbols = await documentSymbolsQuery(index, fromPath);
+		const positions = flattenTopLevelPositions(topLevelSymbols, fromPath);
+
+		const referencingPaths = new Set<string>();
+		for (const position of positions) {
+			const locations = await findReferencesQuery(index, { path: position.path, line: position.line, character: position.character }, false);
+			for (const location of locations) {
+				const locationPath = entry.port.resolvePath(location.path);
+				if (locationPath !== fromPath) referencingPaths.add(locationPath);
+			}
+		}
+
+		const referencingFiles = [];
+		for (const path of referencingPaths) {
+			const read = await entry.port.readEntry(path);
+			if (!read.exists) continue;
+			const hash = contentHashOf(read.content);
+			const importSpecifiers = await findImportSpecifiers(read.content, extname(path));
+			referencingFiles.push({ path, content: read.content, hash, importSpecifiers });
+		}
+
+		const movedFile = await entry.port.readEntry(fromPath);
+		if (!movedFile.exists) throw new WorkspaceEntryNotFound(fromPath);
+
+		const plan = planReferenceBasedRename({
+			fromPath,
+			toPath,
+			movedFileContent: movedFile.content,
+			movedFileHash: contentHashOf(movedFile.content),
+			referencingFiles,
+		});
+
+		return applyReferenceBasedRename(entry.port, plan);
+	}
+
 	function isRecord(value: unknown): value is Record<string, unknown> {
 		return typeof value === "object" && value !== null;
 	}
@@ -1602,6 +1682,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.symbolEdgesTo": symbolEdgesToHandler,
 		"workspace.hasWarmIndex": hasWarmIndex,
 		"workspace.cacheStatus": cacheStatusHandler,
+		"workspace.referenceBasedRename": referenceBasedRenameHandler,
 		"workspace.gitStatus": gitStatusHandler,
 		"workspace.gitLog": gitLogHandler,
 		"workspace.gitDiff": gitDiffHandler,

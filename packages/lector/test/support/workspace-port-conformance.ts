@@ -105,5 +105,34 @@ export function runWorkspacePortConformanceSuite(name: string, harness: Conforma
 					await expect(recreate).rejects.toBeInstanceOf(StaleExpectedHash);
 				}));
 		});
+
+		describe("deleteEntry", () => {
+			it("removes an existing entry when expectedHash matches", () =>
+				withWorkspace(async (workspace) => {
+					const created = await exactEdit(workspace, { path: "a.txt", expectedHash: null, content: "hello" });
+
+					const outcome = await workspace.deleteEntry("a.txt", created.newHash);
+
+					expect(outcome).toEqual({ previousHash: created.newHash });
+					await expect(rawRead(workspace, "a.txt")).rejects.toBeInstanceOf(WorkspaceEntryNotFound);
+				}));
+
+			it("rejects a stale expectedHash instead of silently deleting", () =>
+				withWorkspace(async (workspace) => {
+					const created = await exactEdit(workspace, { path: "a.txt", expectedHash: null, content: "hello" });
+					await exactEdit(workspace, { path: "a.txt", expectedHash: created.newHash, content: "changed underneath you" });
+
+					const stale = workspace.deleteEntry("a.txt", created.newHash);
+
+					await expect(stale).rejects.toBeInstanceOf(StaleExpectedHash);
+					await expect(rawRead(workspace, "a.txt")).resolves.toMatchObject({ content: "changed underneath you" });
+				}));
+
+			it("rejects deleting an entry that was never created, instead of silently no-op'ing", () =>
+				withWorkspace(async (workspace) => {
+					const missing = workspace.deleteEntry("never-existed.txt", contentHashOf("anything"));
+					await expect(missing).rejects.toBeInstanceOf(StaleExpectedHash);
+				}));
+		});
 	});
 }

@@ -24,4 +24,8 @@ export class ReadOnlyWorkspace implements WorkspacePort {
 	async writeEntry(path: string, _expectedHash: ContentHash | null, _content: string): Promise<{ previousHash: ContentHash | null; newHash: ContentHash }> {
 		throw new WorkspaceIsReadOnly(path);
 	}
+
+	async deleteEntry(path: string, _expectedHash: ContentHash): Promise<{ previousHash: ContentHash }> {
+		throw new WorkspaceIsReadOnly(path);
+	}
 }

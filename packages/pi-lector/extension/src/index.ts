@@ -72,6 +72,7 @@ import { nearestGitRoot } from "./nearest-workspace-root.ts";
 import { createLectorPackageSourceOperations } from "./package-source-operations.ts";
 import { formatPackageSourceCall, formatPackageSourceResult } from "./package-source-rendering.ts";
 import { createLectorReadOperations } from "./read-operations.ts";
+import { createReferenceBasedRenameOperations } from "./reference-based-rename-operations.ts";
 import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
 import { formatRepoFetchCall, formatRepoFetchResult } from "./repo-fetch-rendering.ts";
 import { createLectorSearchOperations } from "./search-operations.ts";
@@ -241,6 +242,7 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const codeIntelligenceOperations = createLectorCodeIntelligenceOperations();
+		const referenceBasedRenameOperations = createReferenceBasedRenameOperations();
 		const positionParameters = {
 			path: Type.String({ description: "Absolute or cwd-relative path to the file" }),
 			line: Type.Number({ description: "1-indexed line number" }),
@@ -618,6 +620,64 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { job?: JobSnapshot<PopulateSymbolGraphResult> } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatPopulateSymbolGraphResult(details?.job, theme));
+				return text;
+			},
+		});
+
+		pi.registerTool({
+			name: "reference_based_rename",
+			label: "Reference-Based Rename",
+			description:
+				"Move/rename a file and rewrite every static import/export specifier the workspace's own populated symbol graph knows references it -- atomically, rolled back entirely on any failure. Non-LSP: uses find_references + a real parse of import/export declarations, not a language server's own rename. Refuses outright (touches nothing) unless the workspace's symbol graph is fully populated and current for the given bounds -- a partial rename that silently misses a reference is worse than refusing (Sourcegraph's CodeScaleBench finding). Does not follow dynamic import(expr)/require(expr) or any plain string reference to the file -- always check the returned caveats.",
+			promptSnippet: "Move a file and update every import that references it",
+			promptGuidelines: [
+				"Run populate_symbol_graph for this workspace first if cache_status/has_warm_index doesn't already show a fully cached (never partial) graph -- reference_based_rename refuses outright otherwise.",
+				"Always read the returned caveats: this never rewrites a dynamic import(expr)/require(expr) or a plain string reference to the old path, even if one exists.",
+			],
+			parameters: Type.Object({
+				fromPath: Type.String({ description: "Absolute or cwd-relative path to the file to move" }),
+				toPath: Type.String({ description: "Absolute or cwd-relative path for its new location" }),
+				maxFiles: Type.Number({ description: "Maximum number of source files the workspace's symbol graph must have scanned" }),
+				maxSymbolsPerFile: Type.Number({ description: "Maximum number of declarations per file the workspace's symbol graph must have processed" }),
+			}),
+			async execute(_toolCallId, params) {
+				const fromPath = resolve(cwd, params.fromPath);
+				const toPath = resolve(cwd, params.toPath);
+				const outcome = await referenceBasedRenameOperations.rename(fromPath, toPath, params.maxFiles, params.maxSymbolsPerFile);
+				const lines = [
+					`moved to ${outcome.movedTo}`,
+					outcome.filesUpdated.length === 0
+						? "no other files referenced it"
+						: `updated imports in ${outcome.filesUpdated.length} file(s): ${outcome.filesUpdated.join(", ")}`,
+					...outcome.caveats.map((caveat) => `caveat: ${caveat}`),
+				];
+				return { content: [{ type: "text", text: lines.join("\n") }], details: { outcome } };
+			},
+			renderCall(args, theme, context) {
+				const fromPath = typeof args.fromPath === "string" ? args.fromPath : "";
+				const toPath = typeof args.toPath === "string" ? args.toPath : "";
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(
+					`${theme.fg("toolTitle", theme.bold("reference_based_rename"))} ${theme.fg("accent", fromPath)} ${theme.fg("dim", "->")} ${theme.fg("accent", toPath)}`,
+				);
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Renaming..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "reference_based_rename failed"), 0, 0);
+				}
+				const details = result.details as { outcome?: { movedTo: string; filesUpdated: readonly string[] } } | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(
+					details?.outcome
+						? `${theme.fg("success", "moved")} ${theme.fg("accent", details.outcome.movedTo)} ${theme.fg("dim", `(${details.outcome.filesUpdated.length} import(s) updated)`)}`
+						: theme.fg("success", "rename complete"),
+				);
 				return text;
 			},
 		});

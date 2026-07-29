@@ -208,6 +208,9 @@ describe("lineEdit", () => {
 			writeEntry: async () => {
 				throw new StaleExpectedHash("a.ts", null, null);
 			},
+			deleteEntry: async () => {
+				throw new StaleExpectedHash("a.ts", null, null);
+			},
 		};
 
 		const attempt = lineEdit(racy, {

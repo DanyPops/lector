@@ -55,6 +55,7 @@ export {
 	applyPatch,
 	PatchRejected,
 } from "./domain/apply-patch.ts";
+export { applyReferenceBasedRename, type ReferenceBasedRenameOutcome } from "./domain/apply-reference-based-rename.ts";
 export { assertSafeGitArgument, UnsafeGitArgument } from "./domain/assert-safe-git-argument.ts";
 export { assertSafeGlobPattern, UnsafeGlobPattern } from "./domain/assert-safe-glob-pattern.ts";
 export { assertSafePathSegment, UnsafePathSegment } from "./domain/assert-safe-path-segment.ts";
@@ -165,6 +166,15 @@ export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
 export { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 export { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
+export {
+	type FileMove,
+	type ImportSpecifierOccurrence,
+	type ImportSpecifierRewrite,
+	planReferenceBasedRename,
+	type ReferenceBasedRenameInput,
+	type ReferenceBasedRenamePlan,
+	type ReferencingFileInput,
+} from "./domain/reference-based-rename.ts";
 export { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchPolicy, type RepoFetchResult } from "./domain/repo-fetch-result.ts";
 export type { RepoReference } from "./domain/repo-reference.ts";
 export { InvalidPackageSourceContract, resolvePackageSource } from "./domain/resolve-package-source.ts";
@@ -227,6 +237,7 @@ export {
 	type OperationName,
 	type OperationOutputs,
 	PackageSourceResolverNotConfigured,
+	ReferenceBasedRenameRequiresFreshGraph,
 	RepoFetcherNotConfigured,
 	SymbolQueryUnavailable,
 	UnknownAnnotationAnchor,

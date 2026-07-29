@@ -1,7 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import Parser from "web-tree-sitter";
+import type Parser from "web-tree-sitter";
 import { contentHashOf } from "../../domain/content-hash.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
 import type { SymbolSearchResult, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
@@ -9,6 +8,7 @@ import type { ContentCachePort, ContentSymbol } from "../../ports/content-cache-
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
 import { findSourceFiles } from "../find-source-files.ts";
 import { InMemoryContentCache } from "../in-memory-content-cache.ts";
+import { parserForWasmPath, wasmPathForExtension } from "./typescript-parser.ts";
 
 const DEFAULT_MAX_FILES = 5_000;
 const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -42,24 +42,6 @@ const DECLARATION_KINDS: readonly DeclarationKind[] = [
 	{ nodeType: "enum_declaration", kind: "enum" },
 	{ nodeType: "method_definition", kind: "method" },
 ];
-
-let parserInitialization: Promise<void> | undefined;
-function ensureParserInitialized(): Promise<void> {
-	parserInitialization ??= Parser.init();
-	return parserInitialization;
-}
-
-function wasmPathFor(extension: string): string | undefined {
-	const specifier =
-		extension === ".ts"
-			? "tree-sitter-wasms/out/tree-sitter-typescript.wasm"
-			: extension === ".tsx"
-				? "tree-sitter-wasms/out/tree-sitter-tsx.wasm"
-				: extension === ".js" || extension === ".jsx" || extension === ".mjs" || extension === ".cjs"
-					? "tree-sitter-wasms/out/tree-sitter-javascript.wasm"
-					: undefined;
-	return specifier ? fileURLToPath(import.meta.resolve(specifier)) : undefined;
-}
 
 /** Content-derived only -- no path, so the extraction result is valid caching material regardless of which file currently holds this content. */
 function extractContentSymbols(root: Parser.SyntaxNode): ContentSymbol[] {
@@ -117,7 +99,6 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 	private readonly maxFileBytes: number;
 	private readonly maxTotalBytes: number;
 	private readonly maxResults: number;
-	private readonly parsersByWasmPath = new Map<string, Parser>();
 
 	constructor(rootPath: string, contentCache: ContentCachePort = new InMemoryContentCache(), options: TreeSitterSymbolIndexOptions = {}) {
 		this.rootPath = rootPath;
@@ -126,17 +107,6 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 		this.maxFileBytes = positiveLimit(options.maxFileBytes, DEFAULT_MAX_FILE_BYTES, "maxFileBytes");
 		this.maxTotalBytes = positiveLimit(options.maxTotalBytes, DEFAULT_MAX_TOTAL_BYTES, "maxTotalBytes");
 		this.maxResults = positiveLimit(options.maxResults, DEFAULT_MAX_RESULTS, "maxResults");
-	}
-
-	private async parserFor(wasmPath: string): Promise<Parser> {
-		const cached = this.parsersByWasmPath.get(wasmPath);
-		if (cached) return cached;
-		await ensureParserInitialized();
-		const language = await Parser.Language.load(wasmPath);
-		const parser = new Parser();
-		parser.setLanguage(language);
-		this.parsersByWasmPath.set(wasmPath, parser);
-		return parser;
 	}
 
 	private async contentSymbolsFor(wasmPath: string, content: string): Promise<ContentSymbol[]> {
@@ -151,7 +121,7 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 		const cached = await this.contentCache.get(hash);
 		if (cached?.symbols) return [...cached.symbols];
 
-		const parser = await this.parserFor(wasmPath);
+		const parser = await parserForWasmPath(wasmPath);
 		const tree = parser.parse(content);
 		const symbols = extractContentSymbols(tree.rootNode);
 		await this.contentCache.putSymbols(hash, symbols);
@@ -162,12 +132,12 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 		const maxResults = Math.min(positiveLimit(bounds.maxResults, this.maxResults, "maxResults"), this.maxResults);
 		const lowerQuery = query.toLowerCase();
 		const results: WorkspaceSymbol[] = [];
-		const files = findSourceFiles(this.rootPath, (extension) => wasmPathFor(extension) !== undefined, this.maxFiles);
+		const files = findSourceFiles(this.rootPath, (extension) => wasmPathForExtension(extension) !== undefined, this.maxFiles);
 		let totalBytes = 0;
 		let truncated = files.length === this.maxFiles;
 
 		for (const relativePath of files) {
-			const wasmPath = wasmPathFor(extname(relativePath));
+			const wasmPath = wasmPathForExtension(extname(relativePath));
 			if (!wasmPath) continue;
 
 			let content: string;
