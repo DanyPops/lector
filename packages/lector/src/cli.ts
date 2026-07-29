@@ -111,6 +111,11 @@ const USAGE = `Usage:
   lector workspace git-log <workspace-id> --max-count <n> [--json]
   lector workspace git-diff <workspace-id> [--ref <ref>] --max-bytes <n> [--json]
   lector workspace repo-fetch <owner>/<repo>[@ref] [--host <host>] [--json]
+  lector workspace repo-cache-list --max-results <n> [--host <h>] [--owner <o>] [--repo <r>]
+    [--ref <ref>] [--query <text>] [--cursor <c>] [--json]
+    lists repo.fetch's own on-disk cache -- no network, no mutation -- filtered by any
+    combination of host/owner/repo/ref (exact) and query (case-insensitive substring),
+    bounded and paginated via --cursor
     shallow-clones an external repo into a disk-bounded cache and registers it read-only
   lector package source <project-dir> <package-name> [--version <exact-version>] [--registry <url>] [--json]
     resolves an installed npm package to verified exact repository source and registers it read-only
@@ -650,6 +655,33 @@ async function runWorkspaceRepoFetch(spec: string | undefined, flags: string[]):
 	}
 	console.log(`${result.workspaceId} ${result.fromCache ? "(from cache)" : "(fetched)"} -- ${result.path}`);
 	if (result.refFallbackOccurred) console.log(`note: requested ref not found, fell back to the default branch (resolved: ${result.resolvedRef})`);
+}
+
+async function runWorkspaceRepoCacheList(flags: string[]): Promise<void> {
+	const maxResults = requiredIntFlag(flags, "--max-results");
+	const host = flagValue(flags, "--host");
+	const owner = flagValue(flags, "--owner");
+	const repo = flagValue(flags, "--repo");
+	const ref = flagValue(flags, "--ref");
+	const text = flagValue(flags, "--query");
+	const cursor = flagValue(flags, "--cursor");
+	const client = await connectLectorClient();
+	const page = await client.call("repo.listCache", { maxResults, host, owner, repo, ref, text, cursor });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(page));
+		return;
+	}
+	if (page.entries.length === 0) {
+		console.log("no cached repositories");
+		return;
+	}
+	for (const entry of page.entries) {
+		const registered = entry.registeredWorkspaceId ? `registered as ${entry.registeredWorkspaceId}` : "not registered";
+		console.log(
+			`${entry.host}/${entry.owner}/${entry.repo}@${entry.requestedRef} (resolved ${entry.resolvedRef} ${entry.commit.slice(0, 12)}) -- ${entry.path} -- ${registered}`,
+		);
+	}
+	if (page.nextCursor) console.log(`--cursor ${page.nextCursor} for more`);
 }
 
 function formatPackageSourceResult(result: PackageSourceOperationResult): string {
@@ -1297,6 +1329,7 @@ async function main(): Promise<void> {
 			const [spec, ...repoFlags] = actionArgs;
 			return runWorkspaceRepoFetch(spec, repoFlags);
 		}
+		if (action === "repo-cache-list") return runWorkspaceRepoCacheList(actionArgs);
 		if (action === "annotation") {
 			const [subcommand, annWorkspaceId, ...annRest] = actionArgs;
 			if (subcommand === "create") return runWorkspaceAnnotationCreate(annWorkspaceId, annRest);

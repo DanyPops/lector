@@ -29,6 +29,12 @@ import { applyReferenceBasedRename, type ReferenceBasedRenameOutcome } from "./d
 import { applyWorkspaceEdit, collectTouchedPaths } from "./domain/apply-workspace-edit.ts";
 import { assertAbsolutePath, RelativeWorkspacePath } from "./domain/assert-absolute-path.ts";
 import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-executor.ts";
+import {
+	type CachedRepositoryEntry,
+	type CachedRepositoryPage,
+	type CachedRepositoryQuery,
+	queryCachedRepositories,
+} from "./domain/cached-repository-entry.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
 import { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
@@ -323,6 +329,7 @@ export type OperationName =
 	| "workspace.gitLog"
 	| "workspace.gitDiff"
 	| "repo.fetch"
+	| "repo.listCache"
 	| "package.resolveSource"
 	| "workspace.searchText"
 	| "workspace.findFiles"
@@ -374,6 +381,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.gitLog",
 	"workspace.gitDiff",
 	"repo.fetch",
+	"repo.listCache",
 	"package.resolveSource",
 	"workspace.searchText",
 	"workspace.findFiles",
@@ -435,6 +443,7 @@ export interface OperationInputs {
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
 	"repo.fetch": RepoReference;
+	"repo.listCache": CachedRepositoryQuery & { maxResults: number; cursor?: string };
 	"package.resolveSource": { request: PackageSourceRequest; bounds: PackageSourceBounds };
 	"workspace.searchText": { workspaceId: WorkspaceId; query: string; maxMatches: number; maxBytes: number };
 	/** `patterns` are OR'd together -- a file matching any one of them is included. */
@@ -520,6 +529,7 @@ export interface OperationOutputs {
 	"workspace.gitLog": { entries: readonly GitLogEntry[] };
 	"workspace.gitDiff": GitDiffResult;
 	"repo.fetch": RepoFetchResult & { workspaceId: WorkspaceId };
+	"repo.listCache": CachedRepositoryPage;
 	"package.resolveSource": PackageSourceOperationResult;
 	"workspace.searchText": TextSearchResult;
 	"workspace.findFiles": FindFilesResult;
@@ -910,6 +920,17 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			});
 		}
 		return { workspaceId, ...result };
+	}
+
+	async function repoListCacheHandler(registry: MutableRegistry, input: OperationInputs["repo.listCache"]): Promise<OperationOutputs["repo.listCache"]> {
+		if (!repoFetcher) throw new RepoFetcherNotConfigured();
+		const raw = await repoFetcher.listCached();
+		const entries: CachedRepositoryEntry[] = raw.map((entry) => {
+			const workspaceId = deriveWorkspaceId(resolve(entry.path));
+			return { ...entry, registeredWorkspaceId: registry.has(workspaceId) ? workspaceId : null };
+		});
+		const { host, owner, repo, ref, text } = input;
+		return queryCachedRepositories(entries, { host, owner, repo, ref, text }, input.maxResults, input.cursor);
 	}
 
 	async function packageSourceHandler(
@@ -1881,6 +1902,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.gitLog": gitLogHandler,
 		"workspace.gitDiff": gitDiffHandler,
 		"repo.fetch": repoFetchHandler,
+		"repo.listCache": repoListCacheHandler,
 		"package.resolveSource": packageSourceHandler,
 		"workspace.searchText": searchTextHandler,
 		"workspace.findFiles": findFilesHandler,

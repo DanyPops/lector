@@ -70,6 +70,7 @@ export {
 	type JobPriority,
 	type JobSnapshot,
 } from "./domain/bounded-job-executor.ts";
+export type { CachedRepositoryEntry, CachedRepositoryPage, CachedRepositoryQuery, RepoCacheListEntry } from "./domain/cached-repository-entry.ts";
 export type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 export { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
 export type { CodeRange } from "./domain/code-range.ts";

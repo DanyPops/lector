@@ -67,6 +67,9 @@ class CountingRepoFetcher implements RepoFetcherPort {
 		this.resolveRemoteCommitCalls++;
 		return this.inner.resolveRemoteCommit(reference, timeoutMs);
 	}
+	listCached() {
+		return this.inner.listCached();
+	}
 }
 
 function buildService(fetcher: RepoFetcherPort): LectorService {

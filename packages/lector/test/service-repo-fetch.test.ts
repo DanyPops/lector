@@ -87,3 +87,73 @@ describe("createLectorService's repo.fetch", () => {
 		expect(second.workspaceId).toBe(first.workspaceId);
 	});
 });
+
+describe("createLectorService's repo.listCache", () => {
+	it("rejects repo.listCache when the service was constructed without createRepoFetcher", async () => {
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		await expect(service.dispatch("repo.listCache", { maxResults: 10 })).rejects.toBeInstanceOf(RepoFetcherNotConfigured);
+	});
+
+	it("returns an empty page, not an error, before anything has been fetched", async () => {
+		reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-service-cache-"));
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir")),
+		});
+
+		const page = await service.dispatch("repo.listCache", { maxResults: 10 });
+
+		expect(page).toEqual({ entries: [], nextCursor: null });
+	});
+
+	it("lists a fetched repository, distinguishing it as a currently-registered workspace", async () => {
+		sourceRepo = buildSourceRepo();
+		reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-service-cache-"));
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
+		});
+		const fetched = await service.dispatch("repo.fetch", reference());
+
+		const page = await service.dispatch("repo.listCache", { maxResults: 10 });
+
+		expect(page.entries).toHaveLength(1);
+		expect(page.entries[0]).toMatchObject({ host: "local-fixture", owner: "acme", repo: "widgets", registeredWorkspaceId: fetched.workspaceId });
+	});
+
+	it("filters by host/owner/repo/ref and by free-text", async () => {
+		sourceRepo = buildSourceRepo();
+		reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-service-cache-"));
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
+		});
+		await service.dispatch("repo.fetch", reference());
+		await service.dispatch("repo.fetch", { host: "local-fixture", owner: "acme", repo: "other-widgets", ref: null });
+
+		const byRepo = await service.dispatch("repo.listCache", { maxResults: 10, repo: "widgets" });
+		expect(byRepo.entries.map((e) => e.repo)).toEqual(["widgets"]);
+
+		const byText = await service.dispatch("repo.listCache", { maxResults: 10, text: "other" });
+		expect(byText.entries.map((e) => e.repo)).toEqual(["other-widgets"]);
+	});
+
+	it("bounds a page to maxResults and resumes correctly from the returned cursor", async () => {
+		sourceRepo = buildSourceRepo();
+		reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-service-cache-"));
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
+		});
+		await service.dispatch("repo.fetch", { host: "local-fixture", owner: "acme", repo: "a-widgets", ref: null });
+		await service.dispatch("repo.fetch", { host: "local-fixture", owner: "acme", repo: "b-widgets", ref: null });
+
+		const first = await service.dispatch("repo.listCache", { maxResults: 1 });
+		expect(first.entries.map((e) => e.repo)).toEqual(["a-widgets"]);
+		expect(first.nextCursor).not.toBeNull();
+
+		const second = await service.dispatch("repo.listCache", { maxResults: 1, cursor: first.nextCursor ?? undefined });
+		expect(second.entries.map((e) => e.repo)).toEqual(["b-widgets"]);
+		expect(second.nextCursor).toBeNull();
+	});
+});

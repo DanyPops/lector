@@ -187,6 +187,7 @@ describe("createLectorService background jobs", () => {
 						commit: "1111111111111111111111111111111111111111",
 					}),
 				resolveRemoteCommit: () => Promise.resolve(undefined),
+				listCached: () => Promise.resolve([]),
 			}),
 			createSymbolIndex: (rootPath) => {
 				const gate = gates.get(rootPath);

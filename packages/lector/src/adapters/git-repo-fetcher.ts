@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { LRUCache } from "lru-cache";
 import simpleGit from "simple-git";
 import { assertSafeRepoReference } from "../domain/assert-safe-repo-reference.ts";
+import type { RepoCacheListEntry } from "../domain/cached-repository-entry.ts";
 import { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchPolicy, type RepoFetchResult } from "../domain/repo-fetch-result.ts";
 import type { RepoReference } from "../domain/repo-reference.ts";
 import type { RepoFetcherPort } from "../ports/repo-fetcher-port.ts";
@@ -27,6 +28,17 @@ const COMMIT_HASH = /^[0-9a-f]{40,64}$/i;
 
 function cacheKey(reference: RepoReference): string {
 	return `${reference.host}/${reference.owner}/${reference.repo}/${reference.ref ?? "HEAD"}`;
+}
+
+/**
+ * Reverses cacheKey exactly -- host/owner/repo never contain "/" (git hosting naming rules), so
+ * the first two slashes unambiguously delimit them; everything after the third slash is the
+ * requested ref verbatim, including one that itself contains slashes (e.g. a branch named
+ * "feature/foo").
+ */
+function parseCacheKey(key: string): { host: string; owner: string; repo: string; requestedRef: string } {
+	const [host, owner, repo, ...refParts] = key.split("/");
+	return { host: host ?? "", owner: owner ?? "", repo: repo ?? "", requestedRef: refParts.join("/") };
 }
 
 export interface GitRepoFetcherOptions {
@@ -254,6 +266,25 @@ export class GitRepoFetcher implements RepoFetcherPort {
 		} finally {
 			clearTimeout(timer);
 		}
+	}
+
+	async listCached(): Promise<readonly RepoCacheListEntry[]> {
+		// LRUCache's own entries() iterator never updates recency or otherwise mutates the cache --
+		// only get()/has() (with non-default options) do that.
+		return Array.from(this.cache.entries(), ([key, value]) => {
+			const { host, owner, repo, requestedRef } = parseCacheKey(key);
+			return {
+				host,
+				owner,
+				repo,
+				requestedRef,
+				resolvedRef: value.resolvedRef,
+				commit: value.commit,
+				path: value.path,
+				cacheSizeBytes: value.cacheSizeBytes,
+				fetchedAt: value.fetchedAt,
+			};
+		});
 	}
 
 	private async clone(url: string, ref: string | null, targetDir: string, timeoutMs: number): Promise<void> {

@@ -311,4 +311,66 @@ describe("GitRepoFetcher", () => {
 			expect(existsSync(second.path)).toBe(true);
 		});
 	});
+
+	describe("listCached", () => {
+		it("returns an empty list before anything has been fetched, not an error", async () => {
+			const fetcher = buildFetcher();
+			await expect(fetcher.listCached()).resolves.toEqual([]);
+		});
+
+		it("lists a fetched repository with its host/owner/repo parsed back out of the cache key, plus resolvedRef/commit/path/size", async () => {
+			sourceRepo = buildSourceRepo();
+			const fetcher = buildFetcher();
+			const result = await fetcher.fetch(reference({ ref: null }));
+
+			const listed = await fetcher.listCached();
+
+			expect(listed).toHaveLength(1);
+			expect(listed[0]).toMatchObject({
+				host: "local-fixture",
+				owner: "acme",
+				repo: "widgets",
+				requestedRef: "HEAD",
+				resolvedRef: result.resolvedRef,
+				commit: result.commit,
+				path: result.path,
+			});
+			expect(listed[0]?.cacheSizeBytes).toBeGreaterThan(0);
+			expect(listed[0]?.fetchedAt).toBeGreaterThan(0);
+		});
+
+		it("correctly parses a requested ref that itself contains slashes, e.g. a branch named topic/foo", async () => {
+			sourceRepo = buildSourceRepo();
+			git(sourceRepo, "checkout", "-q", "-b", "topic/foo");
+			const fetcher = buildFetcher();
+			await fetcher.fetch(reference({ ref: "topic/foo" }), { exactRef: true });
+
+			const listed = await fetcher.listCached();
+
+			expect(listed).toHaveLength(1);
+			expect(listed[0]).toMatchObject({ host: "local-fixture", owner: "acme", repo: "widgets", requestedRef: "topic/foo" });
+		});
+
+		it("lists more than one distinct cached repository independently", async () => {
+			sourceRepo = buildSourceRepo();
+			const fetcher = buildFetcher();
+			await fetcher.fetch(reference({ ref: "main" }));
+			await fetcher.fetch({ host: "local-fixture", owner: "acme", repo: "other-widgets", ref: "main" });
+
+			const listed = await fetcher.listCached();
+
+			expect(listed.map((entry) => entry.repo).sort()).toEqual(["other-widgets", "widgets"]);
+		});
+
+		it("never touches the network or mutates cache state -- a second call returns byte-identical data", async () => {
+			sourceRepo = buildSourceRepo();
+			const fetcher = buildFetcher();
+			await fetcher.fetch(reference({ ref: "main" }));
+
+			const first = await fetcher.listCached();
+			const second = await fetcher.listCached();
+
+			expect(second).toEqual(first);
+		});
+	});
 });

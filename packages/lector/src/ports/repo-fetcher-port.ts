@@ -1,3 +1,4 @@
+import type { RepoCacheListEntry } from "../domain/cached-repository-entry.ts";
 import type { RepoFetchPolicy, RepoFetchResult } from "../domain/repo-fetch-result.ts";
 import type { RepoReference } from "../domain/repo-reference.ts";
 
@@ -15,4 +16,6 @@ export interface RepoFetcherPort {
 	 * genuine "couldn't tell," never treated as evidence of staleness by a caller.
 	 */
 	resolveRemoteCommit(reference: RepoReference, timeoutMs?: number): Promise<string | undefined>;
+	/** Every repository currently present in the cache, exactly as fetched -- no network call, no mutation of cache state (including LRU recency). */
+	listCached(): Promise<readonly RepoCacheListEntry[]>;
 }

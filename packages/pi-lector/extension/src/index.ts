@@ -78,6 +78,7 @@ import { formatPackageSourceCall, formatPackageSourceResult } from "./package-so
 import { createLectorReadOperations } from "./read-operations.ts";
 import { createReferenceBasedRenameOperations } from "./reference-based-rename-operations.ts";
 import { createRenameOperations } from "./rename-operations.ts";
+import { createRepoCacheListOperations } from "./repo-cache-list-operations.ts";
 import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
 import { formatRepoFetchCall, formatRepoFetchResult } from "./repo-fetch-rendering.ts";
 import { createLectorSearchOperations } from "./search-operations.ts";
@@ -1445,6 +1446,7 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const repoFetchOperations = createLectorRepoFetchOperations();
+		const repoCacheListOperations = createRepoCacheListOperations();
 		pi.registerTool({
 			name: "repo_fetch",
 			label: "Repo Fetch",
@@ -1478,6 +1480,53 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { result?: RepoFetchResult & { workspaceId: string } } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatRepoFetchResult(details?.result, theme));
+				return text;
+			},
+		});
+
+		pi.registerTool({
+			name: "repo_cache_list",
+			label: "Repo Cache List",
+			description:
+				"Lists and queries repo_fetch's own on-disk cache -- no network call, no cache mutation. Filter by any combination of host/owner/repo/ref (exact match) and text (case-insensitive substring across host/owner/repo/refs). Each entry reports whether it's currently a registered workspace (usable directly by other tools) or just present on disk. Bounded and paginated via cursor.",
+			promptSnippet: "List or search previously-fetched external repositories",
+			parameters: Type.Object({
+				text: Type.Optional(Type.String({ description: "Case-insensitive substring match across host/owner/repo/refs" })),
+				host: Type.Optional(Type.String({ description: "Exact host match, e.g. github.com" })),
+				owner: Type.Optional(Type.String()),
+				repo: Type.Optional(Type.String()),
+				ref: Type.Optional(Type.String({ description: "Matches either the requested or the resolved ref" })),
+				maxResults: Type.Number({ description: "Maximum entries to return in this page" }),
+				cursor: Type.Optional(Type.String({ description: "Opaque cursor from a prior call's nextCursor, to fetch the next page" })),
+			}),
+			async execute(_toolCallId, params) {
+				const page = await repoCacheListOperations.list(
+					{ text: params.text, host: params.host, owner: params.owner, repo: params.repo, ref: params.ref },
+					params.maxResults,
+					params.cursor,
+				);
+				return { content: [{ type: "text", text: JSON.stringify(page) }], details: { page } };
+			},
+			renderCall(_args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(`${theme.fg("toolTitle", theme.bold("repo_cache_list"))}`);
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Listing cached repositories..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "repo_cache_list failed"), 0, 0);
+				}
+				const details = result.details as
+					| { page?: { entries: readonly { host: string; owner: string; repo: string }[]; nextCursor: string | null } }
+					| undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				const count = details?.page?.entries.length ?? 0;
+				text.setText(count === 0 ? theme.fg("dim", "no cached repositories") : theme.fg("success", `${count} cached repositor${count === 1 ? "y" : "ies"}`));
 				return text;
 			},
 		});
