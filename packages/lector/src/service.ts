@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import picomatch from "picomatch";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
+import { InMemoryMutationHistory } from "./adapters/in-memory-mutation-history.ts";
 import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
 import { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
 import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
@@ -52,6 +53,8 @@ import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts"
 import type { IntelligenceProvenance } from "./domain/intelligence-provenance.ts";
 import { descriptorForPath, LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./domain/language-server-descriptor.ts";
 import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, lineEdit } from "./domain/line-edit.ts";
+import type { MutationHistoryEntry, MutationOperation } from "./domain/mutation-history.ts";
+import { canRevertMutation } from "./domain/mutation-history.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
 import type { PackageSourceBounds, PackageSourceOperationResult, PackageSourceRequest } from "./domain/package-source.ts";
 import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
@@ -81,6 +84,7 @@ import type { SymbolSearchResult, WorkspaceLocation } from "./domain/workspace-s
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 import type { FileWatcherPort } from "./ports/file-watcher-port.ts";
 import type { GitPort } from "./ports/git-port.ts";
+import type { MutationHistoryPort } from "./ports/mutation-history-port.ts";
 import type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 import type { SearchCachePort } from "./ports/search-cache-port.ts";
@@ -234,6 +238,24 @@ export class WorkspaceChangedDuringPopulation extends Error {
 	}
 }
 
+/** A revert is only safe when the file's current content is exactly what the targeted mutation itself produced -- anything else (a later edit, a deletion) means reverting now would silently clobber a change this entry never knew about. Matches every other Lector write's own expected-hash-guard discipline. */
+export class MutationEntryNotFound extends Error {
+	constructor(readonly entryId: string) {
+		super(`no mutation history entry "${entryId}" -- it was never recorded, already evicted (bounded history), or belongs to a different workspace`);
+		this.name = "MutationEntryNotFound";
+	}
+}
+
+export class MutationRevertStale extends Error {
+	constructor(
+		readonly entryId: string,
+		readonly path: string,
+	) {
+		super(`"${path}" has changed since mutation "${entryId}" was applied -- refusing to revert over a change this entry never knew about`);
+		this.name = "MutationRevertStale";
+	}
+}
+
 /** A partial multi-file change scores worse than no change at all -- CodeScaleBench's own finding. Refuses to touch anything rather than rename against a symbol graph that doesn't honestly know every reference yet. */
 export class ReferenceBasedRenameRequiresFreshGraph extends Error {
 	constructor(
@@ -262,6 +284,8 @@ export type OperationName =
 	| "workspace.exactEdit"
 	| "workspace.lineEdit"
 	| "workspace.applyPatch"
+	| "workspace.mutationHistory"
+	| "workspace.revertMutation"
 	| "workspace.registerPath"
 	| "workspace.findSymbols"
 	| "workspace.goToDefinition"
@@ -309,6 +333,8 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.exactEdit",
 	"workspace.lineEdit",
 	"workspace.applyPatch",
+	"workspace.mutationHistory",
+	"workspace.revertMutation",
 	"workspace.registerPath",
 	"workspace.findSymbols",
 	"workspace.goToDefinition",
@@ -365,6 +391,8 @@ export interface OperationInputs {
 	"workspace.exactEdit": { workspaceId: WorkspaceId } & ExpectedHashEdit;
 	"workspace.lineEdit": { workspaceId: WorkspaceId; path: string; edits: readonly LineEdit[] };
 	"workspace.applyPatch": { workspaceId: WorkspaceId; path: string; expectedHash: ContentHash; patchText: string };
+	"workspace.mutationHistory": { workspaceId: WorkspaceId; path: string; maxResults: number };
+	"workspace.revertMutation": { workspaceId: WorkspaceId; entryId: string };
 	"workspace.registerPath": { path: string };
 	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string; maxResults?: number; responseFormat?: ResponseFormat };
 	"workspace.goToDefinition": WorkspacePosition;
@@ -446,6 +474,9 @@ export interface OperationOutputs {
 	"workspace.exactEdit": EditOutcome;
 	"workspace.lineEdit": LineEditOutcome;
 	"workspace.applyPatch": EditOutcome;
+	"workspace.mutationHistory": { entries: readonly MutationHistoryEntry[] };
+	/** newHash is null when the reverted-to state is "the file doesn't exist" -- reverting a create back to nonexistence, or reverting a delete when the file has stayed deleted since. */
+	"workspace.revertMutation": { path: string; newHash: ContentHash | null };
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
 	"workspace.findSymbols": SymbolSearchResult;
 	"workspace.goToDefinition": Provenanced<{ locations: readonly WorkspaceLocation[] }>;
@@ -550,6 +581,8 @@ export interface LectorServiceOptions {
 	createSymbolGraph?: (workspaceId: WorkspaceId) => SymbolGraphPort;
 	/** Factory for the store backing workspace.createAnnotation/getAnnotation/listAnnotations/refreshAnnotation/scrubAnnotation/restoreAnnotation. Defaults to an in-memory store (not durable across a restart). */
 	createSymbolAnnotations?: (workspaceId: WorkspaceId) => SymbolAnnotationPort;
+	/** Factory for the store backing workspace.mutationHistory/revertMutation. Defaults to an in-memory store (not durable across a restart), bounded to 50 entries per file. */
+	createMutationHistory?: (workspaceId: WorkspaceId) => MutationHistoryPort;
 	/** Factory for the git port backing workspace.gitStatus/gitLog/gitDiff. Defaults to LocalGit, the real `git` CLI. Cheap to construct -- never cached, unlike symbol indexes. */
 	createGitPort?: (rootPath: string) => GitPort;
 	/** Factory for the port backing repo.fetch. No default -- unlike createSymbolGraph's safe in-memory fallback, fetching a real external repo always needs a real disk location only a host (daemon.ts) can supply. Called once at construction and reused, not per-call. */
@@ -692,6 +725,35 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			symbolAnnotations.set(workspaceId, store);
 		}
 		return store;
+	}
+
+	// One mutation-history store per workspace, same lazy-create-on-first-use shape as symbolAnnotations.
+	const mutationHistories = new Map<WorkspaceId, MutationHistoryPort>();
+	const createMutationHistory = options.createMutationHistory ?? (() => new InMemoryMutationHistory());
+
+	function ensureMutationHistory(workspaceId: WorkspaceId): MutationHistoryPort {
+		let store = mutationHistories.get(workspaceId);
+		if (!store) {
+			store = createMutationHistory(workspaceId);
+			mutationHistories.set(workspaceId, store);
+		}
+		return store;
+	}
+
+	/** Records one mutation-history entry after a successful write -- reads the file's content BEFORE the caller's own edit runs, since the edit's own outcome only ever reports a hash, never the prior text a revert would need to restore. Generic over the real outcome type (EditOutcome/LineEditOutcome) so callers get their full, correctly-typed result back, not a narrowed {newHash} shape. */
+	async function recordMutation<T extends { newHash: ContentHash | null }>(
+		workspaceId: WorkspaceId,
+		path: string,
+		operation: MutationOperation,
+		run: () => Promise<T>,
+	): Promise<T> {
+		const workspace = resolveWorkspace(registry, workspaceId);
+		const before = await workspace.readEntry(path);
+		const beforeContent = before.exists ? before.content : null;
+		const beforeHash = before.exists ? contentHashOf(before.content) : null;
+		const outcome = await run();
+		await ensureMutationHistory(workspaceId).record({ path, operation, beforeContent, beforeHash, afterHash: outcome.newHash });
+		return outcome;
 	}
 
 	const createGitPort = options.createGitPort ?? ((rootPath: string) => new LocalGit(rootPath));
@@ -1400,6 +1462,45 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return applyReferenceBasedRename(entry.port, plan);
 	}
 
+	async function mutationHistoryHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.mutationHistory"],
+	): Promise<OperationOutputs["workspace.mutationHistory"]> {
+		if (!registry.has(input.workspaceId)) throw new UnknownWorkspace(input.workspaceId);
+		const entries = await ensureMutationHistory(input.workspaceId).listForPath(input.path, input.maxResults);
+		return { entries };
+	}
+
+	async function revertMutationHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.revertMutation"],
+	): Promise<OperationOutputs["workspace.revertMutation"]> {
+		if (!registry.has(input.workspaceId)) throw new UnknownWorkspace(input.workspaceId);
+		const target = await ensureMutationHistory(input.workspaceId).get(input.entryId);
+		if (!target) throw new MutationEntryNotFound(input.entryId);
+
+		const workspace = resolveWorkspace(registry, input.workspaceId);
+		const current = await workspace.readEntry(target.path);
+		const currentHash = current.exists ? contentHashOf(current.content) : null;
+		if (!canRevertMutation({ entry: target, currentHash })) throw new MutationRevertStale(input.entryId, target.path);
+
+		const outcome = await recordMutation(input.workspaceId, target.path, "revert", async () => {
+			if (target.beforeContent === null) {
+				// The targeted mutation created this file -- reverting it means it must not exist again.
+				// currentHash is provably non-null here: canRevertMutation already confirmed it equals
+				// target.afterHash, and a create's own afterHash is never null (exactEdit/lineEdit/
+				// applyPatch never produce one) -- but narrowed via a real runtime check, not assumed.
+				if (currentHash === null) throw new MutationRevertStale(input.entryId, target.path);
+				await workspace.deleteEntry(target.path, currentHash);
+				return { newHash: null };
+			}
+			const written = await workspace.writeEntry(target.path, currentHash, target.beforeContent);
+			return { newHash: written.newHash };
+		});
+
+		return { path: target.path, newHash: outcome.newHash };
+	}
+
 	function isRecord(value: unknown): value is Record<string, unknown> {
 		return typeof value === "object" && value !== null;
 	}
@@ -1657,14 +1758,20 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.rawRead": (registry, input) => rawRead(resolveWorkspace(registry, input.workspaceId), input.path),
 		"workspace.exactEdit": (registry, input) => {
 			const { workspaceId, ...edit } = input;
-			return exactEdit(resolveWorkspace(registry, workspaceId), edit);
+			return recordMutation(workspaceId, edit.path, "exactEdit", () => exactEdit(resolveWorkspace(registry, workspaceId), edit));
 		},
 		"workspace.lineEdit": (registry, input) => {
-			return lineEdit(resolveWorkspace(registry, input.workspaceId), { path: input.path, edits: input.edits });
+			return recordMutation(input.workspaceId, input.path, "lineEdit", () =>
+				lineEdit(resolveWorkspace(registry, input.workspaceId), { path: input.path, edits: input.edits }),
+			);
 		},
 		"workspace.applyPatch": (registry, input) => {
-			return applyPatch(resolveWorkspace(registry, input.workspaceId), { path: input.path, expectedHash: input.expectedHash, patchText: input.patchText });
+			return recordMutation(input.workspaceId, input.path, "applyPatch", () =>
+				applyPatch(resolveWorkspace(registry, input.workspaceId), { path: input.path, expectedHash: input.expectedHash, patchText: input.patchText }),
+			);
 		},
+		"workspace.mutationHistory": mutationHistoryHandler,
+		"workspace.revertMutation": revertMutationHandler,
 		"workspace.registerPath": registerPath,
 		"workspace.findSymbols": findSymbols,
 		"workspace.goToDefinition": goToDefinition,

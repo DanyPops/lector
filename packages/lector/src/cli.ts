@@ -38,6 +38,14 @@ const USAGE = `Usage:
     (Ctrl-C to stop) -- connects to the daemon's PushChannel over a real WebSocket, the same
     channel workspace.watch's own topic is delivered on for any other subscriber
   lector workspace unwatch <watch-id> [--json]
+  lector workspace mutation-history <workspace-id> <path> --max-results <n> [--json]
+    newest first -- every successful exactEdit/lineEdit/applyPatch/revertMutation on <path> is
+    recorded, oldest entries evicted once the per-file bound is exceeded (not durable across a
+    daemon restart)
+  lector workspace revert-mutation <workspace-id> <entry-id> [--json]
+    restores the file to its exact content immediately before that entry's own mutation --
+    refuses if the file has changed since (a real, further-revertible mutation itself, not a
+    special case: reverting a revert works)
   lector workspace apply-patch <workspace-id> <path> --patch <unified-diff-text> --expected-hash <hash> [--json]
     applies real unified-diff hunks (as diff -u / git diff produce), whole-file guarded --
     hunk context is searched for near its own line-number hint, tolerating a file that
@@ -1056,6 +1064,29 @@ async function runWorkspaceApplyPatch(workspaceId: string | undefined, path: str
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.path}: ${result.previousHash} -> ${result.newHash}`);
 }
 
+async function runWorkspaceMutationHistory(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const maxResults = requiredIntFlag(flags, "--max-results");
+	const client = await connectLectorClient();
+	const { entries } = await client.call("workspace.mutationHistory", { workspaceId, path, maxResults });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(entries));
+		return;
+	}
+	if (entries.length === 0) {
+		console.log("no recorded mutation history for this path");
+		return;
+	}
+	for (const entry of entries) console.log(`${entry.id}  ${new Date(entry.timestamp).toISOString()}  ${entry.operation}`);
+}
+
+async function runWorkspaceRevertMutation(workspaceId: string | undefined, entryId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !entryId) fail(USAGE);
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.revertMutation", { workspaceId, entryId });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.path} reverted -> ${result.newHash ?? "(deleted)"}`);
+}
+
 /**
  * systemd user-unit lifecycle (`install|start|stop|restart|status`) for a
  * persistent Lector daemon. `install` always runs `serve
@@ -1161,6 +1192,8 @@ async function main(): Promise<void> {
 		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
 		if (action === "line-edit") return runWorkspaceLineEdit(workspaceId, path, flags);
 		if (action === "apply-patch") return runWorkspaceApplyPatch(workspaceId, path, flags);
+		if (action === "mutation-history") return runWorkspaceMutationHistory(workspaceId, path, flags);
+		if (action === "revert-mutation") return runWorkspaceRevertMutation(workspaceId, path, flags);
 		if (action === "watch") return runWorkspaceWatch(workspaceId, actionArgs.slice(1));
 		if (action === "unwatch") return runWorkspaceUnwatch(workspaceId, flags);
 		if (action === "symbols") return runWorkspaceSymbols(workspaceId, path, flags);

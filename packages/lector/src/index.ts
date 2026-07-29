@@ -138,6 +138,7 @@ export {
 } from "./domain/line-edit.ts";
 export type { LineHash } from "./domain/line-hash.ts";
 export { lineHashOf } from "./domain/line-hash.ts";
+export { type CanRevertMutationInputs, canRevertMutation, type MutationHistoryEntry, type MutationOperation } from "./domain/mutation-history.ts";
 export type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "./domain/npm-package-metadata.ts";
 export { outgoingCalls } from "./domain/outgoing-calls.ts";
 export type {
@@ -211,6 +212,7 @@ export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports
 export type { FileWatcherPort } from "./ports/file-watcher-port.ts";
 export type { GitPort } from "./ports/git-port.ts";
 export type { InstalledPackageVersionResolverPort } from "./ports/installed-package-version-resolver-port.ts";
+export type { MutationHistoryPort, RecordMutationInput } from "./ports/mutation-history-port.ts";
 export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 export type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
@@ -231,6 +233,8 @@ export {
 	JobWaitTooLong,
 	type LectorService,
 	type LectorServiceOptions,
+	MutationEntryNotFound,
+	MutationRevertStale,
 	NotAGitRepository,
 	OPERATION_NAMES,
 	type OperationInputs,

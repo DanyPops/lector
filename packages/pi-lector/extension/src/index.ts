@@ -10,6 +10,7 @@ import type {
 	JobSnapshot,
 	LineEdit,
 	LineEditOutcome,
+	MutationHistoryEntry,
 	PackageSourceOperationResult,
 	PopulateSymbolGraphResult,
 	RepoFetchResult,
@@ -68,6 +69,7 @@ import { createLectorGitOperations } from "./git-operations.ts";
 import { formatGitCall, formatGitResult, type GitToolDetails } from "./git-rendering.ts";
 import { createLectorLineEditOperations } from "./line-edit-operations.ts";
 import { formatLineEditCall, formatLineEditResult } from "./line-edit-rendering.ts";
+import { createMutationHistoryOperations } from "./mutation-history-operations.ts";
 import { nearestGitRoot } from "./nearest-workspace-root.ts";
 import { createLectorPackageSourceOperations } from "./package-source-operations.ts";
 import { formatPackageSourceCall, formatPackageSourceResult } from "./package-source-rendering.ts";
@@ -1221,6 +1223,67 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { result?: EditOutcome } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatApplyPatchResult(details?.result, theme));
+				return text;
+			},
+		});
+
+		type MutationHistoryToolDetails =
+			| { readonly action: "list"; readonly entries: readonly MutationHistoryEntry[] }
+			| { readonly action: "revert"; readonly reverted: { readonly path: string; readonly newHash: string | null } };
+
+		const mutationHistoryOperations = createMutationHistoryOperations();
+		pi.registerTool({
+			name: "mutation_history",
+			label: "Mutation History",
+			description:
+				"List or revert a file's recorded edit history. Every successful edit/line_edit/apply_patch is recorded (newest first, bounded, not durable across a daemon restart). Reverting restores the file to its exact content immediately before that entry's own mutation, guarded the same way every Lector write is -- refuses if the file changed since, rather than silently clobbering a newer change. A revert is itself a real, further-revertible mutation -- reverting a revert works.",
+			promptSnippet: "List or revert a file's recorded edit history",
+			promptGuidelines: [
+				"list first to find the entry id you want, then revert -- an id from a different file's history, or one already evicted by the bounded history, fails closed rather than guessing.",
+			],
+			parameters: Type.Object({
+				action: Type.Union([Type.Literal("list"), Type.Literal("revert")]),
+				path: Type.String({ description: "Absolute or workspace-relative path to the file" }),
+				maxResults: Type.Optional(Type.Number({ description: "Required for action=list -- maximum entries to return, newest first" })),
+				entryId: Type.Optional(Type.String({ description: "Required for action=revert -- an id returned by a prior action=list" })),
+			}),
+			async execute(_toolCallId, params): Promise<AgentToolResult<MutationHistoryToolDetails>> {
+				const absolutePath = resolve(cwd, params.path);
+				if (params.action === "list") {
+					if (params.maxResults === undefined) throw new Error("mutation_history action=list requires maxResults");
+					const entries = await mutationHistoryOperations.list(absolutePath, params.maxResults);
+					const text =
+						entries.length === 0
+							? "no recorded mutation history for this path"
+							: entries.map((entry) => `${entry.id}  ${new Date(entry.timestamp).toISOString()}  ${entry.operation}`).join("\n");
+					return { content: [{ type: "text", text }], details: { action: "list", entries } };
+				}
+				if (params.entryId === undefined) throw new Error("mutation_history action=revert requires entryId");
+				const reverted = await mutationHistoryOperations.revert(absolutePath, params.entryId);
+				return {
+					content: [{ type: "text", text: `${reverted.path} reverted -> ${reverted.newHash ?? "(deleted)"}` }],
+					details: { action: "revert", reverted },
+				};
+			},
+			renderCall(args, theme, context) {
+				const action = typeof args.action === "string" ? args.action : "";
+				const path = typeof args.path === "string" ? args.path : "";
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(`${theme.fg("toolTitle", theme.bold("mutation_history"))} ${theme.fg("accent", action)} ${theme.fg("dim", path)}`);
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Working on mutation history..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "mutation_history failed"), 0, 0);
+				}
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				const textBlock = result.content.find((block) => block.type === "text");
+				text.setText(theme.fg("success", textBlock && "text" in textBlock ? textBlock.text : "done"));
 				return text;
 			},
 		});
