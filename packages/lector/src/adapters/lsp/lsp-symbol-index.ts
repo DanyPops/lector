@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import picomatch from "picomatch";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../domain/call-hierarchy.ts";
 import type { CodeRange } from "../../domain/code-range.ts";
+import { contentHashOf } from "../../domain/content-hash.ts";
 import { type Diagnostic, type DiagnosticSeverity, mergeDiagnostics } from "../../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../../domain/document-symbol.ts";
 import type { FileSystemWatcherPattern } from "../../domain/dynamic-capability-registry.ts";
@@ -20,11 +21,13 @@ import type { Hover } from "../../domain/hover.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
 import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
 import { toLspFileChangeType } from "../../domain/lsp-file-change-type.ts";
-import { type ParsedServerCapabilities, parseServerCapabilities } from "../../domain/lsp-server-capabilities.ts";
+import { type ParsedServerCapabilities, parseServerCapabilities, shouldSyncDocuments } from "../../domain/lsp-server-capabilities.ts";
 import { SerialExecutionQueue } from "../../domain/serial-execution-queue.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
+import type { ContentCachePort } from "../../ports/content-cache-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
+import { InMemoryContentCache } from "../in-memory-content-cache.ts";
 import { TypeScriptCompilerSymbolIndex } from "../typescript-compiler-symbol-index.ts";
 import { resolveSeedFile } from "./discover-seed-file.ts";
 import { LanguageServerProcess } from "./language-server-process.ts";
@@ -39,6 +42,14 @@ export interface LspSymbolIndexOptions {
 	readonly maxFileBytes?: number;
 	readonly maxRefreshBytes?: number;
 	readonly maxFallbackSeedFiles?: number;
+	/**
+	 * Shared with rawRead/exactEdit and TreeSitterSymbolIndex when the service supplies one
+	 * common instance -- the same physical file read by any of them warms the same
+	 * content-addressed entry for the others, instead of each independently caching (or not
+	 * caching at all) its own private view of the same bytes. Defaults to a private,
+	 * unshared cache when not given, for full backward compatibility.
+	 */
+	readonly contentCache?: ContentCachePort;
 }
 
 export class LanguageFileOutsideWorkspace extends Error {
@@ -371,12 +382,14 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private dynamicCapabilities = new DynamicCapabilityRegistry();
 	/** Serializes mutation-dependent operations per file path -- two concurrent queries touching the same file must never race textDocument/didChange's version bookkeeping. */
 	private readonly mutationQueue = new SerialExecutionQueue();
+	private readonly contentCache: ContentCachePort;
 
 	constructor(cwd: string, descriptor: LanguageServerDescriptor, seedFile?: string, options: LspSymbolIndexOptions = {}) {
 		this.cwd = resolve(cwd);
 		this.canonicalCwd = realpathSync(this.cwd);
 		this.descriptor = descriptor;
 		this.explicitSeedFile = seedFile;
+		this.contentCache = options.contentCache ?? new InMemoryContentCache();
 		this.maxOpenFiles = positiveLimit(options.maxOpenFiles, DEFAULT_MAX_OPEN_FILES, "maxOpenFiles");
 		this.maxFileBytes = positiveLimit(options.maxFileBytes, DEFAULT_MAX_FILE_BYTES, "maxFileBytes");
 		this.maxRefreshBytes = positiveLimit(options.maxRefreshBytes, 50 * 1024 * 1024, "maxRefreshBytes");
@@ -592,27 +605,45 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			const content = this.readBoundedFile(path);
 			const opened = this.openedFiles.get(path);
 			if (opened?.content === content) return;
+			// Warmed regardless of open-vs-change below, and regardless of whether this text-sync
+			// notification is actually sent to the server (see the "none" sync-kind skip further
+			// down) -- rawRead/exactEdit/TreeSitterSymbolIndex reusing this exact content by hash is
+			// a real benefit independent of what this particular server negotiated.
+			await this.contentCache.putRawContent(contentHashOf(content), content);
+			// Preserves the server's own negotiated capability: a server that never declared (or
+			// explicitly declared None) textDocumentSync was told, per spec, that it does not track
+			// content via these notifications -- bookkeeping (openedFiles/version) still advances so
+			// a later call correctly detects "already tracked, unchanged" either way, but no bytes
+			// are sent to a server that asked not to receive them. Confirmed empirically that both
+			// currently-supported real servers this matters for (typescript-language-server,
+			// bash-language-server) explicitly negotiate non-None sync, so this is a real spec-
+			// correctness fix with zero observed behavior change today, not a guessed one.
+			const sync = shouldSyncDocuments(this.negotiatedCapabilities?.textDocumentSyncKind ?? "full");
 			if (!opened) {
 				if (this.openedFiles.size >= this.maxOpenFiles) throw new LanguageFileLimitExceeded("open-files", this.maxOpenFiles, this.openedFiles.size + 1);
-				proc.notify("textDocument/didOpen", {
-					textDocument: {
-						uri: pathToFileURL(path).href,
-						languageId: this.descriptor.documentLanguageIds?.[extname(path)] ?? this.descriptor.languageId,
-						version: 1,
-						text: content,
-					},
-				});
+				if (sync) {
+					proc.notify("textDocument/didOpen", {
+						textDocument: {
+							uri: pathToFileURL(path).href,
+							languageId: this.descriptor.documentLanguageIds?.[extname(path)] ?? this.descriptor.languageId,
+							version: 1,
+							text: content,
+						},
+					});
+				}
 				this.openedFiles.set(path, { version: 1, content });
 			} else {
 				const version = opened.version + 1;
 				this.latestDiagnostics.delete(path);
-				proc.notify("textDocument/didChange", {
-					textDocument: { uri: pathToFileURL(path).href, version },
-					contentChanges: [{ text: content }],
-				});
+				if (sync) {
+					proc.notify("textDocument/didChange", {
+						textDocument: { uri: pathToFileURL(path).href, version },
+						contentChanges: [{ text: content }],
+					});
+				}
 				this.openedFiles.set(path, { version, content });
 			}
-			await new Promise((resolve) => setTimeout(resolve, settleMs));
+			await new Promise((resolve) => setTimeout(resolve, sync ? settleMs : 0));
 		});
 	}
 

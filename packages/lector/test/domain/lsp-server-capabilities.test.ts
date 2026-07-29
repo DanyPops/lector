@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseServerCapabilities } from "../../src/domain/lsp-server-capabilities.ts";
+import { parseServerCapabilities, shouldSyncDocuments } from "../../src/domain/lsp-server-capabilities.ts";
 
 describe("parseServerCapabilities", () => {
 	it("defaults every field when capabilities is empty or malformed", () => {
@@ -58,5 +58,19 @@ describe("parseServerCapabilities", () => {
 			interFileDependencies: true,
 			workspaceDiagnostics: true,
 		});
+	});
+});
+
+describe("shouldSyncDocuments", () => {
+	it("sends sync notifications for full", () => {
+		expect(shouldSyncDocuments("full")).toBe(true);
+	});
+
+	it("sends sync notifications for incremental -- this client only ever sends Full-content changes regardless, which is spec-legal for an incremental-only server too", () => {
+		expect(shouldSyncDocuments("incremental")).toBe(true);
+	});
+
+	it("skips sync notifications for none -- the server told the client (explicitly, or by omitting the field per spec default) it does not track document content this way", () => {
+		expect(shouldSyncDocuments("none")).toBe(false);
 	});
 });

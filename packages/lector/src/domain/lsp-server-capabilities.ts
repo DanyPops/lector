@@ -82,3 +82,18 @@ function parseTextDocumentSyncKind(value: unknown): TextDocumentSyncKind {
 	if (kind === 2) return "incremental";
 	return "none";
 }
+
+/**
+ * Whether didOpen/didChange/didClose should actually be sent to a server that negotiated
+ * `syncKind`. Per the LSP 3.17 spec ("textDocumentSync ... If omitted it defaults to
+ * TextDocumentSyncKind.None", confirmed directly against the spec, not assumed), a server that
+ * never declares (or explicitly declares None) document sync has told the client it does not
+ * track document content via these notifications -- sending them anyway is not itself unsafe,
+ * but is pure wasted traffic the server will ignore. "incremental" is treated the same as
+ * "full" here: this client only ever sends Full-content changes (a deliberately deferred
+ * optimization -- see ensureFileOpen's own doc comment), and a Full contentChange is spec-legal
+ * regardless of which kind a server asked for.
+ */
+export function shouldSyncDocuments(syncKind: TextDocumentSyncKind): boolean {
+	return syncKind !== "none";
+}

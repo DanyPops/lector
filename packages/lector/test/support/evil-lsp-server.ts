@@ -20,6 +20,11 @@
  *   cancels-own-request    responds to `initialize`, then issues one server-initiated
  *                          request and immediately sends $/cancelRequest for it, then
  *                          reports the eventual reply via test/serverRequestResult
+ *   reports-sync-notifications   responds to `initialize` with empty capabilities (spec:
+ *                          an omitted textDocumentSync negotiates as TextDocumentSyncKind.None),
+ *                          and reports every textDocument/didOpen|didChange|didClose it actually
+ *                          receives back via a test/syncNotificationReceived notification -- lets
+ *                          a test assert none were sent, not just that nothing crashed.
  */
 import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/adapters/lsp/json-rpc-stream.ts";
 
@@ -100,6 +105,13 @@ function handle(message: JsonRpcMessage): void {
 	}
 	if (message.method === "exit") {
 		process.exit(0);
+	}
+	if (
+		mode === "reports-sync-notifications" &&
+		(message.method === "textDocument/didOpen" || message.method === "textDocument/didChange" || message.method === "textDocument/didClose")
+	) {
+		notify("test/syncNotificationReceived", { method: message.method });
+		return;
 	}
 	if (message.method === "$/cancelRequest") {
 		// Reports receipt back to the test -- proves the client actually sent this notification

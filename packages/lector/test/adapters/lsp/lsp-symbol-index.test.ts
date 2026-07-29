@@ -8,7 +8,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { InMemoryContentCache } from "../../../src/adapters/in-memory-content-cache.ts";
 import { LanguageFileOutsideWorkspace, LspSymbolIndex } from "../../../src/adapters/lsp/lsp-symbol-index.ts";
+import { contentHashOf } from "../../../src/domain/content-hash.ts";
 import { diagnostics } from "../../../src/domain/diagnostics.ts";
 import { documentSymbols } from "../../../src/domain/document-symbols.ts";
 import { findReferences } from "../../../src/domain/find-references.ts";
@@ -352,5 +354,58 @@ describe("LspSymbolIndex auto-discovered seed file in a monorepo with no root ts
 		const results = await findWorkspaceSymbols(index, "realProjectExport");
 
 		expect(results.symbols.some((symbol) => symbol.name === "realProjectExport")).toBe(true);
+	}, 20_000);
+});
+
+describe("LspSymbolIndex content-cache wiring", () => {
+	let fixtureRoot: string | undefined;
+	afterEach(() => {
+		if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
+		fixtureRoot = undefined;
+	});
+
+	function buildFixture(): { root: string; content: string } {
+		const root = mkdtempSync(join(tmpdir(), "lector-lsp-content-cache-"));
+		const content = "export function cachedFn(): number {\n\treturn 1;\n}\n";
+		writeFileSync(join(root, "a.ts"), content);
+		writeFileSync(join(root, "tsconfig.json"), "{}");
+		return { root, content };
+	}
+
+	it("warms an injected ContentCachePort's rawContent lens for a file it reads, keyed by that content's real hash", async () => {
+		const { root, content } = buildFixture();
+		fixtureRoot = root;
+		const contentCache = new InMemoryContentCache();
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "a.ts", { contentCache });
+
+		await documentSymbols(index, join(root, "a.ts"));
+
+		const entry = await contentCache.get(contentHashOf(content));
+		expect(entry?.rawContent).toBe(content);
+	}, 20_000);
+
+	it("re-warms the cache with the NEW content's hash after the file changes on disk, not the stale one", async () => {
+		const { root, content } = buildFixture();
+		fixtureRoot = root;
+		const contentCache = new InMemoryContentCache();
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "a.ts", { contentCache });
+		await documentSymbols(index, join(root, "a.ts"));
+
+		const updated = "export function cachedFn(): number {\n\treturn 2;\n}\n";
+		writeFileSync(join(root, "a.ts"), updated);
+		await documentSymbols(index, join(root, "a.ts"));
+
+		await expect(contentCache.get(contentHashOf(updated))).resolves.toMatchObject({ rawContent: updated });
+		// The original hash's entry is untouched (content-addressed -- never invalidated, only superseded by a different hash).
+		await expect(contentCache.get(contentHashOf(content))).resolves.toMatchObject({ rawContent: content });
+	}, 20_000);
+
+	it("defaults to its own private cache when none is injected -- fully backward compatible", async () => {
+		const { root } = buildFixture();
+		fixtureRoot = root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "a.ts");
+
+		const symbols = await documentSymbols(index, join(root, "a.ts"));
+		expect(symbols.some((symbol) => symbol.name === "cachedFn")).toBe(true);
 	}, 20_000);
 });

@@ -53,7 +53,15 @@ function handle(message: JsonRpcMessage): void {
 	if (message.id === undefined) return; // ignore other notifications (didChange, initialized, ...)
 
 	if (message.method === "initialize") {
-		respond(message.id, { capabilities: { diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } } });
+		// textDocumentSync: 1 (Full) -- this server's own didOpen handler below is exactly the
+		// kind of behavior a real server declares this for; omitting it would negotiate as
+		// TextDocumentSyncKind.None per spec, and a spec-correct client would then never send
+		// didOpen at all, silently breaking the very push-diagnostic timing this fixture exists
+		// to exercise. A real server wanting both pull and push diagnostics needs both
+		// capabilities declared, not just diagnosticProvider.
+		respond(message.id, {
+			capabilities: { textDocumentSync: 1, diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } },
+		});
 		return;
 	}
 

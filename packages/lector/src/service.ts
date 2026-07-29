@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import picomatch from "picomatch";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
+import { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
 import { InMemoryMutationHistory } from "./adapters/in-memory-mutation-history.ts";
 import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
 import { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
@@ -82,6 +83,7 @@ import { computeWorkspaceMap, type WorkspaceMapResult } from "./domain/workspace
 import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts";
 import type { SymbolSearchResult, WorkspaceLocation } from "./domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
+import type { ContentCachePort } from "./ports/content-cache-port.ts";
 import type { FileWatcherPort } from "./ports/file-watcher-port.ts";
 import type { GitPort } from "./ports/git-port.ts";
 import type { MutationHistoryPort } from "./ports/mutation-history-port.ts";
@@ -597,6 +599,15 @@ export interface LectorServiceOptions {
 	publish?: (topic: string, payload: unknown) => void;
 	/** Factory for workspace.searchText's result cache. Defaults to an in-memory-only InMemorySearchCache -- safe, no disk dependency. A host wanting the disk-backed tier too (surviving a restart) supplies a TieredSearchCache here. Called once at construction and reused. */
 	createSearchCache?: () => SearchCachePort;
+	/**
+	 * The one hash-addressed content registry shared by rawRead/exactEdit, the default
+	 * LspSymbolIndex, and TreeSitterSymbolIndex -- the same physical file read or written by any
+	 * of them warms one entry the others reuse, instead of each independently reading/caching (or
+	 * not caching at all) its own private view of the same bytes. A caller-supplied
+	 * createSymbolIndex factory does not automatically receive this instance -- it owns its own
+	 * construction. Defaults to a process-wide in-memory cache.
+	 */
+	createContentCache?: () => ContentCachePort;
 	/** Process-lifetime background executor. Tests inject deterministic ids and tighter bounds. */
 	createJobExecutor?: () => BoundedJobExecutor<PopulateSymbolGraphResult>;
 	/** Debounce window before a real file change under a graph-watched workspace triggers an automatic re-population. Default 1000ms; tests use a much smaller value for speed. */
@@ -682,6 +693,13 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			createId: () => `job-${Date.now().toString(36)}-${(++nextJobId).toString(36)}`,
 		});
 
+	// The one hash-addressed content registry shared by rawRead/exactEdit and the DEFAULT
+	// LspSymbolIndex/TreeSitterSymbolIndex construction below -- process-wide, not per-workspace,
+	// matching ContentCachePort's own content-addressed design (identical bytes share one entry
+	// regardless of which file or workspace they came from). A caller-supplied createSymbolIndex
+	// owns its own construction and does not automatically receive this instance.
+	const contentCache = options.createContentCache?.() ?? new InMemoryContentCache();
+
 	// One warm symbol index per (workspace, language) actually queried, reused across calls --
 	// a fresh process per query would pay a fork+initialize cost every time. A polyglot
 	// workspace holds one warm index per language touched, never one guessed for the whole tree.
@@ -690,9 +708,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const createSymbolIndex =
 		options.createSymbolIndex ??
 		((rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => {
-			const semantic = new LspSymbolIndex(rootPath, descriptor, seedFile);
+			const semantic = new LspSymbolIndex(rootPath, descriptor, seedFile, { contentCache });
 			if (descriptor.languageId !== "typescript") return semantic;
-			return new FallbackCodeIntelligenceIndex(semantic, [new TypeScriptCompilerSymbolIndex(rootPath), new TreeSitterSymbolIndex(rootPath)]);
+			return new FallbackCodeIntelligenceIndex(semantic, [new TypeScriptCompilerSymbolIndex(rootPath), new TreeSitterSymbolIndex(rootPath, contentCache)]);
 		});
 	function symbolIndexKey(workspaceId: WorkspaceId, languageId: string): string {
 		return `${workspaceId}:${languageId}`;
@@ -1755,10 +1773,16 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	}
 
 	const handlers: OperationHandlers = {
-		"workspace.rawRead": (registry, input) => rawRead(resolveWorkspace(registry, input.workspaceId), input.path),
-		"workspace.exactEdit": (registry, input) => {
+		"workspace.rawRead": async (registry, input) => {
+			const read = await rawRead(resolveWorkspace(registry, input.workspaceId), input.path);
+			await contentCache.putRawContent(read.hash, read.content);
+			return read;
+		},
+		"workspace.exactEdit": async (registry, input) => {
 			const { workspaceId, ...edit } = input;
-			return recordMutation(workspaceId, edit.path, "exactEdit", () => exactEdit(resolveWorkspace(registry, workspaceId), edit));
+			const outcome = await recordMutation(workspaceId, edit.path, "exactEdit", () => exactEdit(resolveWorkspace(registry, workspaceId), edit));
+			await contentCache.putRawContent(outcome.newHash, edit.content);
+			return outcome;
 		},
 		"workspace.lineEdit": (registry, input) => {
 			return recordMutation(input.workspaceId, input.path, "lineEdit", () =>
