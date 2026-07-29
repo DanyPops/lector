@@ -208,4 +208,107 @@ describe("GitRepoFetcher", () => {
 		expect(secondResult.fromCache).toBe(true);
 		expect(secondResult.path).toBe(firstResult.path);
 	});
+
+	describe("resolveRemoteCommit", () => {
+		it("resolves a moving branch ref to the remote's real current commit, without cloning anything", async () => {
+			sourceRepo = buildSourceRepo();
+			reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-cache-"));
+			const fetcher = new GitRepoFetcher(reposDir, { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") });
+			const expectedCommit = execFileSync("git", ["rev-parse", "main"], { cwd: sourceRepo }).toString().trim();
+
+			const commit = await fetcher.resolveRemoteCommit(reference({ ref: "main" }));
+
+			expect(commit).toBe(expectedCommit);
+			expect(existsSync(join(reposDir, "local-fixture"))).toBe(false);
+		});
+
+		it("resolves null ref (default branch) the same way fetch() would resolve it", async () => {
+			sourceRepo = buildSourceRepo();
+			reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-cache-"));
+			const fetcher = new GitRepoFetcher(reposDir, { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") });
+			const expectedCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: sourceRepo }).toString().trim();
+
+			const commit = await fetcher.resolveRemoteCommit(reference());
+
+			expect(commit).toBe(expectedCommit);
+		});
+
+		it("reflects a new commit pushed after the last fetch -- proves this is a live remote check, not a cached answer", async () => {
+			sourceRepo = buildSourceRepo();
+			reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-cache-"));
+			const fetcher = new GitRepoFetcher(reposDir, { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") });
+			const before = await fetcher.resolveRemoteCommit(reference({ ref: "main" }));
+
+			writeFileSync(join(sourceRepo, "README.md"), "on main, updated\n");
+			git(sourceRepo, "commit", "-q", "-am", "a new main commit");
+			const expectedAfter = execFileSync("git", ["rev-parse", "main"], { cwd: sourceRepo }).toString().trim();
+
+			const after = await fetcher.resolveRemoteCommit(reference({ ref: "main" }));
+
+			expect(after).not.toBe(before);
+			expect(after).toBe(expectedAfter);
+		});
+
+		it("returns undefined, not a throw, for a ref that doesn't exist on the remote", async () => {
+			sourceRepo = buildSourceRepo();
+			reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-cache-"));
+			const fetcher = new GitRepoFetcher(reposDir, { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") });
+
+			const commit = await fetcher.resolveRemoteCommit(reference({ ref: "no-such-branch" }));
+
+			expect(commit).toBeUndefined();
+		});
+
+		it("returns undefined, not a throw, when the remote itself doesn't exist", async () => {
+			reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-cache-"));
+			const fetcher = new GitRepoFetcher(reposDir, { resolveCloneUrl: () => "/no/such/path/on/disk" });
+
+			const commit = await fetcher.resolveRemoteCommit(reference());
+
+			expect(commit).toBeUndefined();
+		});
+
+		it("returns undefined for an already-exact commit sha -- a sha can't move, so there's nothing to positively confirm as changed", async () => {
+			sourceRepo = buildSourceRepo();
+			reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-cache-"));
+			const fetcher = new GitRepoFetcher(reposDir, { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") });
+			const sha = execFileSync("git", ["rev-parse", "main"], { cwd: sourceRepo }).toString().trim();
+
+			const commit = await fetcher.resolveRemoteCommit(reference({ ref: sha }));
+
+			expect(commit).toBeUndefined();
+		});
+	});
+
+	describe("forceRefresh", () => {
+		it("reclones a same-key reference in place and leaves a real, still-existing directory behind (regression: cache.set() previously disposed the freshly-renamed directory because the replaced entry's path was identical to the new one)", async () => {
+			sourceRepo = buildSourceRepo();
+			reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-cache-"));
+			const fetcher = new GitRepoFetcher(reposDir, { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") });
+
+			const first = await fetcher.fetch(reference({ ref: "main" }));
+			writeFileSync(join(sourceRepo, "README.md"), "on main, updated\n");
+			git(sourceRepo, "commit", "-q", "-am", "a new main commit");
+
+			const second = await fetcher.fetch(reference({ ref: "main" }), { forceRefresh: true });
+
+			expect(second.path).toBe(first.path);
+			expect(second.commit).not.toBe(first.commit);
+			expect(existsSync(second.path)).toBe(true);
+			expect(readFileSync(join(second.path, "README.md"), "utf8")).toBe("on main, updated\n");
+		});
+
+		it("ignores a still-fresh cache entry when forceRefresh is false, unlike the regression path above", async () => {
+			sourceRepo = buildSourceRepo();
+			reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-cache-"));
+			const fetcher = new GitRepoFetcher(reposDir, { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") });
+
+			const first = await fetcher.fetch(reference({ ref: "main" }));
+			const second = await fetcher.fetch(reference({ ref: "main" }));
+
+			expect(second.fromCache).toBe(true);
+			expect(second.commit).toBe(first.commit);
+			expect(existsSync(second.path)).toBe(true);
+		});
+	});
 });

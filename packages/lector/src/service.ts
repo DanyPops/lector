@@ -58,6 +58,7 @@ import { purgeFilesNoLongerWalked } from "./domain/purge-stale-graph-entries.ts"
 import { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 import { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
+import { shouldRefetchFromRemote } from "./domain/remote-cache-freshness.ts";
 import type { RepoFetchResult } from "./domain/repo-fetch-result.ts";
 import type { RepoReference } from "./domain/repo-reference.ts";
 import { resolvePackageSource } from "./domain/resolve-package-source.ts";
@@ -66,7 +67,7 @@ import { searchText as searchTextQuery } from "./domain/search-text.ts";
 import type { AnnotationId, SymbolAnnotation, SymbolAnnotationAnchor } from "./domain/symbol-annotation.ts";
 import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
-import type { WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
+import type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
 import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
 import { assertBoundedSymbolQuery } from "./domain/symbol-query.ts";
 import type { TextSearchResult } from "./domain/text-search-result.ts";
@@ -500,6 +501,8 @@ interface RegisteredWorkspace {
 	readonly rootPath?: string;
 	/** Local work always outranks disposable fetched-repo work in the bounded job queue. */
 	readonly origin: "local" | "remote";
+	/** Present only for a workspace registered via repo.fetch -- the reference to re-check/refetch when its remote moves. */
+	readonly remoteReference?: RepoReference;
 }
 
 type MutableRegistry = Map<WorkspaceId, RegisteredWorkspace>;
@@ -777,7 +780,12 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		const absolutePath = resolve(result.path);
 		const workspaceId = deriveWorkspaceId(absolutePath);
 		if (!registry.has(workspaceId)) {
-			registry.set(workspaceId, { port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)), rootPath: absolutePath, origin: "remote" });
+			registry.set(workspaceId, {
+				port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)),
+				rootPath: absolutePath,
+				origin: "remote",
+				remoteReference: input,
+			});
 		}
 		return { workspaceId, ...result };
 	}
@@ -1186,21 +1194,63 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		}
 	}
 
+	/**
+	 * Closes and forgets any warm symbol index for this workspace, without touching another
+	 * workspace's. Called after a forced remote refetch replaces the workspace's on-disk
+	 * directory wholesale -- an already-warm LSP process (e.g. tsserver) has its own project
+	 * state built from the old directory and does not recover from having it swapped out from
+	 * under it (confirmed live: querying it afterwards failed with "No Project"). The next
+	 * ensureLanguageIndex call for this workspace spawns a fresh process against the new content.
+	 */
+	async function closeWarmIndexesForWorkspace(workspaceId: WorkspaceId): Promise<void> {
+		const stale = Array.from(symbolIndexes.entries()).filter(([, entry]) => entry.workspaceId === workspaceId);
+		for (const [key] of stale) symbolIndexes.delete(key);
+		await Promise.all(stale.map(([, entry]) => entry.index.close()));
+	}
+
+	/**
+	 * Auto-pull, on demand, no debounce: every call against a remote-tracked workspace pays one
+	 * cheap ls-remote; a real refetch only happens on the call where the remote's commit actually
+	 * differs from what the last generation recorded. A no-op for a local workspace, a remote
+	 * workspace with no prior generation to compare against, or an inconclusive remote check
+	 * (shouldRefetchFromRemote never treats "couldn't tell" as evidence of staleness). The
+	 * refetch reuses repoFetcher's own atomic clone-into-tmp-then-rename swap at the exact same
+	 * on-disk path this workspace is already registered against, so no registry update is needed
+	 * -- the next read of rootPath simply sees the fresh content.
+	 */
+	async function refreshRemoteWorkspaceIfMoved(
+		workspaceId: WorkspaceId,
+		entry: RegisteredWorkspace,
+		previousGeneration: SymbolGraphGeneration | undefined,
+	): Promise<void> {
+		if (!entry.remoteReference || !repoFetcher) return;
+		const currentRemoteCommit = await repoFetcher.resolveRemoteCommit(entry.remoteReference);
+		if (!shouldRefetchFromRemote({ recordedCommit: previousGeneration?.remoteCommit, currentRemoteCommit })) return;
+		await repoFetcher.fetch(entry.remoteReference, { forceRefresh: true });
+		await closeWarmIndexesForWorkspace(workspaceId);
+	}
+
 	async function populateSymbolGraphHandler(
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.populateSymbolGraph"],
 	): Promise<OperationOutputs["workspace.populateSymbolGraph"]> {
-		const workspaceIndex = ensureWorkspaceIndex(input.workspaceId);
-		if (!supportsCodeIntelligence(workspaceIndex.index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
 		const entry = registry.get(input.workspaceId);
 		if (!entry?.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 		const rootPath = entry.rootPath;
-		const extensions = workspaceSourceExtensions(workspaceIndex.descriptors);
-		const before = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		const graph = ensureSymbolGraph(input.workspaceId);
 		// Purge before repopulating: a file walked last generation but absent from this one was
 		// deleted (or moved out of scope), and its stale nodes/edges must not survive indefinitely.
 		const previousGeneration = await graph.getGeneration();
+		// A remote-tracked workspace whose origin has moved past the last recorded commit is
+		// refetched in place, and any already-warm index evicted, BEFORE ensureWorkspaceIndex
+		// below -- an already-warm LSP process built its own project state from the old
+		// directory and does not survive having it swapped out from under it, and "before"
+		// further down must see the freshly-fetched content, not what was on disk previously.
+		await refreshRemoteWorkspaceIfMoved(input.workspaceId, entry, previousGeneration);
+		const workspaceIndex = ensureWorkspaceIndex(input.workspaceId);
+		if (!supportsCodeIntelligence(workspaceIndex.index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
+		const extensions = workspaceSourceExtensions(workspaceIndex.descriptors);
+		const before = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		await purgeFilesNoLongerWalked(graph, previousGeneration?.walkedFiles, before.absoluteFiles);
 		const result = await populateSymbolGraphQuery(workspaceIndex.index, graph, before.absoluteFiles, input.maxSymbolsPerFile);
 		const after = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
@@ -1215,6 +1265,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			result,
 			gitHeadSha: await captureGitHeadShaIfClean(rootPath),
 			walkedFiles: before.absoluteFiles,
+			remoteReference: entry.remoteReference,
+			remoteCommit: entry.remoteReference ? await repoFetcher?.resolveRemoteCommit(entry.remoteReference) : undefined,
 		});
 		// A workspace that has been populated at least once stays graph-watched for the rest of
 		// the daemon's uptime -- the whole point of "keeps the symbol graph warm on disk changes".
@@ -1242,6 +1294,11 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (generation.maxFiles !== input.maxFiles || generation.maxSymbolsPerFile !== input.maxSymbolsPerFile) {
 			return { status: "not-cached", reason: "bounds-changed" };
 		}
+		// A remote-tracked workspace whose origin has moved is refetched in place right here, so
+		// the full-rehash fallback below (the only check remote workspaces ever reach -- they never
+		// carry a gitHeadSha, .git is stripped from a fetched clone) naturally sees the new content
+		// and reports source-changed on its own; no separate status reason needed.
+		await refreshRemoteWorkspaceIfMoved(input.workspaceId, entry, generation);
 		// Fast path: skip the full source rehash below entirely when git alone already proves
 		// nothing changed (same clean tree, same HEAD). Inconclusive (no recorded sha, dirty tree,
 		// moved HEAD, any git error) always falls through to the authoritative full check --

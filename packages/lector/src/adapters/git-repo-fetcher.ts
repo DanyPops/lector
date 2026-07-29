@@ -115,6 +115,7 @@ export class GitRepoFetcher implements RepoFetcherPort {
 			maxCloneBytes: positiveLimit(policy.maxCloneBytes, Number.MAX_SAFE_INTEGER, "maxCloneBytes"),
 			maxCacheBytes: positiveLimit(policy.maxCacheBytes, this.maxCacheBytes, "maxCacheBytes"),
 			timeoutMs: positiveLimit(policy.timeoutMs, DEFAULT_TIMEOUT_MS, "timeoutMs"),
+			forceRefresh: policy.forceRefresh ?? false,
 		};
 		this.pending++;
 		const deadline = Date.now() + normalizedPolicy.timeoutMs;
@@ -162,8 +163,16 @@ export class GitRepoFetcher implements RepoFetcherPort {
 
 	private async fetchLocked(reference: RepoReference, policy: Required<RepoFetchPolicy>): Promise<RepoFetchResult> {
 		const key = cacheKey(reference);
-		const cached = this.cachedResult(key, reference, policy);
+		const cached = policy.forceRefresh ? null : this.cachedResult(key, reference, policy);
 		if (cached) return cached;
+		// A forced refresh reclones into the SAME deterministic targetDir a stale cache entry for
+		// this key already points at. Evict that stale entry (and let its own dispose remove the
+		// old directory) up front, before cloning -- otherwise the later cache.set() below would
+		// overwrite the same key and fire dispose against the entry being replaced, whose path is
+		// identical to the fresh one just renamed into place, deleting the directory this call is
+		// meant to leave behind. Confirmed live: a forced refresh previously returned a result
+		// pointing at a directory that no longer existed on disk.
+		if (policy.forceRefresh) this.cache.delete(key);
 
 		const targetDir = join(this.reposDir, reference.host, reference.owner, reference.repo, reference.ref ?? "HEAD");
 		await rm(targetDir, { recursive: true, force: true });
@@ -215,6 +224,35 @@ export class GitRepoFetcher implements RepoFetcherPort {
 		} catch (error) {
 			await rm(tmpDir, { recursive: true, force: true });
 			throw error;
+		}
+	}
+
+	/**
+	 * `git ls-remote` against the reference's own tracked ref, never against a local checkout --
+	 * this must work even when nothing has been cloned yet. Any failure (unreachable remote,
+	 * timeout, a ref that isn't a moving branch/tag such as an exact commit sha, which ls-remote
+	 * simply won't list) returns undefined rather than throwing: the caller treats undefined as
+	 * "couldn't tell," never as evidence of staleness.
+	 */
+	async resolveRemoteCommit(reference: RepoReference, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<string | undefined> {
+		try {
+			assertSafeRepoReference(reference);
+		} catch {
+			return undefined;
+		}
+		const url = this.resolveCloneUrl(reference);
+		const refSpec = reference.ref ?? "HEAD";
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
+		try {
+			const git = simpleGit({ timeout: { block: timeoutMs }, abort: controller.signal });
+			const output = await git.listRemote([url, refSpec]);
+			const sha = output.trim().split("\n")[0]?.split(/\s+/)[0];
+			return sha !== undefined && COMMIT_HASH.test(sha) ? sha : undefined;
+		} catch {
+			return undefined;
+		} finally {
+			clearTimeout(timer);
 		}
 	}
 

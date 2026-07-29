@@ -13,6 +13,8 @@ export interface RepoFetchPolicy {
 	readonly maxCloneBytes?: number;
 	readonly maxCacheBytes?: number;
 	readonly timeoutMs?: number;
+	/** Skip the cache entirely and reclone -- for a caller that has already positively confirmed the remote moved past what's cached, not a general-purpose cache-bust. */
+	readonly forceRefresh?: boolean;
 }
 
 export class RepoFetchCapacityExceeded extends Error {

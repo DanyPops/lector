@@ -1,5 +1,6 @@
 import type { IntelligenceProvenance } from "./intelligence-provenance.ts";
 import type { PopulateSymbolGraphResult } from "./populate-symbol-graph.ts";
+import type { RepoReference } from "./repo-reference.ts";
 
 export interface SymbolGraphGeneration {
 	readonly sourceFingerprint: string;
@@ -27,6 +28,19 @@ export interface SymbolGraphGeneration {
 	 * generations persisted before purge-on-regeneration existed.
 	 */
 	readonly walkedFiles?: readonly string[];
+	/**
+	 * The remote reference this generation was populated against, present only for a workspace
+	 * fetched via repo.fetch. Absent for a local workspace, or a remote one persisted before this
+	 * field existed -- either way, no baseline means the remote-freshness check can't run, not
+	 * that the workspace is treated as stale.
+	 */
+	readonly remoteReference?: RepoReference;
+	/**
+	 * The remote's commit for remoteReference's tracked ref at population time, resolved via
+	 * RepoFetcherPort.resolveRemoteCommit (a live ls-remote, not the clone's own commit) --
+	 * lets a later cacheStatus check tell whether the origin has moved without re-cloning.
+	 */
+	readonly remoteCommit?: string;
 }
 
 export type WorkspaceCacheStatus =

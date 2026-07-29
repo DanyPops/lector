@@ -8,4 +8,11 @@ import type { RepoReference } from "../domain/repo-reference.ts";
  */
 export interface RepoFetcherPort {
 	fetch(reference: RepoReference, policy?: RepoFetchPolicy): Promise<RepoFetchResult>;
+	/**
+	 * The commit a reference's tracked ref currently resolves to on the remote, without cloning
+	 * or mutating anything -- undefined when it can't be determined (network failure, the ref
+	 * doesn't name a moving branch/tag, e.g. it's already an exact commit sha). Undefined is a
+	 * genuine "couldn't tell," never treated as evidence of staleness by a caller.
+	 */
+	resolveRemoteCommit(reference: RepoReference, timeoutMs?: number): Promise<string | undefined>;
 }
