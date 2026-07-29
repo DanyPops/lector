@@ -13,6 +13,7 @@ import {
 	lectorClient,
 	resetLectorClientForTests,
 	setLectorClientConnectorForTests,
+	setNewWorkspaceObserver,
 	withWorkspace,
 	workspaceForCodeIntelligencePath,
 	workspaceForDirectory,
@@ -386,6 +387,63 @@ describe("withWorkspace recovers from a stale cached workspaceId", () => {
 				),
 			).rejects.toThrow(/UnknownWorkspace/);
 			expect(performCalls).toBe(2);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+});
+
+describe("setNewWorkspaceObserver", () => {
+	afterEach(() => {
+		setNewWorkspaceObserver(undefined);
+	});
+
+	it("fires exactly once for a root's first registration, not on later calls reusing the cached workspaceId", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const repo = fakeRepo("pi-lector-new-workspace-observer-");
+		try {
+			const observedRoots: string[] = [];
+			setNewWorkspaceObserver((root) => observedRoots.push(root));
+
+			await workspaceForPath(join(repo, "a.ts"));
+			await workspaceForPath(join(repo, "b.ts"));
+			await workspaceForPath(join(repo, "c.ts"));
+
+			expect(observedRoots).toEqual([repo]);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("fires once per distinct root, for two different repos touched in the same session", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const repoA = fakeRepo("pi-lector-new-workspace-observer-a-");
+		const repoB = fakeRepo("pi-lector-new-workspace-observer-b-");
+		try {
+			const observedRoots: string[] = [];
+			setNewWorkspaceObserver((root) => observedRoots.push(root));
+
+			await workspaceForPath(join(repoA, "a.ts"));
+			await workspaceForPath(join(repoB, "b.ts"));
+
+			expect(observedRoots.sort()).toEqual([repoA, repoB].sort());
+		} finally {
+			rmSync(repoA, { recursive: true, force: true });
+			rmSync(repoB, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("is a safe no-op when no observer is registered", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const repo = fakeRepo("pi-lector-new-workspace-observer-none-");
+		try {
+			await expect(workspaceForPath(join(repo, "a.ts"))).resolves.toBeDefined();
 		} finally {
 			rmSync(repo, { recursive: true, force: true });
 			await daemon.stop();

@@ -39,6 +39,19 @@ let connector: ClientConnector = () => connectLectorClient();
 const retryingClient: RetryingClient<LectorClient> = createRetryingClient(() => connector(), { label: "Lector" });
 const workspaceIdByRoot = new Map<string, WorkspaceId>();
 
+/**
+ * Fires exactly once per distinct root, the moment it's first registered in this process --
+ * never on a later call that reuses the cached workspaceId. The single choke point every
+ * resolver (workspaceForPath, workspaceForDirectory, workspaceForCodeIntelligencePath,
+ * workspaceForPathOrDirectory) funnels through, so this is genuinely "the first time any tool
+ * call resolves this workspace," not just the one cwd workspace at session start.
+ */
+let onNewWorkspace: ((root: string) => void) | undefined;
+
+export function setNewWorkspaceObserver(observer: ((root: string) => void) | undefined): void {
+	onNewWorkspace = observer;
+}
+
 export interface RetryingLectorClient {
 	call<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]>;
 }
@@ -64,6 +77,7 @@ async function workspaceForRoot(root: string): Promise<ResolvedWorkspace> {
 	const client = await lectorClient();
 	const { workspaceId } = await client.call("workspace.registerPath", { path: root });
 	workspaceIdByRoot.set(root, workspaceId);
+	onNewWorkspace?.(root);
 	return { workspaceId, root };
 }
 

@@ -67,6 +67,7 @@ import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts"
 import { describeFindSymbolSources, formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-rendering.ts";
 import { createLectorGitOperations } from "./git-operations.ts";
 import { formatGitCall, formatGitResult, type GitToolDetails } from "./git-rendering.ts";
+import { setNewWorkspaceObserver } from "./lector-client.ts";
 import { createLectorLineEditOperations } from "./line-edit-operations.ts";
 import { formatLineEditCall, formatLineEditResult } from "./line-edit-rendering.ts";
 import { createMutationHistoryOperations } from "./mutation-history-operations.ts";
@@ -118,63 +119,115 @@ function renderIntelligenceSource(body: string, provenance: IntelligenceProvenan
  */
 export default function (pi: ExtensionAPI) {
 	const cacheOperations = createWorkspaceCacheOperations();
-	let cacheRun = 0;
-	let cacheState: CachePresentationState | undefined;
-	let lastInjectedCacheState: string | undefined;
+	// One generation counter shared by every root's monitor loop, not per-root -- a new session
+	// (or shutdown) invalidates every previous session's in-flight monitor regardless of which
+	// root it tracked, and there is exactly one "current session" at a time.
+	let sessionGeneration = 0;
+	// Every workspace root actually touched so far this session, not just one fixed cwd root --
+	// populated by setNewWorkspaceObserver below, the real "first touch" trigger.
+	const cacheStatesByRoot = new Map<string, CachePresentationState>();
+	// Roots already monitored this session -- guards against starting the SAME root's monitor
+	// twice: session_start's own direct kick-off for the cwd root itself calls
+	// cacheOperations.status(), which registers that root via workspace.registerPath, which fires
+	// setNewWorkspaceObserver for it a moment later -- without this guard that would start a
+	// second, redundant concurrent monitor loop for the exact same root.
+	const monitoringRoots = new Set<string>();
+	let lastInjectedSummary: string | undefined;
+	let uiContext: Parameters<Parameters<ExtensionAPI["on"]>[1]>[1] | undefined;
+
+	function combinedSummary(): string {
+		const states = [...cacheStatesByRoot.values()];
+		if (states.length === 0) return "";
+		const [only] = states;
+		if (states.length === 1 && only) return describeCacheState(only);
+		const counts = new Map<string, number>();
+		for (const state of states) counts.set(state.status, (counts.get(state.status) ?? 0) + 1);
+		return [...counts.entries()].map(([status, count]) => `${count} ${status}`).join(", ");
+	}
+
+	function refreshStatusBar(): void {
+		if (!uiContext) return;
+		const summary = combinedSummary();
+		if (!summary) {
+			uiContext.ui.setStatus("lector-cache", undefined);
+			return;
+		}
+		const states = [...cacheStatesByRoot.values()];
+		const worst = states.some((state) => state.status === "not-cached" || state.status === "caching")
+			? "warning"
+			: states.every((state) => state.status === "cached")
+				? "success"
+				: "accent";
+		uiContext.ui.setStatus("lector-cache", uiContext.ui.theme.fg(worst, `Lector: ${summary}`));
+	}
+
+	/** Starts (or restarts, on a stale generation) monitoring one workspace root's cache lifecycle -- shared by session_start's own cwd root and every later root a tool call first touches. */
+	function startMonitoringRoot(root: string, ctx: Parameters<Parameters<ExtensionAPI["on"]>[1]>[1]): void {
+		if (monitoringRoots.has(root)) return;
+		monitoringRoots.add(root);
+		const thisGeneration = sessionGeneration;
+		void monitorWorkspaceCache(cacheOperations, {
+			directory: root,
+			maxFiles: 500,
+			maxSymbolsPerFile: 100,
+			pollIntervalMs: 1_000,
+			maxPolls: 300,
+			shouldContinue: () => sessionGeneration === thisGeneration,
+			onState: (state) => {
+				if (sessionGeneration !== thisGeneration) return;
+				cacheStatesByRoot.set(root, state);
+				if (state.status === "finished-caching") {
+					if (ctx.hasUI) ctx.ui.notify(`Lector finished caching ${root}`, "info");
+					return;
+				}
+				refreshStatusBar();
+			},
+		}).catch((error: unknown) => {
+			if (sessionGeneration !== thisGeneration) return;
+			const message = error instanceof Error ? error.message : String(error);
+			cacheStatesByRoot.delete(root);
+			refreshStatusBar();
+			if (ctx.hasUI) ctx.ui.notify(`Lector cache failed for ${root}: ${message}`, "error");
+		});
+	}
 
 	pi.on("before_agent_start", () => {
-		if (!cacheState) return;
-		const description = describeCacheState(cacheState);
-		if (description === lastInjectedCacheState) return;
-		lastInjectedCacheState = description;
+		const summary = combinedSummary();
+		if (!summary || summary === lastInjectedSummary) return;
+		lastInjectedSummary = summary;
+		const messages = [...cacheStatesByRoot.entries()]
+			.filter(([, state]) => state.status !== "cached")
+			.map(([root, state]) => `${root}: ${cacheContextMessage(state)}`);
+		if (messages.length === 0) return;
 		return {
 			message: {
 				customType: "lector-cache-status",
-				content: cacheContextMessage(cacheState),
+				content: messages.join("\n"),
 				display: false,
 			},
 		};
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
-		cacheRun++;
-		cacheState = undefined;
-		lastInjectedCacheState = undefined;
+		sessionGeneration++;
+		cacheStatesByRoot.clear();
+		monitoringRoots.clear();
+		lastInjectedSummary = undefined;
+		uiContext = undefined;
 		ctx.ui.setStatus("lector-cache", undefined);
 	});
 
 	pi.on("session_start", (_event, ctx) => {
 		const { cwd } = ctx;
+		sessionGeneration++;
+		cacheStatesByRoot.clear();
+		monitoringRoots.clear();
+		lastInjectedSummary = undefined;
+		uiContext = ctx;
+		setNewWorkspaceObserver((root) => startMonitoringRoot(root, ctx));
 		const projectRoot = nearestGitRoot(cwd);
-		const thisRun = ++cacheRun;
-		cacheState = undefined;
-		lastInjectedCacheState = undefined;
-		if (projectRoot) {
-			void monitorWorkspaceCache(cacheOperations, {
-				directory: projectRoot,
-				maxFiles: 500,
-				maxSymbolsPerFile: 100,
-				pollIntervalMs: 1_000,
-				maxPolls: 300,
-				shouldContinue: () => cacheRun === thisRun,
-				onState: (state) => {
-					cacheState = state;
-					if (state.status === "finished-caching") {
-						if (ctx.hasUI) ctx.ui.notify(`Lector finished caching ${projectRoot}`, "info");
-						return;
-					}
-					const color = state.status === "cached" ? "success" : state.status === "caching" ? "accent" : "warning";
-					ctx.ui.setStatus("lector-cache", ctx.ui.theme.fg(color, `Lector: ${describeCacheState(state)}`));
-				},
-			}).catch((error: unknown) => {
-				if (cacheRun !== thisRun) return;
-				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.setStatus("lector-cache", ctx.ui.theme.fg("error", "Lector: cache error"));
-				if (ctx.hasUI) ctx.ui.notify(`Lector cache failed: ${message}`, "error");
-			});
-		} else {
-			ctx.ui.setStatus("lector-cache", undefined);
-		}
+		if (projectRoot) startMonitoringRoot(projectRoot, ctx);
+		else ctx.ui.setStatus("lector-cache", undefined);
 
 		pi.registerTool(createReadToolDefinition(cwd, { operations: createLectorReadOperations() }));
 		pi.registerTool(createWriteToolDefinition(cwd, { operations: createLectorWriteOperations() }));
