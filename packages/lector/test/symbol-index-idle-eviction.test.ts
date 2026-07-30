@@ -7,9 +7,9 @@
  */
 
 import { afterEach, describe, expect, it } from "bun:test";
+import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { startDaemon } from "@danypops/vehicle-server/daemon";
 import { ensureAuthToken } from "@danypops/vehicle-server/paths";
-import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { buildLectorApp } from "../src/daemon.ts";
 import { createLectorService, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";

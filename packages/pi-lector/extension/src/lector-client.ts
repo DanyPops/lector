@@ -1,6 +1,5 @@
 import { existsSync, statSync } from "node:fs";
 import { dirname, extname, parse } from "node:path";
-import { createRetryingClient, type RetryingClient } from "@danypops/vehicle-client/daemon-client";
 import {
 	connectLectorClient,
 	descriptorForExtension,
@@ -11,6 +10,7 @@ import {
 	remoteErrorIs,
 	type WorkspaceId,
 } from "@danypops/lector";
+import { createRetryingClient, type RetryingClient } from "@danypops/vehicle-client/daemon-client";
 import { nearestGitRoot, nearestProjectRoot } from "./nearest-workspace-root.ts";
 
 /**

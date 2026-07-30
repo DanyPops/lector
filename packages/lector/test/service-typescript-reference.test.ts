@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { startDaemon } from "@danypops/vehicle-server/daemon";
 import { ensureAuthToken } from "@danypops/vehicle-server/paths";
-import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { buildLectorApp } from "../src/daemon.ts";
 import { createLectorService, type LectorService, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
 import { findPositionOf } from "./support/find-position.ts";

@@ -1,9 +1,9 @@
 import { dirname, join } from "node:path";
 import { type MaintenanceTask, type RunningDaemon, runDaemonProcess, startDaemon } from "@danypops/vehicle-server/daemon";
-import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
+import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
 import { GitRepoFetcher } from "./adapters/git-repo-fetcher.ts";
 import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
 import { SqliteSearchCache } from "./adapters/sqlite-search-cache.ts";

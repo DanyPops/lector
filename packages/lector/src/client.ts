@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { type DaemonPaths, readDaemonHandle } from "@danypops/vehicle-server/paths";
 import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
+import { type DaemonPaths, readDaemonHandle } from "@danypops/vehicle-server/paths";
 import { resolveLectorPaths } from "./constants.ts";
 import type { OperationInputs, OperationName, OperationOutputs } from "./service.ts";
 

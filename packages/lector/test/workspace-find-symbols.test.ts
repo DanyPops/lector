@@ -6,9 +6,9 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
+import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { startDaemon } from "@danypops/vehicle-server/daemon";
 import { ensureAuthToken, readDaemonHandle } from "@danypops/vehicle-server/paths";
-import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
 import { buildLectorApp, startLectorDaemon } from "../src/daemon.ts";
