@@ -27,6 +27,7 @@ import type {
 	WorkspaceMapResult,
 	WorkspaceQueryOutcome,
 } from "@danypops/lector";
+import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS } from "@danypops/lector";
 import {
 	type AgentToolResult,
 	createEditToolDefinition,
@@ -83,7 +84,7 @@ import { setNewWorkspaceObserver } from "./lector-client.ts";
 import { createLectorLineEditOperations } from "./line-edit-operations.ts";
 import { formatLineEditCall, formatLineEditResult } from "./line-edit-rendering.ts";
 import { createMutationHistoryOperations } from "./mutation-history-operations.ts";
-import { nearestGitRoot } from "./nearest-workspace-root.ts";
+import { isFilesystemRoot, nearestGitRoot } from "./nearest-workspace-root.ts";
 import { createLectorPackageSourceOperations } from "./package-source-operations.ts";
 import { formatPackageSourceCall, formatPackageSourceResult } from "./package-source-rendering.ts";
 import { createLectorReadOperations } from "./read-operations.ts";
@@ -176,8 +177,16 @@ export default function (pi: ExtensionAPI) {
 		uiContext.ui.setStatus("lector-cache", uiContext.ui.theme.fg(worst, `Lector: ${summary}`));
 	}
 
-	/** Starts (or restarts, on a stale generation) monitoring one workspace root's cache lifecycle -- shared by session_start's own cwd root and every later root a tool call first touches. */
+	/**
+	 * Starts (or restarts, on a stale generation) monitoring one workspace root's cache
+	 * lifecycle -- shared by session_start's own cwd root and every later root a tool call
+	 * first touches. Refuses a bare filesystem root outright: workspaceForPath's own
+	 * intentional fallback for a raw read/write of a file outside any git repo can register
+	 * exactly this as a "new workspace", and auto-populating it would attempt a full
+	 * filesystem-wide symbol-graph scan -- confirmed live as a real, previously-shipped bug.
+	 */
 	function startMonitoringRoot(root: string, ctx: Parameters<Parameters<ExtensionAPI["on"]>[1]>[1]): void {
+		if (isFilesystemRoot(root)) return;
 		if (monitoringRoots.has(root)) return;
 		monitoringRoots.add(root);
 		const thisGeneration = sessionGeneration;
@@ -1550,7 +1559,7 @@ export default function (pi: ExtensionAPI) {
 				maxResults: Type.Optional(Type.Number({ description: "Maximum candidates to return (default 20)" })),
 			}),
 			async execute(_toolCallId, params): Promise<AgentToolResult<ExternalSearchToolDetails>> {
-				const maxResults = params.maxResults ?? 20;
+				const maxResults = params.maxResults ?? DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS;
 				if (params.action === "github_repos") {
 					const result = await externalSearchOperations.githubRepos(params.query, maxResults);
 					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "github_repos", result } };

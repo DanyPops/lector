@@ -10,7 +10,15 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { nearestGitRoot, nearestProjectRoot } from "../extension/src/nearest-workspace-root.ts";
+import { isFilesystemRoot, nearestGitRoot, nearestProjectRoot } from "../extension/src/nearest-workspace-root.ts";
+
+describe("isFilesystemRoot", () => {
+	it("is true for the bare filesystem root and false for everything else", () => {
+		expect(isFilesystemRoot("/")).toBe(true);
+		expect(isFilesystemRoot("/home")).toBe(false);
+		expect(isFilesystemRoot("/home/user/project")).toBe(false);
+	});
+});
 
 describe("nearestGitRoot", () => {
 	it("finds a git root several directories above the starting point", () => {
@@ -56,6 +64,20 @@ describe("nearestGitRoot", () => {
 		try {
 			// A plain tmp directory with no .git anywhere in its ancestry (true for /tmp itself).
 			expect(nearestGitRoot(root)).toBeUndefined();
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it('never treats the bare filesystem root as a discovered git root, even if it happens to contain .git -- a real, previously-shipped bug (a Lector daemon registered "/" as a workspace and attempted a full-filesystem symbol-graph population)', () => {
+		const root = mkdtempSync(join(tmpdir(), "nearest-git-root-fsroot-marker-"));
+		try {
+			const deep = join(root, "a", "b", "c");
+			mkdirSync(deep, { recursive: true });
+			// Simulates "the real filesystem root / happens to contain .git" without ever touching /.
+			const existsWithMarkerAtFsRoot = (path: string) => path === "/.git";
+
+			expect(nearestGitRoot(deep, existsWithMarkerAtFsRoot)).toBeUndefined();
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
@@ -127,6 +149,19 @@ describe("nearestProjectRoot", () => {
 			expect(nearestProjectRoot(deep, [])).toBe(nearestGitRoot(deep));
 		} finally {
 			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("never treats the bare filesystem root as a discovered project root, even if it happens to contain a root marker", () => {
+		const root = mkdtempSync(join(tmpdir(), "nearest-project-root-fsroot-marker-"));
+		try {
+			const deep = join(root, "a", "b");
+			mkdirSync(deep, { recursive: true });
+			const existsWithMarkerAtFsRoot = (path: string) => path === "/package.json" || path === "/.git";
+
+			expect(nearestProjectRoot(deep, ["package.json"], existsWithMarkerAtFsRoot)).toBeUndefined();
+		} finally {
+			rmSync(root, { recursive: true, force: true });
 		}
 	});
 });
