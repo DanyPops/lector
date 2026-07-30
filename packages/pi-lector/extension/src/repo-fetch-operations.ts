@@ -7,14 +7,14 @@ import { lectorClient } from "./lector-client.ts";
  * creates a new registered workspace from a fetched external repo.
  */
 export interface RepoFetchOperations {
-	fetch(host: string, owner: string, repo: string, ref: string | null): Promise<RepoFetchResult & { workspaceId: string }>;
+	fetch(host: string, owner: string, repo: string, ref: string | null, forceRefresh?: boolean): Promise<RepoFetchResult & { workspaceId: string }>;
 }
 
 export function createLectorRepoFetchOperations(): RepoFetchOperations {
 	return {
-		async fetch(host, owner, repo, ref) {
+		async fetch(host, owner, repo, ref, forceRefresh) {
 			const client = await lectorClient();
-			return client.call("repo.fetch", { host, owner, repo, ref });
+			return client.call("repo.fetch", { host, owner, repo, ref, forceRefresh });
 		},
 	};
 }

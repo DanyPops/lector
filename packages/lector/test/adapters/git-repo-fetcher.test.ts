@@ -373,4 +373,62 @@ describe("GitRepoFetcher", () => {
 			expect(second).toEqual(first);
 		});
 	});
+
+	describe("evict", () => {
+		it("returns false and touches nothing for a reference that was never fetched", async () => {
+			const fetcher = buildFetcher();
+			await expect(fetcher.evict(reference())).resolves.toBe(false);
+		});
+
+		it("removes a fetched reference from the cache and deletes its checkout from disk", async () => {
+			sourceRepo = buildSourceRepo();
+			const fetcher = buildFetcher();
+			const fetched = await fetcher.fetch(reference({ ref: "main" }));
+			expect(existsSync(fetched.path)).toBe(true);
+
+			const evicted = await fetcher.evict(reference({ ref: "main" }));
+
+			expect(evicted).toBe(true);
+			expect(existsSync(fetched.path)).toBe(false);
+			await expect(fetcher.listCached()).resolves.toEqual([]);
+		});
+
+		it("only removes the exact reference asked for, leaving a different ref of the same repo cached", async () => {
+			sourceRepo = buildSourceRepo();
+			const fetcher = buildFetcher();
+			await fetcher.fetch(reference({ ref: "main" }));
+			await fetcher.fetch(reference({ ref: "feature" }));
+
+			const evicted = await fetcher.evict(reference({ ref: "main" }));
+
+			expect(evicted).toBe(true);
+			const remaining = await fetcher.listCached();
+			expect(remaining).toHaveLength(1);
+			expect(remaining[0]).toMatchObject({ requestedRef: "feature" });
+		});
+
+		it("a fetch for the same reference after eviction reclones rather than silently reviving the evicted entry", async () => {
+			sourceRepo = buildSourceRepo();
+			const fetcher = buildFetcher();
+			await fetcher.fetch(reference({ ref: "main" }));
+			await fetcher.evict(reference({ ref: "main" }));
+
+			const result = await fetcher.fetch(reference({ ref: "main" }));
+
+			expect(result.fromCache).toBe(false);
+			expect(existsSync(result.path)).toBe(true);
+		});
+
+		it("persists the eviction across a fresh instance pointed at the same reposDir, not just the in-memory cache", async () => {
+			sourceRepo = buildSourceRepo();
+			reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-cache-"));
+			const first = new GitRepoFetcher(reposDir, { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") });
+			await first.fetch(reference());
+			await first.evict(reference());
+
+			const second = new GitRepoFetcher(reposDir, { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") });
+
+			await expect(second.listCached()).resolves.toEqual([]);
+		});
+	});
 });

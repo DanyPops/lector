@@ -70,6 +70,9 @@ class CountingRepoFetcher implements RepoFetcherPort {
 	listCached() {
 		return this.inner.listCached();
 	}
+	evict(reference: RepoReference): Promise<boolean> {
+		return this.inner.evict(reference);
+	}
 }
 
 function buildService(fetcher: RepoFetcherPort): LectorService {

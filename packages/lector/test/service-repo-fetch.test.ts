@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { GitRepoFetcher } from "../src/adapters/git-repo-fetcher.ts";
 import { WorkspaceIsReadOnly } from "../src/adapters/read-only-workspace.ts";
 import type { RepoReference } from "../src/domain/repo-reference.ts";
-import { createLectorService, type LectorService, RepoFetcherNotConfigured } from "../src/service.ts";
+import { createLectorService, type LectorService, RepoCacheEntryInUse, RepoFetcherNotConfigured } from "../src/service.ts";
 import { requireDefined } from "./support/require-defined.ts";
 
 let sourceRepo: string | undefined;
@@ -85,6 +85,80 @@ describe("createLectorService's repo.fetch", () => {
 
 		expect(second.fromCache).toBe(true);
 		expect(second.workspaceId).toBe(first.workspaceId);
+	});
+
+	it("threads forceRefresh through to a real reclone -- the 'update' verb, previously unreachable through the public operation", async () => {
+		sourceRepo = buildSourceRepo();
+		reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-service-cache-"));
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
+		});
+		await service.dispatch("repo.fetch", reference());
+		git(requireDefined(sourceRepo, "sourceRepo"), "commit", "-q", "--allow-empty", "-m", "a new commit on the remote");
+
+		const withoutForceRefresh = await service.dispatch("repo.fetch", reference());
+		expect(withoutForceRefresh.fromCache).toBe(true);
+
+		const withForceRefresh = await service.dispatch("repo.fetch", { ...reference(), forceRefresh: true });
+		expect(withForceRefresh.fromCache).toBe(false);
+		expect(withForceRefresh.commit).not.toBe(withoutForceRefresh.commit);
+	});
+});
+
+describe("createLectorService's repo.evictCache", () => {
+	it("rejects repo.evictCache when the service was constructed without createRepoFetcher", async () => {
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		await expect(service.dispatch("repo.evictCache", reference())).rejects.toBeInstanceOf(RepoFetcherNotConfigured);
+	});
+
+	it("returns evicted: false, not an error, for a reference that was never fetched", async () => {
+		reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-service-cache-"));
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir")),
+		});
+
+		await expect(service.dispatch("repo.evictCache", reference())).resolves.toEqual({ evicted: false });
+	});
+
+	it("evicts a fetched, never-registered-elsewhere cache entry, reflected immediately in repo.listCache", async () => {
+		sourceRepo = buildSourceRepo();
+		reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-service-cache-"));
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
+		});
+		// repo.fetch always registers a workspace for what it fetches -- evicting it while that
+		// registration is still live is exactly the unsafe case the next test covers. This test
+		// fetches through the port directly, bypassing repo.fetch's own registry side effect, to
+		// isolate "evict a cache entry with no registered workspace" on its own.
+		const fetcher = new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") });
+		await fetcher.fetch(reference());
+		service = createLectorService(new Map(), { allowDynamicOnly: true, createRepoFetcher: () => fetcher });
+
+		const result = await service.dispatch("repo.evictCache", reference());
+
+		expect(result).toEqual({ evicted: true });
+		const page = await service.dispatch("repo.listCache", { maxResults: 10 });
+		expect(page.entries).toEqual([]);
+	});
+
+	it("refuses to evict a cache entry that is still a currently-registered workspace, with a clear typed error", async () => {
+		sourceRepo = buildSourceRepo();
+		reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-service-cache-"));
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
+		});
+		const fetched = await service.dispatch("repo.fetch", reference());
+
+		await expect(service.dispatch("repo.evictCache", reference())).rejects.toBeInstanceOf(RepoCacheEntryInUse);
+
+		// Refusing must not have touched the cache or the registered workspace.
+		const page = await service.dispatch("repo.listCache", { maxResults: 10 });
+		expect(page.entries[0]?.registeredWorkspaceId).toBe(fetched.workspaceId);
+		await expect(service.dispatch("workspace.rawRead", { workspaceId: fetched.workspaceId, path: "README.md" })).resolves.toMatchObject({ content: "hello\n" });
 	});
 });
 

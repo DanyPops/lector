@@ -77,4 +77,25 @@ describe("Lector-backed repo_fetch operations", () => {
 		expect(second.fromCache).toBe(true);
 		expect(second.workspaceId).toBe(first.workspaceId);
 	}, 20_000);
+
+	it("forceRefresh reclones through the daemon even though an unexpired cache entry already exists", async () => {
+		sourceRepo = buildSourceRepo();
+		reposDir = mkdtempSync(join(tmpdir(), "pi-lector-repo-fetch-cache-"));
+		const daemon = await startIsolatedLectorDaemon({
+			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
+		});
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const ops = createLectorRepoFetchOperations();
+		const first = await ops.fetch("local-fixture", "acme", "widgets", null);
+		git(requireDefined(sourceRepo, "sourceRepo"), "commit", "-q", "--allow-empty", "-m", "a new commit on the remote");
+
+		const withoutForceRefresh = await ops.fetch("local-fixture", "acme", "widgets", null);
+		expect(withoutForceRefresh.fromCache).toBe(true);
+
+		const withForceRefresh = await ops.fetch("local-fixture", "acme", "widgets", null, true);
+		expect(withForceRefresh.fromCache).toBe(false);
+		expect(withForceRefresh.commit).not.toBe(first.commit);
+	}, 20_000);
 });

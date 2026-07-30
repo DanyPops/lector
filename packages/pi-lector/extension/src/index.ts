@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type {
+	CachedRepositoryPage,
 	ContentHash,
 	Diagnostic,
 	DocumentSymbolEntry,
@@ -78,9 +79,10 @@ import { formatPackageSourceCall, formatPackageSourceResult } from "./package-so
 import { createLectorReadOperations } from "./read-operations.ts";
 import { createReferenceBasedRenameOperations } from "./reference-based-rename-operations.ts";
 import { createRenameOperations } from "./rename-operations.ts";
+import { createRepoCacheEvictOperations } from "./repo-cache-evict-operations.ts";
 import { createRepoCacheListOperations } from "./repo-cache-list-operations.ts";
+import { formatRepoCacheCall, formatRepoCacheEvictResult, formatRepoCacheListResult, formatRepoFetchResult } from "./repo-cache-rendering.ts";
 import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
-import { formatRepoFetchCall, formatRepoFetchResult } from "./repo-fetch-rendering.ts";
 import { createLectorSearchOperations } from "./search-operations.ts";
 import { formatSearchCall, formatSearchResult } from "./search-rendering.ts";
 import { type AnnotationAnchorInput, createLectorSymbolAnnotationOperations } from "./symbol-annotation-operations.ts";
@@ -1445,88 +1447,75 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
+		type RepoCacheToolDetails =
+			| { readonly action: "fetch"; readonly result: RepoFetchResult & { workspaceId: string } }
+			| { readonly action: "list"; readonly page: CachedRepositoryPage }
+			| { readonly action: "evict"; readonly result: { evicted: boolean } };
+
 		const repoFetchOperations = createLectorRepoFetchOperations();
 		const repoCacheListOperations = createRepoCacheListOperations();
+		const repoCacheEvictOperations = createRepoCacheEvictOperations();
 		pi.registerTool({
-			name: "repo_fetch",
-			label: "Repo Fetch",
+			name: "repo_cache",
+			label: "Repo Cache",
 			description:
-				"Shallow-clones an external repository into a disk-bounded cache and registers it as a read-only project -- every other tool (search_code, find_symbols, go_to_definition, ...) then works on it unchanged. Explicit owner/repo[@ref] only, no discovery/search -- use web_fetch to find candidates first.",
-			promptSnippet: "Fetch an external open-source repo to search or analyze",
+				"Fetch, list/query, or evict entries in Lector's external-repo cache. action=fetch shallow-clones an external repository into a disk-bounded cache and registers it as a read-only project -- every other tool (search_code, find_symbols, go_to_definition, ...) then works on it unchanged; explicit owner/repo[@ref] only, no discovery/search (use web_fetch to find candidates first); forceRefresh reclones even when an unexpired cache entry already exists, for a caller that has already positively confirmed the remote moved. action=list queries the cache -- no network call, no mutation -- filtering by any combination of host/owner/repo/ref (exact match) and text (case-insensitive substring), bounded and paginated via cursor; each entry reports whether it's currently a registered workspace or just present on disk. action=evict removes one cache entry from disk by its exact host/owner/repo/ref identity; refuses with a clear error if it is still a currently-registered workspace.",
+			promptSnippet: "Fetch, list, or evict entries in the external-repo cache",
 			parameters: Type.Object({
-				owner: Type.String({ description: "Repository owner or organization" }),
-				repo: Type.String({ description: "Repository name" }),
-				ref: Type.Optional(Type.String({ description: "Branch, tag, or commit to fetch; defaults to the repository's default branch" })),
-				host: Type.Optional(Type.String({ description: "Git host; defaults to github.com" })),
+				action: Type.Union([Type.Literal("fetch"), Type.Literal("list"), Type.Literal("evict")]),
+				owner: Type.Optional(Type.String({ description: "Required for action=fetch/evict -- repository owner or organization" })),
+				repo: Type.Optional(Type.String({ description: "Required for action=fetch/evict -- repository name" })),
+				ref: Type.Optional(
+					Type.String({
+						description:
+							"fetch/evict: branch, tag, or commit; defaults to the repository's default branch. list: matches either the requested or the resolved ref",
+					}),
+				),
+				host: Type.Optional(Type.String({ description: "Git host; defaults to github.com for fetch/evict, unfiltered for list" })),
+				forceRefresh: Type.Optional(Type.Boolean({ description: "action=fetch only -- reclone even if an unexpired cache entry already exists" })),
+				text: Type.Optional(Type.String({ description: "action=list only -- case-insensitive substring match across host/owner/repo/refs" })),
+				maxResults: Type.Optional(Type.Number({ description: "Required for action=list -- maximum entries to return in this page" })),
+				cursor: Type.Optional(Type.String({ description: "action=list only -- opaque cursor from a prior call's nextCursor, to fetch the next page" })),
 			}),
-			async execute(_toolCallId, params) {
-				const result = await repoFetchOperations.fetch(params.host ?? "github.com", params.owner, params.repo, params.ref ?? null);
-				return { content: [{ type: "text", text: JSON.stringify(result) }], details: { result } };
-			},
-			renderCall(args, theme, context) {
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatRepoFetchCall(args, theme));
-				return text;
-			},
-			renderResult(result, { isPartial }, theme, context) {
-				if (isPartial) return new Text(theme.fg("warning", "Fetching repository..."), 0, 0);
-				if (context.isError) {
-					const errorText = result.content
-						.filter((block) => block.type === "text")
-						.map((block) => block.text)
-						.join("\n");
-					return new Text(theme.fg("error", errorText || "repo_fetch failed"), 0, 0);
+			async execute(_toolCallId, params): Promise<AgentToolResult<RepoCacheToolDetails>> {
+				if (params.action === "fetch") {
+					if (!params.owner || !params.repo) throw new Error("repo_cache action=fetch requires owner and repo");
+					const result = await repoFetchOperations.fetch(params.host ?? "github.com", params.owner, params.repo, params.ref ?? null, params.forceRefresh);
+					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "fetch", result } };
 				}
-				const details = result.details as { result?: RepoFetchResult & { workspaceId: string } } | undefined;
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatRepoFetchResult(details?.result, theme));
-				return text;
-			},
-		});
-
-		pi.registerTool({
-			name: "repo_cache_list",
-			label: "Repo Cache List",
-			description:
-				"Lists and queries repo_fetch's own on-disk cache -- no network call, no cache mutation. Filter by any combination of host/owner/repo/ref (exact match) and text (case-insensitive substring across host/owner/repo/refs). Each entry reports whether it's currently a registered workspace (usable directly by other tools) or just present on disk. Bounded and paginated via cursor.",
-			promptSnippet: "List or search previously-fetched external repositories",
-			parameters: Type.Object({
-				text: Type.Optional(Type.String({ description: "Case-insensitive substring match across host/owner/repo/refs" })),
-				host: Type.Optional(Type.String({ description: "Exact host match, e.g. github.com" })),
-				owner: Type.Optional(Type.String()),
-				repo: Type.Optional(Type.String()),
-				ref: Type.Optional(Type.String({ description: "Matches either the requested or the resolved ref" })),
-				maxResults: Type.Number({ description: "Maximum entries to return in this page" }),
-				cursor: Type.Optional(Type.String({ description: "Opaque cursor from a prior call's nextCursor, to fetch the next page" })),
-			}),
-			async execute(_toolCallId, params) {
+				if (params.action === "evict") {
+					if (!params.owner || !params.repo) throw new Error("repo_cache action=evict requires owner and repo");
+					const result = await repoCacheEvictOperations.evict(params.host ?? "github.com", params.owner, params.repo, params.ref ?? null);
+					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "evict", result } };
+				}
+				if (params.maxResults === undefined) throw new Error("repo_cache action=list requires maxResults");
 				const page = await repoCacheListOperations.list(
 					{ text: params.text, host: params.host, owner: params.owner, repo: params.repo, ref: params.ref },
 					params.maxResults,
 					params.cursor,
 				);
-				return { content: [{ type: "text", text: JSON.stringify(page) }], details: { page } };
+				return { content: [{ type: "text", text: JSON.stringify(page) }], details: { action: "list", page } };
 			},
-			renderCall(_args, theme, context) {
+			renderCall(args, theme, context) {
+				const action = args.action === "list" || args.action === "evict" ? args.action : "fetch";
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(`${theme.fg("toolTitle", theme.bold("repo_cache_list"))}`);
+				text.setText(formatRepoCacheCall(action, args, theme));
 				return text;
 			},
 			renderResult(result, { isPartial }, theme, context) {
-				if (isPartial) return new Text(theme.fg("warning", "Listing cached repositories..."), 0, 0);
+				if (isPartial) return new Text(theme.fg("warning", "Working on repo cache..."), 0, 0);
 				if (context.isError) {
 					const errorText = result.content
 						.filter((block) => block.type === "text")
 						.map((block) => block.text)
 						.join("\n");
-					return new Text(theme.fg("error", errorText || "repo_cache_list failed"), 0, 0);
+					return new Text(theme.fg("error", errorText || "repo_cache failed"), 0, 0);
 				}
-				const details = result.details as
-					| { page?: { entries: readonly { host: string; owner: string; repo: string }[]; nextCursor: string | null } }
-					| undefined;
+				const details = result.details as RepoCacheToolDetails | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				const count = details?.page?.entries.length ?? 0;
-				text.setText(count === 0 ? theme.fg("dim", "no cached repositories") : theme.fg("success", `${count} cached repositor${count === 1 ? "y" : "ies"}`));
+				if (details?.action === "list") text.setText(formatRepoCacheListResult(details.page, theme));
+				else if (details?.action === "evict") text.setText(formatRepoCacheEvictResult(details.result, theme));
+				else text.setText(formatRepoFetchResult(details?.action === "fetch" ? details.result : undefined, theme));
 				return text;
 			},
 		});

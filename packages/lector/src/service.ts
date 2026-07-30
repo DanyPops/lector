@@ -227,6 +227,14 @@ export class RepoFetcherNotConfigured extends Error {
 	}
 }
 
+/** Raised by repo.evictCache when the target cache entry's resolved path is still a currently-registered workspace. There is no workspace.unregister operation, so evicting would delete a live workspace's backing storage out from under every other operation still reading it. */
+export class RepoCacheEntryInUse extends Error {
+	constructor(readonly workspaceId: WorkspaceId) {
+		super(`cannot evict: still registered as workspace "${workspaceId}"`);
+		this.name = "RepoCacheEntryInUse";
+	}
+}
+
 export class PackageSourceResolverNotConfigured extends Error {
 	constructor() {
 		super("package.resolveSource requires a service constructed with repository fetching");
@@ -330,6 +338,7 @@ export type OperationName =
 	| "workspace.gitDiff"
 	| "repo.fetch"
 	| "repo.listCache"
+	| "repo.evictCache"
 	| "package.resolveSource"
 	| "workspace.searchText"
 	| "workspace.findFiles"
@@ -382,6 +391,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.gitDiff",
 	"repo.fetch",
 	"repo.listCache",
+	"repo.evictCache",
 	"package.resolveSource",
 	"workspace.searchText",
 	"workspace.findFiles",
@@ -442,8 +452,9 @@ export interface OperationInputs {
 	"workspace.gitStatus": { workspaceId: WorkspaceId };
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
-	"repo.fetch": RepoReference;
+	"repo.fetch": RepoReference & { forceRefresh?: boolean };
 	"repo.listCache": CachedRepositoryQuery & { maxResults: number; cursor?: string };
+	"repo.evictCache": RepoReference;
 	"package.resolveSource": { request: PackageSourceRequest; bounds: PackageSourceBounds };
 	"workspace.searchText": { workspaceId: WorkspaceId; query: string; maxMatches: number; maxBytes: number };
 	/** `patterns` are OR'd together -- a file matching any one of them is included. */
@@ -530,6 +541,7 @@ export interface OperationOutputs {
 	"workspace.gitDiff": GitDiffResult;
 	"repo.fetch": RepoFetchResult & { workspaceId: WorkspaceId };
 	"repo.listCache": CachedRepositoryPage;
+	"repo.evictCache": { evicted: boolean };
 	"package.resolveSource": PackageSourceOperationResult;
 	"workspace.searchText": TextSearchResult;
 	"workspace.findFiles": FindFilesResult;
@@ -905,10 +917,11 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return git.diff(input.ref, input.maxBytes);
 	}
 
-	/** Fetches (or reuses a cached clone of) an external repo and registers it read-only -- the same registry every other operation already reads from, so find_symbols/go_to_definition/git status etc. work on it unchanged once fetched. */
+	/** Fetches (or reuses a cached clone of) an external repo and registers it read-only -- the same registry every other operation already reads from, so find_symbols/go_to_definition/git status etc. work on it unchanged once fetched. forceRefresh threads straight through to RepoFetcherPort's own existing policy -- the "update" verb; previously only reachable internally by the remote-change watcher, never by a caller. */
 	async function repoFetchHandler(registry: MutableRegistry, input: OperationInputs["repo.fetch"]): Promise<OperationOutputs["repo.fetch"]> {
 		if (!repoFetcher) throw new RepoFetcherNotConfigured();
-		const result = await repoFetcher.fetch(input);
+		const { forceRefresh, ...reference } = input;
+		const result = await repoFetcher.fetch(reference, { forceRefresh });
 		const absolutePath = resolve(result.path);
 		const workspaceId = deriveWorkspaceId(absolutePath);
 		if (!registry.has(workspaceId)) {
@@ -916,10 +929,25 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 				port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)),
 				rootPath: absolutePath,
 				origin: "remote",
-				remoteReference: input,
+				remoteReference: reference,
 			});
 		}
 		return { workspaceId, ...result };
+	}
+
+	/** Refuses (RepoCacheEntryInUse) rather than deleting a currently-registered workspace's backing checkout out from under it -- there is no workspace.unregister operation to resolve that conflict safely today. */
+	async function repoEvictCacheHandler(registry: MutableRegistry, input: OperationInputs["repo.evictCache"]): Promise<OperationOutputs["repo.evictCache"]> {
+		if (!repoFetcher) throw new RepoFetcherNotConfigured();
+		const requestedRef = input.ref ?? "HEAD";
+		const cached = (await repoFetcher.listCached()).find(
+			(entry) => entry.host === input.host && entry.owner === input.owner && entry.repo === input.repo && entry.requestedRef === requestedRef,
+		);
+		if (cached) {
+			const workspaceId = deriveWorkspaceId(resolve(cached.path));
+			if (registry.has(workspaceId)) throw new RepoCacheEntryInUse(workspaceId);
+		}
+		const evicted = await repoFetcher.evict(input);
+		return { evicted };
 	}
 
 	async function repoListCacheHandler(registry: MutableRegistry, input: OperationInputs["repo.listCache"]): Promise<OperationOutputs["repo.listCache"]> {
@@ -1903,6 +1931,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.gitDiff": gitDiffHandler,
 		"repo.fetch": repoFetchHandler,
 		"repo.listCache": repoListCacheHandler,
+		"repo.evictCache": repoEvictCacheHandler,
 		"package.resolveSource": packageSourceHandler,
 		"workspace.searchText": searchTextHandler,
 		"workspace.findFiles": findFilesHandler,

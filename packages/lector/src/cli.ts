@@ -110,13 +110,18 @@ const USAGE = `Usage:
   lector workspace git-status <workspace-id> [--json]
   lector workspace git-log <workspace-id> --max-count <n> [--json]
   lector workspace git-diff <workspace-id> [--ref <ref>] --max-bytes <n> [--json]
-  lector workspace repo-fetch <owner>/<repo>[@ref] [--host <host>] [--json]
+  lector workspace repo-fetch <owner>/<repo>[@ref] [--host <host>] [--force-refresh] [--json]
+    shallow-clones an external repo into a disk-bounded cache and registers it read-only;
+    --force-refresh reclones even when an unexpired cache entry already exists (the "update"
+    verb -- for a caller that has already positively confirmed the remote moved)
   lector workspace repo-cache-list --max-results <n> [--host <h>] [--owner <o>] [--repo <r>]
     [--ref <ref>] [--query <text>] [--cursor <c>] [--json]
     lists repo.fetch's own on-disk cache -- no network, no mutation -- filtered by any
     combination of host/owner/repo/ref (exact) and query (case-insensitive substring),
     bounded and paginated via --cursor
-    shallow-clones an external repo into a disk-bounded cache and registers it read-only
+  lector workspace repo-cache-evict <owner>/<repo>[@ref] [--host <host>] [--json]
+    removes one cached repo checkout from disk and the cache index; refuses if it is still a
+    currently-registered workspace
   lector package source <project-dir> <package-name> [--version <exact-version>] [--registry <url>] [--json]
     resolves an installed npm package to verified exact repository source and registers it read-only
   lector workspace search-text <workspace-id> <query> --max-matches <n> --max-bytes <n> [--json]
@@ -647,14 +652,28 @@ async function runWorkspaceRepoFetch(spec: string | undefined, flags: string[]):
 	if (!spec) fail(USAGE);
 	const host = flagValue(flags, "--host") ?? "github.com";
 	const reference = parseRepoSpec(spec, host);
+	const forceRefresh = hasFlag(flags, "--force-refresh");
 	const client = await connectLectorClient();
-	const result = await client.call("repo.fetch", reference);
+	const result = await client.call("repo.fetch", { ...reference, forceRefresh });
 	if (hasFlag(flags, "--json")) {
 		console.log(JSON.stringify(result));
 		return;
 	}
 	console.log(`${result.workspaceId} ${result.fromCache ? "(from cache)" : "(fetched)"} -- ${result.path}`);
 	if (result.refFallbackOccurred) console.log(`note: requested ref not found, fell back to the default branch (resolved: ${result.resolvedRef})`);
+}
+
+async function runWorkspaceRepoCacheEvict(spec: string | undefined, flags: string[]): Promise<void> {
+	if (!spec) fail(USAGE);
+	const host = flagValue(flags, "--host") ?? "github.com";
+	const reference = parseRepoSpec(spec, host);
+	const client = await connectLectorClient();
+	const result = await client.call("repo.evictCache", reference);
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	console.log(result.evicted ? "evicted" : "nothing cached for that reference");
 }
 
 async function runWorkspaceRepoCacheList(flags: string[]): Promise<void> {
@@ -1330,6 +1349,10 @@ async function main(): Promise<void> {
 			return runWorkspaceRepoFetch(spec, repoFlags);
 		}
 		if (action === "repo-cache-list") return runWorkspaceRepoCacheList(actionArgs);
+		if (action === "repo-cache-evict") {
+			const [spec, ...evictFlags] = actionArgs;
+			return runWorkspaceRepoCacheEvict(spec, evictFlags);
+		}
 		if (action === "annotation") {
 			const [subcommand, annWorkspaceId, ...annRest] = actionArgs;
 			if (subcommand === "create") return runWorkspaceAnnotationCreate(annWorkspaceId, annRest);

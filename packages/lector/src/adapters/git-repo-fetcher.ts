@@ -246,6 +246,25 @@ export class GitRepoFetcher implements RepoFetcherPort {
 	 * simply won't list) returns undefined rather than throwing: the caller treats undefined as
 	 * "couldn't tell," never as evidence of staleness.
 	 */
+	/** Serialized through the same queue as fetch(), so an eviction can never race a concurrent clone into the same key's directory. */
+	async evict(reference: RepoReference): Promise<boolean> {
+		assertSafeRepoReference(reference);
+		const task = this.queue.then(() => this.evictLocked(reference));
+		this.queue = task.then(
+			() => undefined,
+			() => undefined,
+		);
+		return task;
+	}
+
+	private evictLocked(reference: RepoReference): boolean {
+		const key = cacheKey(reference);
+		if (!this.cache.has(key)) return false;
+		this.cache.delete(key); // fires dispose -> rmSync of the checkout directory
+		this.persistIndex();
+		return true;
+	}
+
 	async resolveRemoteCommit(reference: RepoReference, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<string | undefined> {
 		try {
 			assertSafeRepoReference(reference);

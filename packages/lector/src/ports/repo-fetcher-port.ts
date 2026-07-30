@@ -18,4 +18,6 @@ export interface RepoFetcherPort {
 	resolveRemoteCommit(reference: RepoReference, timeoutMs?: number): Promise<string | undefined>;
 	/** Every repository currently present in the cache, exactly as fetched -- no network call, no mutation of cache state (including LRU recency). */
 	listCached(): Promise<readonly RepoCacheListEntry[]>;
+	/** Removes one cached checkout by its exact fetch identity (same host/owner/repo/ref fetch() takes) and deletes it from disk. Returns false, not an error, when nothing was cached for that identity. */
+	evict(reference: RepoReference): Promise<boolean>;
 }
