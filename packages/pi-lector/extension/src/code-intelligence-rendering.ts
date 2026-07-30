@@ -5,9 +5,7 @@ import type {
 	Hover,
 	IncomingCall,
 	IntelligenceProvenance,
-	JobSnapshot,
 	OutgoingCall,
-	PopulateSymbolGraphResult,
 	SymbolNode,
 	WorkspaceLocation,
 	WorkspaceMapResult,
@@ -213,29 +211,6 @@ export function formatCallHierarchyResult(details: CallHierarchyToolDetails | un
 	return formatOutgoingCallsResult(details.calls, expanded, theme);
 }
 
-export function formatPopulateSymbolGraphCall(args: { path?: unknown; maxFiles?: unknown; maxSymbolsPerFile?: unknown }, theme: LectorTheme): string {
-	const path = typeof args.path === "string" ? args.path : "";
-	return `${theme.fg("toolTitle", theme.bold("populate_symbol_graph"))} ${theme.fg("accent", path)}`;
-}
-
-export function describePopulateSymbolGraphJob(job: JobSnapshot<PopulateSymbolGraphResult>): string {
-	if (job.status === "queued") return `Source workspace is registered; symbol graph is queued and still loading (job ${job.id}). Poll job_status.`;
-	if (job.status === "running") return `Source workspace is registered; symbol graph is still loading (job ${job.id}). Poll job_status.`;
-	if (job.status === "failed") return `Job ${job.id} failed [${job.error.code}] -- ${job.error.message}`;
-	const result = job.result;
-	const counts = `${result.filesProcessed}/${result.filesAttempted} files, ${result.symbolsProcessed} symbol${result.symbolsProcessed === 1 ? "" : "s"}, ${result.nodesAdded} node${result.nodesAdded === 1 ? "" : "s"}, ${result.edgesAdded} edge${result.edgesAdded === 1 ? "" : "s"}`;
-	if (result.completeness === "complete") return `Job ${job.id} cached ${counts}`;
-	const first = result.failures[0];
-	const failure = first ? ` First failure: ${first.path} [${first.code} via ${first.provenance.backend}] ${first.message}` : "";
-	return `Job ${job.id} partially cached ${counts}; ${result.filesFailed} failed file${result.filesFailed === 1 ? "" : "s"} (${result.failureCount} failed operations).${failure}`;
-}
-
-export function formatPopulateSymbolGraphResult(job: JobSnapshot<PopulateSymbolGraphResult> | undefined, theme: LectorTheme): string {
-	if (!job) return theme.fg("dim", "No job result.");
-	const color = job.status === "failed" ? "error" : job.status === "succeeded" ? "muted" : "warning";
-	return theme.fg(color, describePopulateSymbolGraphJob(job));
-}
-
 export function formatReachableFromCall(args: { path?: unknown; line?: unknown; character?: unknown; maxDepth?: unknown }, theme: LectorTheme): string {
 	const base = formatPositionalCall("reachable_from", args, theme);
 	const maxDepth = typeof args.maxDepth === "number" ? args.maxDepth : "?";
@@ -243,7 +218,8 @@ export function formatReachableFromCall(args: { path?: unknown; line?: unknown; 
 }
 
 export function formatReachableFromResult(symbols: readonly SymbolNode[] | undefined, expanded: boolean, theme: LectorTheme): string {
-	if (!symbols || symbols.length === 0) return theme.fg("dim", "Nothing reachable at this position (has the graph been populated for this workspace?).");
+	if (!symbols || symbols.length === 0)
+		return theme.fg("dim", "Nothing reachable at this position (the workspace's symbol graph may still be populating in the background -- retry shortly).");
 
 	const displayCount = expanded ? symbols.length : Math.min(symbols.length, DEFAULT_VISIBLE_CALLS);
 	const lines = [theme.fg("muted", `${symbols.length} reachable symbol${symbols.length === 1 ? "" : "s"}:`)];
@@ -261,7 +237,8 @@ export function formatWorkspaceMapCall(args: { path?: unknown; maxEntries?: unkn
 }
 
 export function formatWorkspaceMapResult(result: WorkspaceMapResult | undefined, expanded: boolean, theme: LectorTheme): string {
-	if (!result || result.entries.length === 0) return theme.fg("dim", "No ranked symbols (has the graph been populated for this workspace?).");
+	if (!result || result.entries.length === 0)
+		return theme.fg("dim", "No ranked symbols (the workspace's symbol graph may still be populating in the background -- retry shortly).");
 
 	const displayCount = expanded ? result.entries.length : Math.min(result.entries.length, DEFAULT_VISIBLE_SYMBOLS);
 	const lines = [

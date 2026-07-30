@@ -9,14 +9,12 @@ import type {
 	GithubRepoSearchResult,
 	Hover,
 	IntelligenceProvenance,
-	JobSnapshot,
 	LineEdit,
 	LineEditOutcome,
 	MutationHistoryEntry,
 	NpmPackageCandidate,
 	OperationOutputs,
 	PackageSourceOperationResult,
-	PopulateSymbolGraphResult,
 	RepoFetchResult,
 	SourcegraphCodeCandidate,
 	SymbolAnnotation,
@@ -42,7 +40,6 @@ import { formatApplyPatchCall, formatApplyPatchResult } from "./apply-patch-rend
 import { createLectorCodeIntelligenceOperations } from "./code-intelligence-operations.ts";
 import {
 	type CallHierarchyToolDetails,
-	describePopulateSymbolGraphJob,
 	formatCallHierarchyCall,
 	formatCallHierarchyResult,
 	formatDiagnosticsCall,
@@ -57,8 +54,6 @@ import {
 	formatGoToImplementationResult,
 	formatHoverCall,
 	formatHoverResult,
-	formatPopulateSymbolGraphCall,
-	formatPopulateSymbolGraphResult,
 	formatReachableFromCall,
 	formatReachableFromResult,
 	formatWorkspaceMapCall,
@@ -624,94 +619,13 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		pi.registerTool({
-			name: "populate_symbol_graph",
-			label: "Populate Symbol Graph",
-			description:
-				"Walk a workspace's real call relationships into a persisted graph, so reachable_from can answer multi-hop questions (transitive callers, reachability) without chaining many find_references/call_hierarchy calls by hand. Run this once before reachable_from.",
-			promptSnippet: "Populate a workspace's symbol graph for multi-hop queries",
-			promptGuidelines: [
-				"Run populate_symbol_graph once for a workspace before using reachable_from against it; an unpopulated workspace's graph is empty, not an error.",
-				"populate_symbol_graph waits briefly, then returns a job id with an explicit still-loading state instead of blocking the turn. Use job_status later; do not spin in a blind polling loop.",
-				"maxFiles and maxSymbolsPerFile are both required and bound the scan explicitly -- a symbol-dense file (many interfaces/properties) can easily exceed a small maxSymbolsPerFile before reaching the functions/methods that actually matter.",
-			],
-			parameters: Type.Object({
-				path: Type.String({ description: "Any absolute or cwd-relative path inside the workspace to populate" }),
-				maxFiles: Type.Number({ description: "Maximum number of source files to scan" }),
-				maxSymbolsPerFile: Type.Number({ description: "Maximum number of declarations to process per file" }),
-				initialWaitMs: Type.Optional(Type.Number({ description: "Bounded initial wait before returning a still-loading job; defaults to 500, maximum 30000" })),
-			}),
-			async execute(_toolCallId, params) {
-				const path = resolve(cwd, params.path);
-				const job = await codeIntelligenceOperations.populateSymbolGraph(path, params.maxFiles, params.maxSymbolsPerFile, params.initialWaitMs);
-				return {
-					content: [{ type: "text", text: describePopulateSymbolGraphJob(job) }],
-					details: { job },
-				};
-			},
-			renderCall(args, theme, context) {
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatPopulateSymbolGraphCall(args, theme));
-				return text;
-			},
-			renderResult(result, { isPartial }, theme, context) {
-				if (isPartial) return new Text(theme.fg("warning", "Populating symbol graph..."), 0, 0);
-				if (context.isError) {
-					const errorText = result.content
-						.filter((block) => block.type === "text")
-						.map((block) => block.text)
-						.join("\n");
-					return new Text(theme.fg("error", errorText || "populate_symbol_graph failed"), 0, 0);
-				}
-				const details = result.details as { job?: JobSnapshot<PopulateSymbolGraphResult> } | undefined;
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatPopulateSymbolGraphResult(details?.job, theme));
-				return text;
-			},
-		});
-
-		pi.registerTool({
-			name: "job_status",
-			label: "Job Status",
-			description:
-				"Poll one process-lifetime Lector background job. Returns queued/running with an actionable still-loading state, succeeded with the bounded result, or failed with a stable error code and message. Jobs are bounded and do not survive daemon restart; an unknown id explains expiry/restart rather than returning empty data.",
-			promptSnippet: "Poll a Lector background job by id",
-			parameters: Type.Object({
-				jobId: Type.String({ description: "Job id returned by populate_symbol_graph" }),
-			}),
-			async execute(_toolCallId, params) {
-				const job = await codeIntelligenceOperations.jobStatus(params.jobId);
-				return { content: [{ type: "text", text: describePopulateSymbolGraphJob(job) }], details: { job } };
-			},
-			renderCall(args, theme, context) {
-				const jobId = typeof args.jobId === "string" ? args.jobId : "";
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(`${theme.fg("toolTitle", theme.bold("job_status"))} ${theme.fg("accent", jobId)}`);
-				return text;
-			},
-			renderResult(result, { isPartial }, theme, context) {
-				if (isPartial) return new Text(theme.fg("warning", "Checking background job..."), 0, 0);
-				if (context.isError) {
-					const errorText = result.content
-						.filter((block) => block.type === "text")
-						.map((block) => block.text)
-						.join("\n");
-					return new Text(theme.fg("error", errorText || "job_status failed"), 0, 0);
-				}
-				const details = result.details as { job?: JobSnapshot<PopulateSymbolGraphResult> } | undefined;
-				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatPopulateSymbolGraphResult(details?.job, theme));
-				return text;
-			},
-		});
-
-		pi.registerTool({
 			name: "reference_based_rename",
 			label: "Reference-Based Rename",
 			description:
 				"Move/rename a file and rewrite every static import/export specifier the workspace's own populated symbol graph knows references it -- atomically, rolled back entirely on any failure. Non-LSP: uses find_references + a real parse of import/export declarations, not a language server's own rename. Refuses outright (touches nothing) unless the workspace's symbol graph is fully populated and current for the given bounds -- a partial rename that silently misses a reference is worse than refusing (Sourcegraph's CodeScaleBench finding). Does not follow dynamic import(expr)/require(expr) or any plain string reference to the file -- always check the returned caveats.",
 			promptSnippet: "Move a file and update every import that references it",
 			promptGuidelines: [
-				"Run populate_symbol_graph for this workspace first if cache_status/has_warm_index doesn't already show a fully cached (never partial) graph -- reference_based_rename refuses outright otherwise.",
+				"The workspace's symbol graph auto-populates in the background (default bounds: 500 files, 100 symbols/file) the first time this workspace is touched. If this refuses because the graph isn't populated at the requested maxFiles/maxSymbolsPerFile, run `lector workspace populate-symbol-graph <path> --max-files <n> --max-symbols-per-file <n>` via bash for a larger scan, then retry.",
 				"Always read the returned caveats: this never rewrites a dynamic import(expr)/require(expr) or a plain string reference to the old path, even if one exists.",
 			],
 			parameters: Type.Object({
@@ -840,10 +754,10 @@ export default function (pi: ExtensionAPI) {
 			name: "symbol_annotations",
 			label: "Symbol Annotations",
 			description:
-				'Agent-authored narrative content anchored to one or more symbols in the workspace\'s persisted graph -- e.g. a "user story dataflow" note spanning every symbol touched end-to-end. Every anchor must resolve to a real, currently-known symbol (run populate_symbol_graph first). get/list/tree live-check staleness against the current graph/workspace on every call and persist a correction before returning, so a returned status never disagrees with reality -- a stale annotation must be refreshed (re-authored and re-anchored) or scrubbed (soft-deleted, restorable) by an explicit decision; Lector never rewrites the narrative itself. contain/uncontain build a reusable, nestable structure on top of plain annotations: a container (e.g. a "data flow") can contain other annotations -- including per-symbol notes shared by more than one container (DRY reuse) or another container one level deeper (nested data flows) -- without duplicating their content. tree reads a whole bounded subtree in one call. Actions: create, get, list, refresh, scrub, restore, contain, uncontain, tree.',
+				'Agent-authored narrative content anchored to one or more symbols in the workspace\'s persisted graph -- e.g. a "user story dataflow" note spanning every symbol touched end-to-end. Every anchor must resolve to a real, currently-known symbol (the workspace\'s symbol graph auto-populates in the background on first touch). get/list/tree live-check staleness against the current graph/workspace on every call and persist a correction before returning, so a returned status never disagrees with reality -- a stale annotation must be refreshed (re-authored and re-anchored) or scrubbed (soft-deleted, restorable) by an explicit decision; Lector never rewrites the narrative itself. contain/uncontain build a reusable, nestable structure on top of plain annotations: a container (e.g. a "data flow") can contain other annotations -- including per-symbol notes shared by more than one container (DRY reuse) or another container one level deeper (nested data flows) -- without duplicating their content. tree reads a whole bounded subtree in one call. Actions: create, get, list, refresh, scrub, restore, contain, uncontain, tree.',
 			promptSnippet: "Attach, read, or invalidate narrative annotations on the symbol graph",
 			promptGuidelines: [
-				"Resolve real anchor positions first (find_symbols/document_symbols/go_to_definition) -- an anchor position must match populate_symbol_graph's own recorded position for that symbol, not just any occurrence of its name.",
+				"Resolve real anchor positions first (find_symbols/document_symbols/go_to_definition) -- an anchor position must match the workspace's own symbol graph's recorded position for that symbol, not just any occurrence of its name.",
 				"A stale annotation's body may no longer describe the code accurately -- read it, decide whether to refresh (re-author) or scrub (remove), never trust it as-is.",
 				"Prefer reusing an existing per-symbol annotation as a shared child of several containers over re-authoring the same explanation in each -- that reuse is the reason contain/uncontain exist.",
 				"contain/uncontain are idempotent (containing an already-contained child, or uncontaining an already-absent relationship, is a no-op, not an error) and reject a cycle up front rather than accepting one.",
@@ -1005,7 +919,7 @@ export default function (pi: ExtensionAPI) {
 			name: "reachable_from",
 			label: "Reachable From",
 			description:
-				"Every symbol reachable from an exact file position by following the workspace's persisted call graph up to maxDepth hops -- transitive callers/reachability that would otherwise require chaining many find_references/call_hierarchy calls by hand. Requires populate_symbol_graph to have been run for this workspace first.",
+				"Every symbol reachable from an exact file position by following the workspace's persisted call graph up to maxDepth hops -- transitive callers/reachability that would otherwise require chaining many find_references/call_hierarchy calls by hand. The workspace's symbol graph auto-populates in the background the first time this workspace is touched; if it's still building, this returns an empty result rather than an error -- wait a moment and retry.",
 			promptSnippet: "Find symbols reachable from a position, up to N hops, via the persisted graph",
 			promptGuidelines: [
 				"Use reachable_from for multi-hop questions (does A eventually call C through B); use call_hierarchy (direction=incoming/outgoing) for a single direct hop live against the language server.",
@@ -1053,7 +967,7 @@ export default function (pi: ExtensionAPI) {
 			name: "workspace_map",
 			label: "Workspace Map",
 			description:
-				"A ranked, budget-bounded summary of the workspace's most structurally central symbols (aider-repomap-shaped) -- signature-only, highest-ranked first by PageRank over the populated call/reference graph, not full file dumps. Use when orienting in an unfamiliar or large codebase instead of reading many files one by one. Requires populate_symbol_graph to have been run for this workspace first; returns empty otherwise.",
+				"A ranked, budget-bounded summary of the workspace's most structurally central symbols (aider-repomap-shaped) -- signature-only, highest-ranked first by PageRank over the populated call/reference graph, not full file dumps. Use when orienting in an unfamiliar or large codebase instead of reading many files one by one. The workspace's symbol graph auto-populates in the background the first time this workspace is touched; if it's still building, this returns empty rather than an error -- wait a moment and retry.",
 			promptSnippet: "Get a ranked, signature-only overview of the workspace's most central symbols",
 			promptGuidelines: [
 				"Prefer this over reading many files to get oriented in a large or unfamiliar codebase -- it surfaces the most-referenced symbols first, not an arbitrary file order.",
@@ -1071,7 +985,7 @@ export default function (pi: ExtensionAPI) {
 				const result = await codeIntelligenceOperations.workspaceMap(path, params.maxNodes, params.maxEdges, params.maxEntries, params.maxBytes);
 				const text =
 					result.entries.length === 0
-						? "No ranked symbols (has the graph been populated for this workspace?)."
+						? "No ranked symbols (the workspace's symbol graph may still be populating in the background -- retry shortly)."
 						: result.entries
 								.map(
 									(entry) => `${entry.kind} ${entry.name} -- ${entry.path}:${entry.line}:${entry.character}${entry.signature ? ` -- ${entry.signature}` : ""}`,

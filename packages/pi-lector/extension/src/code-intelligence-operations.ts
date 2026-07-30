@@ -37,7 +37,14 @@ export interface CodeIntelligenceOperations {
 	prepareCallHierarchy(path: string, line: number, character: number): Promise<OperationOutputs["workspace.prepareCallHierarchy"]>;
 	incomingCalls(path: string, line: number, character: number): Promise<OperationOutputs["workspace.incomingCalls"]>;
 	outgoingCalls(path: string, line: number, character: number): Promise<OperationOutputs["workspace.outgoingCalls"]>;
+	/**
+	 * Not exposed as a standalone Pi tool -- every workspace auto-populates on first touch via
+	 * monitorWorkspaceCache (workspace-cache-operations.ts). Kept here as an internal capability
+	 * for tests that need a populated graph. For an explicit/custom-bound population outside
+	 * Pi entirely, `lector workspace populate-symbol-graph` calls the daemon directly.
+	 */
 	populateSymbolGraph(path: string, maxFiles: number, maxSymbolsPerFile: number, waitMs?: number): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
+	/** Not exposed as a standalone Pi tool -- see populateSymbolGraph. */
 	jobStatus(jobId: string): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
 	reachableFrom(path: string, line: number, character: number, maxDepth: number, kind?: SymbolEdgeKind): Promise<readonly SymbolNode[]>;
 	/** Never spawns a symbol index -- safe to call opportunistically (e.g. before deciding whether to enrich a result). */

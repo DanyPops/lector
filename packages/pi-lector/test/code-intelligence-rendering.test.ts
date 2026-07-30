@@ -20,8 +20,6 @@ import {
 	formatGoToDefinitionResult,
 	formatHoverCall,
 	formatHoverResult,
-	formatPopulateSymbolGraphCall,
-	formatPopulateSymbolGraphResult,
 	formatReachableFromCall,
 	formatReachableFromResult,
 	formatWorkspaceMapCall,
@@ -232,119 +230,6 @@ describe("formatCallHierarchyCall/Result", () => {
 	it("lists each callee (direction=outgoing)", () => {
 		const text = formatCallHierarchyResult({ direction: "outgoing", calls: [{ to: callHierarchyEntry({ name: "add" }), fromRanges: [] }] }, false, plainTheme);
 		expect(text).toContain("add");
-	});
-});
-
-describe("formatPopulateSymbolGraphCall/Result", () => {
-	it("shows the tool name and path", () => {
-		const text = formatPopulateSymbolGraphCall({ path: "src" }, plainTheme);
-		expect(text).toContain("populate_symbol_graph");
-		expect(text).toContain("src");
-	});
-
-	it("shows the real counts from a succeeded job", () => {
-		const text = formatPopulateSymbolGraphResult(
-			{
-				id: "job-1",
-				operation: "workspace.populateSymbolGraph",
-				priority: "local",
-				submittedAt: 1,
-				startedAt: 2,
-				finishedAt: 3,
-				status: "succeeded",
-				result: {
-					completeness: "complete",
-					filesAttempted: 3,
-					filesProcessed: 3,
-					filesFailed: 0,
-					symbolsProcessed: 12,
-					nodesAdded: 10,
-					edgesAdded: 7,
-					failureCount: 0,
-					failures: [],
-					failuresTruncated: false,
-				},
-			},
-			plainTheme,
-		);
-		expect(text).toContain("3 files");
-		expect(text).toContain("12 symbols");
-		expect(text).toContain("10 nodes");
-		expect(text).toContain("7 edges");
-	});
-
-	it("shows partial graph failures without treating the whole job as failed", () => {
-		const text = formatPopulateSymbolGraphResult(
-			{
-				id: "job-partial",
-				operation: "workspace.populateSymbolGraph",
-				priority: "local",
-				submittedAt: 1,
-				startedAt: 2,
-				finishedAt: 3,
-				status: "succeeded",
-				result: {
-					completeness: "partial",
-					filesAttempted: 4,
-					filesProcessed: 3,
-					filesFailed: 1,
-					symbolsProcessed: 12,
-					nodesAdded: 10,
-					edgesAdded: 7,
-					failureCount: 1,
-					failures: [
-						{
-							path: "/repo/e2e_test.go",
-							operation: "document-symbols",
-							code: "CodeIntelligenceFileError",
-							message: "no package metadata",
-							provenance: {
-								fidelity: "semantic",
-								backend: "gopls",
-								languageId: "go",
-								authority: "language-server",
-								freshness: "live-process",
-								limitations: [],
-							},
-						},
-					],
-					failuresTruncated: false,
-				},
-			},
-			plainTheme,
-		);
-		expect(text).toContain("partially cached 3/4 files");
-		expect(text).toContain("1 failed file");
-		expect(text).toContain("gopls");
-		expect(text).toContain("no package metadata");
-	});
-
-	it("shows an actionable still-loading state with the job id instead of an empty result", () => {
-		const text = formatPopulateSymbolGraphResult(
-			{ id: "job-7", operation: "workspace.populateSymbolGraph", priority: "local", submittedAt: 1, startedAt: 2, status: "running" },
-			plainTheme,
-		);
-		expect(text).toContain("still loading");
-		expect(text).toContain("job-7");
-		expect(text).toContain("job_status");
-	});
-
-	it("shows the bounded failure code and message", () => {
-		const text = formatPopulateSymbolGraphResult(
-			{
-				id: "job-9",
-				operation: "workspace.populateSymbolGraph",
-				priority: "local",
-				submittedAt: 1,
-				startedAt: 2,
-				finishedAt: 3,
-				status: "failed",
-				error: { code: "LanguageServerProcessExited", message: "server exited" },
-			},
-			plainTheme,
-		);
-		expect(text).toContain("LanguageServerProcessExited");
-		expect(text).toContain("server exited");
 	});
 });
 
