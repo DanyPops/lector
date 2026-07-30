@@ -6,16 +6,19 @@ import type {
 	DocumentSymbolEntry,
 	EditOutcome,
 	FindFilesResult,
+	GithubRepoSearchResult,
 	Hover,
 	IntelligenceProvenance,
 	JobSnapshot,
 	LineEdit,
 	LineEditOutcome,
 	MutationHistoryEntry,
+	NpmPackageCandidate,
 	OperationOutputs,
 	PackageSourceOperationResult,
 	PopulateSymbolGraphResult,
 	RepoFetchResult,
+	SourcegraphCodeCandidate,
 	SymbolAnnotation,
 	SymbolNode,
 	SymbolSearchResult,
@@ -63,6 +66,13 @@ import {
 import { createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-search-operations.ts";
 import { formatCrossWorkspaceCall, formatFindSymbolsAcrossProjectsResult, formatSearchTextAcrossProjectsResult } from "./cross-workspace-search-rendering.ts";
 import { createLectorEditOperations } from "./edit-operations.ts";
+import { createExternalSearchOperations } from "./external-search-operations.ts";
+import {
+	formatExternalSearchCall,
+	formatGithubRepoSearchResult,
+	formatNpmPackageSearchResult,
+	formatSourcegraphCodeSearchResult,
+} from "./external-search-rendering.ts";
 import { createLectorFindFilesOperations } from "./find-files-operations.ts";
 import { formatFindFilesCall, formatFindFilesResult } from "./find-files-rendering.ts";
 import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts";
@@ -1516,6 +1526,62 @@ export default function (pi: ExtensionAPI) {
 				if (details?.action === "list") text.setText(formatRepoCacheListResult(details.page, theme));
 				else if (details?.action === "evict") text.setText(formatRepoCacheEvictResult(details.result, theme));
 				else text.setText(formatRepoFetchResult(details?.action === "fetch" ? details.result : undefined, theme));
+				return text;
+			},
+		});
+
+		type ExternalSearchToolDetails =
+			| { readonly action: "github_repos"; readonly result: GithubRepoSearchResult }
+			| { readonly action: "npm_packages"; readonly result: { candidates: readonly NpmPackageCandidate[] } }
+			| { readonly action: "sourcegraph_code"; readonly result: { candidates: readonly SourcegraphCodeCandidate[] } };
+
+		const externalSearchOperations = createExternalSearchOperations();
+		pi.registerTool({
+			name: "external_search",
+			label: "External Search",
+			description:
+				"Finds real prior art before writing new code -- explicit-query search only, never open-ended discovery/trending. action=github_repos searches GitHub repositories by name/description/topic (GitHub's own relevance ranking); candidates are shaped as direct repo_cache(action=fetch) inputs (host/owner/repo). Unauthenticated is rate-limited to 10 req/min; configure GITHUB_TOKEN on the daemon host for 30/min. action=npm_packages searches the public npm registry; candidates are shaped as direct package_source inputs (name, plus the version already returned). action=sourcegraph_code searches code content across public GitHub via sourcegraph.com -- \"which repos actually contain code matching X\", a genuinely different mode than the other two (which search names/metadata, not file contents); each candidate's repository field feeds repo_cache(action=fetch) once split on '/'. Every source is cached for a short TTL -- an identical query moments apart is served from cache, not re-fetched.",
+			promptSnippet: "Search GitHub repos, npm packages, or code content for prior art",
+			parameters: Type.Object({
+				action: Type.Union([Type.Literal("github_repos"), Type.Literal("npm_packages"), Type.Literal("sourcegraph_code")]),
+				query: Type.String({
+					description: "The search query -- repo/package name or description keywords for github_repos/npm_packages, code content for sourcegraph_code",
+				}),
+				maxResults: Type.Optional(Type.Number({ description: "Maximum candidates to return (default 20)" })),
+			}),
+			async execute(_toolCallId, params): Promise<AgentToolResult<ExternalSearchToolDetails>> {
+				const maxResults = params.maxResults ?? 20;
+				if (params.action === "github_repos") {
+					const result = await externalSearchOperations.githubRepos(params.query, maxResults);
+					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "github_repos", result } };
+				}
+				if (params.action === "npm_packages") {
+					const result = await externalSearchOperations.npmPackages(params.query, maxResults);
+					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "npm_packages", result } };
+				}
+				const result = await externalSearchOperations.sourcegraphCode(params.query, maxResults);
+				return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "sourcegraph_code", result } };
+			},
+			renderCall(args, theme, context) {
+				const action = args.action === "npm_packages" || args.action === "sourcegraph_code" ? args.action : "github_repos";
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatExternalSearchCall(action, args, theme));
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Searching..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "external_search failed"), 0, 0);
+				}
+				const details = result.details as ExternalSearchToolDetails | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				if (details?.action === "npm_packages") text.setText(formatNpmPackageSearchResult(details.result, theme));
+				else if (details?.action === "sourcegraph_code") text.setText(formatSourcegraphCodeSearchResult(details.result, theme));
+				else text.setText(formatGithubRepoSearchResult(details?.action === "github_repos" ? details.result : undefined, theme));
 				return text;
 			},
 		});

@@ -113,6 +113,66 @@ describe("NpmRegistryClient", () => {
 		expect(String(caught)).not.toContain(TOKEN);
 	});
 
+	it("searches by text and maps results into candidates shaped for package.resolveSource", async () => {
+		let observedPath = "";
+		let observedQuery = "";
+		const registry = serve((request) => {
+			const url = new URL(request.url);
+			observedPath = url.pathname;
+			observedQuery = url.search;
+			return Response.json({
+				objects: [
+					{
+						package: { name: "widgets", version: "2.0.0", description: "a widget factory", links: { repository: "https://github.com/acme/widgets" } },
+						score: { final: 0.87 },
+					},
+				],
+				total: 1,
+			});
+		});
+		const client = new NpmRegistryClient({ searchRegistry: registry });
+
+		const candidates = await client.search("widgets", { maxResults: 20, timeoutMs: 2_000, maxResponseBytes: 16_384, maxRetries: 2 });
+
+		expect(observedPath).toBe("/-/v1/search");
+		expect(observedQuery).toBe("?text=widgets&size=20");
+		expect(candidates).toEqual([
+			{ name: "widgets", version: "2.0.0", description: "a widget factory", repositoryUrl: "https://github.com/acme/widgets", score: 0.87 },
+		]);
+	});
+
+	it("defaults a missing description/repository to null rather than throwing", async () => {
+		const registry = serve(() => Response.json({ objects: [{ package: { name: "bare", version: "1.0.0" }, score: { final: 0.5 } }] }));
+		const client = new NpmRegistryClient({ searchRegistry: registry });
+
+		const candidates = await client.search("bare", { maxResults: 10, timeoutMs: 2_000, maxResponseBytes: 16_384, maxRetries: 2 });
+
+		expect(candidates).toEqual([{ name: "bare", version: "1.0.0", description: null, repositoryUrl: null, score: 0.5 }]);
+	});
+
+	it("bounds the search response body the same way fetchVersion does", async () => {
+		const registry = serve(() => Response.json({ objects: [{ package: { name: "x".repeat(2_000), version: "1.0.0" }, score: { final: 1 } }] }));
+		const client = new NpmRegistryClient({ searchRegistry: registry });
+
+		await expect(client.search("widgets", { maxResults: 10, timeoutMs: 2_000, maxResponseBytes: 100, maxRetries: 2 })).rejects.toBeInstanceOf(
+			NpmRegistryResponseLimitExceeded,
+		);
+	});
+
+	it("retries a bounded transient search failure and then succeeds", async () => {
+		let attempts = 0;
+		const registry = serve(() => {
+			attempts++;
+			return attempts < 2 ? new Response("temporary", { status: 503 }) : Response.json({ objects: [] });
+		});
+		const client = new NpmRegistryClient({ searchRegistry: registry });
+
+		const candidates = await client.search("widgets", { maxResults: 10, timeoutMs: 2_000, maxResponseBytes: 16_384, maxRetries: 2 });
+
+		expect(candidates).toEqual([]);
+		expect(attempts).toBe(2);
+	});
+
 	it("strips registry authorization when a redirect crosses origins", async () => {
 		let redirectedAuthorization: string | null = "not-requested";
 		const target = serve((request) => {

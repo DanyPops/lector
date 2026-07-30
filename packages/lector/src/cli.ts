@@ -130,6 +130,15 @@ const USAGE = `Usage:
     patterns are OR'd together -- a file matching any one of them is included
   lector search symbols <query> [--workspace <id>]... [--timeout-ms <n>] [--json]
   lector search text <query> --max-matches <n> --max-bytes <n> [--workspace <id>]... [--timeout-ms <n>] [--json]
+  lector search github-repos <query> [--max-results <n>] [--json]
+    finds real prior art before writing new code -- candidates are shaped as direct repo-fetch
+    inputs (owner/repo/host); GITHUB_TOKEN raises the rate limit from 10 to 30 req/min
+  lector search npm-packages <query> [--max-results <n>] [--json]
+    candidates are shaped as direct package-source inputs (name, plus the version already returned)
+  lector search sourcegraph-code <query> [--max-results <n>] [--json]
+    content search across public GitHub via sourcegraph.com -- "which repos actually contain code
+    matching X", not repo/package metadata search; each candidate's repository field feeds
+    repo-fetch once split on "/"
     fans out across the given --workspace id(s); with none given, every currently-registered
     workspace, daemon-wide -- this daemon is a shared service, so that default can include a
     project a different, concurrent Pi session registered. Prefer explicit --workspace when you
@@ -852,6 +861,67 @@ async function runSearchText(query: string | undefined, flags: string[]): Promis
 	}
 }
 
+async function runSearchGithubRepos(query: string | undefined, flags: string[]): Promise<void> {
+	if (!query) fail(USAGE);
+	const maxResults = Number(flagValue(flags, "--max-results") ?? "20");
+	const client = await connectLectorClient();
+	const result = await client.call("search.githubRepos", { query, maxResults });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	if (!result.authenticated) console.log("note: unauthenticated -- configure GITHUB_TOKEN for a much higher rate limit");
+	if (result.candidates.length === 0) {
+		console.log(`no repositories matched "${query}"`);
+		return;
+	}
+	for (const candidate of result.candidates) {
+		console.log(
+			`${candidate.owner}/${candidate.repo} (${candidate.stars}★${candidate.language ? `, ${candidate.language}` : ""}) -- ${candidate.description ?? "no description"}`,
+		);
+	}
+}
+
+async function runSearchNpmPackages(query: string | undefined, flags: string[]): Promise<void> {
+	if (!query) fail(USAGE);
+	const maxResults = Number(flagValue(flags, "--max-results") ?? "20");
+	const client = await connectLectorClient();
+	const { candidates } = await client.call("search.npmPackages", { query, maxResults });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify({ candidates }));
+		return;
+	}
+	if (candidates.length === 0) {
+		console.log(`no packages matched "${query}"`);
+		return;
+	}
+	for (const candidate of candidates) {
+		console.log(
+			`${candidate.name}@${candidate.version} (score ${candidate.score.toFixed(2)}) -- ${candidate.description ?? "no description"}${candidate.repositoryUrl ? ` -- ${candidate.repositoryUrl}` : ""}`,
+		);
+	}
+}
+
+async function runSearchSourcegraphCode(query: string | undefined, flags: string[]): Promise<void> {
+	if (!query) fail(USAGE);
+	const maxResults = Number(flagValue(flags, "--max-results") ?? "20");
+	const client = await connectLectorClient();
+	const { candidates } = await client.call("search.sourcegraphCode", { query, maxResults });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify({ candidates }));
+		return;
+	}
+	if (candidates.length === 0) {
+		console.log(`no code matches for "${query}"`);
+		return;
+	}
+	for (const candidate of candidates) {
+		console.log(
+			`${candidate.repository} -- ${candidate.path}${candidate.lineMatches.length > 0 ? ` (${candidate.lineMatches.length} matching lines)` : ""} -- ${candidate.url}`,
+		);
+	}
+}
+
 function parseSymbolEdgeKind(flags: string[]): "calls" | "references" | "contains" | undefined {
 	const raw = flagValue(flags, "--kind");
 	if (raw === undefined) return undefined;
@@ -1260,6 +1330,9 @@ async function main(): Promise<void> {
 		const [action, query, ...searchFlags] = rest;
 		if (action === "symbols") return runSearchSymbols(query, searchFlags);
 		if (action === "text") return runSearchText(query, searchFlags);
+		if (action === "github-repos") return runSearchGithubRepos(query, searchFlags);
+		if (action === "npm-packages") return runSearchNpmPackages(query, searchFlags);
+		if (action === "sourcegraph-code") return runSearchSourcegraphCode(query, searchFlags);
 		fail(USAGE);
 	}
 

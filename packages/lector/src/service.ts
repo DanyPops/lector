@@ -3,7 +3,9 @@ import { stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import picomatch from "picomatch";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
+import { GithubSearchClient } from "./adapters/github-search-client.ts";
 import { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
+import { InMemoryExternalSearchCache } from "./adapters/in-memory-external-search-cache.ts";
 import { InMemoryMutationHistory } from "./adapters/in-memory-mutation-history.ts";
 import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
 import { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
@@ -20,6 +22,7 @@ import { PolyglotCodeIntelligenceIndex } from "./adapters/polyglot-code-intellig
 import { ReadOnlyWorkspace } from "./adapters/read-only-workspace.ts";
 import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "./adapters/source-manifest.ts";
+import { SourcegraphSearchClient } from "./adapters/sourcegraph-search-client.ts";
 import { findImportSpecifiers } from "./adapters/tree-sitter/import-specifiers.ts";
 import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "./adapters/typescript-compiler-symbol-index.ts";
@@ -44,6 +47,7 @@ import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
 import type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
 import { documentSymbols as documentSymbolsQuery } from "./domain/document-symbols.ts";
 import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash } from "./domain/exact-edit.ts";
+import type { ExternalSearchBounds, GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "./domain/external-search-result.ts";
 import type { FileChangeEvent } from "./domain/file-change-event.ts";
 import { findFiles as findFilesQuery } from "./domain/find-files.ts";
 import type { FindFilesResult } from "./domain/find-files-result.ts";
@@ -93,12 +97,16 @@ import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts"
 import type { SymbolSearchResult, WorkspaceLocation } from "./domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 import type { ContentCachePort } from "./ports/content-cache-port.ts";
+import type { ExternalSearchCachePort } from "./ports/external-search-cache-port.ts";
 import type { FileWatcherPort } from "./ports/file-watcher-port.ts";
 import type { GitPort } from "./ports/git-port.ts";
+import type { GithubSearchPort } from "./ports/github-search-port.ts";
 import type { MutationHistoryPort } from "./ports/mutation-history-port.ts";
+import type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 import type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 import type { SearchCachePort } from "./ports/search-cache-port.ts";
+import type { SourcegraphSearchPort } from "./ports/sourcegraph-search-port.ts";
 import type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./ports/symbol-annotation-port.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
@@ -340,6 +348,9 @@ export type OperationName =
 	| "repo.listCache"
 	| "repo.evictCache"
 	| "package.resolveSource"
+	| "search.githubRepos"
+	| "search.npmPackages"
+	| "search.sourcegraphCode"
 	| "workspace.searchText"
 	| "workspace.findFiles"
 	| "workspace.watch"
@@ -393,6 +404,9 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"repo.listCache",
 	"repo.evictCache",
 	"package.resolveSource",
+	"search.githubRepos",
+	"search.npmPackages",
+	"search.sourcegraphCode",
 	"workspace.searchText",
 	"workspace.findFiles",
 	"workspace.watch",
@@ -456,6 +470,12 @@ export interface OperationInputs {
 	"repo.listCache": CachedRepositoryQuery & { maxResults: number; cursor?: string };
 	"repo.evictCache": RepoReference;
 	"package.resolveSource": { request: PackageSourceRequest; bounds: PackageSourceBounds };
+	/** Explicit-query search only, never open-ended discovery/trending -- results are shaped as direct repo.fetch inputs (host/owner/repo). */
+	"search.githubRepos": { query: string; maxResults: number };
+	/** Results are shaped as direct package.resolveSource inputs (name, plus the version already returned). */
+	"search.npmPackages": { query: string; maxResults: number };
+	/** Content search across public GitHub via sourcegraph.com -- a genuinely different discovery mode than the two above (which repos contain X, not which repos/packages match X by name/metadata). Each candidate's repository field feeds repo.fetch once split via splitSourcegraphRepository. */
+	"search.sourcegraphCode": { query: string; maxResults: number };
 	"workspace.searchText": { workspaceId: WorkspaceId; query: string; maxMatches: number; maxBytes: number };
 	/** `patterns` are OR'd together -- a file matching any one of them is included. */
 	"workspace.findFiles": { workspaceId: WorkspaceId; patterns: readonly string[]; maxResults: number; maxBytes: number };
@@ -543,6 +563,9 @@ export interface OperationOutputs {
 	"repo.listCache": CachedRepositoryPage;
 	"repo.evictCache": { evicted: boolean };
 	"package.resolveSource": PackageSourceOperationResult;
+	"search.githubRepos": GithubRepoSearchResult;
+	"search.npmPackages": { candidates: readonly NpmPackageCandidate[] };
+	"search.sourcegraphCode": { candidates: readonly SourcegraphCodeCandidate[] };
 	"workspace.searchText": TextSearchResult;
 	"workspace.findFiles": FindFilesResult;
 	"workspace.watch": { watchId: string; topic: string };
@@ -632,6 +655,14 @@ export interface LectorServiceOptions {
 	createRepoFetcher?: () => RepoFetcherPort;
 	/** Override package-source resolution. With a repo fetcher configured, the default composes npm lockfiles, registry metadata, and exact Git fetching. */
 	createPackageSourceResolver?: () => PackageSourceResolverPort;
+	/** Factory for the npm registry client backing both package.resolveSource's version lookups and search.npmPackages. Defaults to a real NpmRegistryClient. Called once at construction and reused -- tests inject a fixture-server-pointed instance instead of hitting the real registry. */
+	createNpmRegistry?: () => NpmRegistryPort;
+	/** Factory for the port backing search.githubRepos. Defaults to a real GithubSearchClient (GITHUB_TOKEN if configured, else GitHub's tighter unauthenticated rate limit). Called once at construction and reused. */
+	createGithubSearch?: () => GithubSearchPort;
+	/** Factory for the port backing search.sourcegraphCode. Defaults to a real SourcegraphSearchClient against public sourcegraph.com. Called once at construction and reused. */
+	createSourcegraphSearch?: () => SourcegraphSearchPort;
+	/** Factory for each external-search source's own short-TTL result cache. Defaults to a fresh InMemoryExternalSearchCache per source (github/npm/sourcegraph each get their own instance, never shared -- their result shapes differ). */
+	createExternalSearchCache?: <T extends object>() => ExternalSearchCachePort<T>;
 	/** Factory for the port backing workspace.searchText. Defaults to RipgrepTextSearch -- cheap to construct, no disk dependency, safe like createGitPort's default. Called once at construction and reused. */
 	createTextSearch?: () => TextSearchPort;
 	/** Factory for the port backing workspace.watch's real OS-level watching. Defaults to NodeFsFileWatcher. Called once per workspace, lazily, on its first active watch -- never for a workspace nobody has asked to watch. */
@@ -705,6 +736,16 @@ const DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS = 3000;
 const MAX_INITIAL_JOB_WAIT_MS = 30_000;
 const MAX_SYMBOL_RESULTS = 5_000;
 const MAX_SOURCE_MANIFEST_BYTES = 50 * 1024 * 1024;
+const MAX_EXTERNAL_SEARCH_RESULTS = 100;
+/** Fixed, not caller-configurable -- matches workspace.searchText's own precedent of exposing only the caller-relevant bound (maxResults/maxMatches) at the operation level and keeping transport-level bounds (timeout, response size, retries) as internal service policy. */
+const EXTERNAL_SEARCH_BOUNDS = { timeoutMs: 10_000, maxResponseBytes: 8 * 1024 * 1024, maxRetries: 2 } as const;
+
+function externalSearchBounds(maxResults: number): ExternalSearchBounds {
+	if (!Number.isSafeInteger(maxResults) || maxResults < 1 || maxResults > MAX_EXTERNAL_SEARCH_RESULTS) {
+		throw new TypeError(`maxResults must be a positive safe integer no greater than ${MAX_EXTERNAL_SEARCH_RESULTS}`);
+	}
+	return { maxResults, ...EXTERNAL_SEARCH_BOUNDS };
+}
 
 /**
  * Create the Lector service over an explicit initial registry of workspaces.
@@ -820,11 +861,16 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	// every time, wastefully, and would risk losing the in-memory LRU's recency ordering
 	// between calls for no benefit (the index itself is what makes rehydration correct at all).
 	const repoFetcher = options.createRepoFetcher?.();
+	const npmRegistry = options.createNpmRegistry?.() ?? new NpmRegistryClient();
 	const packageSourceResolver =
 		options.createPackageSourceResolver?.() ??
-		(repoFetcher
-			? new NpmPackageSourceResolver({ versions: new NpmLockfileVersionResolver(), registry: new NpmRegistryClient(), repositories: repoFetcher })
-			: undefined);
+		(repoFetcher ? new NpmPackageSourceResolver({ versions: new NpmLockfileVersionResolver(), registry: npmRegistry, repositories: repoFetcher }) : undefined);
+	const githubSearch = options.createGithubSearch?.() ?? new GithubSearchClient();
+	const sourcegraphSearch = options.createSourcegraphSearch?.() ?? new SourcegraphSearchClient();
+	const createExternalSearchCache = options.createExternalSearchCache ?? (<T extends object>() => new InMemoryExternalSearchCache<T>());
+	const githubSearchCache = createExternalSearchCache<GithubRepoSearchResult>();
+	const npmSearchCache = createExternalSearchCache<{ candidates: readonly NpmPackageCandidate[] }>();
+	const sourcegraphSearchCache = createExternalSearchCache<{ candidates: readonly SourcegraphCodeCandidate[] }>();
 	const textSearch = options.createTextSearch?.() ?? new RipgrepTextSearch();
 	const searchCache = options.createSearchCache?.() ?? new InMemorySearchCache();
 	const createFileWatcher = options.createFileWatcher ?? (() => new NodeFsFileWatcher());
@@ -981,6 +1027,47 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			registry.set(workspaceId, { port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)), rootPath: absolutePath, origin: "remote" });
 		}
 		return { outcome, workspaceId };
+	}
+
+	async function searchGithubReposHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["search.githubRepos"],
+	): Promise<OperationOutputs["search.githubRepos"]> {
+		const bounds = externalSearchBounds(input.maxResults);
+		const cacheKey = { source: "github-repos" as const, query: input.query, maxResults: input.maxResults };
+		const cached = await githubSearchCache.get(cacheKey);
+		if (cached) return cached;
+		const result = await githubSearch.searchRepos(input.query, bounds);
+		await githubSearchCache.set(cacheKey, result);
+		return result;
+	}
+
+	async function searchNpmPackagesHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["search.npmPackages"],
+	): Promise<OperationOutputs["search.npmPackages"]> {
+		const bounds = externalSearchBounds(input.maxResults);
+		const cacheKey = { source: "npm-packages" as const, query: input.query, maxResults: input.maxResults };
+		const cached = await npmSearchCache.get(cacheKey);
+		if (cached) return cached;
+		const candidates = await npmRegistry.search(input.query, bounds);
+		const result = { candidates };
+		await npmSearchCache.set(cacheKey, result);
+		return result;
+	}
+
+	async function searchSourcegraphCodeHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["search.sourcegraphCode"],
+	): Promise<OperationOutputs["search.sourcegraphCode"]> {
+		const bounds = externalSearchBounds(input.maxResults);
+		const cacheKey = { source: "sourcegraph-code" as const, query: input.query, maxResults: input.maxResults };
+		const cached = await sourcegraphSearchCache.get(cacheKey);
+		if (cached) return cached;
+		const candidates = await sourcegraphSearch.searchCode(input.query, bounds);
+		const result = { candidates };
+		await sourcegraphSearchCache.set(cacheKey, result);
+		return result;
 	}
 
 	async function searchTextHandler(
@@ -1933,6 +2020,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"repo.listCache": repoListCacheHandler,
 		"repo.evictCache": repoEvictCacheHandler,
 		"package.resolveSource": packageSourceHandler,
+		"search.githubRepos": searchGithubReposHandler,
+		"search.npmPackages": searchNpmPackagesHandler,
+		"search.sourcegraphCode": searchSourcegraphCodeHandler,
 		"workspace.searchText": searchTextHandler,
 		"workspace.findFiles": findFilesHandler,
 		"workspace.watch": watchHandler,

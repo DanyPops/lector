@@ -11,6 +11,7 @@ import { NpmPackageSourceResolver } from "../../src/adapters/npm-package-source-
 import { NpmRegistryClient } from "../../src/adapters/npm-registry-client.ts";
 import { RipgrepTextSearch } from "../../src/adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "../../src/adapters/source-manifest.ts";
+import type { NpmPackageCandidate } from "../../src/domain/external-search-result.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../src/domain/language-server-descriptor.ts";
 import type { NpmPackageVersionMetadata } from "../../src/domain/npm-package-metadata.ts";
 import { DEFAULT_PACKAGE_SOURCE_BOUNDS } from "../../src/domain/package-source.ts";
@@ -51,6 +52,9 @@ class FixedRegistry implements NpmRegistryPort {
 	constructor(private readonly metadata: NpmPackageVersionMetadata) {}
 	fetchVersion(): Promise<NpmPackageVersionMetadata> {
 		return Promise.resolve(this.metadata);
+	}
+	search(): Promise<readonly NpmPackageCandidate[]> {
+		return Promise.resolve([]);
 	}
 }
 

@@ -1,6 +1,16 @@
 export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 export { GitRepoFetcher, type GitRepoFetcherOptions } from "./adapters/git-repo-fetcher.ts";
+export {
+	DEFAULT_GITHUB_API_BASE_URL,
+	GithubSearchClient,
+	type GithubSearchClientOptions,
+	GithubSearchRateLimited,
+	GithubSearchRequestFailed,
+	GithubSearchResponseLimitExceeded,
+	InvalidGithubSearchRequest,
+} from "./adapters/github-search-client.ts";
 export { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
+export { InMemoryExternalSearchCache, type InMemoryExternalSearchCacheOptions } from "./adapters/in-memory-external-search-cache.ts";
 export { InMemorySearchCache, type InMemorySearchCacheOptions } from "./adapters/in-memory-search-cache.ts";
 export { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
 export { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
@@ -32,6 +42,14 @@ export { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "./adapte
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
 export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
+export {
+	DEFAULT_SOURCEGRAPH_BASE_URL,
+	InvalidSourcegraphSearchRequest,
+	SourcegraphSearchClient,
+	type SourcegraphSearchClientOptions,
+	SourcegraphSearchRequestFailed,
+	SourcegraphSearchResponseLimitExceeded,
+} from "./adapters/sourcegraph-search-client.ts";
 export { SqliteContentCache } from "./adapters/sqlite-content-cache.ts";
 export { SqliteSearchCache, type SqliteSearchCacheOptions } from "./adapters/sqlite-search-cache.ts";
 export { SqliteSymbolAnnotations } from "./adapters/sqlite-symbol-annotations.ts";
@@ -85,6 +103,16 @@ export {
 	exactEdit,
 	StaleExpectedHash,
 } from "./domain/exact-edit.ts";
+export { deriveExternalSearchCacheKey, type ExternalSearchCacheKey, type ExternalSearchSource } from "./domain/external-search-cache-key.ts";
+export type {
+	ExternalSearchBounds,
+	GithubRepoCandidate,
+	GithubRepoSearchResult,
+	NpmPackageCandidate,
+	SourcegraphCodeCandidate,
+	SourcegraphLineMatch,
+} from "./domain/external-search-result.ts";
+export { splitSourcegraphRepository } from "./domain/external-search-result.ts";
 export type { FileChangeEvent } from "./domain/file-change-event.ts";
 export { findFiles } from "./domain/find-files.ts";
 export type { FindFilesResult } from "./domain/find-files-result.ts";
@@ -210,14 +238,17 @@ export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/works
 export type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
+export type { ExternalSearchCachePort } from "./ports/external-search-cache-port.ts";
 export type { FileWatcherPort } from "./ports/file-watcher-port.ts";
 export type { GitPort } from "./ports/git-port.ts";
+export type { GithubSearchPort } from "./ports/github-search-port.ts";
 export type { InstalledPackageVersionResolverPort } from "./ports/installed-package-version-resolver-port.ts";
 export type { MutationHistoryPort, RecordMutationInput } from "./ports/mutation-history-port.ts";
 export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 export type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 export type { SearchCachePort } from "./ports/search-cache-port.ts";
+export type { SourcegraphSearchPort } from "./ports/sourcegraph-search-port.ts";
 export type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./ports/symbol-annotation-port.ts";
 export type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";

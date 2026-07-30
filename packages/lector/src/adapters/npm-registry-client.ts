@@ -1,4 +1,5 @@
 import fetchBuilder, { type RequestInitWithRetry } from "fetch-retry";
+import type { ExternalSearchBounds, NpmPackageCandidate } from "../domain/external-search-result.ts";
 import type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "../domain/npm-package-metadata.ts";
 import type { NpmRegistryPort } from "../ports/npm-registry-port.ts";
 
@@ -7,6 +8,7 @@ const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_REDIRECTS = 20;
 const MAX_RETRIES = 10;
 const MAX_TIMEOUT_MS = 5 * 60 * 1000;
+const MAX_SEARCH_RESULTS = 250;
 
 const rawRetryingFetch = fetchBuilder(globalThis.fetch);
 type RetryingFetchOptions = RequestInitWithRetry<typeof globalThis.fetch>;
@@ -71,6 +73,8 @@ export class NpmRegistryRequestFailed extends Error {
 
 export interface NpmRegistryClientOptions {
 	readonly token?: () => string | undefined;
+	/** Overrides the base URL search() hits -- only npmjs.org's own registry serves "-/v1/search" today; tests point this at a local fixture server instead of the real registry. */
+	readonly searchRegistry?: string;
 }
 
 type RegistryFetchOptions = RetryingFetchOptions & {
@@ -150,6 +154,39 @@ function safeRedirectUrl(raw: string, current: URL): URL {
 	return target;
 }
 
+function numberField(record: Record<string, unknown>, key: string): number | null {
+	const value = record[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function searchCandidate(value: unknown): NpmPackageCandidate | null {
+	if (!isRecord(value)) return null;
+	const pkg = value.package;
+	if (!isRecord(pkg)) return null;
+	const name = textField(pkg, "name");
+	const version = textField(pkg, "version");
+	if (name === null || version === null) return null;
+	const links = isRecord(pkg.links) ? pkg.links : null;
+	const score = isRecord(value.score) ? numberField(value.score, "final") : null;
+	return {
+		name,
+		version,
+		description: textField(pkg, "description"),
+		repositoryUrl: links === null ? null : textField(links, "repository"),
+		score: score ?? 0,
+	};
+}
+
+function searchCandidates(value: unknown): readonly NpmPackageCandidate[] {
+	if (!isRecord(value) || !Array.isArray(value.objects)) throw new NpmRegistryRequestFailed("invalid-response");
+	const candidates: NpmPackageCandidate[] = [];
+	for (const entry of value.objects) {
+		const candidate = searchCandidate(entry);
+		if (candidate) candidates.push(candidate);
+	}
+	return candidates;
+}
+
 function repositoryMetadata(value: unknown): NpmRepositoryMetadata | null {
 	if (typeof value === "string" && value.length > 0) return { type: null, url: value, directory: null };
 	if (!isRecord(value)) return null;
@@ -212,9 +249,11 @@ async function boundedJson(response: Response, budget: { used: number }, limit: 
 
 export class NpmRegistryClient implements NpmRegistryPort {
 	private readonly token: () => string | undefined;
+	private readonly searchRegistry: string;
 
 	constructor(options: NpmRegistryClientOptions = {}) {
 		this.token = options.token ?? (() => process.env.NPM_TOKEN);
+		this.searchRegistry = options.searchRegistry ?? DEFAULT_NPM_REGISTRY;
 	}
 
 	private async fetchFollowingRedirects(url: string, options: RegistryFetchOptions, bounds: NpmRegistryBounds, deadline: number): Promise<Response> {
@@ -234,6 +273,49 @@ export class NpmRegistryClient implements NpmRegistryPort {
 				delete headers.authorization;
 			}
 			current = target;
+		}
+	}
+
+	async search(query: string, bounds: ExternalSearchBounds): Promise<readonly NpmPackageCandidate[]> {
+		validateText(query, "query", 256);
+		validateBound(bounds.maxResults, "maxResults", MAX_SEARCH_RESULTS);
+		validateBound(bounds.maxResponseBytes, "maxResponseBytes", MAX_RESPONSE_BYTES);
+		validateBound(bounds.maxRetries, "maxRetries", MAX_RETRIES, true);
+		validateBound(bounds.timeoutMs, "timeoutMs", MAX_TIMEOUT_MS);
+		const registry = registryUrl(this.searchRegistry);
+		const url = new URL(`${registry.toString().replace(/\/?$/, "/")}-/v1/search`);
+		url.searchParams.set("text", query);
+		url.searchParams.set("size", String(bounds.maxResults));
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), bounds.timeoutMs);
+		const options: RegistryFetchOptions = {
+			headers: { accept: "application/json" },
+			retries: bounds.maxRetries,
+			retryDelay: (attempt) => Math.min(10 * 2 ** attempt, 100),
+			retryOn: async (attempt, error, response) => {
+				if (controller.signal.aborted || attempt >= bounds.maxRetries) return false;
+				const retryable = error !== null || (response !== null && (response.status === 408 || response.status === 429 || response.status >= 500));
+				if (retryable && response !== null) await discard(response);
+				return retryable;
+			},
+			signal: controller.signal,
+		};
+		const budget = { used: 0 };
+		try {
+			const response = await retryingFetch(url, options);
+			if (response.status < 200 || response.status >= 300) {
+				await discard(response);
+				throw new NpmRegistryRequestFailed("request-failed");
+			}
+			return searchCandidates(await boundedJson(response, budget, bounds.maxResponseBytes));
+		} catch (error) {
+			if (error instanceof InvalidNpmRegistryRequest || error instanceof NpmRegistryResponseLimitExceeded || error instanceof NpmRegistryRequestFailed) {
+				throw error;
+			}
+			if (controller.signal.aborted) throw new NpmRegistryRequestFailed("timeout");
+			throw new NpmRegistryRequestFailed("request-failed");
+		} finally {
+			clearTimeout(timer);
 		}
 	}
 

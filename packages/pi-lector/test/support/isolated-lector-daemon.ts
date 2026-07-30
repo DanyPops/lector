@@ -3,11 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	connectLectorClientAt,
+	type GithubSearchPort,
 	InMemoryWorkspace,
 	type LectorClient,
+	type NpmRegistryPort,
 	type PackageSourceResolverPort,
 	type RepoFetcherPort,
 	resolveLectorPaths,
+	type SourcegraphSearchPort,
 	startLectorDaemon,
 } from "@danypops/lector";
 
@@ -21,7 +24,13 @@ import {
  * would come with a second, independently-resolved copy of it).
  */
 export async function startIsolatedLectorDaemon(
-	options: { createRepoFetcher?: () => RepoFetcherPort; createPackageSourceResolver?: () => PackageSourceResolverPort } = {},
+	options: {
+		createRepoFetcher?: () => RepoFetcherPort;
+		createPackageSourceResolver?: () => PackageSourceResolverPort;
+		createNpmRegistry?: () => NpmRegistryPort;
+		createGithubSearch?: () => GithubSearchPort;
+		createSourcegraphSearch?: () => SourcegraphSearchPort;
+	} = {},
 ): Promise<{ client: LectorClient; stop: () => Promise<void> }> {
 	const root = mkdtempSync(join(tmpdir(), "pi-lector-test-"));
 	const paths = resolveLectorPaths({
@@ -32,6 +41,9 @@ export async function startIsolatedLectorDaemon(
 		paths,
 		createRepoFetcher: options.createRepoFetcher,
 		createPackageSourceResolver: options.createPackageSourceResolver,
+		createNpmRegistry: options.createNpmRegistry,
+		createGithubSearch: options.createGithubSearch,
+		createSourcegraphSearch: options.createSourcegraphSearch,
 	});
 	const token = readFileSync(paths.token, "utf8").trim();
 	const client = connectLectorClientAt(`http://${daemon.host}:${daemon.port}`, token);

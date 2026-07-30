@@ -10,8 +10,11 @@ import { SqliteSearchCache } from "./adapters/sqlite-search-cache.ts";
 import { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 import { TieredSearchCache } from "./adapters/tiered-search-cache.ts";
 import { resolveLectorPaths } from "./constants.ts";
+import type { GithubSearchPort } from "./ports/github-search-port.ts";
+import type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 import type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
+import type { SourcegraphSearchPort } from "./ports/sourcegraph-search-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import { createLectorService, type LectorService, type OperationName, type WorkspaceId } from "./service.ts";
 import { lectorVersion } from "./version.ts";
@@ -95,6 +98,12 @@ export interface LectorDaemonOptions {
 	createRepoFetcher?: () => RepoFetcherPort;
 	/** Override package source resolution while retaining the authenticated daemon/client seam. */
 	createPackageSourceResolver?: () => PackageSourceResolverPort;
+	/** Override the npm registry client backing package.resolveSource and search.npmPackages (tests inject a fixture-server-pointed instance, avoiding the real registry). */
+	createNpmRegistry?: () => NpmRegistryPort;
+	/** Override the search.githubRepos backend (tests inject a fake, avoiding live network and GitHub's rate limit). */
+	createGithubSearch?: () => GithubSearchPort;
+	/** Override the search.sourcegraphCode backend (tests inject a fake, avoiding live network). */
+	createSourcegraphSearch?: () => SourcegraphSearchPort;
 }
 
 function prepare(options: LectorDaemonOptions): {
@@ -128,6 +137,9 @@ function prepare(options: LectorDaemonOptions): {
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
 		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),
 		createPackageSourceResolver: options.createPackageSourceResolver,
+		createNpmRegistry: options.createNpmRegistry,
+		createGithubSearch: options.createGithubSearch,
+		createSourcegraphSearch: options.createSourcegraphSearch,
 		// The real production shape the SearchCachePort design was for: an in-memory tier for
 		// speed plus a disk-backed tier so repeated searches survive a daemon restart -- a single
 		// SearchCachePort adapter can only be one or the other, service.ts's own safe default is
