@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { type Migration, openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
+import { type Migration, openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import { deriveSearchCacheKey, type SearchCacheKey } from "../domain/search-cache-key.ts";
 import type { TextSearchResult } from "../domain/text-search-result.ts";
 import type { SearchCachePort } from "../ports/search-cache-port.ts";

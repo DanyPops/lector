@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { type Migration, openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
+import { type Migration, openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
 import type { PopulateSymbolGraphResult, SymbolGraphPopulationFailure } from "../domain/populate-symbol-graph.ts";
 import type { SymbolGraphGeneration } from "../domain/symbol-graph-generation.ts";

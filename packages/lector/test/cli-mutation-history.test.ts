@@ -1,7 +1,7 @@
 /** End-to-end CLI parity for `lector workspace mutation-history`/`revert-mutation`, against a real spawned daemon. */
 import { afterEach, describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import type { RunningDaemon } from "@danypops/daemon-kit/daemon";
+import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
 import { contentHashOf } from "../src/domain/content-hash.ts";

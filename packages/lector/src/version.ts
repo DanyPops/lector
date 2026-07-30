@@ -1,4 +1,4 @@
-import { readPackageVersion } from "@danypops/daemon-kit/version";
+import { readPackageVersion } from "@danypops/vehicle-server/version";
 import { DAEMON_LABEL } from "./constants.ts";
 
 export function lectorVersion(): string {

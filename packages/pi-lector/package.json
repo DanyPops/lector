@@ -18,7 +18,7 @@
 		"typebox": "*"
 	},
 	"dependencies": {
-		"@danypops/daemon-kit": "^0.22.1",
+		"@danypops/vehicle-client": "^0.1.1",
 		"@danypops/lector": "^0.8.0"
 	},
 	"devDependencies": {

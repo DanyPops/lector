@@ -6,7 +6,7 @@
  * or a misconfigured client rather than the actual root cause.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { readDaemonHandle } from "@danypops/daemon-kit/paths";
+import { readDaemonHandle } from "@danypops/vehicle-server/paths";
 import { startLectorDaemon } from "../src/daemon.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 

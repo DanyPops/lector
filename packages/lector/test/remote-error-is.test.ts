@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
-import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
+import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { remoteErrorIs } from "../src/client.ts";
 import { startLectorDaemon } from "../src/daemon.ts";

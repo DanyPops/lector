@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { type DaemonPaths, readDaemonHandle } from "@danypops/daemon-kit/paths";
-import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
+import { type DaemonPaths, readDaemonHandle } from "@danypops/vehicle-server/paths";
+import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { resolveLectorPaths } from "./constants.ts";
 import type { OperationInputs, OperationName, OperationOutputs } from "./service.ts";
 
@@ -47,7 +47,7 @@ export async function connectLectorClient(options: ConnectLectorClientOptions = 
  * RunningDaemon and its token in hand. Ensures every consumer of Lector's
  * client gets the exact same AuthenticatedRpcClient class instance Lector
  * itself depends on -- a second, independently-resolved copy of
- * @danypops/daemon-kit in a consumer's own node_modules would otherwise be a
+ * @danypops/vehicle-client in a consumer's own node_modules would otherwise be a
  * structurally distinct (if identical-looking) type.
  */
 export function connectLectorClientAt(baseUrl: string, token: string): LectorClient {

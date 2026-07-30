@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
+import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { startLectorDaemon } from "../src/daemon.ts";
 import type { OperationInputs, OperationName, OperationOutputs } from "../src/service.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";

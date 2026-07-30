@@ -19,7 +19,7 @@ import {
  * pi-lector's tests -- the same "test through the real seams" approach
  * Lector's own test suite uses, not a mocked client. Uses
  * connectLectorClientAt() rather than constructing AuthenticatedRpcClient
- * directly, so pi-lector never needs its own @danypops/daemon-kit
+ * directly, so pi-lector never needs its own @danypops/vehicle-server
  * dependency (and the version-skew/structural-type-mismatch risk that
  * would come with a second, independently-resolved copy of it).
  */

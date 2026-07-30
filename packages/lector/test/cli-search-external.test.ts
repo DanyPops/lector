@@ -5,7 +5,7 @@
  * test/adapters/npm-registry-client.test.ts's own search() tests.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import type { RunningDaemon } from "@danypops/daemon-kit/daemon";
+import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
 import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../src/domain/external-search-result.ts";

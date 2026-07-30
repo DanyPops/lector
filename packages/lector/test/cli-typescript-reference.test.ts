@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { RunningDaemon } from "@danypops/daemon-kit/daemon";
+import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { startLectorDaemon } from "../src/daemon.ts";
 import type { SymbolSearchResult } from "../src/domain/workspace-symbol.ts";
 import { findPositionOf } from "./support/find-position.ts";
