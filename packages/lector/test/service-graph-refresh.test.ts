@@ -6,8 +6,15 @@
  * notifyFileChanged. Uses an injected fake CodeIntelligencePort (not a real LSP subprocess:
  * that plumbing is already proven end to end in test/adapters/lsp/notify-file-changed.test.ts
  * and test/adapters/lsp/lsp-symbol-index.test.ts) so runs are fast and deterministic.
+ *
+ * The automatic watcher requires a real git repository (confirmed live: a non-git, broad, or
+ * ambiguous root must never get an automatic OS-level recursive watcher armed against it) --
+ * every fixture here is a real git repo for that reason. See
+ * service-graph-refresh-git-required.test.ts for the mock/monoglot/polyglot proof that a
+ * non-git workspace is correctly excluded.
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -72,10 +79,19 @@ afterEach(async () => {
 	root = undefined;
 });
 
+function git(cwd: string, ...args: string[]): void {
+	execFileSync("git", args, { cwd });
+}
+
 function buildFixture(): string {
 	const dir = mkdtempSync(join(tmpdir(), "lector-graph-refresh-"));
 	writeFileSync(join(dir, "a.ts"), "export const a = 1;\n");
 	writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler" }, include: ["."] }));
+	git(dir, "init", "-q");
+	git(dir, "config", "user.email", "t@t.com");
+	git(dir, "config", "user.name", "t");
+	git(dir, "add", ".");
+	git(dir, "commit", "-q", "-m", "initial commit");
 	return dir;
 }
 
@@ -125,6 +141,25 @@ describe("createLectorService's automatic graph-freshness watching", () => {
 		// double the per-run file count, which is what this bounds against without hardcoding
 		// the exact file count.
 		expect(runsTriggered).toBeLessThanOrEqual(6); // one run over up to 6 files (a.ts + 5 burst files)
+	});
+
+	it("never re-populates for a change directly under .git -- git's own internal bookkeeping is not source code", async () => {
+		root = buildFixture();
+		const stub = stubIndex();
+		service = createLectorService(new Map(), { allowDynamicOnly: true, createSymbolIndex: () => stub.index, graphRefreshDebounceMs: 30 });
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
+		await service.dispatch("workspace.populateSymbolGraph", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 });
+		const before = stub.documentSymbolsCalls;
+
+		// A direct, deterministic write under .git/ -- not a real `git` subprocess call, whose own
+		// internal write timing is an unreliable thing to assert a unit test against.
+		writeFileSync(join(root, ".git", "fake-internal-write"), "noise");
+		await new Promise((resolve) => setTimeout(resolve, 150)); // well past the 30ms debounce window
+		expect(stub.documentSymbolsCalls).toBe(before);
+
+		// The exclusion is scoped to .git specifically -- a real source change right after still refreshes.
+		writeFileSync(join(root, "f.ts"), "export const f = 6;\n");
+		await waitFor(() => stub.documentSymbolsCalls > before);
 	});
 
 	it("never auto-populates a workspace that has only been watched, never populated", async () => {

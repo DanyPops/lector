@@ -1104,7 +1104,14 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			if (entry.workspaceId !== workspaceId) continue;
 			if (supportsCodeIntelligence(entry.index)) entry.index.notifyFileChanged?.(event);
 		}
-		if (graphWatchedWorkspaces.has(workspaceId)) {
+		// git's own internal bookkeeping (index, refs, packed-refs, objects, logs, ...) writes real
+		// files under .git/ on every status check/commit -- none of it is source code, and the
+		// automatic graph watcher requiring a real git repository (see populateSymbolGraphHandler)
+		// means this noise is now guaranteed to exist for every graph-watched workspace, not a rare
+		// case. Explicit workspace.watch/notifyFileChanged keep seeing it -- only the graph-refresh
+		// trigger, which never has a legitimate reason to react to .git's own internals, excludes it.
+		const isGitInternal = event.path === ".git" || event.path.startsWith(".git/");
+		if (!isGitInternal && graphWatchedWorkspaces.has(workspaceId)) {
 			graphRefreshDebouncer.schedule(workspaceId, () => {
 				void scheduleGraphRefresh(workspaceId);
 			});
@@ -1528,8 +1535,21 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		});
 		// A workspace that has been populated at least once stays graph-watched for the rest of
 		// the daemon's uptime -- the whole point of "keeps the symbol graph warm on disk changes".
-		graphWatchedWorkspaces.add(input.workspaceId);
-		ensureOsWatcher(input.workspaceId, rootPath);
+		// Gated on being a real git repository: a raw, non-git directory (workspaceForPath's own
+		// intentional fs-root/scratch-file fallback, or any other broad/ambiguous root) must never
+		// get an automatic, unbounded OS-level recursive watcher armed against it -- confirmed live
+		// as a real resource-exhaustion/runaway-process incident. populateSymbolGraph itself still
+		// honors an explicit, one-off request against any workspace; only the *automatic* rearm on
+		// every future file change requires git. A remote-origin workspace is always git-backed (it
+		// was cloned by GitRepoFetcher) -- skipping the redundant real `git` subprocess check for it
+		// avoids adding latency to the exact refetch-then-repopulate window where a freshly-swapped
+		// checkout's warm LSP process is most timing-sensitive (a real regression this caused,
+		// caught live: an added git subprocess call there destabilized a warm tsserver's project
+		// state into "No Project" under load).
+		if (entry.origin === "remote" || (await createGitPort(rootPath).isGitRepository())) {
+			graphWatchedWorkspaces.add(input.workspaceId);
+			ensureOsWatcher(input.workspaceId, rootPath);
+		}
 		return result;
 	}
 
