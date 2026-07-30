@@ -112,7 +112,7 @@ export type {
 	SourcegraphCodeCandidate,
 	SourcegraphLineMatch,
 } from "./domain/external-search-result.ts";
-export { splitSourcegraphRepository } from "./domain/external-search-result.ts";
+export { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS, splitSourcegraphRepository } from "./domain/external-search-result.ts";
 export type { FileChangeEvent } from "./domain/file-change-event.ts";
 export { findFiles } from "./domain/find-files.ts";
 export type { FindFilesResult } from "./domain/find-files-result.ts";

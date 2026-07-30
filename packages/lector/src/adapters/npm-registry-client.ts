@@ -2,6 +2,7 @@ import fetchBuilder, { type RequestInitWithRetry } from "fetch-retry";
 import type { ExternalSearchBounds, NpmPackageCandidate } from "../domain/external-search-result.ts";
 import type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "../domain/npm-package-metadata.ts";
 import type { NpmRegistryPort } from "../ports/npm-registry-port.ts";
+import { BoundedResponseTooLarge, discardResponseBody, isJsonRecord, MalformedBoundedResponse, readBoundedJson } from "./bounded-response-reader.ts";
 
 export const DEFAULT_NPM_REGISTRY = "https://registry.npmjs.org";
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
@@ -81,10 +82,6 @@ type RegistryFetchOptions = RetryingFetchOptions & {
 	readonly headers: Readonly<Record<string, string>>;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function textField(record: Record<string, unknown>, key: string): string | null {
 	const value = record[key];
 	return typeof value === "string" && value.length > 0 ? value : null;
@@ -160,14 +157,14 @@ function numberField(record: Record<string, unknown>, key: string): number | nul
 }
 
 function searchCandidate(value: unknown): NpmPackageCandidate | null {
-	if (!isRecord(value)) return null;
+	if (!isJsonRecord(value)) return null;
 	const pkg = value.package;
-	if (!isRecord(pkg)) return null;
+	if (!isJsonRecord(pkg)) return null;
 	const name = textField(pkg, "name");
 	const version = textField(pkg, "version");
 	if (name === null || version === null) return null;
-	const links = isRecord(pkg.links) ? pkg.links : null;
-	const score = isRecord(value.score) ? numberField(value.score, "final") : null;
+	const links = isJsonRecord(pkg.links) ? pkg.links : null;
+	const score = isJsonRecord(value.score) ? numberField(value.score, "final") : null;
 	return {
 		name,
 		version,
@@ -178,7 +175,7 @@ function searchCandidate(value: unknown): NpmPackageCandidate | null {
 }
 
 function searchCandidates(value: unknown): readonly NpmPackageCandidate[] {
-	if (!isRecord(value) || !Array.isArray(value.objects)) throw new NpmRegistryRequestFailed("invalid-response");
+	if (!isJsonRecord(value) || !Array.isArray(value.objects)) throw new NpmRegistryRequestFailed("invalid-response");
 	const candidates: NpmPackageCandidate[] = [];
 	for (const entry of value.objects) {
 		const candidate = searchCandidate(entry);
@@ -189,18 +186,18 @@ function searchCandidates(value: unknown): readonly NpmPackageCandidate[] {
 
 function repositoryMetadata(value: unknown): NpmRepositoryMetadata | null {
 	if (typeof value === "string" && value.length > 0) return { type: null, url: value, directory: null };
-	if (!isRecord(value)) return null;
+	if (!isJsonRecord(value)) return null;
 	const url = textField(value, "url");
 	if (url === null) return null;
 	return { type: textField(value, "type"), url, directory: textField(value, "directory") };
 }
 
 function packageMetadata(value: unknown): NpmPackageVersionMetadata {
-	if (!isRecord(value)) throw new NpmRegistryRequestFailed("invalid-response");
+	if (!isJsonRecord(value)) throw new NpmRegistryRequestFailed("invalid-response");
 	const name = textField(value, "name");
 	const version = textField(value, "version");
 	if (name === null || version === null) throw new NpmRegistryRequestFailed("invalid-response");
-	const dist = isRecord(value.dist) ? value.dist : null;
+	const dist = isJsonRecord(value.dist) ? value.dist : null;
 	return {
 		name,
 		version,
@@ -210,40 +207,14 @@ function packageMetadata(value: unknown): NpmPackageVersionMetadata {
 	};
 }
 
-async function discard(response: Response): Promise<void> {
-	await response.body?.cancel().catch(() => undefined);
-}
-
+/** Translates the shared bounded-reader's generic errors into this adapter's own public error contract, preserving its existing NpmRegistryResponseLimitExceeded/NpmRegistryRequestFailed shape unchanged. */
 async function boundedJson(response: Response, budget: { used: number }, limit: number): Promise<unknown> {
-	const declaredLength = Number(response.headers.get("content-length"));
-	if (Number.isFinite(declaredLength) && declaredLength > limit - budget.used) {
-		await discard(response);
-		throw new NpmRegistryResponseLimitExceeded(limit, budget.used + declaredLength);
-	}
-	const chunks: Buffer[] = [];
-	const body: ReadableStream<Uint8Array> | null = response.body;
-	if (body === null) throw new NpmRegistryRequestFailed("invalid-response");
-	const reader = body.getReader();
-	let finished = false;
-	while (!finished) {
-		const read: unknown = await reader.read();
-		if (!isRecord(read) || typeof read.done !== "boolean") throw new NpmRegistryRequestFailed("invalid-response");
-		if (read.done) {
-			finished = true;
-			continue;
-		}
-		if (!(read.value instanceof Uint8Array)) throw new NpmRegistryRequestFailed("invalid-response");
-		budget.used += read.value.byteLength;
-		if (budget.used > limit) {
-			await reader.cancel();
-			throw new NpmRegistryResponseLimitExceeded(limit, budget.used);
-		}
-		chunks.push(Buffer.from(read.value));
-	}
 	try {
-		return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-	} catch {
-		throw new NpmRegistryRequestFailed("invalid-response");
+		return await readBoundedJson(response, limit, budget);
+	} catch (error) {
+		if (error instanceof BoundedResponseTooLarge) throw new NpmRegistryResponseLimitExceeded(error.limit, error.observed);
+		if (error instanceof MalformedBoundedResponse) throw new NpmRegistryRequestFailed("invalid-response");
+		throw error;
 	}
 }
 
@@ -263,7 +234,7 @@ export class NpmRegistryClient implements NpmRegistryPort {
 			if (Date.now() >= deadline) throw new NpmRegistryRequestFailed("timeout");
 			const response = await retryingFetch(current, { ...options, headers, redirect: "manual" });
 			if (!isRedirect(response.status)) return response;
-			await discard(response);
+			await discardResponseBody(response);
 			if (redirects >= bounds.maxRedirects) throw new NpmRegistryRequestFailed("request-failed");
 			const location = response.headers.get("location");
 			if (location === null) throw new NpmRegistryRequestFailed("invalid-response");
@@ -295,7 +266,7 @@ export class NpmRegistryClient implements NpmRegistryPort {
 			retryOn: async (attempt, error, response) => {
 				if (controller.signal.aborted || attempt >= bounds.maxRetries) return false;
 				const retryable = error !== null || (response !== null && (response.status === 408 || response.status === 429 || response.status >= 500));
-				if (retryable && response !== null) await discard(response);
+				if (retryable && response !== null) await discardResponseBody(response);
 				return retryable;
 			},
 			signal: controller.signal,
@@ -304,7 +275,7 @@ export class NpmRegistryClient implements NpmRegistryPort {
 		try {
 			const response = await retryingFetch(url, options);
 			if (response.status < 200 || response.status >= 300) {
-				await discard(response);
+				await discardResponseBody(response);
 				throw new NpmRegistryRequestFailed("request-failed");
 			}
 			return searchCandidates(await boundedJson(response, budget, bounds.maxResponseBytes));
@@ -339,7 +310,7 @@ export class NpmRegistryClient implements NpmRegistryPort {
 			retryOn: async (attempt, error, response) => {
 				if (controller.signal.aborted || attempt >= bounds.maxRetries) return false;
 				const retryable = error !== null || (response !== null && (response.status === 408 || response.status === 429 || response.status >= 500));
-				if (retryable && response !== null) await discard(response);
+				if (retryable && response !== null) await discardResponseBody(response);
 				return retryable;
 			},
 			signal: controller.signal,
@@ -349,20 +320,20 @@ export class NpmRegistryClient implements NpmRegistryPort {
 		try {
 			const response = await this.fetchFollowingRedirects(requestUrl(registry, request.name, request.version), options, bounds, deadline);
 			if (response.status === 401 || response.status === 403) {
-				await discard(response);
+				await discardResponseBody(response);
 				throw new NpmRegistryAuthenticationRequired();
 			}
 			if (response.status === 404) {
-				await discard(response);
+				await discardResponseBody(response);
 				const packageResponse = await this.fetchFollowingRedirects(requestUrl(registry, request.name), options, bounds, deadline);
-				await discard(packageResponse);
+				await discardResponseBody(packageResponse);
 				if (packageResponse.status === 401 || packageResponse.status === 403) throw new NpmRegistryAuthenticationRequired();
 				if (packageResponse.status === 404) throw new NpmPackageNotFound();
 				if (packageResponse.status >= 200 && packageResponse.status < 300) throw new NpmVersionNotFound();
 				throw new NpmRegistryRequestFailed("request-failed");
 			}
 			if (response.status < 200 || response.status >= 300) {
-				await discard(response);
+				await discardResponseBody(response);
 				throw new NpmRegistryRequestFailed("request-failed");
 			}
 			return packageMetadata(await boundedJson(response, budget, bounds.maxResponseBytes));

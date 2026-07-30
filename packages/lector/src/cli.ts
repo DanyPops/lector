@@ -11,6 +11,7 @@ import { LECTOR_PATH_NAMES } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
 import type { JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { ContentHash } from "./domain/content-hash.ts";
+import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS } from "./domain/external-search-result.ts";
 import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOperationResult } from "./domain/package-source.ts";
 import type { PopulateSymbolGraphResult } from "./domain/populate-symbol-graph.ts";
 import type { ResponseFormat } from "./domain/response-format.ts";
@@ -863,7 +864,7 @@ async function runSearchText(query: string | undefined, flags: string[]): Promis
 
 async function runSearchGithubRepos(query: string | undefined, flags: string[]): Promise<void> {
 	if (!query) fail(USAGE);
-	const maxResults = Number(flagValue(flags, "--max-results") ?? "20");
+	const maxResults = Number(flagValue(flags, "--max-results") ?? String(DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS));
 	const client = await connectLectorClient();
 	const result = await client.call("search.githubRepos", { query, maxResults });
 	if (hasFlag(flags, "--json")) {
@@ -884,7 +885,7 @@ async function runSearchGithubRepos(query: string | undefined, flags: string[]):
 
 async function runSearchNpmPackages(query: string | undefined, flags: string[]): Promise<void> {
 	if (!query) fail(USAGE);
-	const maxResults = Number(flagValue(flags, "--max-results") ?? "20");
+	const maxResults = Number(flagValue(flags, "--max-results") ?? String(DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS));
 	const client = await connectLectorClient();
 	const { candidates } = await client.call("search.npmPackages", { query, maxResults });
 	if (hasFlag(flags, "--json")) {
@@ -904,7 +905,7 @@ async function runSearchNpmPackages(query: string | undefined, flags: string[]):
 
 async function runSearchSourcegraphCode(query: string | undefined, flags: string[]): Promise<void> {
 	if (!query) fail(USAGE);
-	const maxResults = Number(flagValue(flags, "--max-results") ?? "20");
+	const maxResults = Number(flagValue(flags, "--max-results") ?? String(DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS));
 	const client = await connectLectorClient();
 	const { candidates } = await client.call("search.sourcegraphCode", { query, maxResults });
 	if (hasFlag(flags, "--json")) {

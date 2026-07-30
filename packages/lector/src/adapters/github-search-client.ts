@@ -1,6 +1,7 @@
 import fetchBuilder, { type RequestInitWithRetry } from "fetch-retry";
 import type { ExternalSearchBounds, GithubRepoCandidate, GithubRepoSearchResult } from "../domain/external-search-result.ts";
 import type { GithubSearchPort } from "../ports/github-search-port.ts";
+import { BoundedResponseTooLarge, discardResponseBody, isJsonRecord, MalformedBoundedResponse, readBoundedJson } from "./bounded-response-reader.ts";
 
 export const DEFAULT_GITHUB_API_BASE_URL = "https://api.github.com";
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
@@ -60,10 +61,6 @@ export interface GithubSearchClientOptions {
 	readonly baseUrl?: string;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function textField(record: Record<string, unknown>, key: string): string | null {
 	const value = record[key];
 	return typeof value === "string" && value.length > 0 ? value : null;
@@ -83,10 +80,10 @@ function validateBound(value: number, field: string, maximum: number, minimum = 
 }
 
 function repoCandidate(value: unknown): GithubRepoCandidate | null {
-	if (!isRecord(value)) return null;
+	if (!isJsonRecord(value)) return null;
 	const fullName = textField(value, "full_name");
 	const name = textField(value, "name");
-	const owner = isRecord(value.owner) ? textField(value.owner, "login") : null;
+	const owner = isJsonRecord(value.owner) ? textField(value.owner, "login") : null;
 	const url = textField(value, "html_url");
 	if (fullName === null || name === null || owner === null || url === null) return null;
 	return {
@@ -100,41 +97,14 @@ function repoCandidate(value: unknown): GithubRepoCandidate | null {
 	};
 }
 
-async function discard(response: Response): Promise<void> {
-	await response.body?.cancel().catch(() => undefined);
-}
-
+/** Translates the shared bounded-reader's generic errors into this adapter's own public error contract, preserving its existing GithubSearchResponseLimitExceeded/GithubSearchRequestFailed shape unchanged. */
 async function boundedJson(response: Response, limit: number): Promise<unknown> {
-	const declaredLength = Number(response.headers.get("content-length"));
-	if (Number.isFinite(declaredLength) && declaredLength > limit) {
-		await discard(response);
-		throw new GithubSearchResponseLimitExceeded(limit);
-	}
-	const chunks: Buffer[] = [];
-	let used = 0;
-	const body: ReadableStream<Uint8Array> | null = response.body;
-	if (body === null) throw new GithubSearchRequestFailed("invalid-response");
-	const reader = body.getReader();
-	let finished = false;
-	while (!finished) {
-		const read: unknown = await reader.read();
-		if (!isRecord(read) || typeof read.done !== "boolean") throw new GithubSearchRequestFailed("invalid-response");
-		if (read.done) {
-			finished = true;
-			continue;
-		}
-		if (!(read.value instanceof Uint8Array)) throw new GithubSearchRequestFailed("invalid-response");
-		used += read.value.byteLength;
-		if (used > limit) {
-			await reader.cancel();
-			throw new GithubSearchResponseLimitExceeded(limit);
-		}
-		chunks.push(Buffer.from(read.value));
-	}
 	try {
-		return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-	} catch {
-		throw new GithubSearchRequestFailed("invalid-response");
+		return await readBoundedJson(response, limit);
+	} catch (error) {
+		if (error instanceof BoundedResponseTooLarge) throw new GithubSearchResponseLimitExceeded(error.limit);
+		if (error instanceof MalformedBoundedResponse) throw new GithubSearchRequestFailed("invalid-response");
+		throw error;
 	}
 }
 
@@ -183,7 +153,7 @@ export class GithubSearchClient implements GithubSearchPort {
 				if (controller.signal.aborted || attempt >= bounds.maxRetries) return false;
 				if (response !== null && rateLimitFromHeaders(response) !== null) return false;
 				const retryable = error !== null || (response !== null && (response.status === 408 || response.status >= 500));
-				if (retryable && response !== null) await discard(response);
+				if (retryable && response !== null) await discardResponseBody(response);
 				return retryable;
 			},
 			signal: controller.signal,
@@ -192,15 +162,15 @@ export class GithubSearchClient implements GithubSearchPort {
 			const response = await retryingFetch(url, options);
 			const rateLimited = rateLimitFromHeaders(response);
 			if (rateLimited) {
-				await discard(response);
+				await discardResponseBody(response);
 				throw rateLimited;
 			}
 			if (response.status < 200 || response.status >= 300) {
-				await discard(response);
+				await discardResponseBody(response);
 				throw new GithubSearchRequestFailed("request-failed");
 			}
 			const body = await boundedJson(response, bounds.maxResponseBytes);
-			if (!isRecord(body) || !Array.isArray(body.items)) throw new GithubSearchRequestFailed("invalid-response");
+			if (!isJsonRecord(body) || !Array.isArray(body.items)) throw new GithubSearchRequestFailed("invalid-response");
 			const candidates: GithubRepoCandidate[] = [];
 			for (const item of body.items) {
 				const candidate = repoCandidate(item);

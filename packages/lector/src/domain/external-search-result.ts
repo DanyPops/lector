@@ -1,3 +1,6 @@
+/** Default maxResults for a caller (CLI, pi-lector tool) that doesn't specify one -- the service operation itself always requires an explicit value, this is purely a UX default shared across every external-search entry point. */
+export const DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS = 20;
+
 /** Shared bounds for every external-search adapter (GitHub, npm, Sourcegraph) -- same discipline as NpmRegistryBounds, applied to a second real network boundary. */
 export interface ExternalSearchBounds {
 	readonly maxResults: number;
