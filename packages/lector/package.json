@@ -19,6 +19,7 @@
 	"dependencies": {
 		"@danypops/daemon-kit": "^0.22.1",
 		"@yarnpkg/parsers": "^3.0.3",
+		"eventsource-parser": "^3.1.0",
 		"fetch-retry": "^6.0.0",
 		"graphology": "^0.26.0",
 		"graphology-metrics": "^2.4.0",

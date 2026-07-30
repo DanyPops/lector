@@ -1,3 +1,4 @@
+import { createParser, type EventSourceMessage } from "eventsource-parser";
 import type { ExternalSearchBounds, SourcegraphCodeCandidate, SourcegraphLineMatch } from "../domain/external-search-result.ts";
 import type { SourcegraphSearchPort } from "../ports/sourcegraph-search-port.ts";
 
@@ -36,8 +37,6 @@ export class SourcegraphSearchRequestFailed extends Error {
 
 export interface SourcegraphSearchClientOptions {
 	readonly baseUrl?: string;
-	/** No confirmed header convention for sourcegraph.com's own token auth -- unused for v1's public, unauthenticated-only scope. Present so a future private-instance client can extend this one without a breaking constructor change. */
-	readonly token?: () => string | undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -78,19 +77,6 @@ async function discard(response: Response): Promise<void> {
 	await response.body?.cancel().catch(() => undefined);
 }
 
-/** One "event: X\ndata: Y" SSE frame, already split from the raw stream on a blank-line boundary. Multiple "data:" lines within one frame are joined with "\n", per the SSE spec -- Sourcegraph's own events are single-line JSON in practice, but this doesn't assume that. */
-function parseSseFrame(frame: string): { event: string; data: string } | null {
-	let event = "message";
-	const dataLines: string[] = [];
-	for (const rawLine of frame.split("\n")) {
-		const line = rawLine.replace(/\r$/, "");
-		if (line.startsWith("event:")) event = line.slice(6).trim();
-		else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
-	}
-	if (dataLines.length === 0) return null;
-	return { event, data: dataLines.join("\n") };
-}
-
 export class SourcegraphSearchClient implements SourcegraphSearchPort {
 	private readonly baseUrl: string;
 
@@ -118,34 +104,28 @@ export class SourcegraphSearchClient implements SourcegraphSearchPort {
 			if (body === null) throw new SourcegraphSearchRequestFailed("invalid-response");
 			const reader = body.getReader();
 			const decoder = new TextDecoder();
-			let buffer = "";
-			let used = 0;
 			const candidates: SourcegraphCodeCandidate[] = [];
-			frames: for (;;) {
-				const read = await reader.read();
-				if (read.done) break;
-				used += read.value.byteLength;
-				if (used > bounds.maxResponseBytes) {
-					await reader.cancel();
-					throw new SourcegraphSearchResponseLimitExceeded(bounds.maxResponseBytes);
-				}
-				buffer += decoder.decode(read.value, { stream: true });
-				let boundary = buffer.indexOf("\n\n");
-				while (boundary !== -1) {
-					const frame = buffer.slice(0, boundary);
-					buffer = buffer.slice(boundary + 2);
-					const parsed = parseSseFrame(frame);
-					boundary = buffer.indexOf("\n\n");
-					if (!parsed) continue;
-					if (parsed.event === "alert") {
-						await reader.cancel();
-						throw new SourcegraphSearchRequestFailed("alert");
+			// A plain `let` mutated only from inside onEvent's closure defeats TypeScript's own
+			// flow narrowing at the read loop's `if` checks below (it can't see feed() invoking
+			// the callback) -- an object property sidesteps that rather than fighting the linter.
+			const state = { done: false };
+
+			// Real SSE parsing (generic field/comment handling, exact per-spec whitespace trimming,
+			// multi-line data joining) rather than a hand-rolled "event:"/"data:" line splitter --
+			// this API's own event/done/alert shape is the only Sourcegraph-specific part. feed() is
+			// synchronous, so throwing from onEvent propagates straight out to the catch below.
+			const parser = createParser({
+				onEvent(event: EventSourceMessage) {
+					if (state.done) return;
+					if (event.event === "alert") throw new SourcegraphSearchRequestFailed("alert");
+					if (event.event === "done") {
+						state.done = true;
+						return;
 					}
-					if (parsed.event === "done") break frames;
-					if (parsed.event !== "matches") continue;
+					if (event.event !== "matches") return;
 					let items: unknown;
 					try {
-						items = JSON.parse(parsed.data);
+						items = JSON.parse(event.data);
 					} catch {
 						throw new SourcegraphSearchRequestFailed("invalid-response");
 					}
@@ -154,10 +134,26 @@ export class SourcegraphSearchClient implements SourcegraphSearchPort {
 						const candidate = codeCandidate(item);
 						if (candidate) candidates.push(candidate);
 						if (candidates.length >= bounds.maxResults) {
-							await reader.cancel();
-							break frames;
+							state.done = true;
+							return;
 						}
 					}
+				},
+			});
+
+			let used = 0;
+			for (;;) {
+				const read = await reader.read();
+				if (read.done) break;
+				used += read.value.byteLength;
+				if (used > bounds.maxResponseBytes) {
+					await reader.cancel();
+					throw new SourcegraphSearchResponseLimitExceeded(bounds.maxResponseBytes);
+				}
+				parser.feed(decoder.decode(read.value, { stream: true }));
+				if (state.done) {
+					await reader.cancel();
+					break;
 				}
 			}
 			return candidates;
