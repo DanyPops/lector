@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createNodeServiceInstallDeps, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { connectLectorClient, resolveLectorDaemonConnection } from "./client.ts";
-import { LECTOR_PATH_NAMES } from "./constants.ts";
+import { LECTOR_PATH_NAMES, resolveLectorPaths } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
 import type { JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { ContentHash } from "./domain/content-hash.ts";
@@ -1253,37 +1252,29 @@ async function runWorkspaceRevertMutation(workspaceId: string | undefined, entry
 }
 
 /**
- * systemd user-unit lifecycle (`install|start|stop|restart|status`) for a
- * persistent Lector daemon. `install` always runs `serve
- * --dynamic-workspaces`: a long-lived background daemon cannot know
- * upfront which project(s) will attach to it, so it starts with zero
- * pre-registered workspaces and relies entirely on workspace.registerPath
- * at runtime.
+ * Login/boot persistence lifecycle (`install|start|stop|restart|status`) for a
+ * persistent Lector daemon. `install` always runs `serve --dynamic-workspaces`:
+ * a long-lived background daemon cannot know upfront which project(s) will
+ * attach to it, so it starts with zero pre-registered workspaces and relies
+ * entirely on workspace.registerPath at runtime.
+ *
+ * Unit generation and install/enable itself goes through vehicle-server's
+ * shared installUserService -- restartOnFailure:true because Lector's own
+ * client (client.ts) never auto-spawns, unlike connectWithPolicy's autoStart
+ * consumers, so systemd's own supervision is this daemon's only recovery path.
+ * start/stop/restart/status stay direct systemctl calls: Linux/systemd is the
+ * only platform Lector's own lifecycle commands support today.
  */
-export interface SystemdUnitOptions {
-	bunBin: string;
-	cliPath: string;
-}
-
-export function renderSystemdUnit(options: SystemdUnitOptions): string {
-	return `[Unit]
-Description=Lector filesystem & code-intelligence service
-After=default.target
-
-[Service]
-Type=simple
-ExecStart=${options.bunBin} ${options.cliPath} serve --dynamic-workspaces
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=default.target
-`;
-}
-
-function unitPath(): string {
-	const configHome = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-	return join(configHome, "systemd", "user", LECTOR_PATH_NAMES.systemdUnitName);
+export function lectorServiceSpec(): ServiceSpec {
+	return {
+		name: "lector",
+		displayName: "Lector filesystem & code-intelligence service",
+		binPath: process.execPath,
+		args: [fileURLToPath(import.meta.url), "serve", "--dynamic-workspaces"],
+		descriptorPath: resolveLectorPaths().serviceDescriptor,
+		restartOnFailure: true,
+		restartSec: 2,
+	};
 }
 
 function systemctl(...args: string[]): void {
@@ -1291,11 +1282,11 @@ function systemctl(...args: string[]): void {
 }
 
 function installService(): void {
-	const path = unitPath();
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, renderSystemdUnit({ bunBin: process.execPath, cliPath: fileURLToPath(import.meta.url) }));
-	systemctl("daemon-reload");
-	systemctl("enable", LECTOR_PATH_NAMES.systemdUnitName);
+	const result = installUserService(lectorServiceSpec(), createNodeServiceInstallDeps());
+	if (!result.installed) fail(`failed to install the Lector service: ${result.reason}`);
+	// installUserService's Linux path is `enable --now` (starts if not already running) --
+	// an explicit restart on top ensures a re-install after a Lector upgrade actually picks
+	// up the freshly-generated unit's new ExecStart path, not just re-enables the old one.
 	systemctl("restart", LECTOR_PATH_NAMES.systemdUnitName);
 }
 

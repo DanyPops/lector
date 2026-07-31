@@ -104,6 +104,10 @@ export interface LectorDaemonOptions {
 	createGithubSearch?: () => GithubSearchPort;
 	/** Override the search.sourcegraphCode backend (tests inject a fake, avoiding live network). */
 	createSourcegraphSearch?: () => SourcegraphSearchPort;
+	/** Forwarded to startDaemon/runDaemonProcess. Production never sets this -- the generated systemd unit's own launch-provenance env var resolves it instead. Tests use a short value to observe idle-shutdown without waiting. */
+	idleBudgetMs?: number;
+	/** Forwarded to startDaemon/runDaemonProcess -- how often the idle budget is checked. */
+	idleTickMs?: number;
 }
 
 function prepare(options: LectorDaemonOptions): {
@@ -112,6 +116,8 @@ function prepare(options: LectorDaemonOptions): {
 	pushChannel: PushChannel;
 	onShutdown: () => Promise<void>;
 	maintenanceTasks: MaintenanceTask[];
+	idleBudgetMs: number | undefined;
+	idleTickMs: number | undefined;
 } {
 	const paths = options.paths ?? resolveLectorPaths();
 	// One SQLite file per workspace (named by its own deterministic workspaceId) under a
@@ -157,6 +163,8 @@ function prepare(options: LectorDaemonOptions): {
 		app: buildLectorApp(service, token),
 		pushChannel,
 		onShutdown: () => service.close(),
+		idleBudgetMs: options.idleBudgetMs,
+		idleTickMs: options.idleTickMs,
 		maintenanceTasks: [
 			{
 				name: "reap-idle-symbol-indexes",
@@ -178,7 +186,7 @@ function prepare(options: LectorDaemonOptions): {
  * instead, a real behavior change, not just a type-signature one.
  */
 export function startLectorDaemon(options: LectorDaemonOptions): Promise<RunningDaemon> {
-	const { paths, app, pushChannel, onShutdown, maintenanceTasks } = prepare(options);
+	const { paths, app, pushChannel, onShutdown, maintenanceTasks, idleBudgetMs, idleTickMs } = prepare(options);
 	return startDaemon({
 		daemonLabel: "Lector",
 		handlePath: paths.handle,
@@ -187,12 +195,14 @@ export function startLectorDaemon(options: LectorDaemonOptions): Promise<Running
 		pushChannel,
 		onShutdown,
 		maintenanceTasks,
+		idleBudgetMs,
+		idleTickMs,
 	});
 }
 
 /** The real binary's entry point: wires SIGINT/SIGTERM and process.exit. */
 export function serveMain(options: LectorDaemonOptions & { onListen?: (info: { host: string; port: number }) => void }): void {
-	const { paths, app, pushChannel, onShutdown, maintenanceTasks } = prepare(options);
+	const { paths, app, pushChannel, onShutdown, maintenanceTasks, idleBudgetMs, idleTickMs } = prepare(options);
 	runDaemonProcess({
 		daemonLabel: "Lector",
 		handlePath: paths.handle,
@@ -202,5 +212,7 @@ export function serveMain(options: LectorDaemonOptions & { onListen?: (info: { h
 		onShutdown,
 		maintenanceTasks,
 		onListen: options.onListen,
+		idleBudgetMs,
+		idleTickMs,
 	});
 }
