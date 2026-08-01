@@ -11,7 +11,7 @@ import { serveMain } from "./daemon.ts";
 import type { JobSnapshot } from "./domain/bounded-job-executor.ts";
 import type { ContentHash } from "./domain/content-hash.ts";
 import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS } from "./domain/external-search-result.ts";
-import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOperationResult } from "./domain/package-source.ts";
+import { DEFAULT_PACKAGE_SOURCE_BOUNDS, PACKAGE_ECOSYSTEMS, type PackageEcosystem, type PackageSourceOperationResult } from "./domain/package-source.ts";
 import type { PopulateSymbolGraphResult } from "./domain/populate-symbol-graph.ts";
 import type { ResponseFormat } from "./domain/response-format.ts";
 import type { SymbolAnnotation } from "./domain/symbol-annotation.ts";
@@ -128,6 +128,17 @@ const USAGE = `Usage:
     currently-registered workspace
   lector package source <project-dir> <package-name> [--version <exact-version>] [--registry <url>] [--json]
     resolves an installed npm package to verified exact repository source and registers it read-only
+  lector package list-sources [--ecosystem <e>] [--query <text>] --max-results <n> [--cursor <c>] [--json]
+    lists every package coordinate this daemon has already resolved to a verified source
+    workspace -- no re-resolution, no network -- bounded and paginated via --cursor
+  lector package remove-source <ecosystem> <name> <resolved-version> [--registry <url>] [--json]
+    removes one resolved-source bookkeeping entry; refuses if it is still a currently-registered
+    workspace. Does not delete the underlying repo.fetch disk cache entry -- use
+    workspace repo-cache-evict for that, since a monorepo can share one checkout across
+    several package coordinates
+  lector package clean-sources [--ecosystem <e>] [--json]
+    removes every non-in-use resolved-source entry, optionally scoped to one ecosystem;
+    reports counts of removed and skipped (still-registered) entries
   lector workspace search-text <workspace-id> <query> --max-matches <n> --max-bytes <n> [--json]
   lector workspace find-files <workspace-id> --pattern <glob> (repeatable, at least one required)
     --max-results <n> --max-bytes <n> [--json]
@@ -767,6 +778,79 @@ async function runPackageSource(projectDir: string | undefined, packageName: str
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : formatPackageSourceResult(result));
 }
 
+// A real type guard, not an assertion -- widens the allowed-values array to readonly string[]
+// so .includes() itself needs no cast, then lets TS narrow `value` for free at every call site.
+function isPackageEcosystem(value: string): value is PackageEcosystem {
+	return (PACKAGE_ECOSYSTEMS as readonly string[]).includes(value);
+}
+
+function parseEcosystemFlag(flags: string[]): PackageEcosystem | undefined {
+	const raw = flagValue(flags, "--ecosystem");
+	if (raw === undefined) return undefined;
+	if (!isPackageEcosystem(raw)) fail(`--ecosystem must be one of ${PACKAGE_ECOSYSTEMS.join(", ")}; got "${raw}"`);
+	return raw;
+}
+
+function requireEcosystem(value: string | undefined): PackageEcosystem {
+	if (value === undefined || !isPackageEcosystem(value)) fail(`ecosystem must be one of ${PACKAGE_ECOSYSTEMS.join(", ")}; got "${value ?? ""}"`);
+	return value;
+}
+
+function formatPackageSourceListEntry(entry: {
+	name: string;
+	resolvedVersion: string;
+	workspaceId: string;
+	cachePath: string;
+	cacheSizeBytes: number | null;
+}): string {
+	const bytes = entry.cacheSizeBytes === null ? "" : ` (${entry.cacheSizeBytes} bytes)`;
+	return `${entry.name}@${entry.resolvedVersion} -- ${entry.workspaceId} -- ${entry.cachePath}${bytes}`;
+}
+
+async function runPackageListSources(flags: string[]): Promise<void> {
+	const maxResults = requiredIntFlag(flags, "--max-results");
+	const ecosystem = parseEcosystemFlag(flags);
+	const text = flagValue(flags, "--query");
+	const cursor = flagValue(flags, "--cursor");
+	const client = await connectLectorClient();
+	const page = await client.call("package.listSources", { maxResults, ecosystem, text, cursor });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(page));
+		return;
+	}
+	if (page.entries.length === 0) {
+		console.log("no resolved package sources");
+		return;
+	}
+	for (const entry of page.entries) console.log(formatPackageSourceListEntry(entry));
+	if (page.nextCursor) console.log(`--cursor ${page.nextCursor} for more`);
+}
+
+async function runPackageRemoveSource(
+	ecosystem: string | undefined,
+	name: string | undefined,
+	resolvedVersion: string | undefined,
+	flags: string[],
+): Promise<void> {
+	if (!name || !resolvedVersion) fail(USAGE);
+	const validEcosystem = requireEcosystem(ecosystem);
+	const registry = flagValue(flags, "--registry") ?? null;
+	const client = await connectLectorClient();
+	const result = await client.call("package.removeSource", { ecosystem: validEcosystem, registry, name, resolvedVersion });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	console.log(result.removed ? "removed" : "not recorded for that coordinate");
+}
+
+async function runPackageCleanSources(flags: string[]): Promise<void> {
+	const ecosystem = parseEcosystemFlag(flags);
+	const client = await connectLectorClient();
+	const result = await client.call("package.cleanSources", { ecosystem });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `removed ${result.removed}, skipped ${result.skipped} (still in use)`);
+}
+
 async function runWorkspaceSearchText(workspaceId: string | undefined, query: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !query) fail(USAGE);
 	const maxMatches = requiredIntFlag(flags, "--max-matches");
@@ -1358,8 +1442,17 @@ async function main(): Promise<void> {
 	}
 
 	if (command === "package") {
-		const [action, projectDir, packageName, ...packageFlags] = rest;
-		if (action === "source") return runPackageSource(projectDir, packageName, packageFlags);
+		const [action, ...actionRest] = rest;
+		if (action === "source") {
+			const [projectDir, packageName, ...packageFlags] = actionRest;
+			return runPackageSource(projectDir, packageName, packageFlags);
+		}
+		if (action === "list-sources") return runPackageListSources(actionRest);
+		if (action === "remove-source") {
+			const [ecosystem, name, resolvedVersion, ...removeFlags] = actionRest;
+			return runPackageRemoveSource(ecosystem, name, resolvedVersion, removeFlags);
+		}
+		if (action === "clean-sources") return runPackageCleanSources(actionRest);
 		fail(USAGE);
 	}
 

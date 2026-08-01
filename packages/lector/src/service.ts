@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
-import { extname, resolve } from "node:path";
+import { extname, resolve, sep } from "node:path";
 import picomatch from "picomatch";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 import { GithubSearchClient } from "./adapters/github-search-client.ts";
 import { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
 import { InMemoryExternalSearchCache } from "./adapters/in-memory-external-search-cache.ts";
 import { InMemoryMutationHistory } from "./adapters/in-memory-mutation-history.ts";
+import { InMemoryPackageSourceIndex } from "./adapters/in-memory-package-source-index.ts";
 import { InMemorySearchCache } from "./adapters/in-memory-search-cache.ts";
 import { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
 import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
@@ -71,7 +72,14 @@ import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, li
 import type { MutationHistoryEntry, MutationOperation } from "./domain/mutation-history.ts";
 import { canRevertMutation } from "./domain/mutation-history.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
-import type { PackageSourceBounds, PackageSourceOperationResult, PackageSourceRequest } from "./domain/package-source.ts";
+import {
+	PACKAGE_ECOSYSTEMS,
+	type PackageEcosystem,
+	type PackageSourceBounds,
+	type PackageSourceOperationResult,
+	type PackageSourceRequest,
+} from "./domain/package-source.ts";
+import { type PackageSourceIndexQuery, type PackageSourceListEntry, queryPackageSourceIndex } from "./domain/package-source-index.ts";
 import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
 import { purgeFilesNoLongerWalked } from "./domain/purge-stale-graph-entries.ts";
@@ -82,7 +90,7 @@ import { planReferenceBasedRename } from "./domain/reference-based-rename.ts";
 import { shouldRefetchFromRemote } from "./domain/remote-cache-freshness.ts";
 import type { RepoFetchResult } from "./domain/repo-fetch-result.ts";
 import type { RepoReference } from "./domain/repo-reference.ts";
-import { resolvePackageSource } from "./domain/resolve-package-source.ts";
+import { InvalidPackageSourceContract, resolvePackageSource } from "./domain/resolve-package-source.ts";
 import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from "./domain/response-format.ts";
 import { searchText as searchTextQuery } from "./domain/search-text.ts";
 import { SerialExecutionQueue } from "./domain/serial-execution-queue.ts";
@@ -107,6 +115,7 @@ import type { GitPort } from "./ports/git-port.ts";
 import type { GithubSearchPort } from "./ports/github-search-port.ts";
 import type { MutationHistoryPort } from "./ports/mutation-history-port.ts";
 import type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
+import type { PackageSourceIndexPort } from "./ports/package-source-index-port.ts";
 import type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 import type { SearchCachePort } from "./ports/search-cache-port.ts";
@@ -267,6 +276,14 @@ export class PackageSourceResolverNotConfigured extends Error {
 	}
 }
 
+/** Raised by package.removeSource/cleanSources when the entry's own recorded workspaceId is still a currently-registered workspace. There is no workspace.unregister operation, mirroring RepoCacheEntryInUse's identical limitation for repo.evictCache. */
+export class PackageSourceEntryInUse extends Error {
+	constructor(readonly workspaceId: WorkspaceId) {
+		super(`cannot remove: still registered as workspace "${workspaceId}"`);
+		this.name = "PackageSourceEntryInUse";
+	}
+}
+
 export class UnsupportedJobOperation extends Error {
 	constructor(readonly operation: string) {
 		super(`operation "${operation}" cannot run as a background job; supported operations: workspace.populateSymbolGraph`);
@@ -366,6 +383,9 @@ export type OperationName =
 	| "repo.listCache"
 	| "repo.evictCache"
 	| "package.resolveSource"
+	| "package.listSources"
+	| "package.removeSource"
+	| "package.cleanSources"
 	| "search.githubRepos"
 	| "search.npmPackages"
 	| "search.sourcegraphCode"
@@ -423,6 +443,9 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"repo.listCache",
 	"repo.evictCache",
 	"package.resolveSource",
+	"package.listSources",
+	"package.removeSource",
+	"package.cleanSources",
 	"search.githubRepos",
 	"search.npmPackages",
 	"search.sourcegraphCode",
@@ -491,6 +514,11 @@ export interface OperationInputs {
 	"repo.listCache": CachedRepositoryQuery & { maxResults: number; cursor?: string };
 	"repo.evictCache": RepoReference;
 	"package.resolveSource": { request: PackageSourceRequest; bounds: PackageSourceBounds };
+	/** Every field optional -- an omitted ecosystem/text means "every recorded package source." */
+	"package.listSources": PackageSourceIndexQuery & { maxResults: number; cursor?: string };
+	"package.removeSource": { ecosystem: PackageEcosystem; registry: string | null; name: string; resolvedVersion: string };
+	/** ecosystem omitted means every ecosystem. */
+	"package.cleanSources": { ecosystem?: PackageEcosystem };
 	/** Explicit-query search only, never open-ended discovery/trending -- results are shaped as direct repo.fetch inputs (host/owner/repo). */
 	"search.githubRepos": { query: string; maxResults: number };
 	/** Results are shaped as direct package.resolveSource inputs (name, plus the version already returned). */
@@ -594,6 +622,9 @@ export interface OperationOutputs {
 	"repo.listCache": CachedRepositoryPage;
 	"repo.evictCache": { evicted: boolean };
 	"package.resolveSource": PackageSourceOperationResult;
+	"package.listSources": { entries: readonly PackageSourceListEntry[]; nextCursor: string | null };
+	"package.removeSource": { removed: boolean };
+	"package.cleanSources": { removed: number; skipped: number };
 	"search.githubRepos": GithubRepoSearchResult;
 	"search.npmPackages": { candidates: readonly NpmPackageCandidate[] };
 	"search.sourcegraphCode": { candidates: readonly SourcegraphCodeCandidate[] };
@@ -686,6 +717,8 @@ export interface LectorServiceOptions {
 	createRepoFetcher?: () => RepoFetcherPort;
 	/** Override package-source resolution. With a repo fetcher configured, the default composes npm lockfiles, registry metadata, and exact Git fetching. */
 	createPackageSourceResolver?: () => PackageSourceResolverPort;
+	/** Factory for the bookkeeping index backing package.listSources/removeSource/cleanSources -- distinct from RepoFetcherPort's own disk cache, which has no notion of package identity. Defaults to an in-memory store (not durable across a restart), matching every other Lector store's own in-memory-first precedent. Called once at construction and reused. */
+	createPackageSourceIndex?: () => PackageSourceIndexPort;
 	/** Factory for the npm registry client backing both package.resolveSource's version lookups and search.npmPackages. Defaults to a real NpmRegistryClient. Called once at construction and reused -- tests inject a fixture-server-pointed instance instead of hitting the real registry. */
 	createNpmRegistry?: () => NpmRegistryPort;
 	/** Factory for the port backing search.githubRepos. Defaults to a real GithubSearchClient (GITHUB_TOKEN if configured, else GitHub's tighter unauthenticated rate limit). Called once at construction and reused. */
@@ -896,6 +929,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const packageSourceResolver =
 		options.createPackageSourceResolver?.() ??
 		(repoFetcher ? new NpmPackageSourceResolver({ versions: new NpmLockfileVersionResolver(), registry: npmRegistry, repositories: repoFetcher }) : undefined);
+	const packageSourceIndex = options.createPackageSourceIndex?.() ?? new InMemoryPackageSourceIndex();
 	const githubSearch = options.createGithubSearch?.() ?? new GithubSearchClient();
 	const sourcegraphSearch = options.createSourcegraphSearch?.() ?? new SourcegraphSearchClient();
 	const createExternalSearchCache = options.createExternalSearchCache ?? (<T extends object>() => new InMemoryExternalSearchCache<T>());
@@ -1099,7 +1133,78 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (!registry.has(workspaceId)) {
 			registry.set(workspaceId, { port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)), rootPath: absolutePath, origin: "remote" });
 		}
+		await packageSourceIndex.record({
+			ecosystem: outcome.coordinate.ecosystem,
+			registry: outcome.coordinate.registry,
+			name: outcome.coordinate.name,
+			resolvedVersion: outcome.coordinate.resolvedVersion,
+			requestedVersion: outcome.coordinate.requestedVersion,
+			repositoryUrl: outcome.repository.url,
+			resolvedRef: outcome.repository.resolvedRef,
+			commit: outcome.repository.commit,
+			cachePath: absolutePath,
+			workspaceId,
+			origin: outcome.workspace.origin,
+			verificationMethod: outcome.verification.method,
+			resolvedAt: Date.now(),
+		});
 		return { outcome, workspaceId };
+	}
+
+	async function packageListSourcesHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["package.listSources"],
+	): Promise<OperationOutputs["package.listSources"]> {
+		if (!packageSourceResolver) throw new PackageSourceResolverNotConfigured();
+		if (input.ecosystem !== undefined && !PACKAGE_ECOSYSTEMS.includes(input.ecosystem)) throw new InvalidPackageSourceContract("ecosystem");
+		const allEntries = await packageSourceIndex.list();
+		const cached = repoFetcher ? await repoFetcher.listCached() : [];
+		const page = queryPackageSourceIndex(allEntries, { ecosystem: input.ecosystem, text: input.text }, input.maxResults, input.cursor);
+		const entries: PackageSourceListEntry[] = page.entries.map((entry) => {
+			const match = cached.find((candidate) => entry.cachePath === candidate.path || entry.cachePath.startsWith(`${candidate.path}${sep}`));
+			return { ...entry, cacheSizeBytes: match?.cacheSizeBytes ?? null };
+		});
+		return { entries, nextCursor: page.nextCursor };
+	}
+
+	/** Refuses (PackageSourceEntryInUse) rather than dropping the bookkeeping for a currently-registered workspace's backing checkout out from under it -- there is no workspace.unregister operation, mirroring repoEvictCacheHandler's identical refusal for repo.evictCache. Removes only the package-source index entry (bookkeeping); the underlying RepoFetcherPort disk cache entry is a separate, independently-addressed cache managed by repo.evictCache/repo_cache, not duplicated here -- a monorepo can have several package-source entries sharing one physical checkout, so this handler must never assume ownership of it. */
+	async function packageRemoveSourceHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["package.removeSource"],
+	): Promise<OperationOutputs["package.removeSource"]> {
+		if (!packageSourceResolver) throw new PackageSourceResolverNotConfigured();
+		if (!PACKAGE_ECOSYSTEMS.includes(input.ecosystem)) throw new InvalidPackageSourceContract("ecosystem");
+		const existing = (await packageSourceIndex.list()).find(
+			(entry) =>
+				entry.ecosystem === input.ecosystem &&
+				entry.registry === input.registry &&
+				entry.name === input.name &&
+				entry.resolvedVersion === input.resolvedVersion,
+		);
+		if (existing && registry.has(existing.workspaceId)) throw new PackageSourceEntryInUse(existing.workspaceId);
+		const removed = await packageSourceIndex.remove(input);
+		return { removed };
+	}
+
+	async function packageCleanSourcesHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["package.cleanSources"],
+	): Promise<OperationOutputs["package.cleanSources"]> {
+		if (!packageSourceResolver) throw new PackageSourceResolverNotConfigured();
+		if (input.ecosystem !== undefined && !PACKAGE_ECOSYSTEMS.includes(input.ecosystem)) throw new InvalidPackageSourceContract("ecosystem");
+		const allEntries = await packageSourceIndex.list();
+		const matching = input.ecosystem === undefined ? allEntries : allEntries.filter((entry) => entry.ecosystem === input.ecosystem);
+		let removed = 0;
+		let skipped = 0;
+		for (const entry of matching) {
+			if (registry.has(entry.workspaceId)) {
+				skipped++;
+				continue;
+			}
+			await packageSourceIndex.remove(entry);
+			removed++;
+		}
+		return { removed, skipped };
 	}
 
 	async function searchGithubReposHandler(
@@ -2114,6 +2219,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"repo.listCache": repoListCacheHandler,
 		"repo.evictCache": repoEvictCacheHandler,
 		"package.resolveSource": packageSourceHandler,
+		"package.listSources": packageListSourcesHandler,
+		"package.removeSource": packageRemoveSourceHandler,
+		"package.cleanSources": packageCleanSourcesHandler,
 		"search.githubRepos": searchGithubReposHandler,
 		"search.npmPackages": searchNpmPackagesHandler,
 		"search.sourcegraphCode": searchSourcegraphCodeHandler,

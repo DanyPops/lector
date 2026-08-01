@@ -1,19 +1,19 @@
 import type { PackageSourceResolverPort } from "../ports/package-source-resolver-port.ts";
 import { assertAbsolutePath } from "./assert-absolute-path.ts";
-import type {
-	AmbiguousPackageSource,
-	MismatchedPackageSource,
-	OversizedPackageSource,
-	PackageSourceBounds,
-	PackageSourceOutcome,
-	PackageSourceRequest,
-	UnauthenticatedPackageSource,
-	VerifiedPackageSource,
+import {
+	type AmbiguousPackageSource,
+	type MismatchedPackageSource,
+	type OversizedPackageSource,
+	PACKAGE_ECOSYSTEMS,
+	type PackageSourceBounds,
+	type PackageSourceOutcome,
+	type PackageSourceRequest,
+	type UnauthenticatedPackageSource,
+	type VerifiedPackageSource,
 } from "./package-source.ts";
 
 const COMMIT_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const CREDENTIAL_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;
-const ECOSYSTEMS = ["npm", "pypi", "cargo", "go", "maven", "conan", "vcpkg", "nuget", "swiftpm"] as const;
 const VERIFICATION_METHODS = ["lockfile-vcs-pin", "registry-metadata-and-commit", "source-artifact-checksum", "local-content-digest"] as const;
 const UNAVAILABLE_CODES = [
 	"package-not-found",
@@ -79,7 +79,7 @@ function validateRequest(request: PackageSourceRequest): void {
 	// own, so a relative projectRoot must be rejected here rather than trusted to already be
 	// pre-resolved by every current and future caller.
 	assertAbsolutePath(request.projectRoot);
-	assertAllowed(request.coordinate.ecosystem, ECOSYSTEMS, "coordinate.ecosystem");
+	assertAllowed(request.coordinate.ecosystem, PACKAGE_ECOSYSTEMS, "coordinate.ecosystem");
 	assertText(request.coordinate.name, "coordinate.name", 512);
 	assertOptionalText(request.coordinate.registry, "coordinate.registry", 2048);
 	assertOptionalText(request.coordinate.requestedVersion, "coordinate.requestedVersion", 256);

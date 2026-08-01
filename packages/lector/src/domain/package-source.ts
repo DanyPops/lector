@@ -1,4 +1,6 @@
-export type PackageEcosystem = "npm" | "pypi" | "cargo" | "go" | "maven" | "conan" | "vcpkg" | "nuget" | "swiftpm";
+export const PACKAGE_ECOSYSTEMS = ["npm", "pypi", "cargo", "go", "maven", "conan", "vcpkg", "nuget", "swiftpm"] as const;
+
+export type PackageEcosystem = (typeof PACKAGE_ECOSYSTEMS)[number];
 
 export interface PackageCoordinateRequest {
 	readonly ecosystem: PackageEcosystem;

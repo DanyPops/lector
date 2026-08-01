@@ -55,7 +55,11 @@ export function buildLectorApp(service: LectorService, token: string): { fetch(r
 				try {
 					// The includes() check above just proved body.op is a real OperationName; body.input's
 					// specific shape can only be known once dispatch itself switches on which operation this is.
-					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+					// no-unnecessary-type-assertion is a false positive here: removing the cast makes tsc
+					// itself fail ("string is not assignable to OperationName"), confirmed directly -- the
+					// generic dispatch<Name extends OperationName> call needs it, whatever typescript-eslint's
+					// own type-checking pass concluded.
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion, @typescript-eslint/no-unnecessary-type-assertion
 					const result = await service.dispatch(body.op as OperationName, body.input as never);
 					return jsonResponse({ result });
 				} catch (error) {

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import type { PackageSourceOperationResult } from "@danypops/lector";
+import type { PackageSourceListEntry, PackageSourceOperationResult } from "@danypops/lector";
 import type { LectorTheme } from "../extension/src/lector-tui-theme.ts";
-import { formatPackageSourceCall, formatPackageSourceResult } from "../extension/src/package-source-rendering.ts";
+import {
+	buildPackageSourceListTableRows,
+	formatPackageSourceCall,
+	formatPackageSourceCleanResult,
+	formatPackageSourceListResult,
+	formatPackageSourceRemoveResult,
+	formatPackageSourceResult,
+} from "../extension/src/package-source-rendering.ts";
 
 const theme: LectorTheme = {
 	fg: (_color, text) => text,
@@ -83,5 +90,53 @@ describe("package-source rendering", () => {
 		expect(rendered[1]).toContain("NPM_TOKEN");
 		expect(rendered[2]).toContain("clone-bytes");
 		expect(rendered[3]).toContain("expected widget@1");
+	});
+
+	function listEntry(overrides: Partial<PackageSourceListEntry> = {}): PackageSourceListEntry {
+		return {
+			ecosystem: "npm",
+			registry: null,
+			name: "@scope/widget",
+			resolvedVersion: "1.2.3",
+			requestedVersion: "1.2.3",
+			repositoryUrl: "https://github.com/acme/widgets.git",
+			resolvedRef: "1111111111111111111111111111111111111111",
+			commit: "1111111111111111111111111111111111111111",
+			cachePath: "/cache/widgets",
+			workspaceId: "workspace-1",
+			origin: "fetched",
+			verificationMethod: "registry-metadata-and-commit",
+			resolvedAt: 1_700_000_000_000,
+			cacheSizeBytes: 2048,
+			...overrides,
+		};
+	}
+
+	it("renders list/remove/clean call shapes distinctly from resolve", () => {
+		expect(formatPackageSourceCall({ action: "list", text: "widget" }, theme)).toContain("list");
+		expect(formatPackageSourceCall({ action: "remove", ecosystem: "npm", name: "@scope/widget", resolvedVersion: "1.2.3" }, theme)).toContain(
+			"@scope/widget@1.2.3",
+		);
+		expect(formatPackageSourceCall({ action: "clean", ecosystem: "npm" }, theme)).toContain("clean");
+	});
+
+	it("formatPackageSourceListResult is an empty-state fallback only -- a non-empty page renders as a Table", () => {
+		expect(formatPackageSourceListResult({ entries: [], nextCursor: null }, theme)).toContain("no");
+		expect(formatPackageSourceListResult({ entries: [listEntry()], nextCursor: null }, theme)).toContain("1");
+	});
+
+	it("builds one table row per package-source entry with human-readable size and identity", () => {
+		const rows = buildPackageSourceListTableRows([listEntry(), listEntry({ name: "react", cacheSizeBytes: null })]);
+		expect(rows).toHaveLength(2);
+		expect(rows[0]?.package).toContain("@scope/widget@1.2.3");
+		expect(rows[0]?.size).not.toBe("");
+		expect(rows[1]?.size).toBe("unknown");
+	});
+
+	it("renders remove/clean results", () => {
+		expect(formatPackageSourceRemoveResult({ removed: true }, theme)).toContain("removed");
+		expect(formatPackageSourceRemoveResult({ removed: false }, theme)).toContain("not");
+		expect(formatPackageSourceCleanResult({ removed: 3, skipped: 1 }, theme)).toContain("3");
+		expect(formatPackageSourceCleanResult({ removed: 3, skipped: 1 }, theme)).toContain("1");
 	});
 });

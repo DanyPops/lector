@@ -14,6 +14,7 @@ import type {
 	MutationHistoryEntry,
 	NpmPackageCandidate,
 	OperationOutputs,
+	PackageEcosystem,
 	PackageSourceOperationResult,
 	RepoFetchResult,
 	SourcegraphCodeCandidate,
@@ -25,7 +26,7 @@ import type {
 	WorkspaceMapResult,
 	WorkspaceQueryOutcome,
 } from "@danypops/lector";
-import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS } from "@danypops/lector";
+import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS, PACKAGE_ECOSYSTEMS } from "@danypops/lector";
 import {
 	type AgentToolResult,
 	createEditToolDefinition,
@@ -85,8 +86,18 @@ import { createLectorLineEditOperations } from "./line-edit-operations.ts";
 import { formatLineEditCall, formatLineEditResult } from "./line-edit-rendering.ts";
 import { createMutationHistoryOperations } from "./mutation-history-operations.ts";
 import { isFilesystemRoot, nearestGitRoot } from "./nearest-workspace-root.ts";
-import { createLectorPackageSourceOperations } from "./package-source-operations.ts";
-import { formatPackageSourceCall, formatPackageSourceResult } from "./package-source-rendering.ts";
+import { createLectorPackageSourceOperations, type PackageSourceListPage } from "./package-source-operations.ts";
+import {
+	buildPackageSourceListTableRows,
+	formatPackageSourceCall,
+	formatPackageSourceCleanResult,
+	formatPackageSourceListResult,
+	formatPackageSourceRemoveResult,
+	formatPackageSourceResult,
+	PACKAGE_SOURCE_LIST_TABLE_COLUMNS,
+	PACKAGE_SOURCE_LIST_VISIBLE_ROWS,
+	packageSourceListMoreLine,
+} from "./package-source-rendering.ts";
 import { createLectorReadOperations } from "./read-operations.ts";
 import { createReferenceBasedRenameOperations } from "./reference-based-rename-operations.ts";
 import { createRenameOperations } from "./rename-operations.ts";
@@ -1371,23 +1382,78 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
+		type PackageSourceToolDetails =
+			| { readonly action: "resolve"; readonly result: PackageSourceOperationResult }
+			| { readonly action: "list"; readonly page: PackageSourceListPage }
+			| { readonly action: "remove"; readonly result: { removed: boolean } }
+			| { readonly action: "clean"; readonly result: { removed: number; skipped: number } };
+
+		/** A real type guard, not an assertion -- params.ecosystem arrives as a bare TypeBox string; this is the one place that turns it into PackageEcosystem, with a runtime check backing the narrowing. */
+		function isPackageEcosystem(value: string): value is PackageEcosystem {
+			return (PACKAGE_ECOSYSTEMS as readonly string[]).includes(value);
+		}
+		function optionalPackageEcosystem(value: string | undefined): PackageEcosystem | undefined {
+			if (value === undefined) return undefined;
+			if (!isPackageEcosystem(value)) throw new Error(`ecosystem must be one of ${PACKAGE_ECOSYSTEMS.join(", ")}; got "${value}"`);
+			return value;
+		}
+		function requirePackageEcosystem(value: string | undefined): PackageEcosystem {
+			if (value === undefined || !isPackageEcosystem(value)) {
+				throw new Error(`ecosystem must be one of ${PACKAGE_ECOSYSTEMS.join(", ")}; got "${value ?? ""}"`);
+			}
+			return value;
+		}
+
 		const packageSourceOperations = createLectorPackageSourceOperations();
 		pi.registerTool({
 			name: "package_source",
 			label: "Package Source",
 			description:
-				"Resolve an installed npm package to verified exact repository source. Uses the project's lockfile, bounded registry metadata, and an exact Git ref/commit; registers verified source as a read-only workspace for the other Lector tools.",
-			promptSnippet: "Resolve an installed npm package to exact read-only source",
+				"Resolve, list, remove, or clean bookkeeping for installed npm packages resolved to verified exact repository source. action=resolve uses the project's lockfile, bounded registry metadata, and an exact Git ref/commit; registers verified source as a read-only workspace for the other Lector tools. action=list reports every package coordinate already resolved this way -- no re-resolution, no network. action=remove drops one bookkeeping entry by its exact ecosystem/name/resolvedVersion; refuses if it is still a currently-registered workspace. action=clean removes every non-in-use entry, optionally scoped to one ecosystem. Neither remove nor clean deletes the underlying repo_cache disk entry -- use repo_cache(action=evict) for that, since a monorepo can share one checkout across several package coordinates.",
+			promptSnippet: "Resolve, list, remove, or clean verified package source bookkeeping",
 			parameters: Type.Object({
-				directory: Type.String({ description: "Project directory containing the npm-family lockfile" }),
-				name: Type.String({ description: "Installed package name, including scope when present" }),
-				version: Type.Optional(Type.String({ description: "Exact installed version; required when the lockfile contains several versions" })),
+				action: Type.Optional(Type.Union([Type.Literal("resolve"), Type.Literal("list"), Type.Literal("remove"), Type.Literal("clean")])),
+				directory: Type.Optional(Type.String({ description: "Required for action=resolve -- project directory containing the npm-family lockfile" })),
+				name: Type.Optional(Type.String({ description: "Required for action=resolve/remove -- installed package name, including scope when present" })),
+				version: Type.Optional(
+					Type.String({ description: "action=resolve only -- exact installed version; required when the lockfile contains several versions" }),
+				),
 				registry: Type.Optional(Type.String({ description: "npm registry URL; defaults to the public npm registry" })),
+				ecosystem: Type.Optional(Type.String({ description: "Required for action=remove; optional filter for action=list/clean" })),
+				resolvedVersion: Type.Optional(Type.String({ description: "Required for action=remove -- the exact resolved version to remove" })),
+				text: Type.Optional(Type.String({ description: "action=list only -- case-insensitive substring match across ecosystem/name/resolvedVersion" })),
+				maxResults: Type.Optional(Type.Number({ description: "Required for action=list -- maximum entries to return in this page" })),
+				cursor: Type.Optional(Type.String({ description: "action=list only -- opaque cursor from a prior call's nextCursor, to fetch the next page" })),
 			}),
-			async execute(_toolCallId, params) {
+			async execute(_toolCallId, params): Promise<AgentToolResult<PackageSourceToolDetails>> {
+				if (params.action === "list") {
+					if (params.maxResults === undefined) throw new Error("package_source action=list requires maxResults");
+					const page = await packageSourceOperations.list({
+						ecosystem: optionalPackageEcosystem(params.ecosystem),
+						text: params.text,
+						maxResults: params.maxResults,
+						cursor: params.cursor,
+					});
+					return { content: [{ type: "text", text: JSON.stringify(page) }], details: { action: "list", page } };
+				}
+				if (params.action === "remove") {
+					if (!params.name || !params.resolvedVersion) throw new Error("package_source action=remove requires ecosystem, name, and resolvedVersion");
+					const result = await packageSourceOperations.remove(
+						requirePackageEcosystem(params.ecosystem),
+						params.registry ?? null,
+						params.name,
+						params.resolvedVersion,
+					);
+					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "remove", result } };
+				}
+				if (params.action === "clean") {
+					const result = await packageSourceOperations.clean(optionalPackageEcosystem(params.ecosystem));
+					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "clean", result } };
+				}
+				if (!params.directory || !params.name) throw new Error("package_source action=resolve requires directory and name");
 				const directory = resolve(cwd, params.directory);
 				const result = await packageSourceOperations.resolve(directory, params.name, params.version ?? null, params.registry ?? null);
-				return { content: [{ type: "text", text: JSON.stringify(result) }], details: { result } };
+				return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "resolve", result } };
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -1395,7 +1461,7 @@ export default function (pi: ExtensionAPI) {
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
-				if (isPartial) return new Text(theme.fg("warning", "Resolving package source..."), 0, 0);
+				if (isPartial) return new Text(theme.fg("warning", "Working on package source..."), 0, 0);
 				if (context.isError) {
 					const errorText = result.content
 						.filter((block) => block.type === "text")
@@ -1403,9 +1469,26 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "package_source failed"), 0, 0);
 				}
-				const details = result.details as { result?: PackageSourceOperationResult } | undefined;
+				const details = result.details as PackageSourceToolDetails | undefined;
+				// A non-empty list renders as a real, bounded Table -- the human channel actually shows
+				// package/workspace/path/size, not just a bare count, capped at PACKAGE_SOURCE_LIST_VISIBLE_ROWS
+				// since the index can grow arbitrarily large even though maxResults bounds any one page.
+				if (details?.action === "list" && details.page.entries.length > 0) {
+					return renderBoundedTable({
+						columns: PACKAGE_SOURCE_LIST_TABLE_COLUMNS,
+						rows: buildPackageSourceListTableRows(details.page.entries),
+						expanded,
+						visibleRowCount: PACKAGE_SOURCE_LIST_VISIBLE_ROWS,
+						moreLine: packageSourceListMoreLine(theme),
+						measure: tableMeasure,
+						headerStyle: (s) => theme.fg("muted", theme.bold(s)),
+					});
+				}
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatPackageSourceResult(details?.result, expanded, theme));
+				if (details?.action === "list") text.setText(formatPackageSourceListResult(details.page, theme));
+				else if (details?.action === "remove") text.setText(formatPackageSourceRemoveResult(details.result, theme));
+				else if (details?.action === "clean") text.setText(formatPackageSourceCleanResult(details.result, theme));
+				else text.setText(formatPackageSourceResult(details?.action === "resolve" ? details.result : undefined, expanded, theme));
 				return text;
 			},
 		});

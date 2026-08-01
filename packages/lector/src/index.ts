@@ -191,7 +191,15 @@ export type {
 	UnavailablePackageSource,
 	VerifiedPackageSource,
 } from "./domain/package-source.ts";
-export { DEFAULT_PACKAGE_SOURCE_BOUNDS } from "./domain/package-source.ts";
+export { DEFAULT_PACKAGE_SOURCE_BOUNDS, PACKAGE_ECOSYSTEMS } from "./domain/package-source.ts";
+export type {
+	PackageSourceIndexEntry,
+	PackageSourceIndexKey,
+	PackageSourceIndexPage,
+	PackageSourceIndexQuery,
+	PackageSourceListEntry,
+} from "./domain/package-source-index.ts";
+export { queryPackageSourceIndex } from "./domain/package-source-index.ts";
 export { type PopulateSymbolGraphResult, populateSymbolGraph, type SymbolGraphPopulationFailure } from "./domain/populate-symbol-graph.ts";
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
 export { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
@@ -247,6 +255,7 @@ export type { GithubSearchPort } from "./ports/github-search-port.ts";
 export type { InstalledPackageVersionResolverPort } from "./ports/installed-package-version-resolver-port.ts";
 export type { MutationHistoryPort, RecordMutationInput } from "./ports/mutation-history-port.ts";
 export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
+export type { PackageSourceIndexPort } from "./ports/package-source-index-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 export type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 export type { SearchCachePort } from "./ports/search-cache-port.ts";

@@ -50,4 +50,32 @@ describe("Lector-backed package source operation", () => {
 		const read = await daemon.client.call("workspace.rawRead", { workspaceId: result.workspaceId as string, path: "index.ts" });
 		expect(read.content).toContain("widget");
 	});
+
+	it("lists a resolved source, then refuses removal while it is still registered", async () => {
+		sourceRoot = mkdtempSync(join(tmpdir(), "pi-lector-package-source-"));
+		writeFileSync(join(sourceRoot, "index.ts"), "export const widget = 1;\n");
+		const daemon = await startIsolatedLectorDaemon({ createPackageSourceResolver: () => new FixedResolver() });
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const operations = createLectorPackageSourceOperations();
+
+		await operations.resolve("/consumer", "@scope/widget", "1.2.3", null);
+		const page = await operations.list({ maxResults: 10 });
+
+		expect(page.entries).toHaveLength(1);
+		expect(page.entries[0]?.name).toBe("@scope/widget");
+
+		await expect(operations.remove("npm", null, "@scope/widget", "1.2.3")).rejects.toThrow(/PackageSourceEntryInUse|still registered/);
+	});
+
+	it("cleans non-in-use sources and reports counts", async () => {
+		const daemon = await startIsolatedLectorDaemon({ createPackageSourceResolver: () => new FixedResolver() });
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const operations = createLectorPackageSourceOperations();
+
+		const result = await operations.clean(undefined);
+
+		expect(result).toEqual({ removed: 0, skipped: 0 });
+	});
 });
