@@ -11,6 +11,7 @@ import type {
 	WorkspaceMapResult,
 } from "@danypops/lector";
 import { keyHint, type ThemeColor } from "@earendil-works/pi-coding-agent";
+import { renderTruncatedList } from "malevich-tui-components";
 import { colorForKind, formatLocation, type LectorTheme } from "./lector-tui-theme.ts";
 
 /**
@@ -41,16 +42,23 @@ function formatPositionalCall(toolName: string, args: { path?: unknown; line?: u
 	return `${theme.fg("toolTitle", theme.bold(toolName))} ${theme.fg("accent", `${path}:${line}:${character}`)}`;
 }
 
+function moreLine(theme: LectorTheme): (hidden: number) => string {
+	return (hidden) => theme.fg("dim", `... ${hidden} more (${keyHint("app.tools.expand", "to expand")})`);
+}
+
 function formatLocationList(locations: readonly WorkspaceLocation[] | undefined, emptyMessage: string, expanded: boolean, theme: LectorTheme): string {
 	if (!locations || locations.length === 0) return theme.fg("dim", emptyMessage);
 
-	const displayCount = expanded ? locations.length : Math.min(locations.length, DEFAULT_VISIBLE_LOCATIONS);
-	const lines = [theme.fg("muted", `${locations.length} location${locations.length === 1 ? "" : "s"}:`)];
-	for (const location of locations.slice(0, displayCount)) {
-		lines.push(`  ${formatLocation(theme, location.path, location.line, location.character)}`);
-	}
-	const remaining = locations.length - displayCount;
-	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
+	const lines = [
+		theme.fg("muted", `${locations.length} location${locations.length === 1 ? "" : "s"}:`),
+		...renderTruncatedList({
+			items: locations,
+			expanded,
+			visibleCount: DEFAULT_VISIBLE_LOCATIONS,
+			formatItem: (location) => `  ${formatLocation(theme, location.path, location.line, location.character)}`,
+			moreLine: moreLine(theme),
+		}),
+	];
 	return lines.join("\n");
 }
 
@@ -88,8 +96,14 @@ export function formatHoverResult(hover: Hover | undefined, expanded: boolean, t
 	if (!hover) return theme.fg("dim", "No hover information available.");
 	const lines = hover.contents.split("\n");
 	if (expanded || lines.length <= HOVER_COLLAPSED_LINE_COUNT) return hover.contents;
-	const remaining = lines.length - HOVER_COLLAPSED_LINE_COUNT;
-	return `${lines.slice(0, HOVER_COLLAPSED_LINE_COUNT).join("\n")}\n${theme.fg("dim", `... ${remaining} more line${remaining === 1 ? "" : "s"} (${keyHint("app.tools.expand", "to expand")})`)}`;
+	const body = renderTruncatedList({
+		items: lines,
+		expanded: false,
+		visibleCount: HOVER_COLLAPSED_LINE_COUNT,
+		formatItem: (line) => line,
+		moreLine: (hidden) => theme.fg("dim", `... ${hidden} more line${hidden === 1 ? "" : "s"} (${keyHint("app.tools.expand", "to expand")})`),
+	});
+	return body.join("\n");
 }
 
 export function formatDocumentSymbolsCall(args: { path?: unknown }, theme: LectorTheme): string {
@@ -112,19 +126,22 @@ export function formatDocumentSymbolsResult(symbols: readonly DocumentSymbolEntr
 
 	const flattened = flattenSymbols(symbols);
 	const kindColumnWidth = Math.max(...flattened.map(({ entry }) => entry.kind.length));
-	const displayCount = expanded ? flattened.length : Math.min(flattened.length, DEFAULT_VISIBLE_SYMBOLS);
-	const lines = [theme.fg("muted", `${flattened.length} symbol${flattened.length === 1 ? "" : "s"}:`)];
-
-	for (const { depth, entry } of flattened.slice(0, displayCount)) {
-		const indent = "  ".repeat(depth + 1);
-		const kind = theme.fg(colorForKind(entry.kind), entry.kind.padEnd(kindColumnWidth));
-		const name = theme.fg("text", theme.bold(entry.name));
-		const location = formatLocation(theme, entry.range.path, entry.selectionRange.start.line, entry.selectionRange.start.character);
-		lines.push(`${indent}${kind}  ${name}  ${location}`);
-	}
-
-	const remaining = flattened.length - displayCount;
-	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
+	const lines = [
+		theme.fg("muted", `${flattened.length} symbol${flattened.length === 1 ? "" : "s"}:`),
+		...renderTruncatedList({
+			items: flattened,
+			expanded,
+			visibleCount: DEFAULT_VISIBLE_SYMBOLS,
+			formatItem: ({ depth, entry }) => {
+				const indent = "  ".repeat(depth + 1);
+				const kind = theme.fg(colorForKind(entry.kind), entry.kind.padEnd(kindColumnWidth));
+				const name = theme.fg("text", theme.bold(entry.name));
+				const location = formatLocation(theme, entry.range.path, entry.selectionRange.start.line, entry.selectionRange.start.character);
+				return `${indent}${kind}  ${name}  ${location}`;
+			},
+			moreLine: moreLine(theme),
+		}),
+	];
 	return lines.join("\n");
 }
 
@@ -136,18 +153,21 @@ export function formatDiagnosticsCall(args: { path?: unknown }, theme: LectorThe
 export function formatDiagnosticsResult(diagnostics: readonly Diagnostic[] | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!diagnostics || diagnostics.length === 0) return theme.fg("success", "No diagnostics.");
 
-	const displayCount = expanded ? diagnostics.length : Math.min(diagnostics.length, DEFAULT_VISIBLE_DIAGNOSTICS);
-	const lines = [theme.fg("muted", `${diagnostics.length} diagnostic${diagnostics.length === 1 ? "" : "s"}:`)];
-
-	for (const diagnostic of diagnostics.slice(0, displayCount)) {
-		const severity = theme.fg(DIAGNOSTIC_SEVERITY_COLOR[diagnostic.severity], theme.bold(diagnostic.severity));
-		const location = formatLocation(theme, diagnostic.range.path, diagnostic.range.start.line, diagnostic.range.start.character);
-		const origin = diagnostic.source ? theme.fg("dim", ` (${diagnostic.source}${diagnostic.code !== undefined ? ` ${diagnostic.code}` : ""})`) : "";
-		lines.push(`  ${severity} ${location} -- ${diagnostic.message}${origin}`);
-	}
-
-	const remaining = diagnostics.length - displayCount;
-	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
+	const lines = [
+		theme.fg("muted", `${diagnostics.length} diagnostic${diagnostics.length === 1 ? "" : "s"}:`),
+		...renderTruncatedList({
+			items: diagnostics,
+			expanded,
+			visibleCount: DEFAULT_VISIBLE_DIAGNOSTICS,
+			formatItem: (diagnostic) => {
+				const severity = theme.fg(DIAGNOSTIC_SEVERITY_COLOR[diagnostic.severity], theme.bold(diagnostic.severity));
+				const location = formatLocation(theme, diagnostic.range.path, diagnostic.range.start.line, diagnostic.range.start.character);
+				const origin = diagnostic.source ? theme.fg("dim", ` (${diagnostic.source}${diagnostic.code !== undefined ? ` ${diagnostic.code}` : ""})`) : "";
+				return `  ${severity} ${location} -- ${diagnostic.message}${origin}`;
+			},
+			moreLine: moreLine(theme),
+		}),
+	];
 	return lines.join("\n");
 }
 
@@ -183,24 +203,32 @@ function formatPrepareCallHierarchyResult(items: readonly CallHierarchyEntry[] |
 function formatIncomingCallsResult(calls: readonly IncomingCall[] | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!calls || calls.length === 0) return theme.fg("dim", "No incoming calls found.");
 
-	const displayCount = expanded ? calls.length : Math.min(calls.length, DEFAULT_VISIBLE_CALLS);
-	const lines = [theme.fg("muted", `${calls.length} caller${calls.length === 1 ? "" : "s"}:`)];
-	for (const call of calls.slice(0, displayCount)) lines.push(`  ${formatCallHierarchyEntry(call.from, theme)}`);
-
-	const remaining = calls.length - displayCount;
-	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
+	const lines = [
+		theme.fg("muted", `${calls.length} caller${calls.length === 1 ? "" : "s"}:`),
+		...renderTruncatedList({
+			items: calls,
+			expanded,
+			visibleCount: DEFAULT_VISIBLE_CALLS,
+			formatItem: (call) => `  ${formatCallHierarchyEntry(call.from, theme)}`,
+			moreLine: moreLine(theme),
+		}),
+	];
 	return lines.join("\n");
 }
 
 function formatOutgoingCallsResult(calls: readonly OutgoingCall[] | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!calls || calls.length === 0) return theme.fg("dim", "No outgoing calls found.");
 
-	const displayCount = expanded ? calls.length : Math.min(calls.length, DEFAULT_VISIBLE_CALLS);
-	const lines = [theme.fg("muted", `${calls.length} callee${calls.length === 1 ? "" : "s"}:`)];
-	for (const call of calls.slice(0, displayCount)) lines.push(`  ${formatCallHierarchyEntry(call.to, theme)}`);
-
-	const remaining = calls.length - displayCount;
-	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
+	const lines = [
+		theme.fg("muted", `${calls.length} callee${calls.length === 1 ? "" : "s"}:`),
+		...renderTruncatedList({
+			items: calls,
+			expanded,
+			visibleCount: DEFAULT_VISIBLE_CALLS,
+			formatItem: (call) => `  ${formatCallHierarchyEntry(call.to, theme)}`,
+			moreLine: moreLine(theme),
+		}),
+	];
 	return lines.join("\n");
 }
 
@@ -221,12 +249,16 @@ export function formatReachableFromResult(symbols: readonly SymbolNode[] | undef
 	if (!symbols || symbols.length === 0)
 		return theme.fg("dim", "Nothing reachable at this position (the workspace's symbol graph may still be populating in the background -- retry shortly).");
 
-	const displayCount = expanded ? symbols.length : Math.min(symbols.length, DEFAULT_VISIBLE_CALLS);
-	const lines = [theme.fg("muted", `${symbols.length} reachable symbol${symbols.length === 1 ? "" : "s"}:`)];
-	for (const symbol of symbols.slice(0, displayCount)) lines.push(`  ${formatCallHierarchyEntry(symbol, theme)}`);
-
-	const remaining = symbols.length - displayCount;
-	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
+	const lines = [
+		theme.fg("muted", `${symbols.length} reachable symbol${symbols.length === 1 ? "" : "s"}:`),
+		...renderTruncatedList({
+			items: symbols,
+			expanded,
+			visibleCount: DEFAULT_VISIBLE_CALLS,
+			formatItem: (symbol) => `  ${formatCallHierarchyEntry(symbol, theme)}`,
+			moreLine: moreLine(theme),
+		}),
+	];
 	return lines.join("\n");
 }
 
@@ -240,21 +272,22 @@ export function formatWorkspaceMapResult(result: WorkspaceMapResult | undefined,
 	if (!result || result.entries.length === 0)
 		return theme.fg("dim", "No ranked symbols (the workspace's symbol graph may still be populating in the background -- retry shortly).");
 
-	const displayCount = expanded ? result.entries.length : Math.min(result.entries.length, DEFAULT_VISIBLE_SYMBOLS);
 	const lines = [
 		theme.fg(
 			"muted",
 			`${result.entries.length} of ${result.totalRanked} ranked symbol${result.totalRanked === 1 ? "" : "s"}, most structurally central first:`,
 		),
+		...renderTruncatedList({
+			items: result.entries,
+			expanded,
+			visibleCount: DEFAULT_VISIBLE_SYMBOLS,
+			formatItem: (entry) => {
+				const signature = entry.signature ? ` -- ${entry.signature}` : "";
+				return `  ${theme.fg(colorForKind(entry.kind), entry.kind)} ${theme.bold(entry.name)}  ${formatLocation(theme, entry.path, entry.line, entry.character)}${signature}`;
+			},
+			moreLine: moreLine(theme),
+			truncationWarning: result.truncated ? theme.fg("warning", "budget-truncated -- raise --max-entries/--max-bytes for more") : undefined,
+		}),
 	];
-	for (const entry of result.entries.slice(0, displayCount)) {
-		const signature = entry.signature ? ` -- ${entry.signature}` : "";
-		lines.push(
-			`  ${theme.fg(colorForKind(entry.kind), entry.kind)} ${theme.bold(entry.name)}  ${formatLocation(theme, entry.path, entry.line, entry.character)}${signature}`,
-		);
-	}
-	const remaining = displayCount - result.entries.length;
-	if (remaining < 0) lines.push(theme.fg("dim", `... ${-remaining} more (${keyHint("app.tools.expand", "to expand")})`));
-	if (result.truncated) lines.push(theme.fg("warning", "budget-truncated -- raise --max-entries/--max-bytes for more"));
 	return lines.join("\n");
 }

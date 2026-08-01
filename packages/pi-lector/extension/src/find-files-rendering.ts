@@ -1,5 +1,6 @@
 import type { FindFilesResult } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
+import { renderTruncatedList } from "malevich-tui-components";
 import type { LectorTheme } from "./lector-tui-theme.ts";
 
 const DEFAULT_VISIBLE_PATHS = 40;
@@ -12,10 +13,13 @@ export function formatFindFilesCall(args: { directory?: unknown; patterns?: unkn
 
 export function formatFindFilesResult(result: FindFilesResult | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!result || result.paths.length === 0) return theme.fg("dim", "No files found.");
-	const displayCount = expanded ? result.paths.length : Math.min(DEFAULT_VISIBLE_PATHS, result.paths.length);
-	const lines = result.paths.slice(0, displayCount).map((path) => theme.fg("accent", path));
-	const remaining = result.paths.length - displayCount;
-	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
-	if (result.truncated) lines.push(theme.fg("warning", "(listing itself was truncated by maxResults/maxBytes -- results are incomplete)"));
+	const lines = renderTruncatedList({
+		items: result.paths,
+		expanded,
+		visibleCount: DEFAULT_VISIBLE_PATHS,
+		formatItem: (path) => theme.fg("accent", path),
+		moreLine: (hidden) => theme.fg("dim", `... ${hidden} more (${keyHint("app.tools.expand", "to expand")})`),
+		truncationWarning: result.truncated ? theme.fg("warning", "(listing itself was truncated by maxResults/maxBytes -- results are incomplete)") : undefined,
+	});
 	return lines.join("\n");
 }

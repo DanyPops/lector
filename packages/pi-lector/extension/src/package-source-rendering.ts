@@ -1,4 +1,5 @@
 import type { PackageSourceOperationResult } from "@danypops/lector";
+import { renderTruncatedList } from "malevich-tui-components";
 import type { LectorTheme } from "./lector-tui-theme.ts";
 
 const DEFAULT_VISIBLE_CANDIDATES = 5;
@@ -21,11 +22,17 @@ export function formatPackageSourceResult(result: PackageSourceOperationResult |
 		].join("\n");
 	}
 	if (outcome.status === "ambiguous") {
-		const visible = expanded ? outcome.candidates : outcome.candidates.slice(0, DEFAULT_VISIBLE_CANDIDATES);
-		const lines = [theme.fg("warning", `Ambiguous package source (${outcome.code})`)];
-		for (const candidate of visible) lines.push(`${candidate.version} -- ${candidate.source}`);
-		const hidden = outcome.candidates.length - visible.length;
-		if (hidden > 0 || outcome.truncated) lines.push(theme.fg("dim", outcome.truncated ? "More candidates were truncated by the daemon." : `… ${hidden} more`));
+		const lines = [
+			theme.fg("warning", `Ambiguous package source (${outcome.code})`),
+			...renderTruncatedList({
+				items: outcome.candidates,
+				expanded,
+				visibleCount: DEFAULT_VISIBLE_CANDIDATES,
+				formatItem: (candidate) => `${candidate.version} -- ${candidate.source}`,
+				moreLine: (hidden) => theme.fg("dim", `… ${hidden} more`),
+				truncationWarning: outcome.truncated ? theme.fg("dim", "More candidates were truncated by the daemon.") : undefined,
+			}),
+		];
 		return lines.join("\n");
 	}
 	if (outcome.status === "unauthenticated") {

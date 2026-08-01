@@ -1,5 +1,6 @@
 import type { SymbolSearchResult, WorkspaceSymbol } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
+import { renderTruncatedList } from "malevich-tui-components";
 import { colorForKind, formatLocation, type LectorTheme } from "./lector-tui-theme.ts";
 
 /**
@@ -52,21 +53,18 @@ export function formatFindSymbolsResult(result: SymbolSearchResult | undefined, 
 	}
 
 	const kindColumnWidth = Math.max(...symbols.map((symbol) => symbol.kind.length));
-	const displayCount = expanded ? symbols.length : Math.min(symbols.length, DEFAULT_VISIBLE_RESULTS);
 	const lines = [
 		theme.fg("muted", source),
 		...sourceLines,
 		theme.fg("muted", `${symbols.length} symbol${symbols.length === 1 ? "" : "s"} matching "${query}":`),
+		...renderTruncatedList({
+			items: symbols,
+			expanded,
+			visibleCount: DEFAULT_VISIBLE_RESULTS,
+			formatItem: (symbol) => formatSymbolLine(symbol, theme, kindColumnWidth),
+			moreLine: (hidden) => theme.fg("dim", `... ${hidden} more (${keyHint("app.tools.expand", "to expand")})`),
+		}),
 	];
-
-	for (const symbol of symbols.slice(0, displayCount)) {
-		lines.push(formatSymbolLine(symbol, theme, kindColumnWidth));
-	}
-
-	const remaining = symbols.length - displayCount;
-	if (remaining > 0) {
-		lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
-	}
 
 	return lines.join("\n");
 }

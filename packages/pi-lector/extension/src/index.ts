@@ -33,8 +33,13 @@ import {
 	createWriteToolDefinition,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Table, type TextMeasure } from "malevich-tui-components";
 import { Type } from "typebox";
+
+/** Real ANSI-aware measurement for Table -- Malevich's own default is ASCII-only, unsafe against theme-styled cell/header text. */
+const tableMeasure: TextMeasure = { visibleWidth, truncateToWidth };
+
 import { createLectorApplyPatchOperations } from "./apply-patch-operations.ts";
 import { formatApplyPatchCall, formatApplyPatchResult } from "./apply-patch-rendering.ts";
 import { createLectorCodeIntelligenceOperations } from "./code-intelligence-operations.ts";
@@ -87,7 +92,14 @@ import { createReferenceBasedRenameOperations } from "./reference-based-rename-o
 import { createRenameOperations } from "./rename-operations.ts";
 import { createRepoCacheEvictOperations } from "./repo-cache-evict-operations.ts";
 import { createRepoCacheListOperations } from "./repo-cache-list-operations.ts";
-import { formatRepoCacheCall, formatRepoCacheEvictResult, formatRepoCacheListResult, formatRepoFetchResult } from "./repo-cache-rendering.ts";
+import {
+	buildRepoCacheTableRows,
+	formatRepoCacheCall,
+	formatRepoCacheEvictResult,
+	formatRepoCacheListResult,
+	formatRepoFetchResult,
+	REPO_CACHE_TABLE_COLUMNS,
+} from "./repo-cache-rendering.ts";
 import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
 import { createLectorSearchOperations } from "./search-operations.ts";
 import { formatSearchCall, formatSearchResult } from "./search-rendering.ts";
@@ -1261,7 +1273,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatApplyPatchCall(args, theme));
+				text.setText(formatApplyPatchCall(args, theme, tableMeasure));
 				return text;
 			},
 			renderResult(result, { isPartial }, theme, context) {
@@ -1445,6 +1457,17 @@ export default function (pi: ExtensionAPI) {
 					return new Text(theme.fg("error", errorText || "repo_cache failed"), 0, 0);
 				}
 				const details = result.details as RepoCacheToolDetails | undefined;
+				// A non-empty list renders as a real Table -- the human channel actually shows
+				// host/owner/repo/ref/registered/size/fetched, not just a bare count. Every other
+				// branch (empty list, fetch, evict) stays a plain Text line as before.
+				if (details?.action === "list" && details.page.entries.length > 0) {
+					const table =
+						context.lastComponent instanceof Table
+							? context.lastComponent
+							: new Table({ columns: REPO_CACHE_TABLE_COLUMNS, rows: [], measure: tableMeasure, headerStyle: (s) => theme.fg("muted", theme.bold(s)) });
+					table.setRows(buildRepoCacheTableRows(details.page.entries));
+					return table;
+				}
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				if (details?.action === "list") text.setText(formatRepoCacheListResult(details.page, theme));
 				else if (details?.action === "evict") text.setText(formatRepoCacheEvictResult(details.result, theme));

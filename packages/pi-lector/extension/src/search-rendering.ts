@@ -1,5 +1,6 @@
 import type { TextSearchResult } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
+import { renderTruncatedList } from "malevich-tui-components";
 import type { LectorTheme } from "./lector-tui-theme.ts";
 
 const DEFAULT_VISIBLE_MATCHES = 20;
@@ -12,10 +13,13 @@ export function formatSearchCall(args: { directory?: unknown; query?: unknown },
 
 export function formatSearchResult(result: TextSearchResult | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!result || result.matches.length === 0) return theme.fg("dim", "No matches found.");
-	const displayCount = expanded ? result.matches.length : Math.min(DEFAULT_VISIBLE_MATCHES, result.matches.length);
-	const lines = result.matches.slice(0, displayCount).map((match) => `${theme.fg("accent", match.path)}:${match.lineNumber}: ${match.line.replace(/\n$/, "")}`);
-	const remaining = result.matches.length - displayCount;
-	if (remaining > 0) lines.push(theme.fg("dim", `... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
-	if (result.truncated) lines.push(theme.fg("warning", "(search itself was truncated by maxMatches/maxBytes -- results are incomplete)"));
+	const lines = renderTruncatedList({
+		items: result.matches,
+		expanded,
+		visibleCount: DEFAULT_VISIBLE_MATCHES,
+		formatItem: (match) => `${theme.fg("accent", match.path)}:${match.lineNumber}: ${match.line.replace(/\n$/, "")}`,
+		moreLine: (hidden) => theme.fg("dim", `... ${hidden} more (${keyHint("app.tools.expand", "to expand")})`),
+		truncationWarning: result.truncated ? theme.fg("warning", "(search itself was truncated by maxMatches/maxBytes -- results are incomplete)") : undefined,
+	});
 	return lines.join("\n");
 }

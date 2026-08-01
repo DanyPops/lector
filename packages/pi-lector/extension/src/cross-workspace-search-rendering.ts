@@ -1,5 +1,6 @@
 import type { SymbolSearchResult, TextSearchResult, WorkspaceQueryOutcome } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
+import { renderTruncatedList } from "malevich-tui-components";
 import { describeFindSymbolSources } from "./find-symbols-rendering.ts";
 import type { LectorTheme } from "./lector-tui-theme.ts";
 
@@ -35,12 +36,15 @@ export function formatFindSymbolsAcrossProjectsResult(
 			lines.push(theme.fg("dim", "  no symbols matched"));
 			continue;
 		}
-		const displayCount = expanded ? outcome.result.symbols.length : Math.min(DEFAULT_VISIBLE_PER_WORKSPACE, outcome.result.symbols.length);
-		for (const symbol of outcome.result.symbols.slice(0, displayCount)) {
-			lines.push(`  ${symbol.kind} ${symbol.name} -- ${symbol.location.path}:${symbol.location.line}:${symbol.location.character}`);
-		}
-		const remaining = outcome.result.symbols.length - displayCount;
-		if (remaining > 0) lines.push(theme.fg("dim", `  ... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
+		lines.push(
+			...renderTruncatedList({
+				items: outcome.result.symbols,
+				expanded,
+				visibleCount: DEFAULT_VISIBLE_PER_WORKSPACE,
+				formatItem: (symbol) => `  ${symbol.kind} ${symbol.name} -- ${symbol.location.path}:${symbol.location.line}:${symbol.location.character}`,
+				moreLine: (hidden) => theme.fg("dim", `  ... ${hidden} more (${keyHint("app.tools.expand", "to expand")})`),
+			}),
+		);
 	}
 	return lines.join("\n");
 }
@@ -59,13 +63,18 @@ export function formatSearchTextAcrossProjectsResult(
 			lines.push(theme.fg("dim", "  no matches"));
 			continue;
 		}
-		const displayCount = expanded ? outcome.result.matches.length : Math.min(DEFAULT_VISIBLE_PER_WORKSPACE, outcome.result.matches.length);
-		for (const match of outcome.result.matches.slice(0, displayCount)) {
-			lines.push(`  ${match.path}:${match.lineNumber}: ${match.line.replace(/\n$/, "")}`);
-		}
-		const remaining = outcome.result.matches.length - displayCount;
-		if (remaining > 0) lines.push(theme.fg("dim", `  ... ${remaining} more (${keyHint("app.tools.expand", "to expand")})`));
-		if (outcome.result.truncated) lines.push(theme.fg("warning", "  (this workspace's search was itself truncated by maxMatches/maxBytes)"));
+		lines.push(
+			...renderTruncatedList({
+				items: outcome.result.matches,
+				expanded,
+				visibleCount: DEFAULT_VISIBLE_PER_WORKSPACE,
+				formatItem: (match) => `  ${match.path}:${match.lineNumber}: ${match.line.replace(/\n$/, "")}`,
+				moreLine: (hidden) => theme.fg("dim", `  ... ${hidden} more (${keyHint("app.tools.expand", "to expand")})`),
+				truncationWarning: outcome.result.truncated
+					? theme.fg("warning", "  (this workspace's search was itself truncated by maxMatches/maxBytes)")
+					: undefined,
+			}),
+		);
 	}
 	return lines.join("\n");
 }

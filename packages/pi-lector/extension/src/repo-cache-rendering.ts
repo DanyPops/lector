@@ -1,4 +1,5 @@
-import type { CachedRepositoryPage, RepoFetchResult } from "@danypops/lector";
+import type { CachedRepositoryEntry, CachedRepositoryPage, RepoFetchResult } from "@danypops/lector";
+import type { TableColumn } from "malevich-tui-components";
 import type { LectorTheme } from "./lector-tui-theme.ts";
 
 type RepoCacheAction = "fetch" | "list" | "evict";
@@ -31,9 +32,40 @@ export function formatRepoFetchResult(result: (RepoFetchResult & { workspaceId: 
 	return lines.join("\n");
 }
 
+/** Empty-state fallback only -- a non-empty page renders as a real Table (see REPO_CACHE_TABLE_COLUMNS/buildRepoCacheTableRows) so the human channel actually shows what's cached, not just a bare count. */
 export function formatRepoCacheListResult(page: CachedRepositoryPage | undefined, theme: LectorTheme): string {
 	const count = page?.entries.length ?? 0;
 	return count === 0 ? theme.fg("dim", "no cached repositories") : theme.fg("success", `${count} cached repositor${count === 1 ? "y" : "ies"}`);
+}
+
+export const REPO_CACHE_TABLE_COLUMNS: TableColumn[] = [
+	{ header: "Repository", key: "repo" },
+	{ header: "Ref", key: "ref" },
+	{ header: "Registered", key: "registered" },
+	{ header: "Size", key: "size" },
+	{ header: "Fetched", key: "fetched" },
+];
+
+/** Powers of 1024, one decimal past the first -- "cache size" is always at least a git checkout, so bytes/KB granularity is never useful here. */
+function formatCacheSize(bytes: number): string {
+	const units = ["B", "KB", "MB", "GB", "TB"] as const;
+	let value = bytes;
+	let unitIndex = 0;
+	while (value >= 1024 && unitIndex < units.length - 1) {
+		value /= 1024;
+		unitIndex++;
+	}
+	return `${unitIndex === 0 ? value : value.toFixed(1)} ${units[unitIndex]}`;
+}
+
+export function buildRepoCacheTableRows(entries: readonly CachedRepositoryEntry[]): Record<string, string>[] {
+	return entries.map((entry) => ({
+		repo: `${entry.host}/${entry.owner}/${entry.repo}`,
+		ref: entry.requestedRef === entry.resolvedRef ? entry.resolvedRef : `${entry.requestedRef} -> ${entry.resolvedRef}`,
+		registered: entry.registeredWorkspaceId ?? "no",
+		size: formatCacheSize(entry.cacheSizeBytes),
+		fetched: new Date(entry.fetchedAt).toISOString(),
+	}));
 }
 
 export function formatRepoCacheEvictResult(result: { evicted: boolean } | undefined, theme: LectorTheme): string {
