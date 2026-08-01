@@ -19,7 +19,9 @@ describe("Lector systemd service", () => {
 
 	it('declares "service" launch provenance and restartOnFailure -- Lector\'s own client never auto-spawns, so systemd is its only recovery path', () => {
 		const unit = generateSystemdUnit(lectorServiceSpec());
-		expect(unit).toContain(`Environment=${LAUNCH_PROVENANCE_ENV_VAR}=service`);
+		// vehicle-server 0.3.2 quotes/escapes every Environment= value -- this asserts
+		// the quoted form, not the bare one, since that's now the real generated output.
+		expect(unit).toContain(`Environment="${LAUNCH_PROVENANCE_ENV_VAR}=service"`);
 		expect(unit).toContain("Restart=always");
 		expect(unit).toContain("RestartSec=2");
 	});
