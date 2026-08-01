@@ -110,6 +110,10 @@ const USAGE = `Usage:
   lector workspace git-status <workspace-id> [--json]
   lector workspace git-log <workspace-id> --max-count <n> [--json]
   lector workspace git-diff <workspace-id> [--ref <ref>] --max-bytes <n> [--json]
+  lector workspace compare-symbol <workspace-id> --path <p> --symbol <name> --from-ref <ref>
+    [--to-ref <ref>] --max-bytes <n> [--json]
+    tree-sitter syntactic tier only: a real unified diff of one symbol's own declaration text
+    between two git refs, or a ref and the current working tree when --to-ref is omitted
   lector workspace repo-fetch <owner>/<repo>[@ref] [--host <host>] [--force-refresh] [--json]
     shallow-clones an external repo into a disk-bounded cache and registers it read-only;
     --force-refresh reclones even when an unexpired cache entry already exists (the "update"
@@ -646,6 +650,25 @@ async function runWorkspaceGitDiff(workspaceId: string | undefined, flags: strin
 		return;
 	}
 	console.log(result.diff);
+	if (result.truncated) console.log("... (truncated)");
+}
+
+async function runWorkspaceCompareSymbol(workspaceId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const path = flagValue(flags, "--path");
+	const symbolName = flagValue(flags, "--symbol");
+	const fromRef = flagValue(flags, "--from-ref");
+	if (!path || !symbolName || !fromRef) fail(USAGE);
+	const toRef = flagValue(flags, "--to-ref");
+	const maxBytes = requiredIntFlag(flags, "--max-bytes");
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.compareSymbolAcrossVersions", { workspaceId, path, symbolName, fromRef, toRef, maxBytes });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	console.log(`${result.status}: ${result.path} (${result.symbolName}) ${result.fromRef} -> ${result.toRef}`);
+	if (result.diff) console.log(result.diff);
 	if (result.truncated) console.log("... (truncated)");
 }
 
@@ -1408,6 +1431,11 @@ async function main(): Promise<void> {
 			if (action === "git-status") return runWorkspaceGitStatus(gitWorkspaceId, gitFlags);
 			if (action === "git-log") return runWorkspaceGitLog(gitWorkspaceId, gitFlags);
 			return runWorkspaceGitDiff(gitWorkspaceId, gitFlags);
+		}
+		if (action === "compare-symbol") {
+			// Same reasoning as git-status/git-log/git-diff above -- --path is a flag here, not a positional.
+			const [csWorkspaceId, ...csFlags] = actionArgs;
+			return runWorkspaceCompareSymbol(csWorkspaceId, csFlags);
 		}
 		if (action === "repo-fetch") {
 			const [spec, ...repoFlags] = actionArgs;

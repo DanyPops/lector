@@ -34,7 +34,7 @@ interface DeclarationKind {
 }
 
 /** Top-level and class-member declaration shapes in tree-sitter's TypeScript/JavaScript grammars. */
-const DECLARATION_KINDS: readonly DeclarationKind[] = [
+export const DECLARATION_KINDS: readonly DeclarationKind[] = [
 	{ nodeType: "function_declaration", kind: "function" },
 	{ nodeType: "class_declaration", kind: "class" },
 	{ nodeType: "interface_declaration", kind: "interface" },

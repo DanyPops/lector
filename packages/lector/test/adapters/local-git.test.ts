@@ -113,4 +113,38 @@ describe("LocalGit", () => {
 		repoRoot = buildRepo();
 		await expect(new LocalGit(repoRoot).diff("--upload-pack=evil", 1000)).rejects.toBeInstanceOf(UnsafeGitArgument);
 	});
+
+	it("showFile returns a path's exact blob content at a real ref", async () => {
+		repoRoot = buildRepo();
+		const content = await new LocalGit(repoRoot).showFile("HEAD", "a.txt");
+		expect(content).toBe("hello\n");
+	});
+
+	it("showFile resolves a path relative to the workspace root, not the git repository's top level", async () => {
+		repoRoot = buildRepo();
+		const { mkdirSync } = await import("node:fs");
+		mkdirSync(join(repoRoot, "sub"));
+		writeFileSync(join(repoRoot, "sub", "b.txt"), "nested\n");
+		git(repoRoot, "add", "sub/b.txt");
+		git(repoRoot, "commit", "-q", "-m", "add nested file");
+
+		const content = await new LocalGit(join(repoRoot, "sub")).showFile("HEAD", "b.txt");
+		expect(content).toBe("nested\n");
+	});
+
+	it("showFile returns undefined when the path does not exist at a valid ref, not an error", async () => {
+		repoRoot = buildRepo();
+		const content = await new LocalGit(repoRoot).showFile("HEAD", "missing.txt");
+		expect(content).toBeUndefined();
+	});
+
+	it("showFile still throws for a genuinely invalid ref, distinct from a missing path", async () => {
+		repoRoot = buildRepo();
+		await expect(new LocalGit(repoRoot).showFile("no-such-ref", "a.txt")).rejects.toThrow();
+	});
+
+	it("showFile rejects a ref that looks like a flag", async () => {
+		repoRoot = buildRepo();
+		await expect(new LocalGit(repoRoot).showFile("--upload-pack=evil", "a.txt")).rejects.toBeInstanceOf(UnsafeGitArgument);
+	});
 });

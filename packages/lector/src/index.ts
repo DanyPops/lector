@@ -92,6 +92,7 @@ export type { CachedRepositoryEntry, CachedRepositoryPage, CachedRepositoryQuery
 export type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 export { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
 export type { CodeRange } from "./domain/code-range.ts";
+export type { SymbolComparisonStatus, SymbolDeclarationComparison } from "./domain/compare-symbol-declarations.ts";
 export { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
 export type { Diagnostic, DiagnosticSeverity } from "./domain/diagnostic.ts";
 export { diagnostics } from "./domain/diagnostics.ts";
@@ -220,6 +221,7 @@ export type {
 	SymbolAnnotationAnchor,
 } from "./domain/symbol-annotation.ts";
 export { type AnchorReality, isAnnotationStale } from "./domain/symbol-annotation-staleness.ts";
+export type { SymbolDeclarationSnapshot } from "./domain/symbol-declaration-snapshot.ts";
 export { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 export { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 export type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
@@ -275,6 +277,7 @@ export {
 	PackageSourceResolverNotConfigured,
 	ReferenceBasedRenameRequiresFreshGraph,
 	RepoFetcherNotConfigured,
+	SymbolComparisonUnsupportedLanguage,
 	SymbolQueryUnavailable,
 	UnknownAnnotationAnchor,
 	UnknownAnnotationForContainment,

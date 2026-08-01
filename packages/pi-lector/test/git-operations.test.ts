@@ -77,4 +77,26 @@ describe("Lector-backed git operations", () => {
 
 		expect(result.diff).toContain("+changed content");
 	}, 20_000);
+
+	it("compareSymbol reports a real unified diff for a symbol changed between two commits, via a running Lector daemon", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		repoRoot = buildRepo();
+		writeFileSync(join(repoRoot, "a.ts"), "export function greet() {\n\treturn 'hi';\n}\n");
+		git(repoRoot, "add", "a.ts");
+		git(repoRoot, "commit", "-q", "-m", "add greet");
+		const v1 = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot }).toString().trim();
+		writeFileSync(join(repoRoot, "a.ts"), "export function greet() {\n\treturn 'hello';\n}\n");
+		git(repoRoot, "add", "a.ts");
+		git(repoRoot, "commit", "-q", "-m", "change greet");
+		const v2 = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot }).toString().trim();
+
+		const ops = createLectorGitOperations();
+		const result = await ops.compareSymbol(repoRoot, "a.ts", "greet", v1, v2, 10_000);
+
+		expect(result.status).toBe("changed");
+		expect(result.diff).toContain("-\treturn 'hi';");
+		expect(result.diff).toContain("+\treturn 'hello';");
+	}, 20_000);
 });

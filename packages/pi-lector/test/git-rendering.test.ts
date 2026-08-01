@@ -121,6 +121,40 @@ describe("formatGitResult -- diff", () => {
 	});
 });
 
+describe("formatGitResult -- compare-symbol", () => {
+	function compareSymbol(overrides: Partial<GitToolDetails["comparison"]> = {}): GitToolDetails {
+		return {
+			action: "compare-symbol",
+			comparison: { path: "a.ts", symbolName: "greet", fromRef: "v1", toRef: "v2", status: "changed", diff: "", truncated: false, ...overrides },
+		};
+	}
+
+	it("reports the symbol, path, and both version labels", () => {
+		const text = formatGitResult(compareSymbol(), false, theme);
+		expect(text).toContain("a.ts");
+		expect(text).toContain("greet");
+		expect(text).toContain("v1");
+		expect(text).toContain("v2");
+	});
+
+	it("renders the real diff text for a changed symbol", () => {
+		const diffText = ["@@ -1,1 +1,1 @@", "-return 'hi';", "+return 'hello';"].join("\n");
+		const text = formatGitResult(compareSymbol({ status: "changed", diff: diffText }), false, theme);
+		expect(text).toContain("-return 'hi';");
+		expect(text).toContain("+return 'hello';");
+	});
+
+	it("shows a clear message with no diff lines for both-missing", () => {
+		const text = formatGitResult(compareSymbol({ status: "both-missing", diff: "" }), false, theme);
+		expect(text).toContain("neither version");
+	});
+
+	it("shows a clear message with no diff lines for unchanged", () => {
+		const text = formatGitResult(compareSymbol({ status: "unchanged", diff: "" }), false, theme);
+		expect(text).toContain("unchanged");
+	});
+});
+
 describe("formatGitResult -- no details", () => {
 	it("shows a placeholder when there's no result at all", () => {
 		expect(formatGitResult(undefined, false, theme)).toContain("No result");

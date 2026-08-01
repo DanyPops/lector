@@ -23,7 +23,9 @@ import { ReadOnlyWorkspace } from "./adapters/read-only-workspace.ts";
 import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "./adapters/source-manifest.ts";
 import { SourcegraphSearchClient } from "./adapters/sourcegraph-search-client.ts";
+import { extractDeclarationSnapshot } from "./adapters/tree-sitter/declaration-text.ts";
 import { findImportSpecifiers } from "./adapters/tree-sitter/import-specifiers.ts";
+import { wasmPathForExtension } from "./adapters/tree-sitter/typescript-parser.ts";
 import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "./adapters/typescript-compiler-symbol-index.ts";
 import { annotationsContainedFrom, wouldCreateContainmentCycle } from "./domain/annotation-containment.ts";
@@ -40,6 +42,7 @@ import {
 } from "./domain/cached-repository-entry.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
+import { compareSymbolDeclarations, type SymbolComparisonStatus } from "./domain/compare-symbol-declarations.ts";
 import { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
 import { DebouncedScheduler } from "./domain/debounced-scheduler.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
@@ -84,6 +87,7 @@ import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from
 import { searchText as searchTextQuery } from "./domain/search-text.ts";
 import { SerialExecutionQueue } from "./domain/serial-execution-queue.ts";
 import type { AnnotationId, SymbolAnnotation, SymbolAnnotationAnchor } from "./domain/symbol-annotation.ts";
+import type { SymbolDeclarationSnapshot } from "./domain/symbol-declaration-snapshot.ts";
 import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 import type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
@@ -161,6 +165,19 @@ export class NotAGitRepository extends Error {
 	constructor(readonly workspaceId: WorkspaceId) {
 		super(`workspace "${workspaceId}" is not inside a git repository`);
 		this.name = "NotAGitRepository";
+	}
+}
+
+/**
+ * Raised when workspace.compareSymbolAcrossVersions targets a file extension outside
+ * Lector's tree-sitter TypeScript/JavaScript grammars -- a narrower list than
+ * UnsupportedLanguage's LSP-backed extension set, since this operation's first pass is the
+ * syntactic tier only (no real checkout, no project-aware LSP resolution across versions yet).
+ */
+export class SymbolComparisonUnsupportedLanguage extends Error {
+	constructor(readonly extension: string) {
+		super(`workspace.compareSymbolAcrossVersions has no tree-sitter grammar for extension "${extension}"`);
+		this.name = "SymbolComparisonUnsupportedLanguage";
 	}
 }
 
@@ -344,6 +361,7 @@ export type OperationName =
 	| "workspace.gitStatus"
 	| "workspace.gitLog"
 	| "workspace.gitDiff"
+	| "workspace.compareSymbolAcrossVersions"
 	| "repo.fetch"
 	| "repo.listCache"
 	| "repo.evictCache"
@@ -400,6 +418,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.gitStatus",
 	"workspace.gitLog",
 	"workspace.gitDiff",
+	"workspace.compareSymbolAcrossVersions",
 	"repo.fetch",
 	"repo.listCache",
 	"repo.evictCache",
@@ -466,6 +485,8 @@ export interface OperationInputs {
 	"workspace.gitStatus": { workspaceId: WorkspaceId };
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
+	/** toRef omitted means "the current working tree" -- fromRef is always a real git ref, never optional, since there is always at least one real version to compare from. */
+	"workspace.compareSymbolAcrossVersions": { workspaceId: WorkspaceId; path: string; symbolName: string; fromRef: string; toRef?: string; maxBytes: number };
 	"repo.fetch": RepoReference & { forceRefresh?: boolean };
 	"repo.listCache": CachedRepositoryQuery & { maxResults: number; cursor?: string };
 	"repo.evictCache": RepoReference;
@@ -559,6 +580,16 @@ export interface OperationOutputs {
 	"workspace.gitStatus": GitStatusSummary;
 	"workspace.gitLog": { entries: readonly GitLogEntry[] };
 	"workspace.gitDiff": GitDiffResult;
+	"workspace.compareSymbolAcrossVersions": {
+		readonly path: string;
+		readonly symbolName: string;
+		readonly fromRef: string;
+		/** Echoes the literal string "working tree" when toRef was omitted from the request. */
+		readonly toRef: string;
+		readonly status: SymbolComparisonStatus;
+		readonly diff: string;
+		readonly truncated: boolean;
+	};
 	"repo.fetch": RepoFetchResult & { workspaceId: WorkspaceId };
 	"repo.listCache": CachedRepositoryPage;
 	"repo.evictCache": { evicted: boolean };
@@ -961,6 +992,48 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	async function gitDiffHandler(_registry: MutableRegistry, input: OperationInputs["workspace.gitDiff"]): Promise<OperationOutputs["workspace.gitDiff"]> {
 		const git = await requireGitRepository(input.workspaceId);
 		return git.diff(input.ref, input.maxBytes);
+	}
+
+	/** Undefined content (path not found at a ref) is a legitimate "missing" snapshot, never parsed -- only content that actually exists is worth running through tree-sitter. */
+	async function declarationSnapshotAt(
+		git: GitPort,
+		registry: MutableRegistry,
+		workspaceId: WorkspaceId,
+		path: string,
+		extension: string,
+		symbolName: string,
+		ref: string | undefined,
+	): Promise<SymbolDeclarationSnapshot> {
+		const content =
+			ref === undefined
+				? await (async () => {
+						const entry = await resolveWorkspace(registry, workspaceId).readEntry(path);
+						return entry.exists ? entry.content : undefined;
+					})()
+				: await git.showFile(ref, path);
+		return content === undefined ? { found: false } : extractDeclarationSnapshot(content, extension, symbolName);
+	}
+
+	/**
+	 * The syntactic tier only (git blob content run through tree-sitter, no real checkout, no
+	 * project-aware LSP resolution across versions) -- see the task's own two-tier rationale for
+	 * why this is the deliberate first pass, not a shortcut. `toRef` omitted compares against the
+	 * current working tree via the same WorkspacePort every other read already goes through.
+	 */
+	async function compareSymbolAcrossVersionsHandler(
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.compareSymbolAcrossVersions"],
+	): Promise<OperationOutputs["workspace.compareSymbolAcrossVersions"]> {
+		const extension = extname(input.path);
+		if (!wasmPathForExtension(extension)) throw new SymbolComparisonUnsupportedLanguage(extension);
+		const git = await requireGitRepository(input.workspaceId);
+		const [from, to] = await Promise.all([
+			declarationSnapshotAt(git, registry, input.workspaceId, input.path, extension, input.symbolName, input.fromRef),
+			declarationSnapshotAt(git, registry, input.workspaceId, input.path, extension, input.symbolName, input.toRef),
+		]);
+		const toRef = input.toRef ?? "working tree";
+		const comparison = compareSymbolDeclarations(input.path, input.symbolName, input.fromRef, toRef, from, to, input.maxBytes);
+		return { path: input.path, symbolName: input.symbolName, fromRef: input.fromRef, toRef, ...comparison };
 	}
 
 	/** Fetches (or reuses a cached clone of) an external repo and registers it read-only -- the same registry every other operation already reads from, so find_symbols/go_to_definition/git status etc. work on it unchanged once fetched. forceRefresh threads straight through to RepoFetcherPort's own existing policy -- the "update" verb; previously only reachable internally by the remote-change watcher, never by a caller. */
@@ -2036,6 +2109,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.gitStatus": gitStatusHandler,
 		"workspace.gitLog": gitLogHandler,
 		"workspace.gitDiff": gitDiffHandler,
+		"workspace.compareSymbolAcrossVersions": compareSymbolAcrossVersionsHandler,
 		"repo.fetch": repoFetchHandler,
 		"repo.listCache": repoListCacheHandler,
 		"repo.evictCache": repoEvictCacheHandler,

@@ -20,4 +20,12 @@ export interface GitPort {
 	log(maxCount: number): Promise<readonly GitLogEntry[]>;
 	/** Diff against `ref` (defaults to HEAD) of the current working tree, bounded to maxBytes. */
 	diff(ref: string | undefined, maxBytes: number): Promise<GitDiffResult>;
+	/**
+	 * A path's exact blob content at `ref`, resolved relative to this GitPort's own workspace
+	 * root (not necessarily the repository's top level -- the same convention every other `path`
+	 * argument in Lector already follows). Undefined when `path` does not exist at `ref` -- a
+	 * real, expected case (the file was added/removed/renamed between versions), never an error.
+	 * A genuinely invalid `ref` still throws.
+	 */
+	showFile(ref: string, path: string): Promise<string | undefined>;
 }

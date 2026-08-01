@@ -1033,17 +1033,26 @@ export default function (pi: ExtensionAPI) {
 			name: "git",
 			label: "Git",
 			description:
-				"Working tree status, recent commit log, and unified diff for a real git repository, in one tool. Fails clearly if `directory` is not inside a git repository. ACTIONS: status (working tree state, ahead/behind tracking), log (recent commits, bounded by maxCount), diff (unified diff against `ref`, defaulting to HEAD, bounded by maxBytes).",
-			promptSnippet: "Show a repository's status, log, or diff",
+				"Working tree status, recent commit log, unified diff, and one symbol's own declaration diff across two versions, for a real git repository, in one tool. Fails clearly if `directory` is not inside a git repository. ACTIONS: status (working tree state, ahead/behind tracking), log (recent commits, bounded by maxCount), diff (unified diff against `ref`, defaulting to HEAD, bounded by maxBytes), compare-symbol (a named symbol's own declaration text diffed between fromRef and toRef, or fromRef and the current working tree when toRef is omitted -- tree-sitter syntactic tier only, TypeScript/JavaScript files only, no project-aware cross-reference resolution).",
+			promptSnippet: "Show a repository's status, log, diff, or one symbol's diff across versions",
 			promptGuidelines: [
-				"maxCount is required for action=log; maxBytes is required for action=diff -- every bounded query needs its bound stated explicitly, never defaulted silently.",
+				"maxCount is required for action=log; maxBytes is required for action=diff/compare-symbol -- every bounded query needs its bound stated explicitly, never defaulted silently.",
+				"path, symbol, and fromRef are required for action=compare-symbol; toRef is optional and means 'the current working tree' when omitted.",
 			],
 			parameters: Type.Object({
-				action: Type.String({ description: "status | log | diff" }),
+				action: Type.String({ description: "status | log | diff | compare-symbol" }),
 				directory: Type.String({ description: "Directory inside the repository to check, absolute or relative to the current working directory" }),
 				maxCount: Type.Optional(Type.Number({ description: "Maximum number of commits to return, most recent first -- required for action=log" })),
 				ref: Type.Optional(Type.String({ description: "Ref to diff against; defaults to HEAD -- only used for action=diff" })),
-				maxBytes: Type.Optional(Type.Number({ description: "Maximum diff size in bytes before truncating -- required for action=diff" })),
+				maxBytes: Type.Optional(
+					Type.Number({ description: "Maximum diff/comparison size in bytes before truncating -- required for action=diff/compare-symbol" }),
+				),
+				path: Type.Optional(Type.String({ description: "File path (relative to directory) containing the symbol -- required for action=compare-symbol" })),
+				symbol: Type.Optional(Type.String({ description: "Exact symbol name to compare -- required for action=compare-symbol" })),
+				fromRef: Type.Optional(Type.String({ description: "Git ref for the 'before' version -- required for action=compare-symbol" })),
+				toRef: Type.Optional(
+					Type.String({ description: "Git ref for the 'after' version; omit to compare against the current working tree -- action=compare-symbol only" }),
+				),
 			}),
 			async execute(_toolCallId, params) {
 				const directory = resolve(cwd, params.directory);
@@ -1065,6 +1074,13 @@ export default function (pi: ExtensionAPI) {
 					const result = await gitOperations.diff(directory, params.ref, params.maxBytes);
 					const details: GitToolDetails = { action: "diff", result };
 					return { content: [{ type: "text", text: result.diff.length === 0 ? "No differences." : result.diff }], details };
+				}
+				if (params.action === "compare-symbol") {
+					if (!params.path || !params.symbol || !params.fromRef) throw new Error("git action=compare-symbol requires path, symbol, and fromRef");
+					if (params.maxBytes === undefined) throw new Error("git action=compare-symbol requires maxBytes");
+					const comparison = await gitOperations.compareSymbol(directory, params.path, params.symbol, params.fromRef, params.toRef, params.maxBytes);
+					const details: GitToolDetails = { action: "compare-symbol", comparison };
+					return { content: [{ type: "text", text: JSON.stringify(comparison) }], details };
 				}
 				throw new Error(`unknown git action: ${String(params.action)}`);
 			},

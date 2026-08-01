@@ -111,6 +111,7 @@ describe("mock: the automatic watcher's own git-repository gate, via a fake GitP
 			status: async () => ({ current: null, files: [], ahead: 0, behind: 0, tracking: null }),
 			log: async () => [],
 			diff: async () => ({ diff: "", truncated: false }),
+			showFile: async () => undefined,
 		};
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
@@ -140,6 +141,7 @@ describe("mock: the automatic watcher's own git-repository gate, via a fake GitP
 			status: async () => ({ current: "main", files: [], ahead: 0, behind: 0, tracking: null }),
 			log: async () => [],
 			diff: async () => ({ diff: "", truncated: false }),
+			showFile: async () => undefined,
 		};
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
@@ -171,6 +173,7 @@ describe("mock: a remote-origin (repo.fetch) workspace is always treated as git-
 			status: async () => ({ current: null, files: [], ahead: 0, behind: 0, tracking: null }),
 			log: async () => [],
 			diff: async () => ({ diff: "", truncated: false }),
+			showFile: async () => undefined,
 		};
 		const fakeFetcher: RepoFetcherPort = {
 			fetch: async (): Promise<RepoFetchResult> => ({ path: root, fromCache: false, resolvedRef: "HEAD", refFallbackOccurred: false, commit: "a".repeat(40) }),

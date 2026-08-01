@@ -70,4 +70,20 @@ export class LocalGit implements GitPort {
 		const truncated = raw.length > maxBytes;
 		return { diff: truncated ? raw.slice(0, maxBytes) : raw, truncated };
 	}
+
+	async showFile(ref: string, path: string): Promise<string | undefined> {
+		assertSafeGitArgument(ref);
+		// ":./path" (not "ref:path") is git's own syntax for a path relative to the current working
+		// directory rather than the repository's top level -- this GitPort's cwd is the workspace
+		// root, so this keeps `path` meaning exactly what every other Lector operation's `path`
+		// argument already means, even when the workspace root is a subdirectory of a larger repo.
+		try {
+			return await this.git.show([`${ref}:./${path}`]);
+		} catch (error) {
+			// git's own stable wording for "the ref resolved fine, but this path isn't in that tree" --
+			// distinct from a bad ref ("invalid object name"), which must still propagate as a real error.
+			if (error instanceof Error && error.message.includes("does not exist in")) return undefined;
+			throw error;
+		}
+	}
 }

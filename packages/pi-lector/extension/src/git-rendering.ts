@@ -1,4 +1,4 @@
-import type { GitDiffResult, GitLogEntry, GitStatusSummary } from "@danypops/lector";
+import type { GitDiffResult, GitLogEntry, GitStatusSummary, OperationOutputs } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { renderDiffLines, renderTruncatedList, type TextMeasure } from "malevich-tui-components";
@@ -11,18 +11,31 @@ const DEFAULT_VISIBLE_FILES = 20;
 const DEFAULT_VISIBLE_COMMITS = 10;
 const DEFAULT_VISIBLE_DIFF_LINES = 60;
 
-export type GitAction = "status" | "log" | "diff";
+export type GitAction = "status" | "log" | "diff" | "compare-symbol";
+
+type SymbolComparison = OperationOutputs["workspace.compareSymbolAcrossVersions"];
 
 export interface GitToolDetails {
 	readonly action: GitAction;
 	readonly summary?: GitStatusSummary;
 	readonly entries?: readonly GitLogEntry[];
 	readonly result?: GitDiffResult;
+	readonly comparison?: SymbolComparison;
 }
 
-export function formatGitCall(args: { action?: unknown; directory?: unknown; ref?: unknown }, theme: LectorTheme): string {
+export function formatGitCall(
+	args: { action?: unknown; directory?: unknown; ref?: unknown; path?: unknown; symbol?: unknown; fromRef?: unknown; toRef?: unknown },
+	theme: LectorTheme,
+): string {
 	const action = typeof args.action === "string" ? args.action : "";
 	const directory = typeof args.directory === "string" ? args.directory : "";
+	if (action === "compare-symbol") {
+		const path = typeof args.path === "string" ? args.path : "";
+		const symbol = typeof args.symbol === "string" ? args.symbol : "";
+		const fromRef = typeof args.fromRef === "string" ? args.fromRef : "";
+		const toRef = typeof args.toRef === "string" ? ` -> ${args.toRef}` : "";
+		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", `${directory}/${path}`)} (${symbol}) ${fromRef}${toRef}`;
+	}
 	const ref = typeof args.ref === "string" ? ` ${args.ref}` : "";
 	return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)}${ref}`;
 }
@@ -31,6 +44,7 @@ export function formatGitResult(details: GitToolDetails | undefined, expanded: b
 	if (!details) return theme.fg("dim", "No result.");
 	if (details.action === "status") return formatGitStatusResult(details.summary, expanded, theme);
 	if (details.action === "log") return formatGitLogResult(details.entries, expanded, theme);
+	if (details.action === "compare-symbol") return formatCompareSymbolResult(details.comparison, expanded, theme);
 	return formatGitDiffResult(details.result, expanded, theme);
 }
 
@@ -90,11 +104,11 @@ function formatGitLogResult(entries: readonly GitLogEntry[] | undefined, expande
  * is the still-open "render file and Git diffs as bounded native Pi
  * visuals" follow-up.
  */
-function formatGitDiffResult(result: GitDiffResult | undefined, expanded: boolean, theme: LectorTheme): string {
-	if (!result || result.diff.length === 0) return theme.fg("dim", "No differences.");
+/** Shared by formatGitDiffResult and formatCompareSymbolResult -- both display a real unified-diff string, styled and bounded the same way. */
+function renderStyledDiffLines(diff: string, truncatedUpstream: boolean, expanded: boolean, theme: LectorTheme): string {
 	const styledLines = renderDiffLines(
 		Number.MAX_SAFE_INTEGER,
-		result.diff,
+		diff,
 		{
 			add: (s) => theme.fg("success", s),
 			remove: (s) => theme.fg("error", s),
@@ -110,7 +124,20 @@ function formatGitDiffResult(result: GitDiffResult | undefined, expanded: boolea
 		visibleCount: DEFAULT_VISIBLE_DIFF_LINES,
 		formatItem: (line) => line,
 		moreLine: (hidden) => theme.fg("dim", `... ${hidden} more line${hidden === 1 ? "" : "s"} (${keyHint("app.tools.expand", "to expand")})`),
-		truncationWarning: result.truncated ? theme.fg("warning", "(diff output itself was truncated by maxBytes)") : undefined,
+		truncationWarning: truncatedUpstream ? theme.fg("warning", "(diff output itself was truncated by maxBytes)") : undefined,
 	});
 	return lines.join("\n");
+}
+
+function formatGitDiffResult(result: GitDiffResult | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!result || result.diff.length === 0) return theme.fg("dim", "No differences.");
+	return renderStyledDiffLines(result.diff, result.truncated, expanded, theme);
+}
+
+function formatCompareSymbolResult(comparison: SymbolComparison | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!comparison) return theme.fg("dim", "No result.");
+	const header = theme.fg("accent", `${comparison.path} (${comparison.symbolName}) -- ${comparison.fromRef} -> ${comparison.toRef}`);
+	if (comparison.status === "both-missing") return `${header}\n${theme.fg("dim", "symbol found at neither version")}`;
+	if (comparison.status === "unchanged") return `${header}\n${theme.fg("dim", "unchanged")}`;
+	return `${header}\n${renderStyledDiffLines(comparison.diff, comparison.truncated, expanded, theme)}`;
 }
