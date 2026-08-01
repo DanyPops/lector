@@ -34,7 +34,7 @@ import {
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { Table, type TextMeasure } from "malevich-tui-components";
+import { renderBoundedTable, type TextMeasure } from "malevich-tui-components";
 import { Type } from "typebox";
 
 /** Real ANSI-aware measurement for Table -- Malevich's own default is ASCII-only, unsafe against theme-styled cell/header text. */
@@ -99,6 +99,8 @@ import {
 	formatRepoCacheListResult,
 	formatRepoFetchResult,
 	REPO_CACHE_TABLE_COLUMNS,
+	REPO_CACHE_VISIBLE_ROWS,
+	repoCacheMoreLine,
 } from "./repo-cache-rendering.ts";
 import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
 import { createLectorSearchOperations } from "./search-operations.ts";
@@ -1447,7 +1449,7 @@ export default function (pi: ExtensionAPI) {
 				text.setText(formatRepoCacheCall(action, args, theme));
 				return text;
 			},
-			renderResult(result, { isPartial }, theme, context) {
+			renderResult(result, { isPartial, expanded }, theme, context) {
 				if (isPartial) return new Text(theme.fg("warning", "Working on repo cache..."), 0, 0);
 				if (context.isError) {
 					const errorText = result.content
@@ -1457,16 +1459,23 @@ export default function (pi: ExtensionAPI) {
 					return new Text(theme.fg("error", errorText || "repo_cache failed"), 0, 0);
 				}
 				const details = result.details as RepoCacheToolDetails | undefined;
-				// A non-empty list renders as a real Table -- the human channel actually shows
-				// host/owner/repo/ref/registered/size/fetched, not just a bare count. Every other
-				// branch (empty list, fetch, evict) stays a plain Text line as before.
+				// A non-empty list renders as a real, bounded Table -- the human channel actually shows
+				// host/owner/repo/ref/registered/size/fetched, not just a bare count, capped at
+				// REPO_CACHE_VISIBLE_ROWS since a cache can grow arbitrarily large even though maxResults
+				// bounds any one page. Every other branch (empty list, fetch, evict) stays a plain Text line.
 				if (details?.action === "list" && details.page.entries.length > 0) {
-					const table =
-						context.lastComponent instanceof Table
-							? context.lastComponent
-							: new Table({ columns: REPO_CACHE_TABLE_COLUMNS, rows: [], measure: tableMeasure, headerStyle: (s) => theme.fg("muted", theme.bold(s)) });
-					table.setRows(buildRepoCacheTableRows(details.page.entries));
-					return table;
+					// Rebuilt fresh on every call (not reused via context.lastComponent) since expanded is
+					// fixed at BoundedTable construction, matching every other truncated-list renderer in this
+					// codebase (they all call renderTruncatedList fresh with the current expanded each time).
+					return renderBoundedTable({
+						columns: REPO_CACHE_TABLE_COLUMNS,
+						rows: buildRepoCacheTableRows(details.page.entries),
+						expanded,
+						visibleRowCount: REPO_CACHE_VISIBLE_ROWS,
+						moreLine: repoCacheMoreLine(theme),
+						measure: tableMeasure,
+						headerStyle: (s) => theme.fg("muted", theme.bold(s)),
+					});
 				}
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				if (details?.action === "list") text.setText(formatRepoCacheListResult(details.page, theme));

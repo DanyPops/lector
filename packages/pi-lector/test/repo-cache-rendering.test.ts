@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import type { CachedRepositoryEntry } from "@danypops/lector";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import type { LectorTheme } from "../extension/src/lector-tui-theme.ts";
-import { buildRepoCacheTableRows, formatRepoCacheListResult } from "../extension/src/repo-cache-rendering.ts";
+import { buildRepoCacheTableRows, formatRepoCacheListResult, REPO_CACHE_VISIBLE_ROWS, repoCacheMoreLine } from "../extension/src/repo-cache-rendering.ts";
+
+// repoCacheMoreLine's keyHint() reads pi's global theme singleton, independent of the fake theme below.
+initTheme();
 
 const theme: LectorTheme = { fg: (_color, text) => text, bold: (text) => text };
 
@@ -69,5 +73,18 @@ describe("buildRepoCacheTableRows", () => {
 
 	it("returns an empty array for an empty entry list", () => {
 		expect(buildRepoCacheTableRows([])).toEqual([]);
+	});
+});
+
+describe("repoCacheMoreLine", () => {
+	it("reports the real hidden count", () => {
+		expect(repoCacheMoreLine(theme)(5)).toContain("5");
+		expect(repoCacheMoreLine(theme)(1)).toContain("1");
+	});
+});
+
+describe("REPO_CACHE_VISIBLE_ROWS", () => {
+	it("is a positive bound, guarding against an unbounded cache list display", () => {
+		expect(REPO_CACHE_VISIBLE_ROWS).toBeGreaterThan(0);
 	});
 });

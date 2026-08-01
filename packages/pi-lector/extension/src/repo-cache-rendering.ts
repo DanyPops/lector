@@ -1,6 +1,14 @@
 import type { CachedRepositoryEntry, CachedRepositoryPage, RepoFetchResult } from "@danypops/lector";
+import { keyHint } from "@earendil-works/pi-coding-agent";
 import type { TableColumn } from "malevich-tui-components";
 import type { LectorTheme } from "./lector-tui-theme.ts";
+
+/** Table has no row-count bound of its own; a cache can grow arbitrarily large even though repo_cache's own `maxResults` bounds any one page, so the display itself still needs a cap independent of that. */
+export const REPO_CACHE_VISIBLE_ROWS = 20;
+
+export function repoCacheMoreLine(theme: LectorTheme): (hiddenCount: number) => string {
+	return (hiddenCount) => theme.fg("dim", `... ${hiddenCount} more (${keyHint("app.tools.expand", "to expand")})`);
+}
 
 type RepoCacheAction = "fetch" | "list" | "evict";
 
