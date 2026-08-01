@@ -61,6 +61,7 @@ jobs:
           bun add --global bash-language-server
 
       - run: bun install --frozen-lockfile
+      - run: bun run lint
       - run: bun run --filter '*' typecheck
       - run: bun run --filter '*' test
 

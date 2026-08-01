@@ -6,8 +6,8 @@ const PRODUCTION_SOURCE = ["packages/*/src/**/*.ts", "packages/*/extension/src/*
 export default tseslint.config(
 	{ ignores: ["**/node_modules/**", "**/dist/**", "**/*.d.ts"] },
 
-	// Import-cycle detection: a hexagonal core with domain/ports/adapters/service layered
-	// the way lector-generic-capability-design-kkje describes is exactly the shape that
+	// Import-cycle detection: a hexagonal core with domain/ports/adapters/service layers
+	// is exactly the shape that silently grows cycles if nothing catches them early.
 	// silently grows cycles if nothing catches them early.
 	{
 		files: PRODUCTION_SOURCE,
