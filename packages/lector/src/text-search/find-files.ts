@@ -1,6 +1,6 @@
-import type { FindFilesOptions, TextSearchPort } from "../ports/text-search-port.ts";
-import { assertSafeGlobPattern } from "./assert-safe-glob-pattern.ts";
+import { assertSafeGlobPattern } from "../domain/assert-safe-glob-pattern.ts";
 import type { FindFilesResult } from "./find-files-result.ts";
+import type { FindFilesOptions, TextSearchPort } from "./port.ts";
 
 /**
  * Validates every glob pattern before delegating to the port. Uncached, unlike searchText:

@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findSourceFiles } from "../../src/adapters/find-source-files.ts";
+import { findSourceFiles } from "../../src/text-search/find-source-files.ts";
 
 function withFixture(build: (root: string) => void, run: (root: string) => void): void {
 	const root = mkdtempSync(join(tmpdir(), "lector-find-source-files-"));

@@ -10,7 +10,6 @@ export {
 export { LanguageFileLimitExceeded, LanguageFileOutsideWorkspace, LspSymbolIndex, type LspSymbolIndexOptions } from "./adapters/lsp/lsp-symbol-index.ts";
 export { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "./adapters/polyglot-code-intelligence-index.ts";
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
-export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
 export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./adapters/typescript-compiler-symbol-index.ts";
@@ -70,8 +69,6 @@ export type {
 	SourcegraphLineMatch,
 } from "./domain/external-search-result.ts";
 export { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS, splitSourcegraphRepository } from "./domain/external-search-result.ts";
-export { findFiles } from "./domain/find-files.ts";
-export type { FindFilesResult } from "./domain/find-files-result.ts";
 export { findReferences } from "./domain/find-references.ts";
 export { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 export { goToDefinition } from "./domain/go-to-definition.ts";
@@ -124,10 +121,8 @@ export {
 } from "./domain/reference-based-rename.ts";
 export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./domain/response-format.ts";
 export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./domain/response-format.ts";
-export { searchText } from "./domain/search-text.ts";
 export type { SymbolDeclarationSnapshot } from "./domain/symbol-declaration-snapshot.ts";
 export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./domain/symbol-query.ts";
-export type { TextSearchMatch, TextSearchResult } from "./domain/text-search-result.ts";
 export {
 	InvalidUnifiedDiff,
 	parseUnifiedDiff,
@@ -222,7 +217,6 @@ export { InvalidPackageSourceContract, resolvePackageSource } from "./package-so
 export type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
-export type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "./ports/text-search-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
 export type { CachedRepositoryEntry, CachedRepositoryPage, CachedRepositoryQuery, RepoCacheListEntry } from "./repo-fetcher/cached-repository-entry.ts";
 export { GitRepoFetcher, type GitRepoFetcherOptions } from "./repo-fetcher/git-repo-fetcher.ts";
@@ -301,4 +295,10 @@ export { symbolEdgesFrom } from "./symbol-graph/symbol-edges-from.ts";
 export { symbolEdgesTo } from "./symbol-graph/symbol-edges-to.ts";
 export type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./symbol-graph/symbol-graph-generation.ts";
 export { deriveSymbolNodeId, type SymbolNodeId } from "./symbol-graph/symbol-node-id.ts";
+export { findFiles } from "./text-search/find-files.ts";
+export type { FindFilesResult } from "./text-search/find-files-result.ts";
+export type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "./text-search/port.ts";
+export { RipgrepTextSearch } from "./text-search/ripgrep-text-search.ts";
+export { searchText } from "./text-search/search-text.ts";
+export type { TextSearchMatch, TextSearchResult } from "./text-search/text-search-result.ts";
 export { lectorVersion } from "./version.ts";

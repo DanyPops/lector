@@ -7,11 +7,11 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RipgrepTextSearch } from "../../src/adapters/ripgrep-text-search.ts";
 import { UnsafeSearchQuery } from "../../src/domain/assert-safe-search-query.ts";
-import { searchText } from "../../src/domain/search-text.ts";
-import type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "../../src/ports/text-search-port.ts";
 import { InMemorySearchCache } from "../../src/search-cache/in-memory-search-cache.ts";
+import type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "../../src/text-search/port.ts";
+import { RipgrepTextSearch } from "../../src/text-search/ripgrep-text-search.ts";
+import { searchText } from "../../src/text-search/search-text.ts";
 
 class CountingTextSearch implements TextSearchPort {
 	calls = 0;

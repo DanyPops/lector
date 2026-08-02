@@ -8,7 +8,6 @@ import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.
 import { discoverWorkspaceDescriptor, discoverWorkspaceDescriptors } from "./adapters/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
 import { PolyglotCodeIntelligenceIndex } from "./adapters/polyglot-code-intelligence-index.ts";
-import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "./adapters/source-manifest.ts";
 import { findImportSpecifiers } from "./adapters/tree-sitter/import-specifiers.ts";
 import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
@@ -30,8 +29,6 @@ import type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
 import { documentSymbols as documentSymbolsQuery } from "./domain/document-symbols.ts";
 import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash } from "./domain/exact-edit.ts";
 import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "./domain/external-search-result.ts";
-import { findFiles as findFilesQuery } from "./domain/find-files.ts";
-import type { FindFilesResult } from "./domain/find-files-result.ts";
 import { findReferences as findReferencesQuery } from "./domain/find-references.ts";
 import { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 import { goToDefinition as goToDefinitionQuery } from "./domain/go-to-definition.ts";
@@ -48,10 +45,8 @@ import { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 import { planReferenceBasedRename } from "./domain/reference-based-rename.ts";
 import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from "./domain/response-format.ts";
-import { searchText as searchTextQuery } from "./domain/search-text.ts";
 import { SerialExecutionQueue } from "./domain/serial-execution-queue.ts";
 import { assertBoundedSymbolQuery } from "./domain/symbol-query.ts";
-import type { TextSearchResult } from "./domain/text-search-result.ts";
 import type { ParsedWorkspaceEdit, RenameRange } from "./domain/workspace-edit.ts";
 import { computeWorkspaceMap, type WorkspaceMapResult } from "./domain/workspace-map.ts";
 import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts";
@@ -84,7 +79,6 @@ import type { PackageSourceIndexQuery, PackageSourceListEntry } from "./package-
 import type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
-import type { TextSearchPort } from "./ports/text-search-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import type { CachedRepositoryPage, CachedRepositoryQuery } from "./repo-fetcher/cached-repository-entry.ts";
 import { isCacheFreshByGit } from "./repo-fetcher/git-cache-freshness.ts";
@@ -114,6 +108,12 @@ import { symbolEdgesFrom } from "./symbol-graph/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./symbol-graph/symbol-edges-to.ts";
 import type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./symbol-graph/symbol-graph-generation.ts";
 import { deriveSymbolNodeId } from "./symbol-graph/symbol-node-id.ts";
+import { findFiles as findFilesQuery } from "./text-search/find-files.ts";
+import type { FindFilesResult } from "./text-search/find-files-result.ts";
+import type { TextSearchPort } from "./text-search/port.ts";
+import { RipgrepTextSearch } from "./text-search/ripgrep-text-search.ts";
+import { searchText as searchTextQuery } from "./text-search/search-text.ts";
+import type { TextSearchResult } from "./text-search/text-search-result.ts";
 
 /**
  * Identifies which registered workspace an operation targets. There is no

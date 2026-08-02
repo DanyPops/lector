@@ -4,7 +4,7 @@ import ts from "typescript";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../domain/intelligence-provenance.ts";
 import type { SymbolSearchResult, WorkspaceSymbol } from "../domain/workspace-symbol.ts";
 import type { SymbolIndexPort } from "../ports/symbol-index-port.ts";
-import { findSourceFiles } from "./find-source-files.ts";
+import { findSourceFiles } from "../text-search/find-source-files.ts";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 

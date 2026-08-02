@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { findSourceFiles } from "./find-source-files.ts";
+import { findSourceFiles } from "../text-search/find-source-files.ts";
 
 export interface SourceManifest {
 	readonly fingerprint: string;

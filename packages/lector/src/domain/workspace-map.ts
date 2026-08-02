@@ -2,7 +2,7 @@ import Graph from "graphology";
 import pagerank from "graphology-metrics/centrality/pagerank";
 import type { WorkspacePort } from "../ports/workspace-port.ts";
 import type { SymbolGraphPort, SymbolNode } from "../symbol-graph/port.ts";
-import { pathHasSkippedDirectorySegment } from "./skip-directories.ts";
+import { pathHasSkippedDirectorySegment } from "../text-search/skip-directories.ts";
 
 export interface WorkspaceMapOptions {
 	/** Bounds the raw fetch from the graph before ranking -- see SymbolGraphPort.allNodes/allEdges. */

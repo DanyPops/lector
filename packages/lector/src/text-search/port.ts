@@ -1,5 +1,5 @@
-import type { FindFilesResult } from "../domain/find-files-result.ts";
-import type { TextSearchResult } from "../domain/text-search-result.ts";
+import type { FindFilesResult } from "./find-files-result.ts";
+import type { TextSearchResult } from "./text-search-result.ts";
 
 export interface TextSearchOptions {
 	readonly maxMatches: number;

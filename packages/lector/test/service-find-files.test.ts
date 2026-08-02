@@ -1,7 +1,7 @@
 /**
  * Service-level wiring for workspace.findFiles: a real RipgrepTextSearch scoped to a registered
  * workspace's root. Real ripgrep correctness is already covered directly in
- * test/adapters/ripgrep-text-search.test.ts.
+ * test/text-search/ripgrep-text-search.test.ts.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

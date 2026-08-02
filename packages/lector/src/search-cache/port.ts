@@ -1,4 +1,4 @@
-import type { TextSearchResult } from "../domain/text-search-result.ts";
+import type { TextSearchResult } from "../text-search/text-search-result.ts";
 import type { SearchCacheKey } from "./search-cache-key.ts";
 
 /**

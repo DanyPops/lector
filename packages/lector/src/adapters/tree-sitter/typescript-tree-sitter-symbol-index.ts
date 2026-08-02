@@ -7,7 +7,7 @@ import { contentHashOf } from "../../domain/content-hash.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
 import type { SymbolSearchResult, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
-import { findSourceFiles } from "../find-source-files.ts";
+import { findSourceFiles } from "../../text-search/find-source-files.ts";
 import { parserForWasmPath, wasmPathForExtension } from "./typescript-parser.ts";
 
 const DEFAULT_MAX_FILES = 5_000;

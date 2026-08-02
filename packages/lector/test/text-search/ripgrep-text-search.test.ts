@@ -6,9 +6,9 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RipgrepTextSearch } from "../../src/adapters/ripgrep-text-search.ts";
 import { UnsafeGlobPattern } from "../../src/domain/assert-safe-glob-pattern.ts";
 import { UnsafeSearchQuery } from "../../src/domain/assert-safe-search-query.ts";
+import { RipgrepTextSearch } from "../../src/text-search/ripgrep-text-search.ts";
 
 function buildFixture(): string {
 	const root = mkdtempSync(join(tmpdir(), "lector-ripgrep-fixture-"));

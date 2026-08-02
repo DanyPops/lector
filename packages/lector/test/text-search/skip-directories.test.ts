@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { pathHasSkippedDirectorySegment } from "../../src/domain/skip-directories.ts";
+import { pathHasSkippedDirectorySegment } from "../../src/text-search/skip-directories.ts";
 
 describe("pathHasSkippedDirectorySegment", () => {
 	it("flags a path with a node_modules segment, absolute or relative, either separator", () => {

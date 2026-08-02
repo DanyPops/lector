@@ -1,7 +1,7 @@
 import { type Dirent, readdirSync, readFileSync } from "node:fs";
 import { extname, join, sep } from "node:path";
 import ignore from "ignore";
-import { SKIP_DIRECTORY_NAMES } from "../domain/skip-directories.ts";
+import { SKIP_DIRECTORY_NAMES } from "./skip-directories.ts";
 
 function toPosixPath(relativePath: string): string {
 	return sep === "/" ? relativePath : relativePath.split(sep).join("/");
