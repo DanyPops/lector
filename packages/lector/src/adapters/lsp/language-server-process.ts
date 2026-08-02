@@ -250,14 +250,21 @@ export class LanguageServerProcess {
 	 * `options.signal`, if given, cancels this specific request: the promise settles immediately
 	 * with LanguageServerRequestCanceled (never waiting for a late response or the timeout), and a
 	 * best-effort $/cancelRequest notification tells the server to stop working on it too.
+	 *
+	 * `options.timeoutMs`, if given, overrides the constructor's own requestTimeoutMs for this one
+	 * call -- lets a caller (or a test deliberately provoking a timeout) use a tight budget for one
+	 * specific request without also shrinking the budget every other request on the same connection
+	 * gets, including the initial `initialize` handshake, whose own real-world latency (subprocess
+	 * cold start) is unrelated to and can exceed a tight budget meant only for the request under test.
 	 */
-	async request<T>(method: string, params: unknown, options: { signal?: AbortSignal } = {}): Promise<T> {
+	async request<T>(method: string, params: unknown, options: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
 		if (this.processExited) throw this.exitError;
 		if (options.signal?.aborted) throw new LanguageServerRequestCanceled(method);
 		if (this.pending.size >= this.maxPendingRequests) throw new LanguageServerCapacityExceeded(this.maxPendingRequests);
 		const id = this.nextId++;
 		const message = encodeJsonRpcMessage({ jsonrpc: "2.0", id, method, params });
 		if (message.byteLength > this.maxMessageBytes) throw new JsonRpcMessageLimitExceeded("message-bytes", this.maxMessageBytes, message.byteLength);
+		const timeoutMs = options.timeoutMs ?? this.requestTimeoutMs;
 		return new Promise<T>((resolve, reject) => {
 			const signal = options.signal;
 			const onAbort = () => {
@@ -269,8 +276,8 @@ export class LanguageServerProcess {
 			const timer = setTimeout(() => {
 				signal?.removeEventListener("abort", onAbort);
 				this.pending.delete(id);
-				reject(new LanguageServerRequestTimedOut(method, this.requestTimeoutMs));
-			}, this.requestTimeoutMs);
+				reject(new LanguageServerRequestTimedOut(method, timeoutMs));
+			}, timeoutMs);
 			signal?.addEventListener("abort", onAbort, { once: true });
 			this.pending.set(id, {
 				resolve: (result) => {

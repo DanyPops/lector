@@ -269,10 +269,13 @@ describe("LanguageServerProcess against a hostile mock -- timeouts", () => {
 	});
 
 	it("a request that hangs past initialize times out the same way", async () => {
-		const proc = spawnEvil("hang-on-request", 200);
+		// Same rationale as the capacity test above: a generous process-level timeout so initialize's
+		// own real-world latency can never be what times out, with the tight budget applied only to the
+		// one request deliberately meant to hang.
+		const proc = spawnEvil("hang-on-request", 10_000);
 		await proc.request("initialize", {});
 		const started = Date.now();
-		await expect(proc.request("workspace/symbol", { query: "x" })).rejects.toBeInstanceOf(LanguageServerRequestTimedOut);
+		await expect(proc.request("workspace/symbol", { query: "x" }, { timeoutMs: 200 })).rejects.toBeInstanceOf(LanguageServerRequestTimedOut);
 		expect(Date.now() - started).toBeLessThan(200 * 4);
 	});
 
@@ -287,9 +290,14 @@ describe("LanguageServerProcess against a hostile mock -- timeouts", () => {
 
 describe("LanguageServerProcess resource bounds", () => {
 	it("rejects excess concurrent requests instead of growing the pending map without bound", async () => {
-		const proc = spawnEvil("hang-on-request", 100, { maxPendingRequests: 1 });
+		// A generous process-level timeout -- must not be what settles the initialize handshake, whose
+		// own real-world latency (subprocess cold start) is unrelated to and can exceed a tight budget
+		// (this exact coupling was a confirmed live flake: initialize itself sporadically timed out
+		// under load before the evil server got a chance to respond). Only the request meant to hang
+		// forever gets the tight per-call override.
+		const proc = spawnEvil("hang-on-request", 10_000, { maxPendingRequests: 1 });
 		await proc.request("initialize", {});
-		const pending = proc.request("workspace/symbol", {});
+		const pending = proc.request("workspace/symbol", {}, { timeoutMs: 100 });
 
 		await expect(proc.request("workspace/symbol", {})).rejects.toBeInstanceOf(LanguageServerCapacityExceeded);
 		await expect(pending).rejects.toBeInstanceOf(LanguageServerRequestTimedOut);
