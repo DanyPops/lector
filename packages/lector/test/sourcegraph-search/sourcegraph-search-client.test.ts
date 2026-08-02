@@ -5,7 +5,7 @@ import {
 	SourcegraphSearchClient,
 	SourcegraphSearchRequestFailed,
 	SourcegraphSearchResponseLimitExceeded,
-} from "../../src/adapters/sourcegraph-search-client.ts";
+} from "../../src/sourcegraph-search/sourcegraph-search-client.ts";
 
 const BOUNDS = { maxResults: 20, timeoutMs: 2_000, maxResponseBytes: 65_536, maxRetries: 2 } as const;
 const servers: Server<unknown>[] = [];

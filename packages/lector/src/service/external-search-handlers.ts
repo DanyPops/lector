@@ -1,9 +1,9 @@
 import type { ExternalSearchBounds, GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../domain/external-search-result.ts";
+import type { GithubSearchPort } from "../github-search/port.ts";
 import type { ExternalSearchCachePort } from "../ports/external-search-cache-port.ts";
-import type { GithubSearchPort } from "../ports/github-search-port.ts";
 import type { NpmRegistryPort } from "../ports/npm-registry-port.ts";
-import type { SourcegraphSearchPort } from "../ports/sourcegraph-search-port.ts";
 import type { MutableRegistry, OperationInputs, OperationOutputs } from "../service.ts";
+import type { SourcegraphSearchPort } from "../sourcegraph-search/port.ts";
 
 /** Fixed, not caller-configurable -- matches workspace.searchText's own precedent of exposing only the caller-relevant bound (maxResults/maxMatches) at the operation level and keeping transport-level bounds (timeout, response size, retries) as internal service policy. */
 const MAX_EXTERNAL_SEARCH_RESULTS = 100;

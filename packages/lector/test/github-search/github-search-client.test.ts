@@ -6,7 +6,7 @@ import {
 	GithubSearchRequestFailed,
 	GithubSearchResponseLimitExceeded,
 	InvalidGithubSearchRequest,
-} from "../../src/adapters/github-search-client.ts";
+} from "../../src/github-search/github-search-client.ts";
 
 const BOUNDS = { maxResults: 20, timeoutMs: 2_000, maxResponseBytes: 65_536, maxRetries: 2 } as const;
 const servers: Server<unknown>[] = [];

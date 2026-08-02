@@ -1,6 +1,6 @@
 import { createParser, type EventSourceMessage } from "eventsource-parser";
 import type { ExternalSearchBounds, SourcegraphCodeCandidate, SourcegraphLineMatch } from "../domain/external-search-result.ts";
-import type { SourcegraphSearchPort } from "../ports/sourcegraph-search-port.ts";
+import type { SourcegraphSearchPort } from "./port.ts";
 
 /** Public, unauthenticated sourcegraph.com only -- a private/self-hosted instance is explicitly out of scope for this client (see the task's own "explicitly out of scope" section). */
 export const DEFAULT_SOURCEGRAPH_BASE_URL = "https://sourcegraph.com";

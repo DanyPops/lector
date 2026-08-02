@@ -1,9 +1,9 @@
 import simpleGit from "simple-git";
 import { assertSafeGitArgument } from "../domain/assert-safe-git-argument.ts";
-import type { GitDiffResult } from "../domain/git-diff-result.ts";
-import type { GitLogEntry } from "../domain/git-log-entry.ts";
-import type { GitStatusSummary } from "../domain/git-status.ts";
-import type { GitPort } from "../ports/git-port.ts";
+import type { GitDiffResult } from "./diff-result.ts";
+import type { GitLogEntry } from "./log-entry.ts";
+import type { GitPort } from "./port.ts";
+import type { GitStatusSummary } from "./status.ts";
 
 /**
  * GitPort backed by simple-git rather than a hand-rolled execFile wrapper --

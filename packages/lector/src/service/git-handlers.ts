@@ -3,7 +3,7 @@ import { extractDeclarationSnapshot } from "../adapters/tree-sitter/declaration-
 import { wasmPathForExtension } from "../adapters/tree-sitter/typescript-parser.ts";
 import { compareSymbolDeclarations } from "../domain/compare-symbol-declarations.ts";
 import type { SymbolDeclarationSnapshot } from "../domain/symbol-declaration-snapshot.ts";
-import type { GitPort } from "../ports/git-port.ts";
+import type { GitPort } from "../git/port.ts";
 import {
 	type MutableRegistry,
 	NotAGitRepository,

@@ -8,8 +8,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalGit } from "../../src/adapters/local-git.ts";
 import { UnsafeGitArgument } from "../../src/domain/assert-safe-git-argument.ts";
+import { LocalGit } from "../../src/git/local-git.ts";
 
 let repoRoot: string | undefined;
 

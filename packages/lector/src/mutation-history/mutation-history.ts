@@ -1,4 +1,4 @@
-import type { ContentHash } from "./content-hash.ts";
+import type { ContentHash } from "../domain/content-hash.ts";
 
 /** Which write operation produced this entry -- "revert" is itself a real, further-revertible mutation, not special-cased, matching Neovim's own "U undoes U". */
 export type MutationOperation = "exactEdit" | "lineEdit" | "applyPatch" | "revert";

@@ -1,7 +1,7 @@
 /** Shared conformance suite for any MutationHistoryPort implementation. */
 import { describe, expect, it } from "bun:test";
 import { contentHashOf } from "../../src/domain/content-hash.ts";
-import type { MutationHistoryPort } from "../../src/ports/mutation-history-port.ts";
+import type { MutationHistoryPort } from "../../src/mutation-history/port.ts";
 
 export interface MutationHistoryConformanceHarness {
 	/** A fresh store; maxEntriesPerFile lets a test exercise eviction deterministically. */

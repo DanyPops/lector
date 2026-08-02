@@ -1,4 +1,4 @@
-import { InMemoryMutationHistory } from "../../src/adapters/in-memory-mutation-history.ts";
+import { InMemoryMutationHistory } from "../../src/mutation-history/in-memory-mutation-history.ts";
 import { runMutationHistoryPortConformanceSuite } from "../support/mutation-history-port-conformance.ts";
 
 runMutationHistoryPortConformanceSuite("InMemoryMutationHistory", {

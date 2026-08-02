@@ -1,14 +1,5 @@
 export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 export { GitRepoFetcher, type GitRepoFetcherOptions } from "./adapters/git-repo-fetcher.ts";
-export {
-	DEFAULT_GITHUB_API_BASE_URL,
-	GithubSearchClient,
-	type GithubSearchClientOptions,
-	GithubSearchRateLimited,
-	GithubSearchRequestFailed,
-	GithubSearchResponseLimitExceeded,
-	InvalidGithubSearchRequest,
-} from "./adapters/github-search-client.ts";
 export { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
 export { InMemoryExternalSearchCache, type InMemoryExternalSearchCacheOptions } from "./adapters/in-memory-external-search-cache.ts";
 export { InMemorySearchCache, type InMemorySearchCacheOptions } from "./adapters/in-memory-search-cache.ts";
@@ -16,7 +7,6 @@ export { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotatio
 export { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 export { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./adapters/local-filesystem-workspace.ts";
-export { LocalGit } from "./adapters/local-git.ts";
 export {
 	LanguageServerCapacityExceeded,
 	LanguageServerProcess,
@@ -42,14 +32,6 @@ export { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "./adapte
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
 export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
-export {
-	DEFAULT_SOURCEGRAPH_BASE_URL,
-	InvalidSourcegraphSearchRequest,
-	SourcegraphSearchClient,
-	type SourcegraphSearchClientOptions,
-	SourcegraphSearchRequestFailed,
-	SourcegraphSearchResponseLimitExceeded,
-} from "./adapters/sourcegraph-search-client.ts";
 export { SqliteContentCache } from "./adapters/sqlite-content-cache.ts";
 export { SqliteSearchCache, type SqliteSearchCacheOptions } from "./adapters/sqlite-search-cache.ts";
 export { SqliteSymbolAnnotations } from "./adapters/sqlite-symbol-annotations.ts";
@@ -119,9 +101,6 @@ export { findFiles } from "./domain/find-files.ts";
 export type { FindFilesResult } from "./domain/find-files-result.ts";
 export { findReferences } from "./domain/find-references.ts";
 export { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
-export type { GitDiffResult } from "./domain/git-diff-result.ts";
-export type { GitLogEntry } from "./domain/git-log-entry.ts";
-export type { GitStatusEntry, GitStatusSummary } from "./domain/git-status.ts";
 export { goToDefinition } from "./domain/go-to-definition.ts";
 export { goToImplementation } from "./domain/go-to-implementation.ts";
 export type { Hover } from "./domain/hover.ts";
@@ -168,7 +147,6 @@ export {
 } from "./domain/line-edit.ts";
 export type { LineHash } from "./domain/line-hash.ts";
 export { lineHashOf } from "./domain/line-hash.ts";
-export { type CanRevertMutationInputs, canRevertMutation, type MutationHistoryEntry, type MutationOperation } from "./domain/mutation-history.ts";
 export type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "./domain/npm-package-metadata.ts";
 export { outgoingCalls } from "./domain/outgoing-calls.ts";
 export type {
@@ -246,20 +224,33 @@ export type { WorkspaceMapEntry, WorkspaceMapOptions, WorkspaceMapResult } from 
 export { computeWorkspaceMap } from "./domain/workspace-map.ts";
 export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";
 export type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
+export type { GitDiffResult } from "./git/diff-result.ts";
+export { LocalGit } from "./git/local-git.ts";
+export type { GitLogEntry } from "./git/log-entry.ts";
+export type { GitPort } from "./git/port.ts";
+export type { GitStatusEntry, GitStatusSummary } from "./git/status.ts";
+export {
+	DEFAULT_GITHUB_API_BASE_URL,
+	GithubSearchClient,
+	type GithubSearchClientOptions,
+	GithubSearchRateLimited,
+	GithubSearchRequestFailed,
+	GithubSearchResponseLimitExceeded,
+	InvalidGithubSearchRequest,
+} from "./github-search/github-search-client.ts";
+export type { GithubSearchPort } from "./github-search/port.ts";
+export { type CanRevertMutationInputs, canRevertMutation, type MutationHistoryEntry, type MutationOperation } from "./mutation-history/mutation-history.ts";
+export type { MutationHistoryPort, RecordMutationInput } from "./mutation-history/port.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
 export type { ExternalSearchCachePort } from "./ports/external-search-cache-port.ts";
 export type { FileWatcherPort } from "./ports/file-watcher-port.ts";
-export type { GitPort } from "./ports/git-port.ts";
-export type { GithubSearchPort } from "./ports/github-search-port.ts";
 export type { InstalledPackageVersionResolverPort } from "./ports/installed-package-version-resolver-port.ts";
-export type { MutationHistoryPort, RecordMutationInput } from "./ports/mutation-history-port.ts";
 export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 export type { PackageSourceIndexPort } from "./ports/package-source-index-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 export type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 export type { SearchCachePort } from "./ports/search-cache-port.ts";
-export type { SourcegraphSearchPort } from "./ports/sourcegraph-search-port.ts";
 export type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./ports/symbol-annotation-port.ts";
 export type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
@@ -295,4 +286,13 @@ export {
 	WorkspaceChangedDuringPopulation,
 	type WorkspaceId,
 } from "./service.ts";
+export type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
+export {
+	DEFAULT_SOURCEGRAPH_BASE_URL,
+	InvalidSourcegraphSearchRequest,
+	SourcegraphSearchClient,
+	type SourcegraphSearchClientOptions,
+	SourcegraphSearchRequestFailed,
+	SourcegraphSearchResponseLimitExceeded,
+} from "./sourcegraph-search/sourcegraph-search-client.ts";
 export { lectorVersion } from "./version.ts";

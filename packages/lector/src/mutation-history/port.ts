@@ -1,5 +1,5 @@
 import type { ContentHash } from "../domain/content-hash.ts";
-import type { MutationHistoryEntry, MutationOperation } from "../domain/mutation-history.ts";
+import type { MutationHistoryEntry, MutationOperation } from "./mutation-history.ts";
 
 export interface RecordMutationInput {
 	readonly path: string;
@@ -12,7 +12,7 @@ export interface RecordMutationInput {
 /**
  * MutationHistoryPort -- an append-only per-file mutation log, one instance per workspace. A
  * pure store, same philosophy as SymbolAnnotationPort: it never decides WHETHER a revert is
- * safe (see domain/mutation-history.ts's canRevertMutation for that), only records entries and
+ * safe (see mutation-history.ts's canRevertMutation for that), only records entries and
  * serves them back. `record` never overwrites or removes a prior entry -- bounding total
  * storage (an explicit, required maxEntriesPerFile) evicts the OLDEST entry for that path, never
  * a caller-chosen one, so the audit trail's own ordering is never manipulable after the fact.

@@ -7,10 +7,10 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ExternalSearchBounds, GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../src/domain/external-search-result.ts";
-import type { GithubSearchPort } from "../src/ports/github-search-port.ts";
+import type { GithubSearchPort } from "../src/github-search/port.ts";
 import type { NpmRegistryPort } from "../src/ports/npm-registry-port.ts";
-import type { SourcegraphSearchPort } from "../src/ports/sourcegraph-search-port.ts";
 import { createLectorService, type LectorService } from "../src/service.ts";
+import type { SourcegraphSearchPort } from "../src/sourcegraph-search/port.ts";
 
 let service: LectorService | undefined;
 

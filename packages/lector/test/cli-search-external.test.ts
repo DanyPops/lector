@@ -9,9 +9,9 @@ import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
 import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../src/domain/external-search-result.ts";
-import type { GithubSearchPort } from "../src/ports/github-search-port.ts";
+import type { GithubSearchPort } from "../src/github-search/port.ts";
 import type { NpmRegistryPort } from "../src/ports/npm-registry-port.ts";
-import type { SourcegraphSearchPort } from "../src/ports/sourcegraph-search-port.ts";
+import type { SourcegraphSearchPort } from "../src/sourcegraph-search/port.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 let daemon: RunningDaemon | undefined;

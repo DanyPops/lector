@@ -1,7 +1,7 @@
 import fetchBuilder, { type RequestInitWithRetry } from "fetch-retry";
+import { BoundedResponseTooLarge, discardResponseBody, isJsonRecord, MalformedBoundedResponse, readBoundedJson } from "../adapters/bounded-response-reader.ts";
 import type { ExternalSearchBounds, GithubRepoCandidate, GithubRepoSearchResult } from "../domain/external-search-result.ts";
-import type { GithubSearchPort } from "../ports/github-search-port.ts";
-import { BoundedResponseTooLarge, discardResponseBody, isJsonRecord, MalformedBoundedResponse, readBoundedJson } from "./bounded-response-reader.ts";
+import type { GithubSearchPort } from "./port.ts";
 
 export const DEFAULT_GITHUB_API_BASE_URL = "https://api.github.com";
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;

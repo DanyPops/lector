@@ -1,6 +1,6 @@
-import type { GitDiffResult } from "../domain/git-diff-result.ts";
-import type { GitLogEntry } from "../domain/git-log-entry.ts";
-import type { GitStatusSummary } from "../domain/git-status.ts";
+import type { GitDiffResult } from "./diff-result.ts";
+import type { GitLogEntry } from "./log-entry.ts";
+import type { GitStatusSummary } from "./status.ts";
 
 /**
  * GitPort -- the role a driven adapter plays for read-only git queries

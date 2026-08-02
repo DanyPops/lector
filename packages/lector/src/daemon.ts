@@ -10,13 +10,13 @@ import { SqliteSearchCache } from "./adapters/sqlite-search-cache.ts";
 import { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 import { TieredSearchCache } from "./adapters/tiered-search-cache.ts";
 import { resolveLectorPaths } from "./constants.ts";
-import type { GithubSearchPort } from "./ports/github-search-port.ts";
+import type { GithubSearchPort } from "./github-search/port.ts";
 import type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 import type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 import type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
-import type { SourcegraphSearchPort } from "./ports/sourcegraph-search-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import { createLectorService, type LectorService, type OperationName, type WorkspaceId } from "./service.ts";
+import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
 import { lectorVersion } from "./version.ts";
 
 /** The Lector daemon's HTTP surface: Bearer-auth, health/ready, and the ops dispatch endpoint. */

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { LocalGit } from "../src/adapters/local-git.ts";
+import { LocalGit } from "../src/git/local-git.ts";
 import {
 	materializeTypeScriptReferenceFixture,
 	materializeTypeScriptReferenceGitFixture,

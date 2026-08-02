@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { MutationHistoryEntry } from "../domain/mutation-history.ts";
-import type { MutationHistoryPort, RecordMutationInput } from "../ports/mutation-history-port.ts";
+import type { MutationHistoryEntry } from "./mutation-history.ts";
+import type { MutationHistoryPort, RecordMutationInput } from "./port.ts";
 
 const DEFAULT_MAX_ENTRIES_PER_FILE = 50;
 
