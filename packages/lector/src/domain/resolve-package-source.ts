@@ -194,8 +194,10 @@ function validateOutcome(outcome: PackageSourceOutcome, request: PackageSourceRe
 		case "mismatched":
 			validateMismatched(outcome);
 			return;
-		default:
-			throw new InvalidPackageSourceContract("outcome.status");
+		default: {
+			const exhaustive: never = outcome;
+			throw new InvalidPackageSourceContract(`outcome.status: ${JSON.stringify(exhaustive)}`);
+		}
 	}
 }
 

@@ -750,16 +750,24 @@ async function runWorkspaceRepoCacheList(flags: string[]): Promise<void> {
 
 function formatPackageSourceResult(result: PackageSourceOperationResult): string {
 	const { outcome } = result;
-	if (outcome.status === "verified") {
-		return `${result.workspaceId ?? "unregistered"} ${outcome.coordinate.name}@${outcome.coordinate.resolvedVersion} -- ${outcome.workspace.cachePath}\n${outcome.repository.url ?? "local source"}@${outcome.repository.resolvedRef ?? "local"} ${outcome.repository.commit ?? outcome.verification.integrity}`;
+	switch (outcome.status) {
+		case "verified":
+			return `${result.workspaceId ?? "unregistered"} ${outcome.coordinate.name}@${outcome.coordinate.resolvedVersion} -- ${outcome.workspace.cachePath}\n${outcome.repository.url ?? "local source"}@${outcome.repository.resolvedRef ?? "local"} ${outcome.repository.commit ?? outcome.verification.integrity}`;
+		case "ambiguous":
+			return `ambiguous [${outcome.code}] -- ${outcome.candidates.map((candidate) => `${candidate.version} (${candidate.source})`).join(", ")}${outcome.truncated ? ", …" : ""}`;
+		case "unauthenticated":
+			return `unauthenticated [${outcome.code}] -- configure ${outcome.requiredCredentialNames.join(", ")}`;
+		case "oversized":
+			return `oversized [${outcome.code}] -- ${outcome.resource} exceeded ${outcome.limit}`;
+		case "mismatched":
+			return `mismatched [${outcome.code}] -- expected ${outcome.expected}, got ${outcome.actual}`;
+		case "unavailable":
+			return `unavailable [${outcome.code}]`;
+		default: {
+			const exhaustive: never = outcome;
+			throw new Error(`unhandled package source outcome status: ${JSON.stringify(exhaustive)}`);
+		}
 	}
-	if (outcome.status === "ambiguous") {
-		return `ambiguous [${outcome.code}] -- ${outcome.candidates.map((candidate) => `${candidate.version} (${candidate.source})`).join(", ")}${outcome.truncated ? ", …" : ""}`;
-	}
-	if (outcome.status === "unauthenticated") return `unauthenticated [${outcome.code}] -- configure ${outcome.requiredCredentialNames.join(", ")}`;
-	if (outcome.status === "oversized") return `oversized [${outcome.code}] -- ${outcome.resource} exceeded ${outcome.limit}`;
-	if (outcome.status === "mismatched") return `mismatched [${outcome.code}] -- expected ${outcome.expected}, got ${outcome.actual}`;
-	return `unavailable [${outcome.code}]`;
 }
 
 async function runPackageSource(projectDir: string | undefined, packageName: string | undefined, flags: string[]): Promise<void> {

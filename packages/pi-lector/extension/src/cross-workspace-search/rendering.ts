@@ -17,9 +17,21 @@ function formatOutcomeHeader(entry: CrossWorkspaceOutcome<unknown>, theme: Lecto
 	const { outcome } = entry;
 	const label = theme.fg("accent", entry.directory);
 	const lines: string[] = [];
-	if (outcome.status === "ready") lines.push(label);
-	else if (outcome.status === "loading") lines.push(`${label} ${theme.fg("warning", `-- still loading: ${outcome.message}`)}`);
-	else lines.push(`${label} ${theme.fg("error", `-- ${outcome.message}`)}`);
+	switch (outcome.status) {
+		case "ready":
+			lines.push(label);
+			break;
+		case "loading":
+			lines.push(`${label} ${theme.fg("warning", `-- still loading: ${outcome.message}`)}`);
+			break;
+		case "error":
+			lines.push(`${label} ${theme.fg("error", `-- ${outcome.message}`)}`);
+			break;
+		default: {
+			const exhaustive: never = outcome;
+			throw new Error(`unhandled workspace query outcome status: ${JSON.stringify(exhaustive)}`);
+		}
+	}
 	// Surfaced explicitly, never silently -- two distinct inputs resolving to one workspace means
 	// one of their own result payloads below is a real duplicate of the other's, not two independent answers.
 	if (entry.collapsedWith.length > 0) {

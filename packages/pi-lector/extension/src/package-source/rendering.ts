@@ -36,33 +36,40 @@ export function formatPackageSourceCall(
 export function formatPackageSourceResult(result: PackageSourceOperationResult | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!result) return theme.fg("dim", "No package-source result.");
 	const { outcome } = result;
-	if (outcome.status === "verified") {
-		return [
-			`${theme.fg("accent", result.workspaceId ?? "unregistered")} ${theme.fg("success", `${outcome.coordinate.name}@${outcome.coordinate.resolvedVersion}`)}`,
-			`${outcome.workspace.cachePath}`,
-			`${outcome.repository.url ?? "local source"}@${outcome.repository.resolvedRef ?? "local"} ${outcome.repository.commit ?? outcome.verification.integrity}`,
-		].join("\n");
+	switch (outcome.status) {
+		case "verified":
+			return [
+				`${theme.fg("accent", result.workspaceId ?? "unregistered")} ${theme.fg("success", `${outcome.coordinate.name}@${outcome.coordinate.resolvedVersion}`)}`,
+				`${outcome.workspace.cachePath}`,
+				`${outcome.repository.url ?? "local source"}@${outcome.repository.resolvedRef ?? "local"} ${outcome.repository.commit ?? outcome.verification.integrity}`,
+			].join("\n");
+		case "ambiguous": {
+			const lines = [
+				theme.fg("warning", `Ambiguous package source (${outcome.code})`),
+				...renderTruncatedList({
+					items: outcome.candidates,
+					expanded,
+					visibleCount: DEFAULT_VISIBLE_CANDIDATES,
+					formatItem: (candidate) => `${candidate.version} -- ${candidate.source}`,
+					moreLine: (hidden) => theme.fg("dim", `… ${hidden} more`),
+					truncationWarning: outcome.truncated ? theme.fg("dim", "More candidates were truncated by the daemon.") : undefined,
+				}),
+			];
+			return lines.join("\n");
+		}
+		case "unauthenticated":
+			return theme.fg("warning", `Authentication required (${outcome.code}): configure ${outcome.requiredCredentialNames.join(", ")}`);
+		case "oversized":
+			return theme.fg("warning", `Source resolution exceeded ${outcome.resource} limit ${outcome.limit}.`);
+		case "mismatched":
+			return theme.fg("error", `Source mismatch (${outcome.code}): expected ${outcome.expected}, got ${outcome.actual}.`);
+		case "unavailable":
+			return theme.fg("warning", `Source unavailable (${outcome.code}).`);
+		default: {
+			const exhaustive: never = outcome;
+			throw new Error(`unhandled package source outcome status: ${JSON.stringify(exhaustive)}`);
+		}
 	}
-	if (outcome.status === "ambiguous") {
-		const lines = [
-			theme.fg("warning", `Ambiguous package source (${outcome.code})`),
-			...renderTruncatedList({
-				items: outcome.candidates,
-				expanded,
-				visibleCount: DEFAULT_VISIBLE_CANDIDATES,
-				formatItem: (candidate) => `${candidate.version} -- ${candidate.source}`,
-				moreLine: (hidden) => theme.fg("dim", `… ${hidden} more`),
-				truncationWarning: outcome.truncated ? theme.fg("dim", "More candidates were truncated by the daemon.") : undefined,
-			}),
-		];
-		return lines.join("\n");
-	}
-	if (outcome.status === "unauthenticated") {
-		return theme.fg("warning", `Authentication required (${outcome.code}): configure ${outcome.requiredCredentialNames.join(", ")}`);
-	}
-	if (outcome.status === "oversized") return theme.fg("warning", `Source resolution exceeded ${outcome.resource} limit ${outcome.limit}.`);
-	if (outcome.status === "mismatched") return theme.fg("error", `Source mismatch (${outcome.code}): expected ${outcome.expected}, got ${outcome.actual}.`);
-	return theme.fg("warning", `Source unavailable (${outcome.code}).`);
 }
 
 /** Empty-state fallback only -- a non-empty page renders as a real Table (see buildPackageSourceListTableRows) so the human channel actually shows what's resolved, not just a bare count. Mirrors formatRepoCacheListResult. */
