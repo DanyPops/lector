@@ -9,6 +9,7 @@ import type {
 	GithubRepoSearchResult,
 	Hover,
 	IntelligenceProvenance,
+	JobSnapshot,
 	LineEdit,
 	LineEditOutcome,
 	MutationHistoryEntry,
@@ -16,12 +17,14 @@ import type {
 	OperationOutputs,
 	PackageEcosystem,
 	PackageSourceOperationResult,
+	PopulateSymbolGraphResult,
 	RepoFetchResult,
 	SourcegraphCodeCandidate,
 	SymbolAnnotation,
 	SymbolNode,
 	SymbolSearchResult,
 	TextSearchResult,
+	WorkspaceCacheStatus,
 	WorkspaceLocation,
 	WorkspaceMapResult,
 	WorkspaceQueryOutcome,
@@ -125,6 +128,7 @@ import {
 	describeCacheState,
 	monitorWorkspaceCache,
 } from "./workspace-cache-operations.ts";
+import { formatJobSnapshotResult, formatWorkspaceCacheCall, formatWorkspaceCacheStatusResult } from "./workspace-cache-rendering.ts";
 import { createLectorWriteOperations } from "./write-operations.ts";
 
 function describeIntelligenceSource(provenance: IntelligenceProvenance): string {
@@ -650,7 +654,7 @@ export default function (pi: ExtensionAPI) {
 				"Move/rename a file and rewrite every static import/export specifier the workspace's own populated symbol graph knows references it -- atomically, rolled back entirely on any failure. Non-LSP: uses find_references + a real parse of import/export declarations, not a language server's own rename. Refuses outright (touches nothing) unless the workspace's symbol graph is fully populated and current for the given bounds -- a partial rename that silently misses a reference is worse than refusing (Sourcegraph's CodeScaleBench finding). Does not follow dynamic import(expr)/require(expr) or any plain string reference to the file -- always check the returned caveats.",
 			promptSnippet: "Move a file and update every import that references it",
 			promptGuidelines: [
-				"The workspace's symbol graph auto-populates in the background (default bounds: 500 files, 100 symbols/file) the first time this workspace is touched. If this refuses because the graph isn't populated at the requested maxFiles/maxSymbolsPerFile, run `lector workspace populate-symbol-graph <path> --max-files <n> --max-symbols-per-file <n>` via bash for a larger scan, then retry.",
+				"The workspace's symbol graph auto-populates in the background (default bounds: 500 files, 100 symbols/file) the first time this workspace is touched. If this refuses because the graph isn't populated at the requested maxFiles/maxSymbolsPerFile, use workspace_cache(action=populate, maxFiles, maxSymbolsPerFile) for a larger scan, then retry -- no need to shell out to the CLI.",
 				"Always read the returned caveats: this never rewrites a dynamic import(expr)/require(expr) or a plain string reference to the old path, even if one exists.",
 			],
 			parameters: Type.Object({
@@ -779,10 +783,11 @@ export default function (pi: ExtensionAPI) {
 			name: "symbol_annotations",
 			label: "Symbol Annotations",
 			description:
-				'Agent-authored narrative content anchored to one or more symbols in the workspace\'s persisted graph -- e.g. a "user story dataflow" note spanning every symbol touched end-to-end. Every anchor must resolve to a real, currently-known symbol (the workspace\'s symbol graph auto-populates in the background on first touch). get/list/tree live-check staleness against the current graph/workspace on every call and persist a correction before returning, so a returned status never disagrees with reality -- a stale annotation must be refreshed (re-authored and re-anchored) or scrubbed (soft-deleted, restorable) by an explicit decision; Lector never rewrites the narrative itself. contain/uncontain build a reusable, nestable structure on top of plain annotations: a container (e.g. a "data flow") can contain other annotations -- including per-symbol notes shared by more than one container (DRY reuse) or another container one level deeper (nested data flows) -- without duplicating their content. tree reads a whole bounded subtree in one call. Actions: create, get, list, refresh, scrub, restore, contain, uncontain, tree.',
+				'Agent-authored narrative content anchored to one or more symbols in the workspace\'s persisted graph -- e.g. a "user story dataflow" note spanning every symbol touched end-to-end. Every anchor must resolve to a real, currently-known symbol (the workspace\'s symbol graph auto-populates in the background on first touch, bounded to the first 500 files/100 symbols each -- use workspace_cache(action=populate) with larger bounds for a symbol outside that). get/list/tree live-check staleness against the current graph/workspace on every call and persist a correction before returning, so a returned status never disagrees with reality -- a stale annotation must be refreshed (re-authored and re-anchored) or scrubbed (soft-deleted, restorable) by an explicit decision; Lector never rewrites the narrative itself. contain/uncontain build a reusable, nestable structure on top of plain annotations: a container (e.g. a "data flow") can contain other annotations -- including per-symbol notes shared by more than one container (DRY reuse) or another container one level deeper (nested data flows) -- without duplicating their content. tree reads a whole bounded subtree in one call. Actions: create, get, list, refresh, scrub, restore, contain, uncontain, tree.',
 			promptSnippet: "Attach, read, or invalidate narrative annotations on the symbol graph",
 			promptGuidelines: [
 				"Resolve real anchor positions first (find_symbols/document_symbols/go_to_definition) -- an anchor position must match the workspace's own symbol graph's recorded position for that symbol, not just any occurrence of its name.",
+				"UnknownAnnotationAnchor on a real, existing symbol usually means the graph's default 500-file auto-scan never reached that file -- check workspace_cache(action=status) and populate with larger bounds before assuming the position itself is wrong.",
 				"A stale annotation's body may no longer describe the code accurately -- read it, decide whether to refresh (re-author) or scrub (remove), never trust it as-is.",
 				"Prefer reusing an existing per-symbol annotation as a shared child of several containers over re-authoring the same explanation in each -- that reuse is the reason contain/uncontain exist.",
 				"contain/uncontain are idempotent (containing an already-contained child, or uncontaining an already-absent relationship, is a no-op, not an error) and reject a cycle up front rather than accepting one.",
@@ -944,10 +949,11 @@ export default function (pi: ExtensionAPI) {
 			name: "reachable_from",
 			label: "Reachable From",
 			description:
-				"Every symbol reachable from an exact file position by following the workspace's persisted call graph up to maxDepth hops -- transitive callers/reachability that would otherwise require chaining many find_references/call_hierarchy calls by hand. The workspace's symbol graph auto-populates in the background the first time this workspace is touched; if it's still building, this returns an empty result rather than an error -- wait a moment and retry.",
+				"Every symbol reachable from an exact file position by following the workspace's persisted call graph up to maxDepth hops -- transitive callers/reachability that would otherwise require chaining many find_references/call_hierarchy calls by hand. The workspace's symbol graph auto-populates in the background the first time this workspace is touched, bounded to the first 500 files/100 symbols each; if the position you need falls outside that, this returns an empty result rather than an error -- use workspace_cache(action=populate) with larger bounds, not just a retry.",
 			promptSnippet: "Find symbols reachable from a position, up to N hops, via the persisted graph",
 			promptGuidelines: [
 				"Use reachable_from for multi-hop questions (does A eventually call C through B); use call_hierarchy (direction=incoming/outgoing) for a single direct hop live against the language server.",
+				"An empty result on a real, existing symbol usually means the graph's default 500-file auto-scan never reached that file, not that nothing is reachable -- check with workspace_cache(action=status) and populate with larger bounds if so.",
 			],
 			parameters: Type.Object({
 				...positionParameters,
@@ -992,11 +998,11 @@ export default function (pi: ExtensionAPI) {
 			name: "workspace_map",
 			label: "Workspace Map",
 			description:
-				"A ranked, budget-bounded summary of the workspace's most structurally central symbols (aider-repomap-shaped) -- signature-only, highest-ranked first by PageRank over the populated call/reference graph, not full file dumps. Use when orienting in an unfamiliar or large codebase instead of reading many files one by one. The workspace's symbol graph auto-populates in the background the first time this workspace is touched; if it's still building, this returns empty rather than an error -- wait a moment and retry.",
+				"A ranked, budget-bounded summary of the workspace's most structurally central symbols (aider-repomap-shaped) -- signature-only, highest-ranked first by PageRank over the populated call/reference graph, not full file dumps. Use when orienting in an unfamiliar or large codebase instead of reading many files one by one. The workspace's symbol graph auto-populates in the background the first time this workspace is touched, bounded to the first 500 files/100 symbols each; a workspace bigger than that needs workspace_cache(action=populate) with larger bounds for full coverage.",
 			promptSnippet: "Get a ranked, signature-only overview of the workspace's most central symbols",
 			promptGuidelines: [
 				"Prefer this over reading many files to get oriented in a large or unfamiliar codebase -- it surfaces the most-referenced symbols first, not an arbitrary file order.",
-				"A budget-truncated result means real symbols were left out, not that the workspace only has this many -- raise maxEntries/maxBytes for more.",
+				"A budget-truncated result means real symbols were left out, not that the workspace only has this many -- raise maxEntries/maxBytes for more. An empty result instead means the graph itself never covered this workspace -- check workspace_cache(action=status).",
 			],
 			parameters: Type.Object({
 				path: Type.String({ description: "Absolute or cwd-relative path used to resolve which workspace to map" }),
@@ -1035,6 +1041,80 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as { result?: WorkspaceMapResult } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatWorkspaceMapResult(details?.result, expanded, theme));
+				return text;
+			},
+		});
+
+		interface WorkspaceCacheToolDetails {
+			readonly action: "status" | "populate" | "job_status";
+			readonly status?: WorkspaceCacheStatus;
+			readonly job?: JobSnapshot<PopulateSymbolGraphResult>;
+		}
+
+		pi.registerTool({
+			name: "workspace_cache",
+			label: "Workspace Cache",
+			description:
+				"Checks or drives population of the workspace's persisted symbol graph -- the store reachable_from, symbol_annotations (anchor resolution), reference_based_rename, and workspace_map all read from, separate from the live language-server index find_symbols/hover/go_to_definition use. action=status reports not-cached/caching/partial/cached for the given bounds, without starting any work. action=populate explicitly requests a scan (optionally larger than the default 500-file/100-symbol auto-scan every workspace gets on first touch) and waits up to waitMs for it to finish, returning a job snapshot either way. action=job_status polls a job returned by populate that didn't finish within its own wait.",
+			promptSnippet: "Check or force-populate the workspace's persisted symbol graph",
+			promptGuidelines: [
+				"Use action=populate with a larger maxFiles/maxSymbolsPerFile before relying on reachable_from/symbol_annotations/reference_based_rename against a workspace bigger than the default 500-file auto-scan -- their own errors (empty results, UnknownAnnotationAnchor, ReferenceBasedRenameRequiresFreshGraph) usually mean the graph never reached the files you need, not that population is simply still catching up.",
+				"action=populate returns immediately once its own waitMs elapses even if the job is still running -- check the returned job's status and poll with action=job_status (the same jobId) rather than assuming a non-succeeded result means failure.",
+			],
+			parameters: Type.Object({
+				action: Type.Union([Type.Literal("status"), Type.Literal("populate"), Type.Literal("job_status")]),
+				directory: Type.Optional(
+					Type.String({ description: "Required for action=status/populate -- absolute or cwd-relative path used to resolve the workspace" }),
+				),
+				maxFiles: Type.Optional(
+					Type.Number({ description: "action=status/populate only -- defaults to 500, the same bound the automatic first-touch scan uses" }),
+				),
+				maxSymbolsPerFile: Type.Optional(
+					Type.Number({ description: "action=status/populate only -- defaults to 100, the same bound the automatic first-touch scan uses" }),
+				),
+				waitMs: Type.Optional(
+					Type.Number({
+						description:
+							"action=populate only -- how long to wait for the job to finish before returning its current snapshot; defaults to 3000, capped by the daemon at 30000",
+					}),
+				),
+				jobId: Type.Optional(Type.String({ description: "Required for action=job_status -- a jobId returned by a prior action=populate call" })),
+			}),
+			async execute(_toolCallId, params): Promise<AgentToolResult<WorkspaceCacheToolDetails>> {
+				if (params.action === "job_status") {
+					if (!params.jobId) throw new Error("workspace_cache action=job_status requires jobId");
+					const job = await codeIntelligenceOperations.jobStatus(params.jobId);
+					return { content: [{ type: "text", text: JSON.stringify(job) }], details: { action: "job_status", job } };
+				}
+				if (!params.directory) throw new Error(`workspace_cache action=${params.action} requires directory`);
+				const directory = resolve(cwd, params.directory);
+				const maxFiles = params.maxFiles ?? 500;
+				const maxSymbolsPerFile = params.maxSymbolsPerFile ?? 100;
+				if (params.action === "status") {
+					const status = await cacheOperations.status(directory, maxFiles, maxSymbolsPerFile);
+					return { content: [{ type: "text", text: JSON.stringify(status) }], details: { action: "status", status } };
+				}
+				const job = await codeIntelligenceOperations.populateSymbolGraph(directory, maxFiles, maxSymbolsPerFile, params.waitMs ?? 3_000);
+				return { content: [{ type: "text", text: JSON.stringify(job) }], details: { action: "populate", job } };
+			},
+			renderCall(args, theme, context) {
+				const action = args.action === "populate" || args.action === "job_status" ? args.action : "status";
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatWorkspaceCacheCall(action, args, theme));
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Checking workspace cache..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "workspace_cache failed"), 0, 0);
+				}
+				const details = result.details as WorkspaceCacheToolDetails | undefined;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(details?.action === "status" ? formatWorkspaceCacheStatusResult(details.status, theme) : formatJobSnapshotResult(details?.job, theme));
 				return text;
 			},
 		});
