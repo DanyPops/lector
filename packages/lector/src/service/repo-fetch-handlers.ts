@@ -1,0 +1,70 @@
+import { resolve } from "node:path";
+import { LocalFilesystemWorkspace } from "../adapters/local-filesystem-workspace.ts";
+import { ReadOnlyWorkspace } from "../adapters/read-only-workspace.ts";
+import { type CachedRepositoryEntry, queryCachedRepositories } from "../domain/cached-repository-entry.ts";
+import type { RepoFetcherPort } from "../ports/repo-fetcher-port.ts";
+import {
+	deriveWorkspaceId,
+	type MutableRegistry,
+	type OperationInputs,
+	type OperationOutputs,
+	RepoCacheEntryInUse,
+	RepoFetcherNotConfigured,
+} from "../service.ts";
+
+export interface RepoFetchHandlerDeps {
+	readonly repoFetcher: RepoFetcherPort | undefined;
+}
+
+export interface RepoFetchHandlers {
+	"repo.fetch": (registry: MutableRegistry, input: OperationInputs["repo.fetch"]) => Promise<OperationOutputs["repo.fetch"]>;
+	"repo.listCache": (registry: MutableRegistry, input: OperationInputs["repo.listCache"]) => Promise<OperationOutputs["repo.listCache"]>;
+	"repo.evictCache": (registry: MutableRegistry, input: OperationInputs["repo.evictCache"]) => Promise<OperationOutputs["repo.evictCache"]>;
+}
+
+/** repo.fetch/listCache/evictCache -- RepoFetcherPort's disk-cached external-repo checkouts, registered read-only into the same workspace registry every other operation reads from. */
+export function createRepoFetchHandlers(deps: RepoFetchHandlerDeps): RepoFetchHandlers {
+	return {
+		/** Fetches (or reuses a cached clone of) an external repo and registers it read-only -- the same registry every other operation already reads from, so find_symbols/go_to_definition/git status etc. work on it unchanged once fetched. forceRefresh threads straight through to RepoFetcherPort's own existing policy -- the "update" verb; previously only reachable internally by the remote-change watcher, never by a caller. */
+		async "repo.fetch"(registry, input) {
+			if (!deps.repoFetcher) throw new RepoFetcherNotConfigured();
+			const { forceRefresh, ...reference } = input;
+			const result = await deps.repoFetcher.fetch(reference, { forceRefresh });
+			const absolutePath = resolve(result.path);
+			const workspaceId = deriveWorkspaceId(absolutePath);
+			if (!registry.has(workspaceId)) {
+				registry.set(workspaceId, {
+					port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)),
+					rootPath: absolutePath,
+					origin: "remote",
+					remoteReference: reference,
+				});
+			}
+			return { workspaceId, ...result };
+		},
+		async "repo.listCache"(registry, input) {
+			if (!deps.repoFetcher) throw new RepoFetcherNotConfigured();
+			const raw = await deps.repoFetcher.listCached();
+			const entries: CachedRepositoryEntry[] = raw.map((entry) => {
+				const workspaceId = deriveWorkspaceId(resolve(entry.path));
+				return { ...entry, registeredWorkspaceId: registry.has(workspaceId) ? workspaceId : null };
+			});
+			const { host, owner, repo, ref, text } = input;
+			return queryCachedRepositories(entries, { host, owner, repo, ref, text }, input.maxResults, input.cursor);
+		},
+		/** Refuses (RepoCacheEntryInUse) rather than deleting a currently-registered workspace's backing checkout out from under it -- there is no workspace.unregister operation to resolve that conflict safely today. */
+		async "repo.evictCache"(registry, input) {
+			if (!deps.repoFetcher) throw new RepoFetcherNotConfigured();
+			const requestedRef = input.ref ?? "HEAD";
+			const cached = (await deps.repoFetcher.listCached()).find(
+				(entry) => entry.host === input.host && entry.owner === input.owner && entry.repo === input.repo && entry.requestedRef === requestedRef,
+			);
+			if (cached) {
+				const workspaceId = deriveWorkspaceId(resolve(cached.path));
+				if (registry.has(workspaceId)) throw new RepoCacheEntryInUse(workspaceId);
+			}
+			const evicted = await deps.repoFetcher.evict(input);
+			return { evicted };
+		},
+	};
+}

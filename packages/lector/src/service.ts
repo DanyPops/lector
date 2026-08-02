@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
-import { extname, resolve, sep } from "node:path";
+import { extname, resolve } from "node:path";
 import picomatch from "picomatch";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 import { GithubSearchClient } from "./adapters/github-search-client.ts";
@@ -20,13 +20,10 @@ import { NpmLockfileVersionResolver } from "./adapters/npm-lockfile-version-reso
 import { NpmPackageSourceResolver } from "./adapters/npm-package-source-resolver.ts";
 import { NpmRegistryClient } from "./adapters/npm-registry-client.ts";
 import { PolyglotCodeIntelligenceIndex } from "./adapters/polyglot-code-intelligence-index.ts";
-import { ReadOnlyWorkspace } from "./adapters/read-only-workspace.ts";
 import { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "./adapters/source-manifest.ts";
 import { SourcegraphSearchClient } from "./adapters/sourcegraph-search-client.ts";
-import { extractDeclarationSnapshot } from "./adapters/tree-sitter/declaration-text.ts";
 import { findImportSpecifiers } from "./adapters/tree-sitter/import-specifiers.ts";
-import { wasmPathForExtension } from "./adapters/tree-sitter/typescript-parser.ts";
 import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "./adapters/typescript-compiler-symbol-index.ts";
 import { annotationsContainedFrom, wouldCreateContainmentCycle } from "./domain/annotation-containment.ts";
@@ -35,15 +32,10 @@ import { applyReferenceBasedRename, type ReferenceBasedRenameOutcome } from "./d
 import { applyWorkspaceEdit, collectTouchedPaths } from "./domain/apply-workspace-edit.ts";
 import { assertAbsolutePath, RelativeWorkspacePath } from "./domain/assert-absolute-path.ts";
 import { BoundedJobExecutor, type JobSnapshot } from "./domain/bounded-job-executor.ts";
-import {
-	type CachedRepositoryEntry,
-	type CachedRepositoryPage,
-	type CachedRepositoryQuery,
-	queryCachedRepositories,
-} from "./domain/cached-repository-entry.ts";
+import type { CachedRepositoryPage, CachedRepositoryQuery } from "./domain/cached-repository-entry.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 import { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
-import { compareSymbolDeclarations, type SymbolComparisonStatus } from "./domain/compare-symbol-declarations.ts";
+import type { SymbolComparisonStatus } from "./domain/compare-symbol-declarations.ts";
 import { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
 import { DebouncedScheduler } from "./domain/debounced-scheduler.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
@@ -51,7 +43,7 @@ import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
 import type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
 import { documentSymbols as documentSymbolsQuery } from "./domain/document-symbols.ts";
 import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash } from "./domain/exact-edit.ts";
-import type { ExternalSearchBounds, GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "./domain/external-search-result.ts";
+import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "./domain/external-search-result.ts";
 import type { FileChangeEvent } from "./domain/file-change-event.ts";
 import { findFiles as findFilesQuery } from "./domain/find-files.ts";
 import type { FindFilesResult } from "./domain/find-files-result.ts";
@@ -72,14 +64,8 @@ import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, li
 import type { MutationHistoryEntry, MutationOperation } from "./domain/mutation-history.ts";
 import { canRevertMutation } from "./domain/mutation-history.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
-import {
-	PACKAGE_ECOSYSTEMS,
-	type PackageEcosystem,
-	type PackageSourceBounds,
-	type PackageSourceOperationResult,
-	type PackageSourceRequest,
-} from "./domain/package-source.ts";
-import { type PackageSourceIndexQuery, type PackageSourceListEntry, queryPackageSourceIndex } from "./domain/package-source-index.ts";
+import type { PackageEcosystem, PackageSourceBounds, PackageSourceOperationResult, PackageSourceRequest } from "./domain/package-source.ts";
+import type { PackageSourceIndexQuery, PackageSourceListEntry } from "./domain/package-source-index.ts";
 import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
 import { purgeFilesNoLongerWalked } from "./domain/purge-stale-graph-entries.ts";
@@ -90,12 +76,10 @@ import { planReferenceBasedRename } from "./domain/reference-based-rename.ts";
 import { shouldRefetchFromRemote } from "./domain/remote-cache-freshness.ts";
 import type { RepoFetchResult } from "./domain/repo-fetch-result.ts";
 import type { RepoReference } from "./domain/repo-reference.ts";
-import { InvalidPackageSourceContract, resolvePackageSource } from "./domain/resolve-package-source.ts";
 import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from "./domain/response-format.ts";
 import { searchText as searchTextQuery } from "./domain/search-text.ts";
 import { SerialExecutionQueue } from "./domain/serial-execution-queue.ts";
 import type { AnnotationId, SymbolAnnotation, SymbolAnnotationAnchor } from "./domain/symbol-annotation.ts";
-import type { SymbolDeclarationSnapshot } from "./domain/symbol-declaration-snapshot.ts";
 import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
 import type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
@@ -125,6 +109,10 @@ import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 import type { TextSearchPort } from "./ports/text-search-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
+import { createExternalSearchHandlers } from "./service/external-search-handlers.ts";
+import { createGitHandlers } from "./service/git-handlers.ts";
+import { createPackageSourceHandlers } from "./service/package-source-handlers.ts";
+import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 
 /**
  * Identifies which registered workspace an operation targets. There is no
@@ -655,7 +643,7 @@ export interface OperationOutputs {
  * A shorter digest than ContentHash's is deliberate: this identifies a workspace root
  * for addressing/logging, not a content value needing full collision resistance.
  */
-function deriveWorkspaceId(absolutePath: string): WorkspaceId {
+export function deriveWorkspaceId(absolutePath: string): WorkspaceId {
 	return createHash("sha256").update(absolutePath).digest("hex").slice(0, 16);
 }
 
@@ -675,7 +663,7 @@ export interface LectorService {
 	reapIdleSymbolIndexes(maxIdleMs: number): Promise<number>;
 }
 
-interface RegisteredWorkspace {
+export interface RegisteredWorkspace {
 	readonly port: WorkspacePort;
 	/** Present only for workspaces registered via workspace.registerPath -- required for symbol queries. */
 	readonly rootPath?: string;
@@ -685,7 +673,7 @@ interface RegisteredWorkspace {
 	readonly remoteReference?: RepoReference;
 }
 
-type MutableRegistry = Map<WorkspaceId, RegisteredWorkspace>;
+export type MutableRegistry = Map<WorkspaceId, RegisteredWorkspace>;
 
 /** A SymbolIndexPort the service can also shut down when it stops. */
 export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void> };
@@ -750,7 +738,7 @@ export interface LectorServiceOptions {
 	graphRefreshDebounceMs?: number;
 }
 
-function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): WorkspacePort {
+export function resolveWorkspace(registry: MutableRegistry, workspaceId: WorkspaceId): WorkspacePort {
 	const entry = registry.get(workspaceId);
 	if (!entry) throw new UnknownWorkspace(workspaceId);
 	return entry.port;
@@ -800,16 +788,6 @@ const DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS = 3000;
 const MAX_INITIAL_JOB_WAIT_MS = 30_000;
 const MAX_SYMBOL_RESULTS = 5_000;
 const MAX_SOURCE_MANIFEST_BYTES = 50 * 1024 * 1024;
-const MAX_EXTERNAL_SEARCH_RESULTS = 100;
-/** Fixed, not caller-configurable -- matches workspace.searchText's own precedent of exposing only the caller-relevant bound (maxResults/maxMatches) at the operation level and keeping transport-level bounds (timeout, response size, retries) as internal service policy. */
-const EXTERNAL_SEARCH_BOUNDS = { timeoutMs: 10_000, maxResponseBytes: 8 * 1024 * 1024, maxRetries: 2 } as const;
-
-function externalSearchBounds(maxResults: number): ExternalSearchBounds {
-	if (!Number.isSafeInteger(maxResults) || maxResults < 1 || maxResults > MAX_EXTERNAL_SEARCH_RESULTS) {
-		throw new TypeError(`maxResults must be a positive safe integer no greater than ${MAX_EXTERNAL_SEARCH_RESULTS}`);
-	}
-	return { maxResults, ...EXTERNAL_SEARCH_BOUNDS };
-}
 
 /**
  * Create the Lector service over an explicit initial registry of workspaces.
@@ -1003,250 +981,17 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		activePopulationJobByWorkspace.set(workspaceId, submitted.id);
 	}
 
-	/** Never cached: cheap to construct, and a stale-git-repo check would be wrong to memoize across a repo that could be git-init'd or removed mid-session. */
-	async function requireGitRepository(workspaceId: WorkspaceId): Promise<GitPort> {
-		const entry = registry.get(workspaceId);
-		if (!entry) throw new UnknownWorkspace(workspaceId);
-		if (!entry.rootPath) throw new SymbolQueryUnavailable(workspaceId);
-		const git = createGitPort(entry.rootPath);
-		if (!(await git.isGitRepository())) throw new NotAGitRepository(workspaceId);
-		return git;
-	}
-
-	async function gitStatusHandler(_registry: MutableRegistry, input: OperationInputs["workspace.gitStatus"]): Promise<OperationOutputs["workspace.gitStatus"]> {
-		const git = await requireGitRepository(input.workspaceId);
-		return git.status();
-	}
-
-	async function gitLogHandler(_registry: MutableRegistry, input: OperationInputs["workspace.gitLog"]): Promise<OperationOutputs["workspace.gitLog"]> {
-		const git = await requireGitRepository(input.workspaceId);
-		return { entries: await git.log(input.maxCount) };
-	}
-
-	async function gitDiffHandler(_registry: MutableRegistry, input: OperationInputs["workspace.gitDiff"]): Promise<OperationOutputs["workspace.gitDiff"]> {
-		const git = await requireGitRepository(input.workspaceId);
-		return git.diff(input.ref, input.maxBytes);
-	}
-
-	/** Undefined content (path not found at a ref) is a legitimate "missing" snapshot, never parsed -- only content that actually exists is worth running through tree-sitter. */
-	async function declarationSnapshotAt(
-		git: GitPort,
-		registry: MutableRegistry,
-		workspaceId: WorkspaceId,
-		path: string,
-		extension: string,
-		symbolName: string,
-		ref: string | undefined,
-	): Promise<SymbolDeclarationSnapshot> {
-		const content =
-			ref === undefined
-				? await (async () => {
-						const entry = await resolveWorkspace(registry, workspaceId).readEntry(path);
-						return entry.exists ? entry.content : undefined;
-					})()
-				: await git.showFile(ref, path);
-		return content === undefined ? { found: false } : extractDeclarationSnapshot(content, extension, symbolName);
-	}
-
-	/**
-	 * The syntactic tier only (git blob content run through tree-sitter, no real checkout, no
-	 * project-aware LSP resolution across versions) -- see the task's own two-tier rationale for
-	 * why this is the deliberate first pass, not a shortcut. `toRef` omitted compares against the
-	 * current working tree via the same WorkspacePort every other read already goes through.
-	 */
-	async function compareSymbolAcrossVersionsHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.compareSymbolAcrossVersions"],
-	): Promise<OperationOutputs["workspace.compareSymbolAcrossVersions"]> {
-		const extension = extname(input.path);
-		if (!wasmPathForExtension(extension)) throw new SymbolComparisonUnsupportedLanguage(extension);
-		const git = await requireGitRepository(input.workspaceId);
-		const [from, to] = await Promise.all([
-			declarationSnapshotAt(git, registry, input.workspaceId, input.path, extension, input.symbolName, input.fromRef),
-			declarationSnapshotAt(git, registry, input.workspaceId, input.path, extension, input.symbolName, input.toRef),
-		]);
-		const toRef = input.toRef ?? "working tree";
-		const comparison = compareSymbolDeclarations(input.path, input.symbolName, input.fromRef, toRef, from, to, input.maxBytes);
-		return { path: input.path, symbolName: input.symbolName, fromRef: input.fromRef, toRef, ...comparison };
-	}
-
-	/** Fetches (or reuses a cached clone of) an external repo and registers it read-only -- the same registry every other operation already reads from, so find_symbols/go_to_definition/git status etc. work on it unchanged once fetched. forceRefresh threads straight through to RepoFetcherPort's own existing policy -- the "update" verb; previously only reachable internally by the remote-change watcher, never by a caller. */
-	async function repoFetchHandler(registry: MutableRegistry, input: OperationInputs["repo.fetch"]): Promise<OperationOutputs["repo.fetch"]> {
-		if (!repoFetcher) throw new RepoFetcherNotConfigured();
-		const { forceRefresh, ...reference } = input;
-		const result = await repoFetcher.fetch(reference, { forceRefresh });
-		const absolutePath = resolve(result.path);
-		const workspaceId = deriveWorkspaceId(absolutePath);
-		if (!registry.has(workspaceId)) {
-			registry.set(workspaceId, {
-				port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)),
-				rootPath: absolutePath,
-				origin: "remote",
-				remoteReference: reference,
-			});
-		}
-		return { workspaceId, ...result };
-	}
-
-	/** Refuses (RepoCacheEntryInUse) rather than deleting a currently-registered workspace's backing checkout out from under it -- there is no workspace.unregister operation to resolve that conflict safely today. */
-	async function repoEvictCacheHandler(registry: MutableRegistry, input: OperationInputs["repo.evictCache"]): Promise<OperationOutputs["repo.evictCache"]> {
-		if (!repoFetcher) throw new RepoFetcherNotConfigured();
-		const requestedRef = input.ref ?? "HEAD";
-		const cached = (await repoFetcher.listCached()).find(
-			(entry) => entry.host === input.host && entry.owner === input.owner && entry.repo === input.repo && entry.requestedRef === requestedRef,
-		);
-		if (cached) {
-			const workspaceId = deriveWorkspaceId(resolve(cached.path));
-			if (registry.has(workspaceId)) throw new RepoCacheEntryInUse(workspaceId);
-		}
-		const evicted = await repoFetcher.evict(input);
-		return { evicted };
-	}
-
-	async function repoListCacheHandler(registry: MutableRegistry, input: OperationInputs["repo.listCache"]): Promise<OperationOutputs["repo.listCache"]> {
-		if (!repoFetcher) throw new RepoFetcherNotConfigured();
-		const raw = await repoFetcher.listCached();
-		const entries: CachedRepositoryEntry[] = raw.map((entry) => {
-			const workspaceId = deriveWorkspaceId(resolve(entry.path));
-			return { ...entry, registeredWorkspaceId: registry.has(workspaceId) ? workspaceId : null };
-		});
-		const { host, owner, repo, ref, text } = input;
-		return queryCachedRepositories(entries, { host, owner, repo, ref, text }, input.maxResults, input.cursor);
-	}
-
-	async function packageSourceHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["package.resolveSource"],
-	): Promise<OperationOutputs["package.resolveSource"]> {
-		if (!packageSourceResolver) throw new PackageSourceResolverNotConfigured();
-		const outcome = await resolvePackageSource(packageSourceResolver, input.request, input.bounds);
-		if (outcome.status !== "verified") return { outcome, workspaceId: null };
-		const absolutePath = resolve(outcome.workspace.cachePath);
-		let sourceStats: Awaited<ReturnType<typeof stat>>;
-		try {
-			sourceStats = await stat(absolutePath);
-		} catch {
-			throw new InvalidWorkspaceRoot(absolutePath, "verified package source does not exist or is not accessible");
-		}
-		if (!sourceStats.isDirectory()) throw new InvalidWorkspaceRoot(absolutePath, "verified package source is not a directory");
-		const workspaceId = deriveWorkspaceId(absolutePath);
-		if (!registry.has(workspaceId)) {
-			registry.set(workspaceId, { port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)), rootPath: absolutePath, origin: "remote" });
-		}
-		await packageSourceIndex.record({
-			ecosystem: outcome.coordinate.ecosystem,
-			registry: outcome.coordinate.registry,
-			name: outcome.coordinate.name,
-			resolvedVersion: outcome.coordinate.resolvedVersion,
-			requestedVersion: outcome.coordinate.requestedVersion,
-			repositoryUrl: outcome.repository.url,
-			resolvedRef: outcome.repository.resolvedRef,
-			commit: outcome.repository.commit,
-			cachePath: absolutePath,
-			workspaceId,
-			origin: outcome.workspace.origin,
-			verificationMethod: outcome.verification.method,
-			resolvedAt: Date.now(),
-		});
-		return { outcome, workspaceId };
-	}
-
-	async function packageListSourcesHandler(
-		_registry: MutableRegistry,
-		input: OperationInputs["package.listSources"],
-	): Promise<OperationOutputs["package.listSources"]> {
-		if (!packageSourceResolver) throw new PackageSourceResolverNotConfigured();
-		if (input.ecosystem !== undefined && !PACKAGE_ECOSYSTEMS.includes(input.ecosystem)) throw new InvalidPackageSourceContract("ecosystem");
-		const allEntries = await packageSourceIndex.list();
-		const cached = repoFetcher ? await repoFetcher.listCached() : [];
-		const page = queryPackageSourceIndex(allEntries, { ecosystem: input.ecosystem, text: input.text }, input.maxResults, input.cursor);
-		const entries: PackageSourceListEntry[] = page.entries.map((entry) => {
-			const match = cached.find((candidate) => entry.cachePath === candidate.path || entry.cachePath.startsWith(`${candidate.path}${sep}`));
-			return { ...entry, cacheSizeBytes: match?.cacheSizeBytes ?? null };
-		});
-		return { entries, nextCursor: page.nextCursor };
-	}
-
-	/** Refuses (PackageSourceEntryInUse) rather than dropping the bookkeeping for a currently-registered workspace's backing checkout out from under it -- there is no workspace.unregister operation, mirroring repoEvictCacheHandler's identical refusal for repo.evictCache. Removes only the package-source index entry (bookkeeping); the underlying RepoFetcherPort disk cache entry is a separate, independently-addressed cache managed by repo.evictCache/repo_cache, not duplicated here -- a monorepo can have several package-source entries sharing one physical checkout, so this handler must never assume ownership of it. */
-	async function packageRemoveSourceHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["package.removeSource"],
-	): Promise<OperationOutputs["package.removeSource"]> {
-		if (!packageSourceResolver) throw new PackageSourceResolverNotConfigured();
-		if (!PACKAGE_ECOSYSTEMS.includes(input.ecosystem)) throw new InvalidPackageSourceContract("ecosystem");
-		const existing = (await packageSourceIndex.list()).find(
-			(entry) =>
-				entry.ecosystem === input.ecosystem &&
-				entry.registry === input.registry &&
-				entry.name === input.name &&
-				entry.resolvedVersion === input.resolvedVersion,
-		);
-		if (existing && registry.has(existing.workspaceId)) throw new PackageSourceEntryInUse(existing.workspaceId);
-		const removed = await packageSourceIndex.remove(input);
-		return { removed };
-	}
-
-	async function packageCleanSourcesHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["package.cleanSources"],
-	): Promise<OperationOutputs["package.cleanSources"]> {
-		if (!packageSourceResolver) throw new PackageSourceResolverNotConfigured();
-		if (input.ecosystem !== undefined && !PACKAGE_ECOSYSTEMS.includes(input.ecosystem)) throw new InvalidPackageSourceContract("ecosystem");
-		const allEntries = await packageSourceIndex.list();
-		const matching = input.ecosystem === undefined ? allEntries : allEntries.filter((entry) => entry.ecosystem === input.ecosystem);
-		let removed = 0;
-		let skipped = 0;
-		for (const entry of matching) {
-			if (registry.has(entry.workspaceId)) {
-				skipped++;
-				continue;
-			}
-			await packageSourceIndex.remove(entry);
-			removed++;
-		}
-		return { removed, skipped };
-	}
-
-	async function searchGithubReposHandler(
-		_registry: MutableRegistry,
-		input: OperationInputs["search.githubRepos"],
-	): Promise<OperationOutputs["search.githubRepos"]> {
-		const bounds = externalSearchBounds(input.maxResults);
-		const cacheKey = { source: "github-repos" as const, query: input.query, maxResults: input.maxResults };
-		const cached = await githubSearchCache.get(cacheKey);
-		if (cached) return cached;
-		const result = await githubSearch.searchRepos(input.query, bounds);
-		await githubSearchCache.set(cacheKey, result);
-		return result;
-	}
-
-	async function searchNpmPackagesHandler(
-		_registry: MutableRegistry,
-		input: OperationInputs["search.npmPackages"],
-	): Promise<OperationOutputs["search.npmPackages"]> {
-		const bounds = externalSearchBounds(input.maxResults);
-		const cacheKey = { source: "npm-packages" as const, query: input.query, maxResults: input.maxResults };
-		const cached = await npmSearchCache.get(cacheKey);
-		if (cached) return cached;
-		const candidates = await npmRegistry.search(input.query, bounds);
-		const result = { candidates };
-		await npmSearchCache.set(cacheKey, result);
-		return result;
-	}
-
-	async function searchSourcegraphCodeHandler(
-		_registry: MutableRegistry,
-		input: OperationInputs["search.sourcegraphCode"],
-	): Promise<OperationOutputs["search.sourcegraphCode"]> {
-		const bounds = externalSearchBounds(input.maxResults);
-		const cacheKey = { source: "sourcegraph-code" as const, query: input.query, maxResults: input.maxResults };
-		const cached = await sourcegraphSearchCache.get(cacheKey);
-		if (cached) return cached;
-		const candidates = await sourcegraphSearch.searchCode(input.query, bounds);
-		const result = { candidates };
-		await sourcegraphSearchCache.set(cacheKey, result);
-		return result;
-	}
+	const gitHandlers = createGitHandlers({ registry, createGitPort });
+	const repoFetchHandlers = createRepoFetchHandlers({ repoFetcher });
+	const packageSourceHandlers = createPackageSourceHandlers({ packageSourceResolver, packageSourceIndex, repoFetcher });
+	const externalSearchHandlers = createExternalSearchHandlers({
+		githubSearch,
+		npmRegistry,
+		sourcegraphSearch,
+		githubSearchCache,
+		npmSearchCache,
+		sourcegraphSearchCache,
+	});
 
 	async function searchTextHandler(
 		registry: MutableRegistry,
@@ -2211,20 +1956,10 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.referenceBasedRename": referenceBasedRenameHandler,
 		"workspace.prepareRename": prepareRenameHandler,
 		"workspace.rename": renameHandler,
-		"workspace.gitStatus": gitStatusHandler,
-		"workspace.gitLog": gitLogHandler,
-		"workspace.gitDiff": gitDiffHandler,
-		"workspace.compareSymbolAcrossVersions": compareSymbolAcrossVersionsHandler,
-		"repo.fetch": repoFetchHandler,
-		"repo.listCache": repoListCacheHandler,
-		"repo.evictCache": repoEvictCacheHandler,
-		"package.resolveSource": packageSourceHandler,
-		"package.listSources": packageListSourcesHandler,
-		"package.removeSource": packageRemoveSourceHandler,
-		"package.cleanSources": packageCleanSourcesHandler,
-		"search.githubRepos": searchGithubReposHandler,
-		"search.npmPackages": searchNpmPackagesHandler,
-		"search.sourcegraphCode": searchSourcegraphCodeHandler,
+		...gitHandlers,
+		...repoFetchHandlers,
+		...packageSourceHandlers,
+		...externalSearchHandlers,
 		"workspace.searchText": searchTextHandler,
 		"workspace.findFiles": findFilesHandler,
 		"workspace.watch": watchHandler,
