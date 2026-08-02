@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { AnnotationId, CreateSymbolAnnotationInput, SymbolAnnotation } from "../domain/symbol-annotation.ts";
-import type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "../ports/symbol-annotation-port.ts";
+import type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./port.ts";
+import type { AnnotationId, CreateSymbolAnnotationInput, SymbolAnnotation } from "./symbol-annotation.ts";
 
 const DEFAULT_MAX_RESULTS = 200;
 

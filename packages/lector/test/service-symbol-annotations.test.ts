@@ -4,8 +4,8 @@
  * staleness (option A) and persist a correction before returning, and
  * refresh/scrub/restore round-trip through the store. Domain-level
  * correctness of the staleness decision itself is already covered directly
- * in test/domain/symbol-annotation-staleness.test.ts and
- * test/domain/check-annotation-staleness.test.ts; this file only proves the
+ * in test/symbol-annotation/symbol-annotation-staleness.test.ts and
+ * test/symbol-annotation/check-annotation-staleness.test.ts; this file only proves the
  * service dispatch, anchor resolution, and per-workspace store lifecycle
  * are wired correctly.
  */

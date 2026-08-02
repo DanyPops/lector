@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from "bun:test";
 import { contentHashOf } from "../../src/domain/content-hash.ts";
-import type { CreateSymbolAnnotationInput, SymbolAnnotationAnchor } from "../../src/domain/symbol-annotation.ts";
-import type { SymbolAnnotationPort } from "../../src/ports/symbol-annotation-port.ts";
+import type { SymbolAnnotationPort } from "../../src/symbol-annotation/port.ts";
+import type { CreateSymbolAnnotationInput, SymbolAnnotationAnchor } from "../../src/symbol-annotation/symbol-annotation.ts";
 
 export interface SymbolAnnotationConformanceHarness {
 	createPort(): SymbolAnnotationPort | Promise<SymbolAnnotationPort>;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { contentHashOf } from "../../src/domain/content-hash.ts";
-import type { SymbolAnnotationAnchor } from "../../src/domain/symbol-annotation.ts";
-import { isAnnotationStale } from "../../src/domain/symbol-annotation-staleness.ts";
+import type { SymbolAnnotationAnchor } from "../../src/symbol-annotation/symbol-annotation.ts";
+import { isAnnotationStale } from "../../src/symbol-annotation/symbol-annotation-staleness.ts";
 
 const HASH_A = contentHashOf("content A");
 const HASH_B = contentHashOf("content B");

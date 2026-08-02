@@ -1,4 +1,4 @@
-import type { AnnotationId, AnnotationStatus, CreateSymbolAnnotationInput, SymbolAnnotation } from "../domain/symbol-annotation.ts";
+import type { AnnotationId, AnnotationStatus, CreateSymbolAnnotationInput, SymbolAnnotation } from "./symbol-annotation.ts";
 
 export interface SymbolAnnotationListOptions {
 	readonly subtype?: string;

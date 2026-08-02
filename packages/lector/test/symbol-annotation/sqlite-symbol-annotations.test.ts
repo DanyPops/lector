@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SqliteSymbolAnnotations } from "../../src/adapters/sqlite-symbol-annotations.ts";
 import { contentHashOf } from "../../src/domain/content-hash.ts";
+import { SqliteSymbolAnnotations } from "../../src/symbol-annotation/sqlite-symbol-annotations.ts";
 import { runSymbolAnnotationPortConformanceSuite } from "../support/symbol-annotation-port-conformance.ts";
 
 runSymbolAnnotationPortConformanceSuite("SqliteSymbolAnnotations", {

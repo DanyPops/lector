@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { InMemorySymbolAnnotations } from "../../src/adapters/in-memory-symbol-annotations.ts";
-import { annotationsContainedFrom, wouldCreateContainmentCycle } from "../../src/domain/annotation-containment.ts";
-import type { CreateSymbolAnnotationInput } from "../../src/domain/symbol-annotation.ts";
+import { annotationsContainedFrom, wouldCreateContainmentCycle } from "../../src/symbol-annotation/annotation-containment.ts";
+import { InMemorySymbolAnnotations } from "../../src/symbol-annotation/in-memory-symbol-annotations.ts";
+import type { CreateSymbolAnnotationInput } from "../../src/symbol-annotation/symbol-annotation.ts";
 
 function input(title: string): CreateSymbolAnnotationInput {
 	return { subtype: "comment", title, body: "narrative content", anchors: [{ symbolNodeId: "n:1", path: "src/a.ts", fileContentHash: "sha256:x" as never }] };

@@ -14,10 +14,10 @@ import type { ContentHash } from "./domain/content-hash.ts";
 import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS } from "./domain/external-search-result.ts";
 import { DEFAULT_PACKAGE_SOURCE_BOUNDS, PACKAGE_ECOSYSTEMS, type PackageEcosystem, type PackageSourceOperationResult } from "./domain/package-source.ts";
 import type { ResponseFormat } from "./domain/response-format.ts";
-import type { SymbolAnnotation } from "./domain/symbol-annotation.ts";
 import type { SymbolSearchResult } from "./domain/workspace-symbol.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import type { WorkspaceId } from "./service.ts";
+import type { SymbolAnnotation } from "./symbol-annotation/symbol-annotation.ts";
 import type { PopulateSymbolGraphResult } from "./symbol-graph/populate-symbol-graph.ts";
 
 const USAGE = `Usage:

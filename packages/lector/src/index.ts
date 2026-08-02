@@ -1,5 +1,4 @@
 export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
-export { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
 export { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./adapters/local-filesystem-workspace.ts";
 export {
@@ -25,7 +24,6 @@ export { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "./adapte
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
 export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
-export { SqliteSymbolAnnotations } from "./adapters/sqlite-symbol-annotations.ts";
 export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./adapters/typescript-compiler-symbol-index.ts";
 export {
@@ -41,7 +39,6 @@ export { InMemoryContentCache } from "./content-cache/in-memory-content-cache.ts
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./content-cache/port.ts";
 export { SqliteContentCache } from "./content-cache/sqlite-content-cache.ts";
 export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
-export { annotationsContainedFrom, type ContainmentReader, wouldCreateContainmentCycle } from "./domain/annotation-containment.ts";
 export {
 	type ApplyPatchRequest,
 	applyPatch,
@@ -63,7 +60,6 @@ export {
 	type JobSnapshot,
 } from "./domain/bounded-job-executor.ts";
 export type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
-export { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
 export type { CodeRange } from "./domain/code-range.ts";
 export type { SymbolComparisonStatus, SymbolDeclarationComparison } from "./domain/compare-symbol-declarations.ts";
 export { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
@@ -171,14 +167,6 @@ export { InvalidPackageSourceContract, resolvePackageSource } from "./domain/res
 export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./domain/response-format.ts";
 export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./domain/response-format.ts";
 export { searchText } from "./domain/search-text.ts";
-export type {
-	AnnotationId,
-	AnnotationStatus,
-	CreateSymbolAnnotationInput,
-	SymbolAnnotation,
-	SymbolAnnotationAnchor,
-} from "./domain/symbol-annotation.ts";
-export { type AnchorReality, isAnnotationStale } from "./domain/symbol-annotation-staleness.ts";
 export type { SymbolDeclarationSnapshot } from "./domain/symbol-declaration-snapshot.ts";
 export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./domain/symbol-query.ts";
 export type { TextSearchMatch, TextSearchResult } from "./domain/text-search-result.ts";
@@ -233,7 +221,6 @@ export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 export type { PackageSourceIndexPort } from "./ports/package-source-index-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
-export type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./ports/symbol-annotation-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "./ports/text-search-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
@@ -292,6 +279,19 @@ export {
 	SourcegraphSearchRequestFailed,
 	SourcegraphSearchResponseLimitExceeded,
 } from "./sourcegraph-search/sourcegraph-search-client.ts";
+export { annotationsContainedFrom, type ContainmentReader, wouldCreateContainmentCycle } from "./symbol-annotation/annotation-containment.ts";
+export { checkAnnotationStaleness } from "./symbol-annotation/check-annotation-staleness.ts";
+export { InMemorySymbolAnnotations } from "./symbol-annotation/in-memory-symbol-annotations.ts";
+export type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./symbol-annotation/port.ts";
+export { SqliteSymbolAnnotations } from "./symbol-annotation/sqlite-symbol-annotations.ts";
+export type {
+	AnnotationId,
+	AnnotationStatus,
+	CreateSymbolAnnotationInput,
+	SymbolAnnotation,
+	SymbolAnnotationAnchor,
+} from "./symbol-annotation/symbol-annotation.ts";
+export { type AnchorReality, isAnnotationStale } from "./symbol-annotation/symbol-annotation-staleness.ts";
 export { InMemorySymbolGraph } from "./symbol-graph/in-memory-symbol-graph.ts";
 export { type PopulateSymbolGraphResult, populateSymbolGraph, type SymbolGraphPopulationFailure } from "./symbol-graph/populate-symbol-graph.ts";
 export type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./symbol-graph/port.ts";

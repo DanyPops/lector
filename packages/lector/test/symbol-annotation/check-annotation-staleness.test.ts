@@ -1,9 +1,9 @@
 /** Uses InMemorySymbolGraph and InMemoryWorkspace directly -- a real seam, not mocks of the ports. */
 import { describe, expect, it } from "bun:test";
 import { InMemoryWorkspace } from "../../src/adapters/in-memory-workspace.ts";
-import { checkAnnotationStaleness } from "../../src/domain/check-annotation-staleness.ts";
 import { contentHashOf } from "../../src/domain/content-hash.ts";
-import type { SymbolAnnotation } from "../../src/domain/symbol-annotation.ts";
+import { checkAnnotationStaleness } from "../../src/symbol-annotation/check-annotation-staleness.ts";
+import type { SymbolAnnotation } from "../../src/symbol-annotation/symbol-annotation.ts";
 import { InMemorySymbolGraph } from "../../src/symbol-graph/in-memory-symbol-graph.ts";
 
 function annotationOver(anchors: SymbolAnnotation["anchors"]): SymbolAnnotation {
