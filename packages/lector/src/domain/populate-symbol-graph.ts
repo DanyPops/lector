@@ -122,7 +122,7 @@ export async function populateSymbolGraph(
 		const failure = boundedFailure(index, file, operation, error);
 		if (failures.length < MAX_RECORDED_FAILURES) failures.push(failure);
 		logger.warn("symbol graph population: file failed", {
-			component: "populate-symbol-graph",
+			module: "populate-symbol-graph",
 			path: failure.path,
 			operation: failure.operation,
 			code: failure.code,
@@ -189,7 +189,7 @@ export async function populateSymbolGraph(
 
 	const completeness = failureCount === 0 ? "complete" : "partial";
 	const summaryFields = {
-		component: "populate-symbol-graph",
+		module: "populate-symbol-graph",
 		filesAttempted: files.length,
 		filesProcessed,
 		filesFailed: failedFiles.size,

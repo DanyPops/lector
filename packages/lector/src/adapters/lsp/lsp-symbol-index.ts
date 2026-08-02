@@ -633,7 +633,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			if (!opened) {
 				if (this.openedFiles.size >= this.maxOpenFiles) {
 					this.logger.warn("open-file limit exceeded", {
-						component: "lsp-symbol-index",
+						module: "lsp-symbol-index",
 						languageId: this.descriptor.languageId,
 						cwd: this.cwd,
 						path,
@@ -654,7 +654,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				}
 				this.openedFiles.set(path, { version: 1, content });
 				this.logger.debug("file opened", {
-					component: "lsp-symbol-index",
+					module: "lsp-symbol-index",
 					languageId: this.descriptor.languageId,
 					cwd: this.cwd,
 					path,
@@ -691,7 +691,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			if (proc) proc.notify("textDocument/didClose", { textDocument: { uri: pathToFileURL(path).href } });
 			this.openedFiles.delete(path);
 			this.logger.debug("file released", {
-				component: "lsp-symbol-index",
+				module: "lsp-symbol-index",
 				languageId: this.descriptor.languageId,
 				cwd: this.cwd,
 				path,
