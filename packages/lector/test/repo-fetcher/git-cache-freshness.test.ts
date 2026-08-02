@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isCacheFreshByGit } from "../../src/domain/git-cache-freshness.ts";
+import { isCacheFreshByGit } from "../../src/repo-fetcher/git-cache-freshness.ts";
 
 const BASE = { recordedHeadSha: "abc123", isGitRepository: true, workingTreeClean: true, currentHeadSha: "abc123" };
 

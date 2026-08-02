@@ -2,16 +2,16 @@
  * Service-level wiring for repo.fetch: a real GitRepoFetcher clone lands in the same
  * workspace registry every other operation reads from -- rawRead sees it, writeEntry
  * rejects it. Real GitRepoFetcher correctness (eviction, ref fallback, atomicity) is
- * already covered directly in test/adapters/git-repo-fetcher.test.ts.
+ * already covered directly in test/repo-fetcher/git-repo-fetcher.test.ts.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GitRepoFetcher } from "../src/adapters/git-repo-fetcher.ts";
 import { WorkspaceIsReadOnly } from "../src/adapters/read-only-workspace.ts";
-import type { RepoReference } from "../src/domain/repo-reference.ts";
+import { GitRepoFetcher } from "../src/repo-fetcher/git-repo-fetcher.ts";
+import type { RepoReference } from "../src/repo-fetcher/repo-reference.ts";
 import { createLectorService, type LectorService, RepoCacheEntryInUse, RepoFetcherNotConfigured } from "../src/service.ts";
 import { requireDefined } from "./support/require-defined.ts";
 

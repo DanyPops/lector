@@ -2,12 +2,12 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import type { NpmPackageVersionMetadata } from "../domain/npm-package-metadata.ts";
 import type { PackageSourceBounds, PackageSourceOutcome, PackageSourceRequest, VerifiedPackageSource } from "../domain/package-source.ts";
-import { RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchResult } from "../domain/repo-fetch-result.ts";
 import type { InstalledPackageVersionCandidate, InstalledPackageVersionOutcome } from "../installed-package-version-resolver/installed-package-version.ts";
 import type { InstalledPackageVersionResolverPort } from "../installed-package-version-resolver/port.ts";
 import type { NpmRegistryPort } from "../ports/npm-registry-port.ts";
 import type { PackageSourceResolverPort } from "../ports/package-source-resolver-port.ts";
-import type { RepoFetcherPort } from "../ports/repo-fetcher-port.ts";
+import type { RepoFetcherPort } from "../repo-fetcher/port.ts";
+import { RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchResult } from "../repo-fetcher/repo-fetch-result.ts";
 import { type NormalizedNpmRepository, normalizeNpmRepository, npmRepositoryReference } from "./normalize-npm-repository.ts";
 import {
 	DEFAULT_NPM_REGISTRY,

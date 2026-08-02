@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { shouldRefetchFromRemote } from "../../src/domain/remote-cache-freshness.ts";
+import { shouldRefetchFromRemote } from "../../src/repo-fetcher/remote-cache-freshness.ts";
 
 describe("shouldRefetchFromRemote", () => {
 	it("refetches when the remote's current commit genuinely differs from what was recorded", () => {

@@ -1,6 +1,6 @@
-import type { RepoCacheListEntry } from "../domain/cached-repository-entry.ts";
-import type { RepoFetchPolicy, RepoFetchResult } from "../domain/repo-fetch-result.ts";
-import type { RepoReference } from "../domain/repo-reference.ts";
+import type { RepoCacheListEntry } from "./cached-repository-entry.ts";
+import type { RepoFetchPolicy, RepoFetchResult } from "./repo-fetch-result.ts";
+import type { RepoReference } from "./repo-reference.ts";
 
 /**
  * RepoFetcherPort -- ensures a shallow local clone of an external repo exists, content-addressed

@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 import { LocalFilesystemWorkspace } from "../adapters/local-filesystem-workspace.ts";
 import { ReadOnlyWorkspace } from "../adapters/read-only-workspace.ts";
-import { type CachedRepositoryEntry, queryCachedRepositories } from "../domain/cached-repository-entry.ts";
-import type { RepoFetcherPort } from "../ports/repo-fetcher-port.ts";
+import { type CachedRepositoryEntry, queryCachedRepositories } from "../repo-fetcher/cached-repository-entry.ts";
+import type { RepoFetcherPort } from "../repo-fetcher/port.ts";
 import {
 	deriveWorkspaceId,
 	type MutableRegistry,

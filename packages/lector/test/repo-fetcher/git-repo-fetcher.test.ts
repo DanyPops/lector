@@ -10,11 +10,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { measureDirectorySizeBytes } from "../../src/adapters/directory-size.ts";
-import { GitRepoFetcher } from "../../src/adapters/git-repo-fetcher.ts";
 import { UnsafeGitArgument } from "../../src/domain/assert-safe-git-argument.ts";
 import { UnsafePathSegment } from "../../src/domain/assert-safe-path-segment.ts";
-import { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded } from "../../src/domain/repo-fetch-result.ts";
-import type { RepoReference } from "../../src/domain/repo-reference.ts";
+import { GitRepoFetcher } from "../../src/repo-fetcher/git-repo-fetcher.ts";
+import { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded } from "../../src/repo-fetcher/repo-fetch-result.ts";
+import type { RepoReference } from "../../src/repo-fetcher/repo-reference.ts";
 import { requireDefined } from "../support/require-defined.ts";
 
 let sourceRepo: string | undefined;

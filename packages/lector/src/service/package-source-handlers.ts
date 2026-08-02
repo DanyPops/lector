@@ -7,7 +7,7 @@ import { type PackageSourceListEntry, queryPackageSourceIndex } from "../domain/
 import { InvalidPackageSourceContract, resolvePackageSource } from "../domain/resolve-package-source.ts";
 import type { PackageSourceIndexPort } from "../ports/package-source-index-port.ts";
 import type { PackageSourceResolverPort } from "../ports/package-source-resolver-port.ts";
-import type { RepoFetcherPort } from "../ports/repo-fetcher-port.ts";
+import type { RepoFetcherPort } from "../repo-fetcher/port.ts";
 import {
 	deriveWorkspaceId,
 	InvalidWorkspaceRoot,

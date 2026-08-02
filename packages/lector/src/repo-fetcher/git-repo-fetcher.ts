@@ -3,12 +3,12 @@ import { mkdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LRUCache } from "lru-cache";
 import simpleGit from "simple-git";
+import { measureDirectorySizeBytes } from "../adapters/directory-size.ts";
 import { assertSafeRepoReference } from "../domain/assert-safe-repo-reference.ts";
-import type { RepoCacheListEntry } from "../domain/cached-repository-entry.ts";
-import { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchPolicy, type RepoFetchResult } from "../domain/repo-fetch-result.ts";
-import type { RepoReference } from "../domain/repo-reference.ts";
-import type { RepoFetcherPort } from "../ports/repo-fetcher-port.ts";
-import { measureDirectorySizeBytes } from "./directory-size.ts";
+import type { RepoCacheListEntry } from "./cached-repository-entry.ts";
+import type { RepoFetcherPort } from "./port.ts";
+import { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchPolicy, type RepoFetchResult } from "./repo-fetch-result.ts";
+import type { RepoReference } from "./repo-reference.ts";
 
 interface RepoCacheEntry {
 	readonly path: string;

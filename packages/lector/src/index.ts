@@ -1,5 +1,4 @@
 export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
-export { GitRepoFetcher, type GitRepoFetcherOptions } from "./adapters/git-repo-fetcher.ts";
 export { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
 export { InMemorySearchCache, type InMemorySearchCacheOptions } from "./adapters/in-memory-search-cache.ts";
 export { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
@@ -67,7 +66,6 @@ export {
 	type JobPriority,
 	type JobSnapshot,
 } from "./domain/bounded-job-executor.ts";
-export type { CachedRepositoryEntry, CachedRepositoryPage, CachedRepositoryQuery, RepoCacheListEntry } from "./domain/cached-repository-entry.ts";
 export type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
 export { checkAnnotationStaleness } from "./domain/check-annotation-staleness.ts";
 export type { CodeRange } from "./domain/code-range.ts";
@@ -175,8 +173,6 @@ export {
 	type ReferenceBasedRenamePlan,
 	type ReferencingFileInput,
 } from "./domain/reference-based-rename.ts";
-export { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchPolicy, type RepoFetchResult } from "./domain/repo-fetch-result.ts";
-export type { RepoReference } from "./domain/repo-reference.ts";
 export { InvalidPackageSourceContract, resolvePackageSource } from "./domain/resolve-package-source.ts";
 export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./domain/response-format.ts";
 export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./domain/response-format.ts";
@@ -249,13 +245,23 @@ export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports
 export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 export type { PackageSourceIndexPort } from "./ports/package-source-index-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
-export type { RepoFetcherPort } from "./ports/repo-fetcher-port.ts";
 export type { SearchCachePort } from "./ports/search-cache-port.ts";
 export type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./ports/symbol-annotation-port.ts";
 export type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "./ports/text-search-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
+export type { CachedRepositoryEntry, CachedRepositoryPage, CachedRepositoryQuery, RepoCacheListEntry } from "./repo-fetcher/cached-repository-entry.ts";
+export { GitRepoFetcher, type GitRepoFetcherOptions } from "./repo-fetcher/git-repo-fetcher.ts";
+export type { RepoFetcherPort } from "./repo-fetcher/port.ts";
+export {
+	RepoFetchCapacityExceeded,
+	RepoFetchFailed,
+	RepoFetchLimitExceeded,
+	type RepoFetchPolicy,
+	type RepoFetchResult,
+} from "./repo-fetcher/repo-fetch-result.ts";
+export type { RepoReference } from "./repo-fetcher/repo-reference.ts";
 export {
 	AnnotationContainmentCycle,
 	AnnotationRequiresAnchors,

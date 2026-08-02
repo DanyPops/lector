@@ -1,6 +1,6 @@
+import type { RepoReference } from "../repo-fetcher/repo-reference.ts";
 import { assertSafeGitArgument } from "./assert-safe-git-argument.ts";
 import { assertSafePathSegment } from "./assert-safe-path-segment.ts";
-import type { RepoReference } from "./repo-reference.ts";
 
 /**
  * Validates every caller-influenced field of a RepoReference before it reaches a git argv or a

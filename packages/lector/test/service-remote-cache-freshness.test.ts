@@ -4,8 +4,8 @@
  * moved on the remote, on demand and with no debounce -- proven against a real GitRepoFetcher
  * over a real local git repo standing in for "the remote", not a mocked git binary. Domain-level
  * decision logic (shouldRefetchFromRemote) is already covered directly in
- * test/domain/remote-cache-freshness.test.ts; GitRepoFetcher.resolveRemoteCommit correctness is
- * already covered directly in test/adapters/git-repo-fetcher.test.ts. This file only proves the
+ * test/repo-fetcher/remote-cache-freshness.test.ts; GitRepoFetcher.resolveRemoteCommit correctness is
+ * already covered directly in test/repo-fetcher/git-repo-fetcher.test.ts. This file only proves the
  * two are wired together correctly through the service.
  */
 import { afterEach, describe, expect, it } from "bun:test";
@@ -13,11 +13,11 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GitRepoFetcher } from "../src/adapters/git-repo-fetcher.ts";
 import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
-import type { RepoFetchPolicy, RepoFetchResult } from "../src/domain/repo-fetch-result.ts";
-import type { RepoReference } from "../src/domain/repo-reference.ts";
-import type { RepoFetcherPort } from "../src/ports/repo-fetcher-port.ts";
+import { GitRepoFetcher } from "../src/repo-fetcher/git-repo-fetcher.ts";
+import type { RepoFetcherPort } from "../src/repo-fetcher/port.ts";
+import type { RepoFetchPolicy, RepoFetchResult } from "../src/repo-fetcher/repo-fetch-result.ts";
+import type { RepoReference } from "../src/repo-fetcher/repo-reference.ts";
 import { createLectorService, type LectorService } from "../src/service.ts";
 import { requireDefined } from "./support/require-defined.ts";
 

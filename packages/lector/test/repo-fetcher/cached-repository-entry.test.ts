@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { CachedRepositoryEntry } from "../../src/domain/cached-repository-entry.ts";
-import { queryCachedRepositories } from "../../src/domain/cached-repository-entry.ts";
+import type { CachedRepositoryEntry } from "../../src/repo-fetcher/cached-repository-entry.ts";
+import { queryCachedRepositories } from "../../src/repo-fetcher/cached-repository-entry.ts";
 
 function entry(overrides: Partial<CachedRepositoryEntry> = {}): CachedRepositoryEntry {
 	return {

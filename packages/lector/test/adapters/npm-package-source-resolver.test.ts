@@ -4,12 +4,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "bun";
-import { GitRepoFetcher } from "../../src/adapters/git-repo-fetcher.ts";
 import { normalizeNpmRepository } from "../../src/adapters/normalize-npm-repository.ts";
 import { NpmPackageSourceResolver } from "../../src/adapters/npm-package-source-resolver.ts";
 import { NpmRegistryClient } from "../../src/adapters/npm-registry-client.ts";
 import type { PackageSourceBounds, PackageSourceRequest } from "../../src/domain/package-source.ts";
 import { NpmLockfileVersionResolver } from "../../src/installed-package-version-resolver/npm-lockfile-version-resolver.ts";
+import { GitRepoFetcher } from "../../src/repo-fetcher/git-repo-fetcher.ts";
 
 const BOUNDS: PackageSourceBounds = {
 	maxManifestBytes: 1_000_000,

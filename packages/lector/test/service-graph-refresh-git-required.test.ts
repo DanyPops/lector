@@ -14,12 +14,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DocumentSymbolEntry } from "../src/domain/document-symbol.ts";
 import type { IntelligenceProvenance } from "../src/domain/intelligence-provenance.ts";
-import type { RepoFetchResult } from "../src/domain/repo-fetch-result.ts";
-import type { RepoReference } from "../src/domain/repo-reference.ts";
 import type { FileChangeEvent } from "../src/file-watcher/file-change-event.ts";
 import type { GitPort } from "../src/git/port.ts";
 import type { CodeIntelligencePort } from "../src/ports/code-intelligence-port.ts";
-import type { RepoFetcherPort } from "../src/ports/repo-fetcher-port.ts";
+import type { RepoFetcherPort } from "../src/repo-fetcher/port.ts";
+import type { RepoFetchResult } from "../src/repo-fetcher/repo-fetch-result.ts";
+import type { RepoReference } from "../src/repo-fetcher/repo-reference.ts";
 import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";
 import { createLectorService } from "../src/service.ts";
 

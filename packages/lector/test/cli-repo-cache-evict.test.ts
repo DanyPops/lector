@@ -2,7 +2,7 @@
  * End-to-end CLI parity for `lector workspace repo-cache-evict` and `repo-fetch --force-refresh`,
  * against a real spawned daemon and a real local git repo standing in for "the remote" --
  * GitRepoFetcher's own evict/forceRefresh correctness is already covered directly in
- * test/adapters/git-repo-fetcher.test.ts.
+ * test/repo-fetcher/git-repo-fetcher.test.ts.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
@@ -10,9 +10,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
-import { GitRepoFetcher } from "../src/adapters/git-repo-fetcher.ts";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
+import { GitRepoFetcher } from "../src/repo-fetcher/git-repo-fetcher.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 let daemon: RunningDaemon | undefined;
