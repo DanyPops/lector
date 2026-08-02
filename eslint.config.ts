@@ -87,7 +87,7 @@ export default tseslint.config(
 	// whole job is casting a row to the domain shape of a schema it also owns and migrates itself.
 	{
 		files: [
-			"packages/lector/src/adapters/sqlite-content-cache.ts",
+			"packages/lector/src/content-cache/sqlite-content-cache.ts",
 			"packages/lector/src/adapters/sqlite-search-cache.ts",
 			"packages/lector/src/adapters/sqlite-symbol-annotations.ts",
 			"packages/lector/src/adapters/sqlite-symbol-graph.ts",

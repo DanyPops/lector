@@ -7,8 +7,8 @@
  * entire point of this port.
  */
 import { describe, expect, it } from "bun:test";
+import type { ContentCachePort } from "../../src/content-cache/port.ts";
 import { contentHashOf } from "../../src/domain/content-hash.ts";
-import type { ContentCachePort } from "../../src/ports/content-cache-port.ts";
 
 export interface ContentCacheConformanceHarness {
 	createCache(): ContentCachePort | Promise<ContentCachePort>;

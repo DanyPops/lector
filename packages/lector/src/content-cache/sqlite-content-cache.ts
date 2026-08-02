@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { type Migration, openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import type { ContentHash } from "../domain/content-hash.ts";
-import type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "../ports/content-cache-port.ts";
+import type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./port.ts";
 
 const DEFAULT_MAX_ENTRIES = 5_000;
 

@@ -6,11 +6,11 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryContentCache } from "../../../src/adapters/in-memory-content-cache.ts";
 import { TreeSitterSymbolIndex } from "../../../src/adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { InMemoryContentCache } from "../../../src/content-cache/in-memory-content-cache.ts";
+import type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "../../../src/content-cache/port.ts";
 import type { ContentHash } from "../../../src/domain/content-hash.ts";
 import { contentHashOf } from "../../../src/domain/content-hash.ts";
-import type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "../../../src/ports/content-cache-port.ts";
 
 /** Counts get/putSymbols calls per hash, so a test can observe cache hit vs. miss directly instead of only inferring it from output correctness. */
 class CountingContentCache implements ContentCachePort {

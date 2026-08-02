@@ -1,5 +1,4 @@
 export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
-export { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
 export { InMemorySearchCache, type InMemorySearchCacheOptions } from "./adapters/in-memory-search-cache.ts";
 export { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
 export { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
@@ -28,7 +27,6 @@ export { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "./adapte
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
 export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
-export { SqliteContentCache } from "./adapters/sqlite-content-cache.ts";
 export { SqliteSearchCache, type SqliteSearchCacheOptions } from "./adapters/sqlite-search-cache.ts";
 export { SqliteSymbolAnnotations } from "./adapters/sqlite-symbol-annotations.ts";
 export { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
@@ -44,6 +42,9 @@ export {
 	resolveLectorDaemonConnection,
 } from "./client.ts";
 export { resolveLectorPaths } from "./constants.ts";
+export { InMemoryContentCache } from "./content-cache/in-memory-content-cache.ts";
+export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./content-cache/port.ts";
+export { SqliteContentCache } from "./content-cache/sqlite-content-cache.ts";
 export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
 export { annotationsContainedFrom, type ContainmentReader, wouldCreateContainmentCycle } from "./domain/annotation-containment.ts";
 export {
@@ -241,7 +242,6 @@ export type { InstalledPackageVersionResolverPort } from "./installed-package-ve
 export { type CanRevertMutationInputs, canRevertMutation, type MutationHistoryEntry, type MutationOperation } from "./mutation-history/mutation-history.ts";
 export type { MutationHistoryPort, RecordMutationInput } from "./mutation-history/port.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
-export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
 export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 export type { PackageSourceIndexPort } from "./ports/package-source-index-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";

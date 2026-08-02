@@ -2,6 +2,8 @@ import { readFileSync, realpathSync } from "node:fs";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import picomatch from "picomatch";
+import { InMemoryContentCache } from "../../content-cache/in-memory-content-cache.ts";
+import type { ContentCachePort } from "../../content-cache/port.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../domain/call-hierarchy.ts";
 import type { CodeRange } from "../../domain/code-range.ts";
 import { contentHashOf } from "../../domain/content-hash.ts";
@@ -26,9 +28,7 @@ import { type ParsedWorkspaceEdit, parsePrepareRenameResult, parseWorkspaceEdit,
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { FileChangeEvent } from "../../file-watcher/file-change-event.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
-import type { ContentCachePort } from "../../ports/content-cache-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
-import { InMemoryContentCache } from "../in-memory-content-cache.ts";
 import { TypeScriptCompilerSymbolIndex } from "../typescript-compiler-symbol-index.ts";
 import { resolveSeedFile } from "./discover-seed-file.ts";
 import { LanguageServerProcess } from "./language-server-process.ts";
