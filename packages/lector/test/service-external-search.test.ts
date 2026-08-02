@@ -3,12 +3,12 @@
  * bounds validation, per-source short-TTL caching, and dispatch to whichever port a caller
  * (or the real default client) supplies. Real client HTTP correctness is already covered
  * directly in test/adapters/{github,sourcegraph}-search-client.test.ts and
- * test/adapters/npm-registry-client.test.ts's own search() tests.
+ * test/npm-registry/npm-registry-client.test.ts's own search() tests.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ExternalSearchBounds, GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../src/domain/external-search-result.ts";
 import type { GithubSearchPort } from "../src/github-search/port.ts";
-import type { NpmRegistryPort } from "../src/ports/npm-registry-port.ts";
+import type { NpmRegistryPort } from "../src/npm-registry/port.ts";
 import { createLectorService, type LectorService } from "../src/service.ts";
 import type { SourcegraphSearchPort } from "../src/sourcegraph-search/port.ts";
 

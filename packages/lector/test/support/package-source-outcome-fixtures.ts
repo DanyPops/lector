@@ -1,4 +1,4 @@
-import type { PackageSourceOutcome, VerifiedPackageSource } from "../../src/domain/package-source.ts";
+import type { PackageSourceOutcome, VerifiedPackageSource } from "../../src/package-source/package-source.ts";
 
 export const VERIFIED_NPM_SOURCE: VerifiedPackageSource = {
 	status: "verified",

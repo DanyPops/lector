@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { RelativeWorkspacePath } from "../../src/domain/assert-absolute-path.ts";
-import type { PackageSourceOutcome, PackageSourceRequest } from "../../src/domain/package-source.ts";
-import { InvalidPackageSourceContract, resolvePackageSource } from "../../src/domain/resolve-package-source.ts";
-import type { PackageSourceResolverPort } from "../../src/ports/package-source-resolver-port.ts";
+import type { PackageSourceOutcome, PackageSourceRequest } from "../../src/package-source/package-source.ts";
+import { InvalidPackageSourceContract, resolvePackageSource } from "../../src/package-source/resolve-package-source.ts";
+import type { PackageSourceResolverPort } from "../../src/package-source/resolver-port.ts";
 import { PACKAGE_SOURCE_OUTCOME_FIXTURES, VERIFIED_NPM_SOURCE } from "../support/package-source-outcome-fixtures.ts";
 
 const REQUEST: PackageSourceRequest = {

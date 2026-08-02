@@ -2,7 +2,7 @@
  * End-to-end CLI parity for `lector search github-repos/npm-packages/sourcegraph-code`, against
  * a real spawned daemon with a fake port injected -- real HTTP client correctness is already
  * covered directly in test/adapters/{github,sourcegraph}-search-client.test.ts and
- * test/adapters/npm-registry-client.test.ts's own search() tests.
+ * test/npm-registry/npm-registry-client.test.ts's own search() tests.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
@@ -10,7 +10,7 @@ import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
 import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../src/domain/external-search-result.ts";
 import type { GithubSearchPort } from "../src/github-search/port.ts";
-import type { NpmRegistryPort } from "../src/ports/npm-registry-port.ts";
+import type { NpmRegistryPort } from "../src/npm-registry/port.ts";
 import type { SourcegraphSearchPort } from "../src/sourcegraph-search/port.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 

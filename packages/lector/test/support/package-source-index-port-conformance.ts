@@ -1,7 +1,7 @@
 /** Shared conformance suite for any PackageSourceIndexPort implementation. */
 import { describe, expect, it } from "bun:test";
-import type { PackageSourceIndexEntry } from "../../src/domain/package-source-index.ts";
-import type { PackageSourceIndexPort } from "../../src/ports/package-source-index-port.ts";
+import type { PackageSourceIndexPort } from "../../src/package-source/index-port.ts";
+import type { PackageSourceIndexEntry } from "../../src/package-source/package-source-index.ts";
 
 export interface PackageSourceIndexConformanceHarness {
 	/** A fresh store; maxEntries lets a test exercise bounded eviction deterministically. */

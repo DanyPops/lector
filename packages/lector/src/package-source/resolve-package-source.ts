@@ -1,5 +1,4 @@
-import type { PackageSourceResolverPort } from "../ports/package-source-resolver-port.ts";
-import { assertAbsolutePath } from "./assert-absolute-path.ts";
+import { assertAbsolutePath } from "../domain/assert-absolute-path.ts";
 import {
 	type AmbiguousPackageSource,
 	type MismatchedPackageSource,
@@ -11,6 +10,7 @@ import {
 	type UnauthenticatedPackageSource,
 	type VerifiedPackageSource,
 } from "./package-source.ts";
+import type { PackageSourceResolverPort } from "./resolver-port.ts";
 
 const COMMIT_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const CREDENTIAL_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;

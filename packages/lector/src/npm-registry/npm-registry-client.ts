@@ -1,8 +1,8 @@
 import fetchBuilder, { type RequestInitWithRetry } from "fetch-retry";
+import { BoundedResponseTooLarge, discardResponseBody, isJsonRecord, MalformedBoundedResponse, readBoundedJson } from "../adapters/bounded-response-reader.ts";
 import type { ExternalSearchBounds, NpmPackageCandidate } from "../domain/external-search-result.ts";
 import type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "../domain/npm-package-metadata.ts";
-import type { NpmRegistryPort } from "../ports/npm-registry-port.ts";
-import { BoundedResponseTooLarge, discardResponseBody, isJsonRecord, MalformedBoundedResponse, readBoundedJson } from "./bounded-response-reader.ts";
+import type { NpmRegistryPort } from "./port.ts";
 
 export const DEFAULT_NPM_REGISTRY = "https://registry.npmjs.org";
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;

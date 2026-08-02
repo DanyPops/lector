@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
-import type { PackageSourceBounds, PackageSourceOutcome, PackageSourceRequest } from "../src/domain/package-source.ts";
-import type { PackageSourceResolverPort } from "../src/ports/package-source-resolver-port.ts";
+import type { PackageSourceBounds, PackageSourceOutcome, PackageSourceRequest } from "../src/package-source/package-source.ts";
+import type { PackageSourceResolverPort } from "../src/package-source/resolver-port.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 let daemon: RunningDaemon | undefined;

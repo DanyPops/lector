@@ -2,11 +2,11 @@ import { stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { LocalFilesystemWorkspace } from "../adapters/local-filesystem-workspace.ts";
 import { ReadOnlyWorkspace } from "../adapters/read-only-workspace.ts";
-import { PACKAGE_ECOSYSTEMS } from "../domain/package-source.ts";
-import { type PackageSourceListEntry, queryPackageSourceIndex } from "../domain/package-source-index.ts";
-import { InvalidPackageSourceContract, resolvePackageSource } from "../domain/resolve-package-source.ts";
-import type { PackageSourceIndexPort } from "../ports/package-source-index-port.ts";
-import type { PackageSourceResolverPort } from "../ports/package-source-resolver-port.ts";
+import type { PackageSourceIndexPort } from "../package-source/index-port.ts";
+import { PACKAGE_ECOSYSTEMS } from "../package-source/package-source.ts";
+import { type PackageSourceListEntry, queryPackageSourceIndex } from "../package-source/package-source-index.ts";
+import { InvalidPackageSourceContract, resolvePackageSource } from "../package-source/resolve-package-source.ts";
+import type { PackageSourceResolverPort } from "../package-source/resolver-port.ts";
 import type { RepoFetcherPort } from "../repo-fetcher/port.ts";
 import {
 	deriveWorkspaceId,

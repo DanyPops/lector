@@ -7,7 +7,7 @@ import {
 	NpmRegistryRequestFailed,
 	NpmRegistryResponseLimitExceeded,
 	NpmVersionNotFound,
-} from "../../src/adapters/npm-registry-client.ts";
+} from "../../src/npm-registry/npm-registry-client.ts";
 
 const BOUNDS = { maxResponseBytes: 16_384, maxRedirects: 3, maxRetries: 2, timeoutMs: 2_000 } as const;
 const TOKEN = "registry-secret-that-must-not-escape";

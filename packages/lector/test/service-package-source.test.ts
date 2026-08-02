@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WorkspaceIsReadOnly } from "../src/adapters/read-only-workspace.ts";
-import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOutcome, type PackageSourceRequest } from "../src/domain/package-source.ts";
-import type { PackageSourceResolverPort } from "../src/ports/package-source-resolver-port.ts";
+import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOutcome, type PackageSourceRequest } from "../src/package-source/package-source.ts";
+import type { PackageSourceResolverPort } from "../src/package-source/resolver-port.ts";
 import { createLectorService, type LectorService, PackageSourceResolverNotConfigured } from "../src/service.ts";
 
 let root: string | undefined;

@@ -1,11 +1,10 @@
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import type { NpmPackageVersionMetadata } from "../domain/npm-package-metadata.ts";
-import type { PackageSourceBounds, PackageSourceOutcome, PackageSourceRequest, VerifiedPackageSource } from "../domain/package-source.ts";
 import type { InstalledPackageVersionCandidate, InstalledPackageVersionOutcome } from "../installed-package-version-resolver/installed-package-version.ts";
 import type { InstalledPackageVersionResolverPort } from "../installed-package-version-resolver/port.ts";
-import type { NpmRegistryPort } from "../ports/npm-registry-port.ts";
-import type { PackageSourceResolverPort } from "../ports/package-source-resolver-port.ts";
+import type { PackageSourceBounds, PackageSourceOutcome, PackageSourceRequest, VerifiedPackageSource } from "../package-source/package-source.ts";
+import type { PackageSourceResolverPort } from "../package-source/resolver-port.ts";
 import type { RepoFetcherPort } from "../repo-fetcher/port.ts";
 import { RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchResult } from "../repo-fetcher/repo-fetch-result.ts";
 import { type NormalizedNpmRepository, normalizeNpmRepository, npmRepositoryReference } from "./normalize-npm-repository.ts";
@@ -17,6 +16,7 @@ import {
 	NpmRegistryResponseLimitExceeded,
 	NpmVersionNotFound,
 } from "./npm-registry-client.ts";
+import type { NpmRegistryPort } from "./port.ts";
 
 const COMMIT_HASH = /^[0-9a-f]{40,64}$/i;
 

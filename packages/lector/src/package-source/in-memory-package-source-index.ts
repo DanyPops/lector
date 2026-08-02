@@ -1,5 +1,5 @@
-import type { PackageSourceIndexEntry, PackageSourceIndexKey } from "../domain/package-source-index.ts";
-import type { PackageSourceIndexPort } from "../ports/package-source-index-port.ts";
+import type { PackageSourceIndexPort } from "./index-port.ts";
+import type { PackageSourceIndexEntry, PackageSourceIndexKey } from "./package-source-index.ts";
 
 const DEFAULT_MAX_ENTRIES = 10_000;
 

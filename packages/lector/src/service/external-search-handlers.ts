@@ -1,7 +1,7 @@
 import type { ExternalSearchBounds, GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../domain/external-search-result.ts";
 import type { ExternalSearchCachePort } from "../external-search-cache/port.ts";
 import type { GithubSearchPort } from "../github-search/port.ts";
-import type { NpmRegistryPort } from "../ports/npm-registry-port.ts";
+import type { NpmRegistryPort } from "../npm-registry/port.ts";
 import type { MutableRegistry, OperationInputs, OperationOutputs } from "../service.ts";
 import type { SourcegraphSearchPort } from "../sourcegraph-search/port.ts";
 

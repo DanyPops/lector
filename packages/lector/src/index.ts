@@ -8,18 +8,6 @@ export {
 	LanguageServerRequestTimedOut,
 } from "./adapters/lsp/language-server-process.ts";
 export { LanguageFileLimitExceeded, LanguageFileOutsideWorkspace, LspSymbolIndex, type LspSymbolIndexOptions } from "./adapters/lsp/lsp-symbol-index.ts";
-export { NpmPackageSourceResolver, type NpmPackageSourceResolverOptions } from "./adapters/npm-package-source-resolver.ts";
-export {
-	DEFAULT_NPM_REGISTRY,
-	InvalidNpmRegistryRequest,
-	NpmPackageNotFound,
-	NpmRegistryAuthenticationRequired,
-	NpmRegistryClient,
-	type NpmRegistryClientOptions,
-	NpmRegistryRequestFailed,
-	NpmRegistryResponseLimitExceeded,
-	NpmVersionNotFound,
-} from "./adapters/npm-registry-client.ts";
 export { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "./adapters/polyglot-code-intelligence-index.ts";
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
 export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
@@ -122,35 +110,6 @@ export type { LineHash } from "./domain/line-hash.ts";
 export { lineHashOf } from "./domain/line-hash.ts";
 export type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "./domain/npm-package-metadata.ts";
 export { outgoingCalls } from "./domain/outgoing-calls.ts";
-export type {
-	AmbiguousPackageSource,
-	MismatchedPackageSource,
-	OversizedPackageSource,
-	PackageCoordinateRequest,
-	PackageEcosystem,
-	PackageRepositoryIdentity,
-	PackageSourceBounds,
-	PackageSourceCandidate,
-	PackageSourceOperationResult,
-	PackageSourceOutcome,
-	PackageSourceRequest,
-	PackageSourceVerification,
-	PackageSourceVerificationMethod,
-	PackageSourceWorkspace,
-	ResolvedPackageCoordinate,
-	UnauthenticatedPackageSource,
-	UnavailablePackageSource,
-	VerifiedPackageSource,
-} from "./domain/package-source.ts";
-export { DEFAULT_PACKAGE_SOURCE_BOUNDS, PACKAGE_ECOSYSTEMS } from "./domain/package-source.ts";
-export type {
-	PackageSourceIndexEntry,
-	PackageSourceIndexKey,
-	PackageSourceIndexPage,
-	PackageSourceIndexQuery,
-	PackageSourceListEntry,
-} from "./domain/package-source-index.ts";
-export { queryPackageSourceIndex } from "./domain/package-source-index.ts";
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
 export { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
@@ -163,7 +122,6 @@ export {
 	type ReferenceBasedRenamePlan,
 	type ReferencingFileInput,
 } from "./domain/reference-based-rename.ts";
-export { InvalidPackageSourceContract, resolvePackageSource } from "./domain/resolve-package-source.ts";
 export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./domain/response-format.ts";
 export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./domain/response-format.ts";
 export { searchText } from "./domain/search-text.ts";
@@ -217,10 +175,52 @@ export { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } fro
 export type { InstalledPackageVersionResolverPort } from "./installed-package-version-resolver/port.ts";
 export { type CanRevertMutationInputs, canRevertMutation, type MutationHistoryEntry, type MutationOperation } from "./mutation-history/mutation-history.ts";
 export type { MutationHistoryPort, RecordMutationInput } from "./mutation-history/port.ts";
+export { NpmPackageSourceResolver, type NpmPackageSourceResolverOptions } from "./npm-registry/npm-package-source-resolver.ts";
+export {
+	DEFAULT_NPM_REGISTRY,
+	InvalidNpmRegistryRequest,
+	NpmPackageNotFound,
+	NpmRegistryAuthenticationRequired,
+	NpmRegistryClient,
+	type NpmRegistryClientOptions,
+	NpmRegistryRequestFailed,
+	NpmRegistryResponseLimitExceeded,
+	NpmVersionNotFound,
+} from "./npm-registry/npm-registry-client.ts";
+export type { NpmRegistryPort } from "./npm-registry/port.ts";
+export type { PackageSourceIndexPort } from "./package-source/index-port.ts";
+export type {
+	AmbiguousPackageSource,
+	MismatchedPackageSource,
+	OversizedPackageSource,
+	PackageCoordinateRequest,
+	PackageEcosystem,
+	PackageRepositoryIdentity,
+	PackageSourceBounds,
+	PackageSourceCandidate,
+	PackageSourceOperationResult,
+	PackageSourceOutcome,
+	PackageSourceRequest,
+	PackageSourceVerification,
+	PackageSourceVerificationMethod,
+	PackageSourceWorkspace,
+	ResolvedPackageCoordinate,
+	UnauthenticatedPackageSource,
+	UnavailablePackageSource,
+	VerifiedPackageSource,
+} from "./package-source/package-source.ts";
+export { DEFAULT_PACKAGE_SOURCE_BOUNDS, PACKAGE_ECOSYSTEMS } from "./package-source/package-source.ts";
+export type {
+	PackageSourceIndexEntry,
+	PackageSourceIndexKey,
+	PackageSourceIndexPage,
+	PackageSourceIndexQuery,
+	PackageSourceListEntry,
+} from "./package-source/package-source-index.ts";
+export { queryPackageSourceIndex } from "./package-source/package-source-index.ts";
+export { InvalidPackageSourceContract, resolvePackageSource } from "./package-source/resolve-package-source.ts";
+export type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
-export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
-export type { PackageSourceIndexPort } from "./ports/package-source-index-port.ts";
-export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "./ports/text-search-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";

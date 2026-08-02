@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryPackageSourceIndex } from "../src/adapters/in-memory-package-source-index.ts";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
-import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOutcome, type PackageSourceRequest } from "../src/domain/package-source.ts";
-import type { PackageSourceIndexEntry } from "../src/domain/package-source-index.ts";
-import type { PackageSourceResolverPort } from "../src/ports/package-source-resolver-port.ts";
+import { InMemoryPackageSourceIndex } from "../src/package-source/in-memory-package-source-index.ts";
+import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOutcome, type PackageSourceRequest } from "../src/package-source/package-source.ts";
+import type { PackageSourceIndexEntry } from "../src/package-source/package-source-index.ts";
+import type { PackageSourceResolverPort } from "../src/package-source/resolver-port.ts";
 import { createLectorService, type LectorService, PackageSourceEntryInUse, PackageSourceResolverNotConfigured } from "../src/service.ts";
 
 let roots: string[] = [];

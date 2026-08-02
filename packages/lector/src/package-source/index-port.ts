@@ -1,4 +1,4 @@
-import type { PackageSourceIndexEntry, PackageSourceIndexKey } from "../domain/package-source-index.ts";
+import type { PackageSourceIndexEntry, PackageSourceIndexKey } from "./package-source-index.ts";
 
 /** The daemon's own bookkeeping of every package coordinate it has resolved to a verified source workspace -- distinct from RepoFetcherPort's disk cache, which addresses by (host, owner, repo, ref) and has no notion of package identity. */
 export interface PackageSourceIndexPort {

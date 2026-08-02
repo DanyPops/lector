@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type PackageSourceIndexEntry, queryPackageSourceIndex } from "../../src/domain/package-source-index.ts";
+import { type PackageSourceIndexEntry, queryPackageSourceIndex } from "../../src/package-source/package-source-index.ts";
 
 function entry(overrides: Partial<PackageSourceIndexEntry> = {}): PackageSourceIndexEntry {
 	return {
