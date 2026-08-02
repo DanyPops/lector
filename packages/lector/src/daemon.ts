@@ -144,6 +144,7 @@ function prepare(options: LectorDaemonOptions): {
 	// returning empty/error results per call. (Locus LCS-BUG-88 class.)
 	const service = createLectorService(options.workspaces, {
 		allowDynamicOnly: options.allowDynamicOnly,
+		logger: options.logger,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
 		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),
 		createPackageSourceResolver: options.createPackageSourceResolver,

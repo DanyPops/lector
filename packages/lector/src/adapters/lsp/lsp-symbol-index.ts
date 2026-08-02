@@ -1,6 +1,7 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import picomatch from "picomatch";
 import { InMemoryContentCache } from "../../content-cache/in-memory-content-cache.ts";
 import type { ContentCachePort } from "../../content-cache/port.ts";
@@ -38,8 +39,12 @@ const DEFAULT_MAX_OPEN_FILES = 256;
 const DEFAULT_MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_SETTLE_MS = 30_000;
 
+const NOOP_LOGGER: Logger = { debug() {}, info() {}, warn() {}, error() {} };
+
 export interface LspSymbolIndexOptions {
 	readonly maxOpenFiles?: number;
+	/** Debug on every open/release, warn when ensureFileOpen rejects at the cap. Defaults to a no-op. */
+	readonly logger?: Logger;
 	readonly maxFileBytes?: number;
 	readonly maxRefreshBytes?: number;
 	readonly maxFallbackSeedFiles?: number;
@@ -384,6 +389,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	/** Serializes mutation-dependent operations per file path -- two concurrent queries touching the same file must never race textDocument/didChange's version bookkeeping. */
 	private readonly mutationQueue = new SerialExecutionQueue();
 	private readonly contentCache: ContentCachePort;
+	private readonly logger: Logger;
 
 	constructor(cwd: string, descriptor: LanguageServerDescriptor, seedFile?: string, options: LspSymbolIndexOptions = {}) {
 		this.cwd = resolve(cwd);
@@ -391,6 +397,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		this.descriptor = descriptor;
 		this.explicitSeedFile = seedFile;
 		this.contentCache = options.contentCache ?? new InMemoryContentCache();
+		this.logger = options.logger ?? NOOP_LOGGER;
 		this.maxOpenFiles = positiveLimit(options.maxOpenFiles, DEFAULT_MAX_OPEN_FILES, "maxOpenFiles");
 		this.maxFileBytes = positiveLimit(options.maxFileBytes, DEFAULT_MAX_FILE_BYTES, "maxFileBytes");
 		this.maxRefreshBytes = positiveLimit(options.maxRefreshBytes, 50 * 1024 * 1024, "maxRefreshBytes");
@@ -624,7 +631,17 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			// correctness fix with zero observed behavior change today, not a guessed one.
 			const sync = shouldSyncDocuments(this.negotiatedCapabilities?.textDocumentSyncKind ?? "full");
 			if (!opened) {
-				if (this.openedFiles.size >= this.maxOpenFiles) throw new LanguageFileLimitExceeded("open-files", this.maxOpenFiles, this.openedFiles.size + 1);
+				if (this.openedFiles.size >= this.maxOpenFiles) {
+					this.logger.warn("open-file limit exceeded", {
+						component: "lsp-symbol-index",
+						languageId: this.descriptor.languageId,
+						cwd: this.cwd,
+						path,
+						openFiles: this.openedFiles.size,
+						maxOpenFiles: this.maxOpenFiles,
+					});
+					throw new LanguageFileLimitExceeded("open-files", this.maxOpenFiles, this.openedFiles.size + 1);
+				}
 				if (sync) {
 					proc.notify("textDocument/didOpen", {
 						textDocument: {
@@ -636,6 +653,14 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 					});
 				}
 				this.openedFiles.set(path, { version: 1, content });
+				this.logger.debug("file opened", {
+					component: "lsp-symbol-index",
+					languageId: this.descriptor.languageId,
+					cwd: this.cwd,
+					path,
+					openFiles: this.openedFiles.size,
+					maxOpenFiles: this.maxOpenFiles,
+				});
 			} else {
 				const version = opened.version + 1;
 				this.latestDiagnostics.delete(path);
@@ -665,6 +690,14 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			const proc = this.process;
 			if (proc) proc.notify("textDocument/didClose", { textDocument: { uri: pathToFileURL(path).href } });
 			this.openedFiles.delete(path);
+			this.logger.debug("file released", {
+				component: "lsp-symbol-index",
+				languageId: this.descriptor.languageId,
+				cwd: this.cwd,
+				path,
+				openFiles: this.openedFiles.size,
+				maxOpenFiles: this.maxOpenFiles,
+			});
 			this.latestDiagnostics.delete(path);
 			this.diagnosticsWaiters.delete(path);
 			return Promise.resolve();

@@ -22,6 +22,7 @@ import { incomingCalls } from "../../../src/domain/incoming-calls.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../../src/domain/language-server-descriptor.ts";
 import { outgoingCalls } from "../../../src/domain/outgoing-calls.ts";
 import { prepareCallHierarchy } from "../../../src/domain/prepare-call-hierarchy.ts";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { findPositionOf } from "../../support/find-position.ts";
 
 const LECTOR_ROOT = new URL("../../..", import.meta.url).pathname;
@@ -482,4 +483,65 @@ describe("LspSymbolIndex prepareRename/rename", () => {
 		expect(index.capabilities?.renameProvider).toBe(true);
 		expect(index.capabilities?.prepareRenameProvider).toBe(true);
 	});
+});
+
+describe("LspSymbolIndex open-file logging", () => {
+	// Real incident: a ~500-file Go crawl failed half its files against the open-file cap with
+	// no logged signal anywhere of why -- nothing between here and the LSP client had a logger.
+	let fixtureRoot: string | undefined;
+	afterEach(() => {
+		if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
+		fixtureRoot = undefined;
+	});
+
+	function recordingLogger(): { logger: Logger; calls: Array<{ level: string; msg: string; fields?: Record<string, unknown> }> } {
+		const calls: Array<{ level: string; msg: string; fields?: Record<string, unknown> }> = [];
+		return {
+			calls,
+			logger: {
+				debug: (msg, fields) => calls.push({ level: "debug", msg, fields }),
+				info: (msg, fields) => calls.push({ level: "info", msg, fields }),
+				warn: (msg, fields) => calls.push({ level: "warn", msg, fields }),
+				error: (msg, fields) => calls.push({ level: "error", msg, fields }),
+			},
+		};
+	}
+
+	function buildFixture(): string {
+		const root = mkdtempSync(join(tmpdir(), "lector-lsp-logging-"));
+		writeFileSync(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true } }));
+		writeFileSync(join(root, "a.ts"), "export function a(): number {\n\treturn 1;\n}\n");
+		writeFileSync(join(root, "b.ts"), "export function b(): number {\n\treturn 2;\n}\n");
+		return root;
+	}
+
+	it("logs debug on open and on release, with the real path and current/max open-file counts", async () => {
+		fixtureRoot = buildFixture();
+		const { logger, calls } = recordingLogger();
+		index = new LspSymbolIndex(fixtureRoot, TYPESCRIPT_DESCRIPTOR, "a.ts", { logger });
+
+		const aPath = join(fixtureRoot, "a.ts");
+		await documentSymbols(index, aPath);
+		await index.releaseFile?.(aPath);
+
+		const opened = calls.find((call) => call.msg === "file opened");
+		expect(opened?.fields).toMatchObject({ languageId: "typescript", path: aPath, openFiles: 1 });
+		const released = calls.find((call) => call.msg === "file released");
+		expect(released?.fields).toMatchObject({ languageId: "typescript", path: aPath, openFiles: 0 });
+	}, 20_000);
+
+	it("logs a warn with path/size/max when ensureFileOpen actually rejects at the cap", async () => {
+		fixtureRoot = buildFixture();
+		const { logger, calls } = recordingLogger();
+		index = new LspSymbolIndex(fixtureRoot, TYPESCRIPT_DESCRIPTOR, "a.ts", { logger, maxOpenFiles: 1 });
+
+		const aPath = join(fixtureRoot, "a.ts");
+		const bPath = join(fixtureRoot, "b.ts");
+		await documentSymbols(index, aPath); // fills the only slot, never released
+
+		await expect(documentSymbols(index, bPath)).rejects.toThrow(/open-files/);
+
+		const rejected = calls.find((call) => call.msg === "open-file limit exceeded");
+		expect(rejected?.fields).toMatchObject({ languageId: "typescript", path: bPath, openFiles: 1, maxOpenFiles: 1 });
+	}, 20_000);
 });

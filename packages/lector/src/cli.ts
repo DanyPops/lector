@@ -2,6 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createLogger } from "@danypops/vehicle-server/logging";
 import { createNodeServiceInstallDeps, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
@@ -214,6 +215,7 @@ async function runServe(args: string[]): Promise<void> {
 	serveMain({
 		workspaces,
 		allowDynamicOnly: dynamicWorkspaces,
+		logger: createLogger("lector", { levelEnvVar: "LECTOR_LOG_LEVEL" }),
 		onListen: ({ host, port }) => {
 			console.error(`Lector listening on ${host}:${port} (workspaces: ${summary})`);
 		},

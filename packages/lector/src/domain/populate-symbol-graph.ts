@@ -1,3 +1,4 @@
+import type { Logger } from "@danypops/vehicle-server/logging";
 import type { CodeIntelligencePort } from "../ports/code-intelligence-port.ts";
 import type { SymbolGraphPort, SymbolNode } from "../ports/symbol-graph-port.ts";
 import type { OutgoingCall } from "./call-hierarchy.ts";
@@ -9,6 +10,8 @@ import type { WorkspaceLocation } from "./workspace-symbol.ts";
 const CALLABLE_KINDS = new Set(["function", "method", "constructor"]);
 const MAX_RECORDED_FAILURES = 100;
 const MAX_FAILURE_MESSAGE_LENGTH = 500;
+
+const NOOP_LOGGER: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 
 /**
  * Overrides LspSymbolIndex's normal post-open settle wait for this crawl's own
@@ -101,6 +104,8 @@ export async function populateSymbolGraph(
 	graph: SymbolGraphPort,
 	files: readonly string[],
 	maxSymbolsPerFile: number,
+	/** Warn per failure as it happens (a long-running background job has no other way to surface one before the crawl finishes), warn/info summary on completion. Defaults to a no-op. */
+	logger: Logger = NOOP_LOGGER,
 ): Promise<PopulateSymbolGraphResult> {
 	let filesProcessed = 0;
 	let symbolsProcessed = 0;
@@ -114,7 +119,16 @@ export async function populateSymbolGraph(
 	function recordFailure(file: string, operation: SymbolGraphPopulationFailure["operation"], error: unknown): void {
 		failureCount++;
 		failedFiles.add(file);
-		if (failures.length < MAX_RECORDED_FAILURES) failures.push(boundedFailure(index, file, operation, error));
+		const failure = boundedFailure(index, file, operation, error);
+		if (failures.length < MAX_RECORDED_FAILURES) failures.push(failure);
+		logger.warn("symbol graph population: file failed", {
+			component: "populate-symbol-graph",
+			path: failure.path,
+			operation: failure.operation,
+			code: failure.code,
+			message: failure.message,
+			languageId: failure.provenance.languageId,
+		});
 	}
 
 	async function ensureNode(node: SymbolNode): Promise<void> {
@@ -173,8 +187,22 @@ export async function populateSymbolGraph(
 		}
 	}
 
+	const completeness = failureCount === 0 ? "complete" : "partial";
+	const summaryFields = {
+		component: "populate-symbol-graph",
+		filesAttempted: files.length,
+		filesProcessed,
+		filesFailed: failedFiles.size,
+		symbolsProcessed,
+		nodesAdded,
+		edgesAdded,
+		failureCount,
+	};
+	if (completeness === "complete") logger.info("symbol graph population complete", summaryFields);
+	else logger.warn("symbol graph population completed with failures", summaryFields);
+
 	return {
-		completeness: failureCount === 0 ? "complete" : "partial",
+		completeness,
 		filesAttempted: files.length,
 		filesProcessed,
 		filesFailed: failedFiles.size,

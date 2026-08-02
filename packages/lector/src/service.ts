@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import picomatch from "picomatch";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 import { InMemoryPackageSourceIndex } from "./adapters/in-memory-package-source-index.ts";
@@ -679,6 +680,8 @@ export type MutableRegistry = Map<WorkspaceId, RegisteredWorkspace>;
 export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void> };
 
 export interface LectorServiceOptions {
+	/** Threaded into the default LspSymbolIndex's open-file lifecycle and every workspace.populateSymbolGraph run. Defaults to a no-op. */
+	logger?: Logger;
 	/** Factory for the symbol index backing workspace.findSymbols and code intelligence, given the descriptor resolved for the call. Defaults to an LspSymbolIndex configured for whichever descriptor is passed. */
 	createSymbolIndex?: (rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => ClosableSymbolIndex;
 	/**
@@ -788,6 +791,7 @@ const DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS = 3000;
 const MAX_INITIAL_JOB_WAIT_MS = 30_000;
 const MAX_SYMBOL_RESULTS = 5_000;
 const MAX_SOURCE_MANIFEST_BYTES = 50 * 1024 * 1024;
+const NOOP_LOGGER: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 
 /**
  * Create the Lector service over an explicit initial registry of workspaces.
@@ -823,6 +827,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	// regardless of which file or workspace they came from). A caller-supplied createSymbolIndex
 	// owns its own construction and does not automatically receive this instance.
 	const contentCache = options.createContentCache?.() ?? new InMemoryContentCache();
+	const logger = options.logger ?? NOOP_LOGGER;
 
 	// One warm symbol index per (workspace, language) actually queried, reused across calls --
 	// a fresh process per query would pay a fork+initialize cost every time. A polyglot
@@ -832,7 +837,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const createSymbolIndex =
 		options.createSymbolIndex ??
 		((rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => {
-			const semantic = new LspSymbolIndex(rootPath, descriptor, seedFile, { contentCache });
+			const semantic = new LspSymbolIndex(rootPath, descriptor, seedFile, { contentCache, logger });
 			if (descriptor.languageId !== "typescript") return semantic;
 			return new FallbackCodeIntelligenceIndex(semantic, [new TypeScriptCompilerSymbolIndex(rootPath), new TreeSitterSymbolIndex(rootPath, contentCache)]);
 		});
@@ -1440,7 +1445,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		const extensions = workspaceSourceExtensions(workspaceIndex.descriptors);
 		const before = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		await purgeFilesNoLongerWalked(graph, previousGeneration?.walkedFiles, before.absoluteFiles);
-		const result = await populateSymbolGraphQuery(workspaceIndex.index, graph, before.absoluteFiles, input.maxSymbolsPerFile);
+		const result = await populateSymbolGraphQuery(workspaceIndex.index, graph, before.absoluteFiles, input.maxSymbolsPerFile, logger);
 		const after = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		if (after.fingerprint !== before.fingerprint) throw new WorkspaceChangedDuringPopulation(input.workspaceId);
 		await graph.setGeneration({

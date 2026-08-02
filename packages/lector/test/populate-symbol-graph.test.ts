@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { InMemorySymbolGraph } from "../src/adapters/in-memory-symbol-graph.ts";
 import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../src/domain/language-server-descriptor.ts";
@@ -229,6 +230,71 @@ describe("populateSymbolGraph", () => {
 
 		expect(callCount).toBe(2);
 		expect(released).toEqual(["/repo/ok.test", "/repo/fails.test"]);
+	});
+
+	function recordingLogger(): { logger: Logger; calls: Array<{ level: string; msg: string; fields?: Record<string, unknown> }> } {
+		const calls: Array<{ level: string; msg: string; fields?: Record<string, unknown> }> = [];
+		return {
+			calls,
+			logger: {
+				debug: (msg, fields) => calls.push({ level: "debug", msg, fields }),
+				info: (msg, fields) => calls.push({ level: "info", msg, fields }),
+				warn: (msg, fields) => calls.push({ level: "warn", msg, fields }),
+				error: (msg, fields) => calls.push({ level: "error", msg, fields }),
+			},
+		};
+	}
+
+	function flakyPort(shouldFail: (path: string) => boolean): CodeIntelligencePort {
+		return {
+			provenance: {
+				fidelity: "semantic",
+				backend: "flaky-test-server",
+				languageId: "test",
+				authority: "language-server",
+				freshness: "live-process",
+				limitations: [],
+			},
+			goToDefinition: async () => [],
+			goToImplementation: async () => [],
+			findReferences: async () => [],
+			hover: async () => undefined,
+			documentSymbols: async (path) => {
+				if (shouldFail(path)) throw new Error("cannot index this one");
+				return [];
+			},
+			diagnostics: async () => [],
+			prepareCallHierarchy: async () => [],
+			incomingCalls: async () => [],
+			outgoingCalls: async () => [],
+			releaseFile: async () => {},
+		};
+	}
+
+	it("logs a warn per failed file as it happens, with path/operation/code/message", async () => {
+		const { logger, calls } = recordingLogger();
+		graph = new InMemorySymbolGraph();
+
+		await populateSymbolGraph(flakyPort((path) => path === "/repo/fails.test"), graph, ["/repo/ok.test", "/repo/fails.test"], 10, logger);
+
+		const failure = calls.find((call) => call.msg === "symbol graph population: file failed");
+		expect(failure?.level).toBe("warn");
+		expect(failure?.fields).toMatchObject({ path: "/repo/fails.test", operation: "document-symbols", message: "cannot index this one" });
+	});
+
+	it("logs an info summary when every file succeeds, a warn summary when any fails", async () => {
+		const clean = recordingLogger();
+		graph = new InMemorySymbolGraph();
+		await populateSymbolGraph(flakyPort(() => false), graph, ["/repo/ok.test"], 10, clean.logger);
+		const cleanSummary = clean.calls.find((call) => call.msg === "symbol graph population complete");
+		expect(cleanSummary?.level).toBe("info");
+
+		const dirty = recordingLogger();
+		graph = new InMemorySymbolGraph();
+		await populateSymbolGraph(flakyPort((path) => path === "/repo/fails.test"), graph, ["/repo/ok.test", "/repo/fails.test"], 10, dirty.logger);
+		const dirtySummary = dirty.calls.find((call) => call.msg === "symbol graph population completed with failures");
+		expect(dirtySummary?.level).toBe("warn");
+		expect(dirtySummary?.fields).toMatchObject({ filesAttempted: 2, filesProcessed: 1, filesFailed: 1, failureCount: 1 });
 	});
 
 	it("returns honest zero counts for an empty file list, not an error", async () => {
