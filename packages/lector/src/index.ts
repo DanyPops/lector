@@ -1,5 +1,4 @@
 export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
-export { InMemorySearchCache, type InMemorySearchCacheOptions } from "./adapters/in-memory-search-cache.ts";
 export { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
 export { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 export { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
@@ -27,10 +26,8 @@ export { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "./adapte
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
 export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
-export { SqliteSearchCache, type SqliteSearchCacheOptions } from "./adapters/sqlite-search-cache.ts";
 export { SqliteSymbolAnnotations } from "./adapters/sqlite-symbol-annotations.ts";
 export { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
-export { TieredSearchCache } from "./adapters/tiered-search-cache.ts";
 export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./adapters/typescript-compiler-symbol-index.ts";
 export {
@@ -177,7 +174,6 @@ export {
 export { InvalidPackageSourceContract, resolvePackageSource } from "./domain/resolve-package-source.ts";
 export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./domain/response-format.ts";
 export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./domain/response-format.ts";
-export { deriveSearchCacheKey, type SearchCacheKey } from "./domain/search-cache-key.ts";
 export { searchText } from "./domain/search-text.ts";
 export type {
 	AnnotationId,
@@ -245,7 +241,6 @@ export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 export type { PackageSourceIndexPort } from "./ports/package-source-index-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
-export type { SearchCachePort } from "./ports/search-cache-port.ts";
 export type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./ports/symbol-annotation-port.ts";
 export type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
@@ -262,6 +257,11 @@ export {
 	type RepoFetchResult,
 } from "./repo-fetcher/repo-fetch-result.ts";
 export type { RepoReference } from "./repo-fetcher/repo-reference.ts";
+export { InMemorySearchCache, type InMemorySearchCacheOptions } from "./search-cache/in-memory-search-cache.ts";
+export type { SearchCachePort } from "./search-cache/port.ts";
+export { deriveSearchCacheKey, type SearchCacheKey } from "./search-cache/search-cache-key.ts";
+export { SqliteSearchCache, type SqliteSearchCacheOptions } from "./search-cache/sqlite-search-cache.ts";
+export { TieredSearchCache } from "./search-cache/tiered-search-cache.ts";
 export {
 	AnnotationContainmentCycle,
 	AnnotationRequiresAnchors,

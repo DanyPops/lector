@@ -88,7 +88,7 @@ export default tseslint.config(
 	{
 		files: [
 			"packages/lector/src/content-cache/sqlite-content-cache.ts",
-			"packages/lector/src/adapters/sqlite-search-cache.ts",
+			"packages/lector/src/search-cache/sqlite-search-cache.ts",
 			"packages/lector/src/adapters/sqlite-symbol-annotations.ts",
 			"packages/lector/src/adapters/sqlite-symbol-graph.ts",
 		],

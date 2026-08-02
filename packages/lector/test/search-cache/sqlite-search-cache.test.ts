@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SqliteSearchCache } from "../../src/adapters/sqlite-search-cache.ts";
+import { SqliteSearchCache } from "../../src/search-cache/sqlite-search-cache.ts";
 import { runSearchCachePortConformanceSuite } from "../support/search-cache-port-conformance.ts";
 
 let dir: string | undefined;

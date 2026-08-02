@@ -3,9 +3,9 @@
  * (InMemorySearchCache, SqliteSearchCache, and any future one) must pass this unmodified.
  */
 import { describe, expect, it } from "bun:test";
-import type { SearchCacheKey } from "../../src/domain/search-cache-key.ts";
 import type { TextSearchResult } from "../../src/domain/text-search-result.ts";
-import type { SearchCachePort } from "../../src/ports/search-cache-port.ts";
+import type { SearchCachePort } from "../../src/search-cache/port.ts";
+import type { SearchCacheKey } from "../../src/search-cache/search-cache-key.ts";
 
 export interface SearchCacheConformanceHarness {
 	createCache(): SearchCachePort | Promise<SearchCachePort>;

@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySearchCache } from "../../src/adapters/in-memory-search-cache.ts";
-import { SqliteSearchCache } from "../../src/adapters/sqlite-search-cache.ts";
-import { TieredSearchCache } from "../../src/adapters/tiered-search-cache.ts";
+import { InMemorySearchCache } from "../../src/search-cache/in-memory-search-cache.ts";
+import { SqliteSearchCache } from "../../src/search-cache/sqlite-search-cache.ts";
+import { TieredSearchCache } from "../../src/search-cache/tiered-search-cache.ts";
 import { runSearchCachePortConformanceSuite } from "../support/search-cache-port-conformance.ts";
 
 let dir: string | undefined;

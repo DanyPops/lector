@@ -1,6 +1,6 @@
-import type { SearchCacheKey } from "../domain/search-cache-key.ts";
 import type { TextSearchResult } from "../domain/text-search-result.ts";
-import type { SearchCachePort } from "../ports/search-cache-port.ts";
+import type { SearchCachePort } from "./port.ts";
+import type { SearchCacheKey } from "./search-cache-key.ts";
 
 /**
  * Composes a fast (in-memory) and a durable (disk-backed) SearchCachePort into one: a read

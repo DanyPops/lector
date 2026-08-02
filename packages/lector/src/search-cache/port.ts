@@ -1,5 +1,5 @@
-import type { SearchCacheKey } from "../domain/search-cache-key.ts";
 import type { TextSearchResult } from "../domain/text-search-result.ts";
+import type { SearchCacheKey } from "./search-cache-key.ts";
 
 /**
  * SearchCachePort -- caches searchText results by (workspaceId, query, options), a genuinely

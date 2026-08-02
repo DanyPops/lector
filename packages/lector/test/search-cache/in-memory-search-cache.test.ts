@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { InMemorySearchCache } from "../../src/adapters/in-memory-search-cache.ts";
+import { InMemorySearchCache } from "../../src/search-cache/in-memory-search-cache.ts";
 import { runSearchCachePortConformanceSuite } from "../support/search-cache-port-conformance.ts";
 
 runSearchCachePortConformanceSuite("InMemorySearchCache", {

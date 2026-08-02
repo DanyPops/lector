@@ -1,5 +1,5 @@
-import type { SearchCachePort } from "../ports/search-cache-port.ts";
 import type { TextSearchOptions, TextSearchPort } from "../ports/text-search-port.ts";
+import type { SearchCachePort } from "../search-cache/port.ts";
 import { assertSafeSearchQuery } from "./assert-safe-search-query.ts";
 import type { TextSearchResult } from "./text-search-result.ts";
 

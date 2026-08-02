@@ -1,7 +1,7 @@
 import { LRUCache } from "lru-cache";
-import { deriveSearchCacheKey, type SearchCacheKey } from "../domain/search-cache-key.ts";
 import type { TextSearchResult } from "../domain/text-search-result.ts";
-import type { SearchCachePort } from "../ports/search-cache-port.ts";
+import type { SearchCachePort } from "./port.ts";
+import { deriveSearchCacheKey, type SearchCacheKey } from "./search-cache-key.ts";
 
 const DEFAULT_MAX_ENTRIES = 200;
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
