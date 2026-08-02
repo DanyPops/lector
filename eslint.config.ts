@@ -90,7 +90,7 @@ export default tseslint.config(
 			"packages/lector/src/content-cache/sqlite-content-cache.ts",
 			"packages/lector/src/search-cache/sqlite-search-cache.ts",
 			"packages/lector/src/adapters/sqlite-symbol-annotations.ts",
-			"packages/lector/src/adapters/sqlite-symbol-graph.ts",
+			"packages/lector/src/symbol-graph/sqlite-symbol-graph.ts",
 		],
 		rules: {
 			"@typescript-eslint/no-unsafe-type-assertion": "off",

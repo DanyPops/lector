@@ -4,8 +4,8 @@
  * outside the known set, no node may point at itself, and only a callable
  * symbol (function/method/constructor) may have an outgoing "calls" edge.
  */
-import type { SymbolNodeId } from "../../src/domain/symbol-node-id.ts";
-import type { SymbolEdgeKind, SymbolGraphPort } from "../../src/ports/symbol-graph-port.ts";
+import type { SymbolEdgeKind, SymbolGraphPort } from "../../src/symbol-graph/port.ts";
+import type { SymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";
 
 const EDGE_KINDS: readonly SymbolEdgeKind[] = ["calls", "contains", "references"];
 const CALLABLE_KINDS = new Set(["function", "method", "constructor"]);

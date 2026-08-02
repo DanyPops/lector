@@ -13,7 +13,6 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySymbolGraph } from "../src/adapters/in-memory-symbol-graph.ts";
 import {
 	AnnotationContainmentCycle,
 	AnnotationRequiresAnchors,
@@ -23,6 +22,7 @@ import {
 	UnknownAnnotationForContainment,
 	type WorkspaceId,
 } from "../src/service.ts";
+import { InMemorySymbolGraph } from "../src/symbol-graph/in-memory-symbol-graph.ts";
 
 let fixtureRoot: string | undefined;
 let service: LectorService | undefined;

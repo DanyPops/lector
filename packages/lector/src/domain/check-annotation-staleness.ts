@@ -1,9 +1,9 @@
-import type { SymbolGraphPort } from "../ports/symbol-graph-port.ts";
 import type { WorkspacePort } from "../ports/workspace-port.ts";
+import type { SymbolGraphPort } from "../symbol-graph/port.ts";
+import type { SymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import { type ContentHash, contentHashOf } from "./content-hash.ts";
 import type { SymbolAnnotation } from "./symbol-annotation.ts";
 import { type AnchorReality, isAnnotationStale } from "./symbol-annotation-staleness.ts";
-import type { SymbolNodeId } from "./symbol-node-id.ts";
 
 /**
  * Resolves every anchor's current reality against the live graph and

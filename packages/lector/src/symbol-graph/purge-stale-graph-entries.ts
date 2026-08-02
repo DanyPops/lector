@@ -1,4 +1,4 @@
-import type { SymbolGraphPort } from "../ports/symbol-graph-port.ts";
+import type { SymbolGraphPort } from "./port.ts";
 
 /**
  * Removes graph nodes/edges for files that were walked in a previous generation but are absent

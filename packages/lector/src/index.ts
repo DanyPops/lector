@@ -1,6 +1,5 @@
 export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 export { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
-export { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 export { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./adapters/local-filesystem-workspace.ts";
 export {
@@ -27,7 +26,6 @@ export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-wor
 export { RipgrepTextSearch } from "./adapters/ripgrep-text-search.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
 export { SqliteSymbolAnnotations } from "./adapters/sqlite-symbol-annotations.ts";
-export { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./adapters/typescript-compiler-symbol-index.ts";
 export {
@@ -157,11 +155,9 @@ export type {
 	PackageSourceListEntry,
 } from "./domain/package-source-index.ts";
 export { queryPackageSourceIndex } from "./domain/package-source-index.ts";
-export { type PopulateSymbolGraphResult, populateSymbolGraph, type SymbolGraphPopulationFailure } from "./domain/populate-symbol-graph.ts";
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
 export { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
-export { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
 export {
 	type FileMove,
 	type ImportSpecifierOccurrence,
@@ -184,10 +180,6 @@ export type {
 } from "./domain/symbol-annotation.ts";
 export { type AnchorReality, isAnnotationStale } from "./domain/symbol-annotation-staleness.ts";
 export type { SymbolDeclarationSnapshot } from "./domain/symbol-declaration-snapshot.ts";
-export { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
-export { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
-export type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
-export { deriveSymbolNodeId, type SymbolNodeId } from "./domain/symbol-node-id.ts";
 export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./domain/symbol-query.ts";
 export type { TextSearchMatch, TextSearchResult } from "./domain/text-search-result.ts";
 export {
@@ -242,7 +234,6 @@ export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 export type { PackageSourceIndexPort } from "./ports/package-source-index-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 export type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./ports/symbol-annotation-port.ts";
-export type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "./ports/text-search-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
@@ -301,4 +292,13 @@ export {
 	SourcegraphSearchRequestFailed,
 	SourcegraphSearchResponseLimitExceeded,
 } from "./sourcegraph-search/sourcegraph-search-client.ts";
+export { InMemorySymbolGraph } from "./symbol-graph/in-memory-symbol-graph.ts";
+export { type PopulateSymbolGraphResult, populateSymbolGraph, type SymbolGraphPopulationFailure } from "./symbol-graph/populate-symbol-graph.ts";
+export type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./symbol-graph/port.ts";
+export { reachableSymbolsFrom } from "./symbol-graph/reachable-symbols-from.ts";
+export { SqliteSymbolGraph } from "./symbol-graph/sqlite-symbol-graph.ts";
+export { symbolEdgesFrom } from "./symbol-graph/symbol-edges-from.ts";
+export { symbolEdgesTo } from "./symbol-graph/symbol-edges-to.ts";
+export type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./symbol-graph/symbol-graph-generation.ts";
+export { deriveSymbolNodeId, type SymbolNodeId } from "./symbol-graph/symbol-node-id.ts";
 export { lectorVersion } from "./version.ts";

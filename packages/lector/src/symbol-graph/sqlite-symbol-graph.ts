@@ -1,10 +1,10 @@
 import type { Database } from "bun:sqlite";
 import { type Migration, openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
-import type { PopulateSymbolGraphResult, SymbolGraphPopulationFailure } from "../domain/populate-symbol-graph.ts";
-import type { SymbolGraphGeneration } from "../domain/symbol-graph-generation.ts";
-import type { SymbolNodeId } from "../domain/symbol-node-id.ts";
-import type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "../ports/symbol-graph-port.ts";
+import type { PopulateSymbolGraphResult, SymbolGraphPopulationFailure } from "./populate-symbol-graph.ts";
+import type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./port.ts";
+import type { SymbolGraphGeneration } from "./symbol-graph-generation.ts";
+import type { SymbolNodeId } from "./symbol-node-id.ts";
 
 const MIGRATIONS: Migration[] = [
 	{

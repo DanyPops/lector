@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { appendFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { InMemorySymbolGraph } from "../../src/adapters/in-memory-symbol-graph.ts";
 import { LspSymbolIndex } from "../../src/adapters/lsp/lsp-symbol-index.ts";
 import { RipgrepTextSearch } from "../../src/adapters/ripgrep-text-search.ts";
 import { deriveSourceManifest } from "../../src/adapters/source-manifest.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../src/domain/language-server-descriptor.ts";
-import { populateSymbolGraph } from "../../src/domain/populate-symbol-graph.ts";
-import { deriveSymbolNodeId } from "../../src/domain/symbol-node-id.ts";
+import { InMemorySymbolGraph } from "../../src/symbol-graph/in-memory-symbol-graph.ts";
+import { populateSymbolGraph } from "../../src/symbol-graph/populate-symbol-graph.ts";
+import { deriveSymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";
 import { findPositionOf } from "../support/find-position.ts";
 import {
 	materializeTypeScriptReferenceFixture,

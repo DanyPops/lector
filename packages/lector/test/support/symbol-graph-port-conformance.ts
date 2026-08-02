@@ -6,8 +6,8 @@
  * actual point of this port over a flat edge list.
  */
 import { describe, expect, it } from "bun:test";
-import type { SymbolGraphGeneration } from "../../src/domain/symbol-graph-generation.ts";
-import type { SymbolGraphPort, SymbolNode } from "../../src/ports/symbol-graph-port.ts";
+import type { SymbolGraphPort, SymbolNode } from "../../src/symbol-graph/port.ts";
+import type { SymbolGraphGeneration } from "../../src/symbol-graph/symbol-graph-generation.ts";
 
 export interface SymbolGraphConformanceHarness {
 	createGraph(): SymbolGraphPort | Promise<SymbolGraphPort>;

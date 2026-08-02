@@ -4,7 +4,6 @@ import type { Logger } from "@danypops/vehicle-server/logging";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
-import { SqliteSymbolGraph } from "./adapters/sqlite-symbol-graph.ts";
 import { resolveLectorPaths } from "./constants.ts";
 import type { GithubSearchPort } from "./github-search/port.ts";
 import type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
@@ -17,6 +16,7 @@ import { SqliteSearchCache } from "./search-cache/sqlite-search-cache.ts";
 import { TieredSearchCache } from "./search-cache/tiered-search-cache.ts";
 import { createLectorService, type LectorService, type OperationName, type WorkspaceId } from "./service.ts";
 import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
+import { SqliteSymbolGraph } from "./symbol-graph/sqlite-symbol-graph.ts";
 import { lectorVersion } from "./version.ts";
 
 /** The Lector daemon's HTTP surface: Bearer-auth, health/ready, and the ops dispatch endpoint. */

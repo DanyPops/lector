@@ -8,11 +8,11 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySymbolGraph } from "../../../src/adapters/in-memory-symbol-graph.ts";
 import { LspSymbolIndex } from "../../../src/adapters/lsp/lsp-symbol-index.ts";
 import { GO_DESCRIPTOR, RUST_DESCRIPTOR } from "../../../src/domain/language-server-descriptor.ts";
-import { populateSymbolGraph } from "../../../src/domain/populate-symbol-graph.ts";
-import { deriveSymbolNodeId } from "../../../src/domain/symbol-node-id.ts";
+import { InMemorySymbolGraph } from "../../../src/symbol-graph/in-memory-symbol-graph.ts";
+import { populateSymbolGraph } from "../../../src/symbol-graph/populate-symbol-graph.ts";
+import { deriveSymbolNodeId } from "../../../src/symbol-graph/symbol-node-id.ts";
 import { findPositionOf } from "../../support/find-position.ts";
 import { findSymbolGraphInvariantViolations } from "../../support/symbol-graph-invariants.ts";
 

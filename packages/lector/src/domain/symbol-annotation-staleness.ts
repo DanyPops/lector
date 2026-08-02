@@ -1,6 +1,6 @@
+import type { SymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import type { ContentHash } from "./content-hash.ts";
 import type { SymbolAnnotationAnchor } from "./symbol-annotation.ts";
-import type { SymbolNodeId } from "./symbol-node-id.ts";
 
 /**
  * What's currently true about one anchor, resolved live against the graph

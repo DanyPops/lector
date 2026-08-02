@@ -1,6 +1,6 @@
-import type { SymbolGraphGeneration } from "../domain/symbol-graph-generation.ts";
-import type { SymbolNodeId } from "../domain/symbol-node-id.ts";
 import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
+import type { SymbolGraphGeneration } from "./symbol-graph-generation.ts";
+import type { SymbolNodeId } from "./symbol-node-id.ts";
 
 /** A node's own identity and declaration -- what's shown, not derived relationships. */
 export interface SymbolNode {

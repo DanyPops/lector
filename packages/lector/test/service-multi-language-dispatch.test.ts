@@ -11,8 +11,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
-import { SqliteSymbolGraph } from "../src/adapters/sqlite-symbol-graph.ts";
 import { createLectorService, type LectorService, UnsupportedLanguage } from "../src/service.ts";
+import { SqliteSymbolGraph } from "../src/symbol-graph/sqlite-symbol-graph.ts";
 
 let fixtureRoot: string | undefined;
 let service: LectorService | undefined;

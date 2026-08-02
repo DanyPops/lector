@@ -11,7 +11,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SqliteSymbolGraph } from "../../src/adapters/sqlite-symbol-graph.ts";
+import { SqliteSymbolGraph } from "../../src/symbol-graph/sqlite-symbol-graph.ts";
 import { runSymbolGraphPortConformanceSuite } from "../support/symbol-graph-port-conformance.ts";
 
 runSymbolGraphPortConformanceSuite("SqliteSymbolGraph", {

@@ -2,10 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySymbolGraph } from "../../src/adapters/in-memory-symbol-graph.ts";
 import { InMemoryWorkspace } from "../../src/adapters/in-memory-workspace.ts";
 import { LocalFilesystemWorkspace } from "../../src/adapters/local-filesystem-workspace.ts";
 import { computeWorkspaceMap } from "../../src/domain/workspace-map.ts";
+import { InMemorySymbolGraph } from "../../src/symbol-graph/in-memory-symbol-graph.ts";
 
 const DEFAULT_OPTIONS = { maxNodes: 1_000, maxEdges: 1_000, maxEntries: 100, maxBytes: 1_000_000 };
 

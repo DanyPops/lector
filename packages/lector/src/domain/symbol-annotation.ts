@@ -1,5 +1,5 @@
+import type { SymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import type { ContentHash } from "./content-hash.ts";
-import type { SymbolNodeId } from "./symbol-node-id.ts";
 
 export type AnnotationId = string;
 

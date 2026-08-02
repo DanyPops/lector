@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { InMemorySymbolGraph } from "../../src/adapters/in-memory-symbol-graph.ts";
-import { purgeFilesNoLongerWalked } from "../../src/domain/purge-stale-graph-entries.ts";
-import type { SymbolNode } from "../../src/ports/symbol-graph-port.ts";
+import { InMemorySymbolGraph } from "../../src/symbol-graph/in-memory-symbol-graph.ts";
+import type { SymbolNode } from "../../src/symbol-graph/port.ts";
+import { purgeFilesNoLongerWalked } from "../../src/symbol-graph/purge-stale-graph-entries.ts";
 
 function node(id: string, path: string): SymbolNode {
 	return { id, name: id, kind: "function", location: { path, line: 1, character: 1 } };

@@ -69,7 +69,7 @@ async function registerAndPopulate(): Promise<{ workspaceId: string; path: strin
 	const found = JSON.parse(await runCli(["workspace", "document-symbols", registered.workspaceId, path, "--json"])) as { symbols: DocumentSymbolEntry[] };
 	const symbol = found.symbols.find((s) => s.name === "add");
 	if (!symbol) throw new Error("fixture symbol 'add' was not found by workspace.documentSymbols");
-	// populateSymbolGraph derives a node's SymbolNodeId from selectionRange.start specifically -- see domain/populate-symbol-graph.ts's toNodeLocation.
+	// populateSymbolGraph derives a node's SymbolNodeId from selectionRange.start specifically -- see symbol-graph/populate-symbol-graph.ts's toNodeLocation.
 	return { workspaceId: registered.workspaceId, path, line: symbol.selectionRange.start.line, character: symbol.selectionRange.start.character };
 }
 

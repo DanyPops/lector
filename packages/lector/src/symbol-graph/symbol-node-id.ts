@@ -1,4 +1,4 @@
-import type { WorkspaceLocation } from "./workspace-symbol.ts";
+import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
 
 /**
  * A symbol graph node's identity: deterministic from its own declaration

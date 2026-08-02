@@ -30,7 +30,7 @@ const EXACT_EDIT_FILE = join(LECTOR_ROOT, "src/domain/exact-edit.ts");
 const SERVICE_FILE = join(LECTOR_ROOT, "src/service.ts");
 const FIND_WORKSPACE_SYMBOLS_FILE = join(LECTOR_ROOT, "src/domain/find-workspace-symbols.ts");
 const SYMBOL_INDEX_PORT_FILE = join(LECTOR_ROOT, "src/ports/symbol-index-port.ts");
-const SYMBOL_GRAPH_PORT_FILE = join(LECTOR_ROOT, "src/ports/symbol-graph-port.ts");
+const SYMBOL_GRAPH_PORT_FILE = join(LECTOR_ROOT, "src/symbol-graph/port.ts");
 const LSP_SYMBOL_INDEX_FILE = join(LECTOR_ROOT, "src/adapters/lsp/lsp-symbol-index.ts");
 
 let index: LspSymbolIndex | undefined;
@@ -89,8 +89,8 @@ describe("LspSymbolIndex configured for TypeScript", () => {
 		const locations = await goToImplementation(index, at);
 
 		const paths = locations.map((location) => location.path);
-		expect(paths).toContain(join(LECTOR_ROOT, "src/adapters/in-memory-symbol-graph.ts"));
-		expect(paths).toContain(join(LECTOR_ROOT, "src/adapters/sqlite-symbol-graph.ts"));
+		expect(paths).toContain(join(LECTOR_ROOT, "src/symbol-graph/in-memory-symbol-graph.ts"));
+		expect(paths).toContain(join(LECTOR_ROOT, "src/symbol-graph/sqlite-symbol-graph.ts"));
 	}, 20_000);
 
 	it("findReferences reliably finds usages within the seed file's own transitive import graph", async () => {

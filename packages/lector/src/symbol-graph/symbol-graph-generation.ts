@@ -1,5 +1,5 @@
+import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
 import type { RepoReference } from "../repo-fetcher/repo-reference.ts";
-import type { IntelligenceProvenance } from "./intelligence-provenance.ts";
 import type { PopulateSymbolGraphResult } from "./populate-symbol-graph.ts";
 
 export interface SymbolGraphGeneration {

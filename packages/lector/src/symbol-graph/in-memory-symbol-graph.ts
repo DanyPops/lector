@@ -1,7 +1,7 @@
 import Graph from "graphology";
-import type { SymbolGraphGeneration } from "../domain/symbol-graph-generation.ts";
-import type { SymbolNodeId } from "../domain/symbol-node-id.ts";
-import type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "../ports/symbol-graph-port.ts";
+import type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./port.ts";
+import type { SymbolGraphGeneration } from "./symbol-graph-generation.ts";
+import type { SymbolNodeId } from "./symbol-node-id.ts";
 
 /**
  * In-memory SymbolGraphPort for tests and small/ephemeral workspaces,

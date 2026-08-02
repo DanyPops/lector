@@ -7,8 +7,8 @@
  * not fabricating, an id the graph no longer has a real node for.
  */
 import { describe, expect, it } from "bun:test";
-import { reachableSymbolsFrom } from "../../src/domain/reachable-symbols-from.ts";
-import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "../../src/ports/symbol-graph-port.ts";
+import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "../../src/symbol-graph/port.ts";
+import { reachableSymbolsFrom } from "../../src/symbol-graph/reachable-symbols-from.ts";
 
 function node(id: string): SymbolNode {
 	return { id, name: id, kind: "function", location: { path: "a.ts", line: 1, character: 1 } };

@@ -1,4 +1,4 @@
-import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "../ports/symbol-graph-port.ts";
+import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./port.ts";
 import type { SymbolNodeId } from "./symbol-node-id.ts";
 
 /** Every real symbol node reachable from `id`, up to `maxDepth` hops -- ids the graph itself no longer knows about (a stale node) are dropped, not fabricated. */

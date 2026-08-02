@@ -6,7 +6,6 @@ import picomatch from "picomatch";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 import { InMemoryPackageSourceIndex } from "./adapters/in-memory-package-source-index.ts";
 import { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
-import { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { discoverWorkspaceDescriptor, discoverWorkspaceDescriptors } from "./adapters/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
@@ -52,21 +51,14 @@ import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, li
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
 import type { PackageEcosystem, PackageSourceBounds, PackageSourceOperationResult, PackageSourceRequest } from "./domain/package-source.ts";
 import type { PackageSourceIndexQuery, PackageSourceListEntry } from "./domain/package-source-index.ts";
-import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./domain/populate-symbol-graph.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
-import { purgeFilesNoLongerWalked } from "./domain/purge-stale-graph-entries.ts";
 import { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
-import { reachableSymbolsFrom } from "./domain/reachable-symbols-from.ts";
 import { planReferenceBasedRename } from "./domain/reference-based-rename.ts";
 import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from "./domain/response-format.ts";
 import { searchText as searchTextQuery } from "./domain/search-text.ts";
 import { SerialExecutionQueue } from "./domain/serial-execution-queue.ts";
 import type { AnnotationId, SymbolAnnotation, SymbolAnnotationAnchor } from "./domain/symbol-annotation.ts";
-import { symbolEdgesFrom } from "./domain/symbol-edges-from.ts";
-import { symbolEdgesTo } from "./domain/symbol-edges-to.ts";
-import type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./domain/symbol-graph-generation.ts";
-import { deriveSymbolNodeId } from "./domain/symbol-node-id.ts";
 import { assertBoundedSymbolQuery } from "./domain/symbol-query.ts";
 import type { TextSearchResult } from "./domain/text-search-result.ts";
 import type { ParsedWorkspaceEdit, RenameRange } from "./domain/workspace-edit.ts";
@@ -96,7 +88,6 @@ import type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 import type { PackageSourceIndexPort } from "./ports/package-source-index-port.ts";
 import type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";
 import type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./ports/symbol-annotation-port.ts";
-import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./ports/symbol-graph-port.ts";
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 import type { TextSearchPort } from "./ports/text-search-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
@@ -114,6 +105,15 @@ import { createPackageSourceHandlers } from "./service/package-source-handlers.t
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
 import { SourcegraphSearchClient } from "./sourcegraph-search/sourcegraph-search-client.ts";
+import { InMemorySymbolGraph } from "./symbol-graph/in-memory-symbol-graph.ts";
+import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./symbol-graph/populate-symbol-graph.ts";
+import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./symbol-graph/port.ts";
+import { purgeFilesNoLongerWalked } from "./symbol-graph/purge-stale-graph-entries.ts";
+import { reachableSymbolsFrom } from "./symbol-graph/reachable-symbols-from.ts";
+import { symbolEdgesFrom } from "./symbol-graph/symbol-edges-from.ts";
+import { symbolEdgesTo } from "./symbol-graph/symbol-edges-to.ts";
+import type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./symbol-graph/symbol-graph-generation.ts";
+import { deriveSymbolNodeId } from "./symbol-graph/symbol-node-id.ts";
 
 /**
  * Identifies which registered workspace an operation targets. There is no
