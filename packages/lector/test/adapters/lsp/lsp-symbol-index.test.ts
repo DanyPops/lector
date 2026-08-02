@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { LanguageFileOutsideWorkspace, LspSymbolIndex } from "../../../src/adapters/lsp/lsp-symbol-index.ts";
 import { InMemoryContentCache } from "../../../src/content-cache/in-memory-content-cache.ts";
 import { contentHashOf } from "../../../src/domain/content-hash.ts";
@@ -22,7 +23,6 @@ import { incomingCalls } from "../../../src/domain/incoming-calls.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../../src/domain/language-server-descriptor.ts";
 import { outgoingCalls } from "../../../src/domain/outgoing-calls.ts";
 import { prepareCallHierarchy } from "../../../src/domain/prepare-call-hierarchy.ts";
-import type { Logger } from "@danypops/vehicle-server/logging";
 import { findPositionOf } from "../../support/find-position.ts";
 
 const LECTOR_ROOT = new URL("../../..", import.meta.url).pathname;

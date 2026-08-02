@@ -275,7 +275,13 @@ describe("populateSymbolGraph", () => {
 		const { logger, calls } = recordingLogger();
 		graph = new InMemorySymbolGraph();
 
-		await populateSymbolGraph(flakyPort((path) => path === "/repo/fails.test"), graph, ["/repo/ok.test", "/repo/fails.test"], 10, logger);
+		await populateSymbolGraph(
+			flakyPort((path) => path === "/repo/fails.test"),
+			graph,
+			["/repo/ok.test", "/repo/fails.test"],
+			10,
+			logger,
+		);
 
 		const failure = calls.find((call) => call.msg === "symbol graph population: file failed");
 		expect(failure?.level).toBe("warn");
@@ -285,13 +291,25 @@ describe("populateSymbolGraph", () => {
 	it("logs an info summary when every file succeeds, a warn summary when any fails", async () => {
 		const clean = recordingLogger();
 		graph = new InMemorySymbolGraph();
-		await populateSymbolGraph(flakyPort(() => false), graph, ["/repo/ok.test"], 10, clean.logger);
+		await populateSymbolGraph(
+			flakyPort(() => false),
+			graph,
+			["/repo/ok.test"],
+			10,
+			clean.logger,
+		);
 		const cleanSummary = clean.calls.find((call) => call.msg === "symbol graph population complete");
 		expect(cleanSummary?.level).toBe("info");
 
 		const dirty = recordingLogger();
 		graph = new InMemorySymbolGraph();
-		await populateSymbolGraph(flakyPort((path) => path === "/repo/fails.test"), graph, ["/repo/ok.test", "/repo/fails.test"], 10, dirty.logger);
+		await populateSymbolGraph(
+			flakyPort((path) => path === "/repo/fails.test"),
+			graph,
+			["/repo/ok.test", "/repo/fails.test"],
+			10,
+			dirty.logger,
+		);
 		const dirtySummary = dirty.calls.find((call) => call.msg === "symbol graph population completed with failures");
 		expect(dirtySummary?.level).toBe("warn");
 		expect(dirtySummary?.fields).toMatchObject({ filesAttempted: 2, filesProcessed: 1, filesFailed: 1, failureCount: 1 });
