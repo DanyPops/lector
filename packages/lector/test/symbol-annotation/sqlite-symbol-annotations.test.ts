@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { contentHashOf } from "../../src/domain/content-hash.ts";
 import { SqliteSymbolAnnotations } from "../../src/symbol-annotation/sqlite-symbol-annotations.ts";
+import { deriveSymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";
 import { runSymbolAnnotationPortConformanceSuite } from "../support/symbol-annotation-port-conformance.ts";
 
 runSymbolAnnotationPortConformanceSuite("SqliteSymbolAnnotations", {
@@ -16,7 +17,7 @@ describe("SqliteSymbolAnnotations durability", () => {
 		const dir = mkdtempSync(join(tmpdir(), "lector-sqlite-annotations-durability-"));
 		const dbPath = join(dir, "annotations.db");
 		try {
-			const anchors = [{ symbolNodeId: "a.ts:1:1", path: "a.ts", fileContentHash: contentHashOf("a") }];
+			const anchors = [{ symbolNodeId: deriveSymbolNodeId({ path: "a.ts", line: 1, character: 1 }), path: "a.ts", fileContentHash: contentHashOf("a") }];
 
 			const first = new SqliteSymbolAnnotations(dbPath);
 			const created = await first.create({ subtype: "user-story-dataflow", title: "checkout flow", body: "narrative", anchors });

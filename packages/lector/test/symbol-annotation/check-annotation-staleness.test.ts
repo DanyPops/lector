@@ -5,6 +5,10 @@ import { contentHashOf } from "../../src/domain/content-hash.ts";
 import { checkAnnotationStaleness } from "../../src/symbol-annotation/check-annotation-staleness.ts";
 import type { SymbolAnnotation } from "../../src/symbol-annotation/symbol-annotation.ts";
 import { InMemorySymbolGraph } from "../../src/symbol-graph/in-memory-symbol-graph.ts";
+import { deriveSymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";
+
+const ADD_ID = deriveSymbolNodeId({ path: "a.ts", line: 1, character: 1 });
+const SUB_ID = deriveSymbolNodeId({ path: "a.ts", line: 2, character: 1 });
 
 function annotationOver(anchors: SymbolAnnotation["anchors"]): SymbolAnnotation {
 	return { id: "a1", subtype: "comment", title: "t", body: "b", status: "fresh", anchors, createdAt: 0, updatedAt: 0 };
@@ -15,9 +19,9 @@ describe("checkAnnotationStaleness", () => {
 		const graph = new InMemorySymbolGraph();
 		const workspace = new InMemoryWorkspace();
 		await workspace.writeEntry("a.ts", null, "export function add() {}");
-		await graph.addNode({ id: "a.ts:1:1", name: "add", kind: "function", location: { path: "a.ts", line: 1, character: 1 } });
+		await graph.addNode({ id: ADD_ID, name: "add", kind: "function", location: { path: "a.ts", line: 1, character: 1 } });
 
-		const annotation = annotationOver([{ symbolNodeId: "a.ts:1:1", path: "a.ts", fileContentHash: contentHashOf("export function add() {}") }]);
+		const annotation = annotationOver([{ symbolNodeId: ADD_ID, path: "a.ts", fileContentHash: contentHashOf("export function add() {}") }]);
 		expect(await checkAnnotationStaleness(graph, workspace, annotation)).toBe(false);
 	});
 
@@ -27,7 +31,7 @@ describe("checkAnnotationStaleness", () => {
 		await workspace.writeEntry("a.ts", null, "export function add() {}");
 		// Note: no addNode call -- the graph genuinely has no record of this symbol anymore.
 
-		const annotation = annotationOver([{ symbolNodeId: "a.ts:1:1", path: "a.ts", fileContentHash: contentHashOf("export function add() {}") }]);
+		const annotation = annotationOver([{ symbolNodeId: ADD_ID, path: "a.ts", fileContentHash: contentHashOf("export function add() {}") }]);
 		expect(await checkAnnotationStaleness(graph, workspace, annotation)).toBe(true);
 	});
 
@@ -35,10 +39,10 @@ describe("checkAnnotationStaleness", () => {
 		const graph = new InMemorySymbolGraph();
 		const workspace = new InMemoryWorkspace();
 		await workspace.writeEntry("a.ts", null, "export function add(a, b) { return a + b; }");
-		await graph.addNode({ id: "a.ts:1:1", name: "add", kind: "function", location: { path: "a.ts", line: 1, character: 1 } });
+		await graph.addNode({ id: ADD_ID, name: "add", kind: "function", location: { path: "a.ts", line: 1, character: 1 } });
 
 		// Anchor recorded against the OLD content -- the file has since changed.
-		const annotation = annotationOver([{ symbolNodeId: "a.ts:1:1", path: "a.ts", fileContentHash: contentHashOf("export function add() {}") }]);
+		const annotation = annotationOver([{ symbolNodeId: ADD_ID, path: "a.ts", fileContentHash: contentHashOf("export function add() {}") }]);
 		expect(await checkAnnotationStaleness(graph, workspace, annotation)).toBe(true);
 	});
 
@@ -52,13 +56,13 @@ describe("checkAnnotationStaleness", () => {
 			reads++;
 			return originalReadEntry(path);
 		};
-		await graph.addNode({ id: "a.ts:1:1", name: "add", kind: "function", location: { path: "a.ts", line: 1, character: 1 } });
-		await graph.addNode({ id: "a.ts:2:1", name: "sub", kind: "function", location: { path: "a.ts", line: 2, character: 1 } });
+		await graph.addNode({ id: ADD_ID, name: "add", kind: "function", location: { path: "a.ts", line: 1, character: 1 } });
+		await graph.addNode({ id: SUB_ID, name: "sub", kind: "function", location: { path: "a.ts", line: 2, character: 1 } });
 
 		const hash = contentHashOf("export function add() {}\nexport function sub() {}");
 		const annotation = annotationOver([
-			{ symbolNodeId: "a.ts:1:1", path: "a.ts", fileContentHash: hash },
-			{ symbolNodeId: "a.ts:2:1", path: "a.ts", fileContentHash: hash },
+			{ symbolNodeId: ADD_ID, path: "a.ts", fileContentHash: hash },
+			{ symbolNodeId: SUB_ID, path: "a.ts", fileContentHash: hash },
 		]);
 		expect(await checkAnnotationStaleness(graph, workspace, annotation)).toBe(false);
 		expect(reads).toBe(1);

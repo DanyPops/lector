@@ -41,18 +41,26 @@ export class InMemorySymbolGraph implements SymbolGraphPort {
 
 	async edgesFrom(id: SymbolNodeId, kind?: SymbolEdgeKind): Promise<readonly SymbolNodeId[]> {
 		if (!this.graph.hasNode(id)) return [];
-		return this.graph
-			.outEdges(id)
-			.filter((edgeKey) => !kind || this.graph.getEdgeAttribute(edgeKey, "kind") === kind)
-			.map((edgeKey) => this.graph.target(edgeKey));
+		return (
+			this.graph
+				.outEdges(id)
+				.filter((edgeKey) => !kind || this.graph.getEdgeAttribute(edgeKey, "kind") === kind)
+				// graphology's own node keys are untyped strings by design; addNode/addEdge above are the
+				// only writers and always use a real SymbolNodeId as the key.
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				.map((edgeKey) => this.graph.target(edgeKey) as SymbolNodeId)
+		);
 	}
 
 	async edgesTo(id: SymbolNodeId, kind?: SymbolEdgeKind): Promise<readonly SymbolNodeId[]> {
 		if (!this.graph.hasNode(id)) return [];
-		return this.graph
-			.inEdges(id)
-			.filter((edgeKey) => !kind || this.graph.getEdgeAttribute(edgeKey, "kind") === kind)
-			.map((edgeKey) => this.graph.source(edgeKey));
+		return (
+			this.graph
+				.inEdges(id)
+				.filter((edgeKey) => !kind || this.graph.getEdgeAttribute(edgeKey, "kind") === kind)
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- see edgesFrom above
+				.map((edgeKey) => this.graph.source(edgeKey) as SymbolNodeId)
+		);
 	}
 
 	async reachableFrom(id: SymbolNodeId, options: { maxDepth: number; kind?: SymbolEdgeKind }): Promise<readonly SymbolNodeId[]> {
@@ -81,10 +89,16 @@ export class InMemorySymbolGraph implements SymbolGraphPort {
 		const records: SymbolEdgeRecord[] = [];
 		for (const edgeKey of this.graph.edges()) {
 			if (records.length >= maxEdges) break;
-			// graphology's edge attributes are untyped by design; addEdge above is the only writer and
-			// always sets a real SymbolEdgeKind.
-			// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-			records.push({ from: this.graph.source(edgeKey), to: this.graph.target(edgeKey), kind: this.graph.getEdgeAttribute(edgeKey, "kind") as SymbolEdgeKind });
+			// graphology's edge attributes and node keys are untyped by design; addEdge above is the
+			// only writer and always sets a real SymbolEdgeKind/SymbolNodeId.
+			records.push({
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				from: this.graph.source(edgeKey) as SymbolNodeId,
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				to: this.graph.target(edgeKey) as SymbolNodeId,
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				kind: this.graph.getEdgeAttribute(edgeKey, "kind") as SymbolEdgeKind,
+			});
 		}
 		return records;
 	}

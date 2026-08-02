@@ -7,6 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { contentHashOf } from "../../src/domain/content-hash.ts";
 import type { SymbolAnnotationPort } from "../../src/symbol-annotation/port.ts";
 import type { CreateSymbolAnnotationInput, SymbolAnnotationAnchor } from "../../src/symbol-annotation/symbol-annotation.ts";
+import { deriveSymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";
 
 export interface SymbolAnnotationConformanceHarness {
 	createPort(): SymbolAnnotationPort | Promise<SymbolAnnotationPort>;
@@ -14,7 +15,7 @@ export interface SymbolAnnotationConformanceHarness {
 }
 
 function anchor(path: string, line = 1): SymbolAnnotationAnchor {
-	return { symbolNodeId: `${path}:${line}:1`, path, fileContentHash: contentHashOf(`content of ${path}`) };
+	return { symbolNodeId: deriveSymbolNodeId({ path, line, character: 1 }), path, fileContentHash: contentHashOf(`content of ${path}`) };
 }
 
 function input(overrides: Partial<CreateSymbolAnnotationInput> = {}): CreateSymbolAnnotationInput {

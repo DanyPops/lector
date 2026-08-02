@@ -235,7 +235,13 @@ describe("formatCallHierarchyCall/Result", () => {
 
 describe("formatReachableFromCall/Result", () => {
 	function symbolNode(overrides: Partial<SymbolNode> = {}): SymbolNode {
-		return { id: "src/math.ts:1:17", name: "add", kind: "function", location: { path: "src/math.ts", line: 1, character: 17 }, ...overrides };
+		return {
+			id: "src/math.ts:1:17" as SymbolNode["id"],
+			name: "add",
+			kind: "function",
+			location: { path: "src/math.ts", line: 1, character: 17 },
+			...overrides,
+		};
 	}
 
 	it("shows the tool name, position, and depth", () => {

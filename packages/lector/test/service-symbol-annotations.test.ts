@@ -23,6 +23,7 @@ import {
 	type WorkspaceId,
 } from "../src/service.ts";
 import { InMemorySymbolGraph } from "../src/symbol-graph/in-memory-symbol-graph.ts";
+import { deriveSymbolNodeId } from "../src/symbol-graph/symbol-node-id.ts";
 
 let fixtureRoot: string | undefined;
 let service: LectorService | undefined;
@@ -68,7 +69,9 @@ describe("createLectorService's annotation operations", () => {
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
 		const path = join(fixtureRoot, "src", "a.ts");
 		await warmGraph(service, workspaceId, path);
-		graphs.get(workspaceId)?.addNode({ id: `${path}:1:1`, name: "add", kind: "function", location: { path, line: 1, character: 1 } });
+		graphs
+			.get(workspaceId)
+			?.addNode({ id: deriveSymbolNodeId({ path, line: 1, character: 1 }), name: "add", kind: "function", location: { path, line: 1, character: 1 } });
 
 		const { annotation } = await service.dispatch("workspace.createAnnotation", {
 			workspaceId,
@@ -90,7 +93,12 @@ describe("createLectorService's annotation operations", () => {
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
 		const absolutePath = join(fixtureRoot, "src", "a.ts");
 		await warmGraph(service, workspaceId, absolutePath);
-		graphs.get(workspaceId)?.addNode({ id: `${absolutePath}:1:1`, name: "add", kind: "function", location: { path: absolutePath, line: 1, character: 1 } });
+		graphs.get(workspaceId)?.addNode({
+			id: deriveSymbolNodeId({ path: absolutePath, line: 1, character: 1 }),
+			name: "add",
+			kind: "function",
+			location: { path: absolutePath, line: 1, character: 1 },
+		});
 
 		const { annotation } = await service.dispatch("workspace.createAnnotation", {
 			workspaceId,
@@ -136,7 +144,9 @@ describe("createLectorService's annotation operations", () => {
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
 		const path = join(fixtureRoot, "src", "a.ts");
 		await warmGraph(service, workspaceId, path);
-		graphs.get(workspaceId)?.addNode({ id: `${path}:1:1`, name: "add", kind: "function", location: { path, line: 1, character: 1 } });
+		graphs
+			.get(workspaceId)
+			?.addNode({ id: deriveSymbolNodeId({ path, line: 1, character: 1 }), name: "add", kind: "function", location: { path, line: 1, character: 1 } });
 
 		const { annotation } = await service.dispatch("workspace.createAnnotation", {
 			workspaceId,
@@ -165,7 +175,7 @@ describe("createLectorService's annotation operations", () => {
 		const path = join(fixtureRoot, "src", "a.ts");
 		await warmGraph(service, workspaceId, path);
 		const graph = graphs.get(workspaceId);
-		graph?.addNode({ id: `${path}:1:1`, name: "add", kind: "function", location: { path, line: 1, character: 1 } });
+		graph?.addNode({ id: deriveSymbolNodeId({ path, line: 1, character: 1 }), name: "add", kind: "function", location: { path, line: 1, character: 1 } });
 
 		const { annotation } = await service.dispatch("workspace.createAnnotation", {
 			workspaceId,
@@ -176,7 +186,7 @@ describe("createLectorService's annotation operations", () => {
 		});
 
 		writeFileSync(path, "export function add(a, b) { return a + b; }\n");
-		graph?.addNode({ id: `${path}:1:1`, name: "add", kind: "function", location: { path, line: 1, character: 1 } });
+		graph?.addNode({ id: deriveSymbolNodeId({ path, line: 1, character: 1 }), name: "add", kind: "function", location: { path, line: 1, character: 1 } });
 
 		const { annotation: refreshed } = await service.dispatch("workspace.refreshAnnotation", {
 			workspaceId,
@@ -197,7 +207,9 @@ describe("createLectorService's annotation operations", () => {
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
 		const path = join(fixtureRoot, "src", "a.ts");
 		await warmGraph(service, workspaceId, path);
-		graphs.get(workspaceId)?.addNode({ id: `${path}:1:1`, name: "add", kind: "function", location: { path, line: 1, character: 1 } });
+		graphs
+			.get(workspaceId)
+			?.addNode({ id: deriveSymbolNodeId({ path, line: 1, character: 1 }), name: "add", kind: "function", location: { path, line: 1, character: 1 } });
 
 		const { annotation } = await service.dispatch("workspace.createAnnotation", {
 			workspaceId,
@@ -241,7 +253,9 @@ describe("createLectorService's annotation containment operations", () => {
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
 		const path = join(fixtureRoot, "src", "a.ts");
 		await warmGraph(service, workspaceId, path);
-		graphs.get(workspaceId)?.addNode({ id: `${path}:1:1`, name: "add", kind: "function", location: { path, line: 1, character: 1 } });
+		graphs
+			.get(workspaceId)
+			?.addNode({ id: deriveSymbolNodeId({ path, line: 1, character: 1 }), name: "add", kind: "function", location: { path, line: 1, character: 1 } });
 		return { service, workspaceId, path };
 	}
 

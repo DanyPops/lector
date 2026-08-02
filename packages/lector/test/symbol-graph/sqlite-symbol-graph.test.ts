@@ -12,7 +12,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteSymbolGraph } from "../../src/symbol-graph/sqlite-symbol-graph.ts";
+import { deriveSymbolNodeId, type SymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";
 import { runSymbolGraphPortConformanceSuite } from "../support/symbol-graph-port-conformance.ts";
+
+/** This suite exercises graph storage/durability in the abstract -- the real path/line/character values don't matter, only that each short label maps to one stable, real, distinct SymbolNodeId. */
+function nid(label: string): SymbolNodeId {
+	return deriveSymbolNodeId({ path: label, line: 1, character: 1 });
+}
 
 runSymbolGraphPortConformanceSuite("SqliteSymbolGraph", {
 	createGraph: () => new SqliteSymbolGraph(":memory:"),
@@ -25,15 +31,20 @@ describe("SqliteSymbolGraph durability", () => {
 		const dbPath = join(dir, "symbol-graph.db");
 		try {
 			const first = new SqliteSymbolGraph(dbPath);
-			await first.addNode({ id: "a", name: "handleRequest", kind: "function", location: { path: "/src/a.ts", line: 1, character: 1 } });
-			await first.addNode({ id: "b", name: "validate", kind: "function", location: { path: "/src/b.ts", line: 3, character: 1 } });
-			await first.addEdge("a", "b", "calls");
+			await first.addNode({ id: nid("a"), name: "handleRequest", kind: "function", location: { path: "/src/a.ts", line: 1, character: 1 } });
+			await first.addNode({ id: nid("b"), name: "validate", kind: "function", location: { path: "/src/b.ts", line: 3, character: 1 } });
+			await first.addEdge(nid("a"), nid("b"), "calls");
 			await first.close();
 
 			const second = new SqliteSymbolGraph(dbPath);
 			try {
-				expect(await second.getNode("a")).toEqual({ id: "a", name: "handleRequest", kind: "function", location: { path: "/src/a.ts", line: 1, character: 1 } });
-				expect(await second.edgesFrom("a", "calls")).toEqual(["b"]);
+				expect(await second.getNode(nid("a"))).toEqual({
+					id: nid("a"),
+					name: "handleRequest",
+					kind: "function",
+					location: { path: "/src/a.ts", line: 1, character: 1 },
+				});
+				expect(await second.edgesFrom(nid("a"), "calls")).toEqual([nid("b")]);
 			} finally {
 				await second.close();
 			}
@@ -141,16 +152,17 @@ describe("SqliteSymbolGraph durability", () => {
 		try {
 			const first = new SqliteSymbolGraph(dbPath);
 			// a -> b -> c -> d
-			for (const id of ["a", "b", "c", "d"]) await first.addNode({ id, name: id, kind: "function", location: { path: "/src/x.ts", line: 1, character: 1 } });
-			await first.addEdge("a", "b", "calls");
-			await first.addEdge("b", "c", "calls");
-			await first.addEdge("c", "d", "calls");
+			for (const label of ["a", "b", "c", "d"])
+				await first.addNode({ id: nid(label), name: label, kind: "function", location: { path: "/src/x.ts", line: 1, character: 1 } });
+			await first.addEdge(nid("a"), nid("b"), "calls");
+			await first.addEdge(nid("b"), nid("c"), "calls");
+			await first.addEdge(nid("c"), nid("d"), "calls");
 			await first.close();
 
 			const second = new SqliteSymbolGraph(dbPath);
 			try {
-				expect(Array.from(await second.reachableFrom("a", { maxDepth: 1 })).sort()).toEqual(["b"]);
-				expect(Array.from(await second.reachableFrom("a", { maxDepth: 3 })).sort()).toEqual(["b", "c", "d"]);
+				expect(Array.from(await second.reachableFrom(nid("a"), { maxDepth: 1 })).sort()).toEqual([nid("b")]);
+				expect(Array.from(await second.reachableFrom(nid("a"), { maxDepth: 3 })).sort()).toEqual([nid("b"), nid("c"), nid("d")].sort());
 			} finally {
 				await second.close();
 			}
@@ -164,9 +176,9 @@ describe("SqliteSymbolGraph durability", () => {
 		const dbPath = join(dir, "symbol-graph.db");
 		try {
 			const first = new SqliteSymbolGraph(dbPath);
-			await first.addNode({ id: "a", name: "a", kind: "function", location: { path: "/src/a.ts", line: 1, character: 1 } });
-			await first.addNode({ id: "b", name: "b", kind: "function", location: { path: "/src/deleted.ts", line: 1, character: 1 } });
-			await first.addEdge("a", "b", "calls");
+			await first.addNode({ id: nid("a"), name: "a", kind: "function", location: { path: "/src/a.ts", line: 1, character: 1 } });
+			await first.addNode({ id: nid("b"), name: "b", kind: "function", location: { path: "/src/deleted.ts", line: 1, character: 1 } });
+			await first.addEdge(nid("a"), nid("b"), "calls");
 			await first.setGeneration({
 				sourceFingerprint: "gen1",
 				maxFiles: 10,
@@ -195,9 +207,9 @@ describe("SqliteSymbolGraph durability", () => {
 				// The behavior walkedFiles exists to drive: purging a file that disappeared, surviving
 				// the exact process restart a SQLite-backed graph is for.
 				await second.removeNodesForFile("/src/deleted.ts");
-				expect(await second.getNode("b")).toBeUndefined();
-				expect(await second.getNode("a")).toBeDefined();
-				expect(await second.edgesFrom("a")).toEqual([]);
+				expect(await second.getNode(nid("b"))).toBeUndefined();
+				expect(await second.getNode(nid("a"))).toBeDefined();
+				expect(await second.edgesFrom(nid("a"))).toEqual([]);
 			} finally {
 				await second.close();
 			}

@@ -2,9 +2,15 @@ import { describe, expect, it } from "bun:test";
 import { annotationsContainedFrom, wouldCreateContainmentCycle } from "../../src/symbol-annotation/annotation-containment.ts";
 import { InMemorySymbolAnnotations } from "../../src/symbol-annotation/in-memory-symbol-annotations.ts";
 import type { CreateSymbolAnnotationInput } from "../../src/symbol-annotation/symbol-annotation.ts";
+import { deriveSymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";
 
 function input(title: string): CreateSymbolAnnotationInput {
-	return { subtype: "comment", title, body: "narrative content", anchors: [{ symbolNodeId: "n:1", path: "src/a.ts", fileContentHash: "sha256:x" as never }] };
+	return {
+		subtype: "comment",
+		title,
+		body: "narrative content",
+		anchors: [{ symbolNodeId: deriveSymbolNodeId({ path: "src/a.ts", line: 1, character: 1 }), path: "src/a.ts", fileContentHash: "sha256:x" as never }],
+	};
 }
 
 describe("wouldCreateContainmentCycle", () => {

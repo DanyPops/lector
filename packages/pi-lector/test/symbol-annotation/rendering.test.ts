@@ -16,7 +16,11 @@ function annotation(overrides: Partial<SymbolAnnotation> = {}): SymbolAnnotation
 		body: "explains the mutation chain",
 		status: "fresh",
 		anchors: [
-			{ symbolNodeId: "src/checkout.ts:12:1", path: "src/checkout.ts", fileContentHash: "deadbeef" as SymbolAnnotation["anchors"][number]["fileContentHash"] },
+			{
+				symbolNodeId: "src/checkout.ts:12:1" as SymbolAnnotation["anchors"][number]["symbolNodeId"],
+				path: "src/checkout.ts",
+				fileContentHash: "deadbeef" as SymbolAnnotation["anchors"][number]["fileContentHash"],
+			},
 		],
 		createdAt: 0,
 		updatedAt: 0,

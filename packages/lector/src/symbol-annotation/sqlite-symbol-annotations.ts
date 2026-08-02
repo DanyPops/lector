@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { type Migration, openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import type { ContentHash } from "../domain/content-hash.ts";
+import type { SymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./port.ts";
 import type { AnnotationId, AnnotationStatus, CreateSymbolAnnotationInput, SymbolAnnotation, SymbolAnnotationAnchor } from "./symbol-annotation.ts";
 
@@ -63,7 +64,8 @@ export class SqliteSymbolAnnotations implements SymbolAnnotationPort {
 
 	private anchorsFor(id: AnnotationId): readonly SymbolAnnotationAnchor[] {
 		const rows = this.db.query("SELECT symbol_node_id, path, file_content_hash FROM symbol_annotation_anchors WHERE annotation_id = ?").all(id) as AnchorRow[];
-		return rows.map((row) => ({ symbolNodeId: row.symbol_node_id, path: row.path, fileContentHash: row.file_content_hash as ContentHash }));
+		// This row's own writer (attach/refresh below) always stores a real SymbolNodeId/ContentHash.
+		return rows.map((row) => ({ symbolNodeId: row.symbol_node_id as SymbolNodeId, path: row.path, fileContentHash: row.file_content_hash as ContentHash }));
 	}
 
 	private toAnnotation(row: AnnotationRow): SymbolAnnotation {

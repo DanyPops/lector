@@ -2,6 +2,7 @@ import Graph from "graphology";
 import pagerank from "graphology-metrics/centrality/pagerank";
 import type { WorkspacePort } from "../ports/workspace-port.ts";
 import type { SymbolGraphPort, SymbolNode } from "../symbol-graph/port.ts";
+import type { SymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import { pathHasSkippedDirectorySegment } from "../text-search/skip-directories.ts";
 
 export interface WorkspaceMapOptions {
@@ -66,7 +67,10 @@ export async function computeWorkspaceMap(graph: SymbolGraphPort, workspace: Wor
 	const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
 	const ranked = rankGraph
 		.nodes()
-		.map((id) => ({ node: nodeById.get(id), score: scores[id] ?? 0 }))
+		// graphology's own node keys are untyped strings by design; every key here was seeded from a
+		// real SymbolNodeId via mergeNode(node.id) above.
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+		.map((id) => ({ node: nodeById.get(id as SymbolNodeId), score: scores[id] ?? 0 }))
 		.filter((entry): entry is { node: SymbolNode; score: number } => entry.node !== undefined)
 		.sort((a, b) => b.score - a.score);
 

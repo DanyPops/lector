@@ -228,27 +228,27 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 
 	async edgesFrom(id: SymbolNodeId, kind?: SymbolEdgeKind): Promise<readonly SymbolNodeId[]> {
 		const rows = kind
-			? (this.db.query("SELECT to_id FROM symbol_edges WHERE from_id = ? AND kind = ?").all(id, kind) as { to_id: string }[])
-			: (this.db.query("SELECT to_id FROM symbol_edges WHERE from_id = ?").all(id) as { to_id: string }[]);
+			? (this.db.query("SELECT to_id FROM symbol_edges WHERE from_id = ? AND kind = ?").all(id, kind) as { to_id: SymbolNodeId }[])
+			: (this.db.query("SELECT to_id FROM symbol_edges WHERE from_id = ?").all(id) as { to_id: SymbolNodeId }[]);
 		return rows.map((row) => row.to_id);
 	}
 
 	async edgesTo(id: SymbolNodeId, kind?: SymbolEdgeKind): Promise<readonly SymbolNodeId[]> {
 		const rows = kind
-			? (this.db.query("SELECT from_id FROM symbol_edges WHERE to_id = ? AND kind = ?").all(id, kind) as { from_id: string }[])
-			: (this.db.query("SELECT from_id FROM symbol_edges WHERE to_id = ?").all(id) as { from_id: string }[]);
+			? (this.db.query("SELECT from_id FROM symbol_edges WHERE to_id = ? AND kind = ?").all(id, kind) as { from_id: SymbolNodeId }[])
+			: (this.db.query("SELECT from_id FROM symbol_edges WHERE to_id = ?").all(id) as { from_id: SymbolNodeId }[]);
 		return rows.map((row) => row.from_id);
 	}
 
 	async allNodes(maxNodes: number): Promise<readonly SymbolNode[]> {
-		const rows = this.db.query("SELECT id, name, kind, path, line, character FROM symbol_nodes LIMIT ?").all(maxNodes) as (NodeRow & { id: string })[];
+		const rows = this.db.query("SELECT id, name, kind, path, line, character FROM symbol_nodes LIMIT ?").all(maxNodes) as (NodeRow & { id: SymbolNodeId })[];
 		return rows.map((row) => ({ id: row.id, name: row.name, kind: row.kind, location: { path: row.path, line: row.line, character: row.character } }));
 	}
 
 	async allEdges(maxEdges: number): Promise<readonly SymbolEdgeRecord[]> {
 		const rows = this.db.query("SELECT from_id, to_id, kind FROM symbol_edges LIMIT ?").all(maxEdges) as {
-			from_id: string;
-			to_id: string;
+			from_id: SymbolNodeId;
+			to_id: SymbolNodeId;
 			kind: SymbolEdgeKind;
 		}[];
 		return rows.map((row) => ({ from: row.from_id, to: row.to_id, kind: row.kind }));
@@ -270,7 +270,7 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 		`;
 		const params: Record<string, string | number> = { $id: id, $maxDepth: options.maxDepth };
 		if (options.kind) params.$kind = options.kind;
-		const rows = this.db.query(sql).all(params) as { id: string }[];
+		const rows = this.db.query(sql).all(params) as { id: SymbolNodeId }[];
 		return rows.map((row) => row.id).filter((reachedId) => reachedId !== id);
 	}
 

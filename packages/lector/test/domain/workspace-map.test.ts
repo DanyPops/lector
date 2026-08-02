@@ -6,11 +6,17 @@ import { InMemoryWorkspace } from "../../src/adapters/in-memory-workspace.ts";
 import { LocalFilesystemWorkspace } from "../../src/adapters/local-filesystem-workspace.ts";
 import { computeWorkspaceMap } from "../../src/domain/workspace-map.ts";
 import { InMemorySymbolGraph } from "../../src/symbol-graph/in-memory-symbol-graph.ts";
+import { deriveSymbolNodeId, type SymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";
 
 const DEFAULT_OPTIONS = { maxNodes: 1_000, maxEdges: 1_000, maxEntries: 100, maxBytes: 1_000_000 };
 
+/** Derives a real, valid, distinct SymbolNodeId from an arbitrary short label -- independent of the node's own (possibly colliding, e.g. shared-line callers) recorded location. */
+function nid(label: string): SymbolNodeId {
+	return deriveSymbolNodeId({ path: label, line: 1, character: 1 });
+}
+
 async function seedNode(graph: InMemorySymbolGraph, id: string, name: string, path: string, line = 1): Promise<void> {
-	await graph.addNode({ id, name, kind: "function", location: { path, line, character: 1 } });
+	await graph.addNode({ id: nid(id), name, kind: "function", location: { path, line, character: 1 } });
 }
 
 describe("computeWorkspaceMap", () => {
@@ -28,7 +34,7 @@ describe("computeWorkspaceMap", () => {
 		await seedNode(graph, "leaf", "leaf", "a.ts", 2);
 		for (const callerId of ["c1", "c2", "c3"]) {
 			await seedNode(graph, callerId, callerId, "a.ts", 3);
-			await graph.addEdge(callerId, "central", "calls");
+			await graph.addEdge(nid(callerId), nid("central"), "calls");
 		}
 
 		const result = await computeWorkspaceMap(graph, workspace, DEFAULT_OPTIONS);
@@ -46,10 +52,10 @@ describe("computeWorkspaceMap", () => {
 		await seedNode(graph, "domainLeaf", "domainLeaf", "a.ts", 2);
 		for (const callerId of ["c1", "c2", "c3"]) {
 			await seedNode(graph, callerId, callerId, "a.ts", 3);
-			await graph.addEdge(callerId, "domainCentral", "calls");
+			await graph.addEdge(nid(callerId), nid("domainCentral"), "calls");
 			// Every caller also calls the same shared vendored method -- this is the exact pollution
 			// pattern found live: many unrelated call sites converging on one stdlib declaration.
-			await graph.addEdge(callerId, "push", "calls");
+			await graph.addEdge(nid(callerId), nid("push"), "calls");
 		}
 
 		const result = await computeWorkspaceMap(graph, workspace, DEFAULT_OPTIONS);
@@ -133,7 +139,7 @@ describe("computeWorkspaceMap", () => {
 		const graph = new InMemorySymbolGraph();
 		const workspace = new InMemoryWorkspace();
 		await seedNode(graph, "a", "a", "a.ts", 1);
-		await graph.addEdge("a", "outside-the-fetch", "calls");
+		await graph.addEdge(nid("a"), nid("outside-the-fetch"), "calls");
 
 		const result = await computeWorkspaceMap(graph, workspace, DEFAULT_OPTIONS);
 		expect(result.entries.map((e) => e.name)).toEqual(["a"]);

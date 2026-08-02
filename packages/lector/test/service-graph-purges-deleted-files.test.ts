@@ -18,6 +18,7 @@ import type { CodeIntelligencePort } from "../src/ports/code-intelligence-port.t
 import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";
 import { createLectorService } from "../src/service.ts";
 import { InMemorySymbolGraph } from "../src/symbol-graph/in-memory-symbol-graph.ts";
+import { deriveSymbolNodeId } from "../src/symbol-graph/symbol-node-id.ts";
 
 const PROVENANCE: IntelligenceProvenance = {
 	fidelity: "semantic",
@@ -50,8 +51,8 @@ describe("symbol-graph regeneration purges files that disappeared since the prev
 		const callerSelectionRange = { path: aPath, start: { line: 1, character: 17 }, end: { line: 1, character: 17 } };
 		const calleeSelectionRange = { path: bPath, start: { line: 1, character: 17 }, end: { line: 1, character: 17 } };
 		const calleeLocation = { path: bPath, line: 1, character: 17 };
-		const callerNodeId = `${aPath}:1:17`;
-		const calleeNodeId = `${bPath}:1:17`;
+		const callerNodeId = deriveSymbolNodeId({ path: aPath, line: 1, character: 17 });
+		const calleeNodeId = deriveSymbolNodeId({ path: bPath, line: 1, character: 17 });
 
 		let bDeleted = false;
 		const graph = new InMemorySymbolGraph();
