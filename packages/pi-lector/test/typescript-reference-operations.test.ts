@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { findPositionOf } from "../../lector/test/support/find-position.ts";
 import { materializeTypeScriptReferenceGitFixture, type TypeScriptReferenceFixture } from "../../lector/test/support/typescript-reference-fixture.ts";
-import { createLectorCodeIntelligenceOperations } from "../extension/src/code-intelligence-operations.ts";
-import { createLectorFindSymbolsOperations } from "../extension/src/find-symbols-operations.ts";
-import { type FindSymbolsTheme, formatFindSymbolsResult } from "../extension/src/find-symbols-rendering.ts";
+import { createLectorCodeIntelligenceOperations } from "../extension/src/code-intelligence/operations.ts";
+import { createLectorFindSymbolsOperations } from "../extension/src/find-symbols/operations.ts";
+import { type FindSymbolsTheme, formatFindSymbolsResult } from "../extension/src/find-symbols/rendering.ts";
 import { resetLectorClientForTests, setLectorClientConnectorForTests } from "../extension/src/lector-client.ts";
 import { startIsolatedLectorDaemon } from "./support/isolated-lector-daemon.ts";
 

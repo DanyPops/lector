@@ -10,9 +10,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLectorEditOperations } from "../extension/src/edit-operations.ts";
+import { createLectorEditOperations } from "../extension/src/edit/operations.ts";
 import { resetLectorClientForTests, setLectorClientConnectorForTests } from "../extension/src/lector-client.ts";
-import { createLectorReadOperations } from "../extension/src/read-operations.ts";
+import { createLectorReadOperations } from "../extension/src/read/operations.ts";
 import { startIsolatedLectorDaemon } from "./support/isolated-lector-daemon.ts";
 
 let repoA: string | undefined;

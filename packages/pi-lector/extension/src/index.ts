@@ -43,9 +43,9 @@ import { Type } from "typebox";
 /** Real ANSI-aware measurement for Table -- Malevich's own default is ASCII-only, unsafe against theme-styled cell/header text. */
 const tableMeasure: TextMeasure = { visibleWidth, truncateToWidth };
 
-import { createLectorApplyPatchOperations } from "./apply-patch-operations.ts";
-import { formatApplyPatchCall, formatApplyPatchResult } from "./apply-patch-rendering.ts";
-import { createLectorCodeIntelligenceOperations } from "./code-intelligence-operations.ts";
+import { createLectorApplyPatchOperations } from "./apply-patch/operations.ts";
+import { formatApplyPatchCall, formatApplyPatchResult } from "./apply-patch/rendering.ts";
+import { createLectorCodeIntelligenceOperations } from "./code-intelligence/operations.ts";
 import {
 	type CallHierarchyToolDetails,
 	formatCallHierarchyCall,
@@ -66,29 +66,29 @@ import {
 	formatReachableFromResult,
 	formatWorkspaceMapCall,
 	formatWorkspaceMapResult,
-} from "./code-intelligence-rendering.ts";
-import { type CrossWorkspaceOutcome, createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-search-operations.ts";
-import { formatCrossWorkspaceCall, formatFindSymbolsAcrossProjectsResult, formatSearchTextAcrossProjectsResult } from "./cross-workspace-search-rendering.ts";
-import { createLectorEditOperations } from "./edit-operations.ts";
-import { createExternalSearchOperations } from "./external-search-operations.ts";
+} from "./code-intelligence/rendering.ts";
+import { type CrossWorkspaceOutcome, createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-search/operations.ts";
+import { formatCrossWorkspaceCall, formatFindSymbolsAcrossProjectsResult, formatSearchTextAcrossProjectsResult } from "./cross-workspace-search/rendering.ts";
+import { createLectorEditOperations } from "./edit/operations.ts";
+import { createExternalSearchOperations } from "./external-search/operations.ts";
 import {
 	formatExternalSearchCall,
 	formatGithubRepoSearchResult,
 	formatNpmPackageSearchResult,
 	formatSourcegraphCodeSearchResult,
-} from "./external-search-rendering.ts";
-import { createLectorFindFilesOperations } from "./find-files-operations.ts";
-import { formatFindFilesCall, formatFindFilesResult } from "./find-files-rendering.ts";
-import { createLectorFindSymbolsOperations } from "./find-symbols-operations.ts";
-import { describeFindSymbolSources, formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols-rendering.ts";
-import { createLectorGitOperations } from "./git-operations.ts";
-import { formatGitCall, formatGitResult, type GitToolDetails } from "./git-rendering.ts";
+} from "./external-search/rendering.ts";
+import { createLectorFindFilesOperations } from "./find-files/operations.ts";
+import { formatFindFilesCall, formatFindFilesResult } from "./find-files/rendering.ts";
+import { createLectorFindSymbolsOperations } from "./find-symbols/operations.ts";
+import { describeFindSymbolSources, formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols/rendering.ts";
+import { createLectorGitOperations } from "./git/operations.ts";
+import { formatGitCall, formatGitResult, type GitToolDetails } from "./git/rendering.ts";
 import { setNewWorkspaceObserver } from "./lector-client.ts";
-import { createLectorLineEditOperations } from "./line-edit-operations.ts";
-import { formatLineEditCall, formatLineEditResult } from "./line-edit-rendering.ts";
-import { createMutationHistoryOperations } from "./mutation-history-operations.ts";
+import { createLectorLineEditOperations } from "./line-edit/operations.ts";
+import { formatLineEditCall, formatLineEditResult } from "./line-edit/rendering.ts";
+import { createMutationHistoryOperations } from "./mutation-history/operations.ts";
 import { isFilesystemRoot, nearestGitRoot } from "./nearest-workspace-root.ts";
-import { createLectorPackageSourceOperations, type PackageSourceListPage } from "./package-source-operations.ts";
+import { createLectorPackageSourceOperations, type PackageSourceListPage } from "./package-source/operations.ts";
 import {
 	buildPackageSourceListTableRows,
 	formatPackageSourceCall,
@@ -99,12 +99,12 @@ import {
 	PACKAGE_SOURCE_LIST_TABLE_COLUMNS,
 	PACKAGE_SOURCE_LIST_VISIBLE_ROWS,
 	packageSourceListMoreLine,
-} from "./package-source-rendering.ts";
-import { createLectorReadOperations } from "./read-operations.ts";
-import { createReferenceBasedRenameOperations } from "./reference-based-rename-operations.ts";
-import { createRenameOperations } from "./rename-operations.ts";
-import { createRepoCacheEvictOperations } from "./repo-cache-evict-operations.ts";
-import { createRepoCacheListOperations } from "./repo-cache-list-operations.ts";
+} from "./package-source/rendering.ts";
+import { createLectorReadOperations } from "./read/operations.ts";
+import { createReferenceBasedRenameOperations } from "./reference-based-rename/operations.ts";
+import { createRenameOperations } from "./rename/operations.ts";
+import { createRepoCacheEvictOperations } from "./repo-cache/evict-operations.ts";
+import { createRepoCacheListOperations } from "./repo-cache/list-operations.ts";
 import {
 	buildRepoCacheTableRows,
 	formatRepoCacheCall,
@@ -114,21 +114,21 @@ import {
 	REPO_CACHE_TABLE_COLUMNS,
 	REPO_CACHE_VISIBLE_ROWS,
 	repoCacheMoreLine,
-} from "./repo-cache-rendering.ts";
-import { createLectorRepoFetchOperations } from "./repo-fetch-operations.ts";
-import { createLectorSearchOperations } from "./search-operations.ts";
-import { formatSearchCall, formatSearchResult } from "./search-rendering.ts";
-import { type AnnotationAnchorInput, createLectorSymbolAnnotationOperations } from "./symbol-annotation-operations.ts";
-import { formatAnnotationDetail, formatAnnotationListSummary, formatAnnotationSummary } from "./symbol-annotation-rendering.ts";
+} from "./repo-cache/rendering.ts";
+import { createLectorRepoFetchOperations } from "./repo-fetch/operations.ts";
+import { createLectorSearchOperations } from "./search/operations.ts";
+import { formatSearchCall, formatSearchResult } from "./search/rendering.ts";
+import { type AnnotationAnchorInput, createLectorSymbolAnnotationOperations } from "./symbol-annotation/operations.ts";
+import { formatAnnotationDetail, formatAnnotationListSummary, formatAnnotationSummary } from "./symbol-annotation/rendering.ts";
 import {
 	type CachePresentationState,
 	cacheContextMessage,
 	createWorkspaceCacheOperations,
 	describeCacheState,
 	monitorWorkspaceCache,
-} from "./workspace-cache-operations.ts";
-import { formatJobSnapshotResult, formatWorkspaceCacheCall, formatWorkspaceCacheStatusResult } from "./workspace-cache-rendering.ts";
-import { createLectorWriteOperations } from "./write-operations.ts";
+} from "./workspace-cache/operations.ts";
+import { formatJobSnapshotResult, formatWorkspaceCacheCall, formatWorkspaceCacheStatusResult } from "./workspace-cache/rendering.ts";
+import { createLectorWriteOperations } from "./write/operations.ts";
 
 function describeIntelligenceSource(provenance: IntelligenceProvenance): string {
 	return `${provenance.fidelity} via ${provenance.backend}`;
