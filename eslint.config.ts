@@ -16,7 +16,7 @@ export default tseslint.config(
 			"import-x/resolver": { typescript: true },
 		},
 		rules: {
-			"import-x/no-cycle": ["error", { maxDepth: 3, ignoreExternal: true }],
+			"import-x/no-cycle": ["error", { ignoreExternal: true }],
 		},
 	},
 
