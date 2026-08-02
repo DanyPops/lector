@@ -53,7 +53,14 @@ export function setNewWorkspaceObserver(observer: ((root: string) => void) | und
 }
 
 export interface RetryingLectorClient {
+	/** Transparently retries once on a stale connection -- right for a read-only or genuinely idempotent operation. */
 	call<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]>;
+	/**
+	 * Like call(), but never retries the operation itself after a failure -- only the underlying
+	 * connection resets, so the *next* call()/callOnce() reconnects. Use for a mutating/non-idempotent
+	 * operation, where transparently re-running it after a transport failure could double the side effect.
+	 */
+	callOnce<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]>;
 }
 
 // Kept async even though its own body has no await: every call site across this package does
@@ -62,6 +69,7 @@ export interface RetryingLectorClient {
 export async function lectorClient(): Promise<RetryingLectorClient> {
 	return {
 		call: (operation, input) => retryingClient.call((client) => client.call(operation, input)),
+		callOnce: (operation, input) => retryingClient.callOnce((client) => client.call(operation, input)),
 	};
 }
 
@@ -75,7 +83,7 @@ async function workspaceForRoot(root: string): Promise<ResolvedWorkspace> {
 	const cached = workspaceIdByRoot.get(root);
 	if (cached) return { workspaceId: cached, root };
 	const client = await lectorClient();
-	const { workspaceId } = await client.call("workspace.registerPath", { path: root });
+	const { workspaceId } = await client.callOnce("workspace.registerPath", { path: root });
 	workspaceIdByRoot.set(root, workspaceId);
 	onNewWorkspace?.(root);
 	return { workspaceId, root };

@@ -41,7 +41,7 @@ export function createLectorWriteOperations(): WriteOperations {
 
 					for (let attempt = 0; attempt < MAX_STALE_HASH_RETRIES; attempt++) {
 						try {
-							await client.call("workspace.exactEdit", { workspaceId, path: relativePath, expectedHash, content });
+							await client.callOnce("workspace.exactEdit", { workspaceId, path: relativePath, expectedHash, content });
 							return;
 						} catch (error) {
 							if (!remoteErrorIs(error, "StaleExpectedHash") || attempt === MAX_STALE_HASH_RETRIES - 1) throw error;

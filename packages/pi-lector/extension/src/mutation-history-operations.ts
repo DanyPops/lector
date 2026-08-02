@@ -26,7 +26,7 @@ export function createMutationHistoryOperations(): MutationHistoryOperations {
 				() => workspaceForPath(absolutePath),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					return client.call("workspace.revertMutation", { workspaceId, entryId });
+					return client.callOnce("workspace.revertMutation", { workspaceId, entryId });
 				},
 			);
 		},

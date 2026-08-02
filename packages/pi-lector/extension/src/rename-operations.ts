@@ -28,7 +28,7 @@ export function createRenameOperations(): RenameOperations {
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					return client.call("workspace.rename", { workspaceId, path, line, character, newName });
+					return client.callOnce("workspace.rename", { workspaceId, path, line, character, newName });
 				},
 			);
 		},

@@ -21,7 +21,7 @@ export function createLectorApplyPatchOperations(): ApplyPatchOperations {
 				async ({ workspaceId, root }) => {
 					const client = await lectorClient();
 					const relativePath = toWorkspaceRelativePath(root, path);
-					return client.call("workspace.applyPatch", { workspaceId, path: relativePath, expectedHash, patchText });
+					return client.callOnce("workspace.applyPatch", { workspaceId, path: relativePath, expectedHash, patchText });
 				},
 			);
 		},

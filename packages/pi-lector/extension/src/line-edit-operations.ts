@@ -23,7 +23,7 @@ export function createLectorLineEditOperations(): LineEditOperations {
 				async ({ workspaceId, root }) => {
 					const client = await lectorClient();
 					const relativePath = toWorkspaceRelativePath(root, path);
-					return client.call("workspace.lineEdit", { workspaceId, path: relativePath, edits });
+					return client.callOnce("workspace.lineEdit", { workspaceId, path: relativePath, edits });
 				},
 			);
 		},

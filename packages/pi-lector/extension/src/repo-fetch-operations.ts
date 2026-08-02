@@ -14,7 +14,7 @@ export function createLectorRepoFetchOperations(): RepoFetchOperations {
 	return {
 		async fetch(host, owner, repo, ref, forceRefresh) {
 			const client = await lectorClient();
-			return client.call("repo.fetch", { host, owner, repo, ref, forceRefresh });
+			return client.callOnce("repo.fetch", { host, owner, repo, ref, forceRefresh });
 		},
 	};
 }

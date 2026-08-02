@@ -50,7 +50,7 @@ export function createLectorEditOperations(): EditOperations {
 					const client = await lectorClient();
 					const relativePath = toWorkspaceRelativePath(root, absolutePath);
 					try {
-						await client.call("workspace.exactEdit", { workspaceId, path: relativePath, expectedHash, content });
+						await client.callOnce("workspace.exactEdit", { workspaceId, path: relativePath, expectedHash, content });
 					} catch (error) {
 						if (remoteErrorIs(error, "StaleExpectedHash")) {
 							throw new Error(`"${relativePath}" changed on disk since it was last read; re-read the file and retry the edit.`);

@@ -18,7 +18,7 @@ export function createReferenceBasedRenameOperations(): ReferenceBasedRenameOper
 				() => workspaceForCodeIntelligencePath(fromPath),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					return client.call("workspace.referenceBasedRename", { workspaceId, fromPath, toPath, maxFiles, maxSymbolsPerFile });
+					return client.callOnce("workspace.referenceBasedRename", { workspaceId, fromPath, toPath, maxFiles, maxSymbolsPerFile });
 				},
 			);
 		},

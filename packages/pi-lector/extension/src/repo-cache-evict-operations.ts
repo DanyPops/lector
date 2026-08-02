@@ -13,7 +13,7 @@ export function createRepoCacheEvictOperations(): RepoCacheEvictOperations {
 	return {
 		async evict(host, owner, repo, ref) {
 			const client = await lectorClient();
-			return client.call("repo.evictCache", { host, owner, repo, ref });
+			return client.callOnce("repo.evictCache", { host, owner, repo, ref });
 		},
 	};
 }

@@ -320,6 +320,95 @@ describe("lectorClient recovers from a stale cached connection", () => {
 	});
 });
 
+describe("lectorClient.callOnce -- never transparently retries the operation itself", () => {
+	// callOnce()'s contract per vehicle-client: on a stale-connection failure it drops the
+	// cached client (so the *next* call()/callOnce() reconnects) but never re-runs `operation`
+	// itself -- unlike call(), which retries transparently. This is what makes it the right
+	// choice for a mutating/non-idempotent Lector operation.
+	function fakeConnectionRefused(): LectorClient {
+		return {
+			call: () => {
+				throw new TypeError("fetch failed");
+			},
+		} as unknown as LectorClient;
+	}
+
+	it("fails immediately on a stale connection, without retrying, unlike call()", async () => {
+		let connectorCalls = 0;
+		setLectorClientConnectorForTests(() => {
+			connectorCalls++;
+			return Promise.resolve(fakeConnectionRefused());
+		});
+
+		const client = await lectorClient();
+		await expect(client.callOnce("workspace.registerPath", { path: "/tmp" })).rejects.toThrow(TypeError);
+		// A single attempt, not two -- the defining difference from call()'s own retry-once policy.
+		expect(connectorCalls).toBe(1);
+	});
+
+	it("still resets the connection for the next call, even though it didn't retry this one", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		let connectorCalls = 0;
+		setLectorClientConnectorForTests(() => {
+			connectorCalls++;
+			return Promise.resolve(connectorCalls === 1 ? fakeConnectionRefused() : daemon.client);
+		});
+
+		try {
+			const client = await lectorClient();
+			await expect(client.callOnce("workspace.registerPath", { path: "/tmp" })).rejects.toThrow(TypeError);
+			expect(connectorCalls).toBe(1);
+
+			// The failed attempt reset the cached connection, so this second, separate callOnce()
+			// reconnects fresh and succeeds -- proving reset-on-failure still works without retry-in-place.
+			const result = await client.callOnce("workspace.registerPath", { path: "/tmp" });
+			expect(result.workspaceId).toBeDefined();
+			expect(connectorCalls).toBe(2);
+		} finally {
+			await daemon.stop();
+		}
+	});
+
+	it("does not retry a genuine domain-level error either -- fails immediately, same as call()", async () => {
+		let connectorCalls = 0;
+		const domainErrorClient: LectorClient = {
+			call: () => {
+				throw new Error('UnknownWorkspace: no workspace registered under id "x"');
+			},
+		} as unknown as LectorClient;
+		setLectorClientConnectorForTests(() => {
+			connectorCalls++;
+			return Promise.resolve(domainErrorClient);
+		});
+
+		const client = await lectorClient();
+		await expect(client.callOnce("workspace.registerPath", { path: "/tmp" })).rejects.toThrow(/UnknownWorkspace/);
+		expect(connectorCalls).toBe(1);
+	});
+});
+
+describe("workspaceForPath registers via callOnce, not call", () => {
+	it("a stale-connection failure during registration is not silently retried, unlike a read operation would be", async () => {
+		// Proves the actual production wiring (workspaceForRoot's own internal choice), not just
+		// callOnce()'s own generic contract above: if workspaceForRoot still used call() internally,
+		// this would transparently retry and resolve instead of rejecting.
+		let connectorCalls = 0;
+		const fakeConnectionRefused = (): LectorClient =>
+			({
+				call: () => {
+					throw new TypeError("fetch failed");
+				},
+			}) as unknown as LectorClient;
+		setLectorClientConnectorForTests(() => {
+			connectorCalls++;
+			return Promise.resolve(fakeConnectionRefused());
+		});
+
+		await expect(workspaceForPath("/tmp/does-not-matter.txt")).rejects.toThrow(TypeError);
+		expect(connectorCalls).toBe(1);
+	});
+});
+
 describe("withWorkspace recovers from a stale cached workspaceId", () => {
 	// The real bug this fixes: a daemon restart wipes its in-memory workspace registry
 	// (registrations are not persisted across restarts by design), but this module's own

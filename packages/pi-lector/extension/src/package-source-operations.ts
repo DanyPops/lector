@@ -17,7 +17,7 @@ export function createLectorPackageSourceOperations(): PackageSourceOperations {
 	return {
 		async resolve(directory, name, requestedVersion, registry) {
 			const client = await lectorClient();
-			return client.call("package.resolveSource", {
+			return client.callOnce("package.resolveSource", {
 				request: {
 					projectRoot: directory,
 					coordinate: { ecosystem: "npm", registry, name, requestedVersion },
@@ -31,11 +31,11 @@ export function createLectorPackageSourceOperations(): PackageSourceOperations {
 		},
 		async remove(ecosystem, registry, name, resolvedVersion) {
 			const client = await lectorClient();
-			return client.call("package.removeSource", { ecosystem, registry, name, resolvedVersion });
+			return client.callOnce("package.removeSource", { ecosystem, registry, name, resolvedVersion });
 		},
 		async clean(ecosystem) {
 			const client = await lectorClient();
-			return client.call("package.cleanSources", { ecosystem });
+			return client.callOnce("package.cleanSources", { ecosystem });
 		},
 	};
 }

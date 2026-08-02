@@ -23,7 +23,7 @@ export function createWorkspaceCacheOperations(): WorkspaceCacheOperations {
 				() => workspaceForDirectory(directory),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					const { job } = await client.call("job.submit", {
+					const { job } = await client.callOnce("job.submit", {
 						operation: "workspace.populateSymbolGraph",
 						input: { workspaceId, maxFiles, maxSymbolsPerFile },
 						waitMs: 0,
