@@ -11,8 +11,8 @@ import type {
 	InstalledPackageVersionRequest,
 	JavaScriptPackageManager,
 	OversizedInstalledPackageVersion,
-} from "../domain/installed-package-version.ts";
-import type { InstalledPackageVersionResolverPort } from "../ports/installed-package-version-resolver-port.ts";
+} from "./installed-package-version.ts";
+import type { InstalledPackageVersionResolverPort } from "./port.ts";
 
 interface ParsedEvidence {
 	readonly version: string;

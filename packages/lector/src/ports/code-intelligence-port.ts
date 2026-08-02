@@ -1,11 +1,11 @@
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../domain/call-hierarchy.ts";
 import type { Diagnostic } from "../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../domain/document-symbol.ts";
-import type { FileChangeEvent } from "../domain/file-change-event.ts";
 import type { Hover } from "../domain/hover.ts";
 import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
 import type { ParsedWorkspaceEdit, RenameRange } from "../domain/workspace-edit.ts";
 import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
+import type { FileChangeEvent } from "../file-watcher/file-change-event.ts";
 
 /**
  * CodeIntelligencePort -- the role a driven adapter plays for the semantic,

@@ -1,4 +1,4 @@
-import type { FileChangeEvent } from "./file-change-event.ts";
+import type { FileChangeEvent } from "../file-watcher/file-change-event.ts";
 
 /** LSP's FileChangeType enum: Created = 1, Changed = 2, Deleted = 3. */
 export type LspFileChangeType = 1 | 2 | 3;

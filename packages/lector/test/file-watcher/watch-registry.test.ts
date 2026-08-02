@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { WatchLimitExceeded, WatchRegistry } from "../../src/domain/watch-registry.ts";
+import { WatchLimitExceeded, WatchRegistry } from "../../src/file-watcher/watch-registry.ts";
 
 describe("WatchRegistry", () => {
 	it("adds a registration and returns it back", () => {

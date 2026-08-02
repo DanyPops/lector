@@ -2,8 +2,8 @@
  * Service-level wiring for workspace.watch/unwatch: real fs events flowing through a real
  * workspace root, matched against a real registered glob, published via an injected callback
  * (mirroring the real PushChannel.publish the daemon wires in production). Pure registry
- * logic is already covered directly in test/domain/watch-registry.test.ts; NodeFsFileWatcher's
- * own real-fs-event correctness is covered in test/adapters/node-fs-file-watcher.test.ts.
+ * logic is already covered directly in test/file-watcher/watch-registry.test.ts; NodeFsFileWatcher's
+ * own real-fs-event correctness is covered in test/file-watcher/node-fs-file-watcher.test.ts.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

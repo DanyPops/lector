@@ -6,8 +6,8 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NodeFsFileWatcher } from "../../src/adapters/node-fs-file-watcher.ts";
-import type { FileChangeEvent } from "../../src/domain/file-change-event.ts";
+import type { FileChangeEvent } from "../../src/file-watcher/file-change-event.ts";
+import { NodeFsFileWatcher } from "../../src/file-watcher/node-fs-file-watcher.ts";
 
 function waitForEvent(events: FileChangeEvent[], predicate: (event: FileChangeEvent) => boolean, timeoutMs = 3000): Promise<void> {
 	const startedAt = Date.now();

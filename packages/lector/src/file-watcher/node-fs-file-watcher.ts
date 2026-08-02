@@ -1,8 +1,8 @@
 import { watch } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import type { FileChangeEvent } from "../domain/file-change-event.ts";
-import type { FileWatcherPort } from "../ports/file-watcher-port.ts";
+import type { FileChangeEvent } from "./file-change-event.ts";
+import type { FileWatcherPort } from "./port.ts";
 
 /**
  * FileWatcherPort backed by Node/Bun's own `fs.watch(root, {recursive: true})` -- confirmed

@@ -1,4 +1,4 @@
-import type { FileChangeEvent } from "../domain/file-change-event.ts";
+import type { FileChangeEvent } from "./file-change-event.ts";
 
 /**
  * FileWatcherPort -- the role a driven adapter plays for observing real filesystem changes

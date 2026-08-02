@@ -16,7 +16,6 @@ import {
 	parseRegistrationRequest,
 	parseUnregistrationRequest,
 } from "../../domain/dynamic-capability-registry.ts";
-import type { FileChangeEvent } from "../../domain/file-change-event.ts";
 import type { Hover } from "../../domain/hover.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
 import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
@@ -25,6 +24,7 @@ import { type ParsedServerCapabilities, parseServerCapabilities, shouldSyncDocum
 import { SerialExecutionQueue } from "../../domain/serial-execution-queue.ts";
 import { type ParsedWorkspaceEdit, parsePrepareRenameResult, parseWorkspaceEdit, type RenameRange } from "../../domain/workspace-edit.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
+import type { FileChangeEvent } from "../../file-watcher/file-change-event.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { ContentCachePort } from "../../ports/content-cache-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";

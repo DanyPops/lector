@@ -1,7 +1,6 @@
 export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 export { GitRepoFetcher, type GitRepoFetcherOptions } from "./adapters/git-repo-fetcher.ts";
 export { InMemoryContentCache } from "./adapters/in-memory-content-cache.ts";
-export { InMemoryExternalSearchCache, type InMemoryExternalSearchCacheOptions } from "./adapters/in-memory-external-search-cache.ts";
 export { InMemorySearchCache, type InMemorySearchCacheOptions } from "./adapters/in-memory-search-cache.ts";
 export { InMemorySymbolAnnotations } from "./adapters/in-memory-symbol-annotations.ts";
 export { InMemorySymbolGraph } from "./adapters/in-memory-symbol-graph.ts";
@@ -14,8 +13,6 @@ export {
 	LanguageServerRequestTimedOut,
 } from "./adapters/lsp/language-server-process.ts";
 export { LanguageFileLimitExceeded, LanguageFileOutsideWorkspace, LspSymbolIndex, type LspSymbolIndexOptions } from "./adapters/lsp/lsp-symbol-index.ts";
-export { NodeFsFileWatcher } from "./adapters/node-fs-file-watcher.ts";
-export { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } from "./adapters/npm-lockfile-version-resolver.ts";
 export { NpmPackageSourceResolver, type NpmPackageSourceResolverOptions } from "./adapters/npm-package-source-resolver.ts";
 export {
 	DEFAULT_NPM_REGISTRY,
@@ -86,7 +83,6 @@ export {
 	exactEdit,
 	StaleExpectedHash,
 } from "./domain/exact-edit.ts";
-export { deriveExternalSearchCacheKey, type ExternalSearchCacheKey, type ExternalSearchSource } from "./domain/external-search-cache-key.ts";
 export type {
 	ExternalSearchBounds,
 	GithubRepoCandidate,
@@ -96,7 +92,6 @@ export type {
 	SourcegraphLineMatch,
 } from "./domain/external-search-result.ts";
 export { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS, splitSourcegraphRepository } from "./domain/external-search-result.ts";
-export type { FileChangeEvent } from "./domain/file-change-event.ts";
 export { findFiles } from "./domain/find-files.ts";
 export type { FindFilesResult } from "./domain/find-files-result.ts";
 export { findReferences } from "./domain/find-references.ts";
@@ -106,18 +101,6 @@ export { goToImplementation } from "./domain/go-to-implementation.ts";
 export type { Hover } from "./domain/hover.ts";
 export { hoverAt } from "./domain/hover-at.ts";
 export { incomingCalls } from "./domain/incoming-calls.ts";
-export type {
-	AmbiguousInstalledPackageVersion,
-	InstalledPackageEvidence,
-	InstalledPackageVersionBounds,
-	InstalledPackageVersionCandidate,
-	InstalledPackageVersionOutcome,
-	InstalledPackageVersionRequest,
-	JavaScriptPackageManager,
-	OversizedInstalledPackageVersion,
-	ResolvedInstalledPackageVersion,
-	UnavailableInstalledPackageVersion,
-} from "./domain/installed-package-version.ts";
 export type {
 	IntelligenceFidelity,
 	IntelligenceProvenance,
@@ -219,11 +202,17 @@ export {
 	parseUnifiedDiff,
 	type UnifiedDiffHunk,
 } from "./domain/unified-diff.ts";
-export { WatchLimitExceeded, type WatchRegistration, WatchRegistry } from "./domain/watch-registry.ts";
 export type { WorkspaceMapEntry, WorkspaceMapOptions, WorkspaceMapResult } from "./domain/workspace-map.ts";
 export { computeWorkspaceMap } from "./domain/workspace-map.ts";
 export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";
 export type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
+export { deriveExternalSearchCacheKey, type ExternalSearchCacheKey, type ExternalSearchSource } from "./external-search-cache/external-search-cache-key.ts";
+export { InMemoryExternalSearchCache, type InMemoryExternalSearchCacheOptions } from "./external-search-cache/in-memory-external-search-cache.ts";
+export type { ExternalSearchCachePort } from "./external-search-cache/port.ts";
+export type { FileChangeEvent } from "./file-watcher/file-change-event.ts";
+export { NodeFsFileWatcher } from "./file-watcher/node-fs-file-watcher.ts";
+export type { FileWatcherPort } from "./file-watcher/port.ts";
+export { WatchLimitExceeded, type WatchRegistration, WatchRegistry } from "./file-watcher/watch-registry.ts";
 export type { GitDiffResult } from "./git/diff-result.ts";
 export { LocalGit } from "./git/local-git.ts";
 export type { GitLogEntry } from "./git/log-entry.ts";
@@ -239,13 +228,24 @@ export {
 	InvalidGithubSearchRequest,
 } from "./github-search/github-search-client.ts";
 export type { GithubSearchPort } from "./github-search/port.ts";
+export type {
+	AmbiguousInstalledPackageVersion,
+	InstalledPackageEvidence,
+	InstalledPackageVersionBounds,
+	InstalledPackageVersionCandidate,
+	InstalledPackageVersionOutcome,
+	InstalledPackageVersionRequest,
+	JavaScriptPackageManager,
+	OversizedInstalledPackageVersion,
+	ResolvedInstalledPackageVersion,
+	UnavailableInstalledPackageVersion,
+} from "./installed-package-version-resolver/installed-package-version.ts";
+export { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } from "./installed-package-version-resolver/npm-lockfile-version-resolver.ts";
+export type { InstalledPackageVersionResolverPort } from "./installed-package-version-resolver/port.ts";
 export { type CanRevertMutationInputs, canRevertMutation, type MutationHistoryEntry, type MutationOperation } from "./mutation-history/mutation-history.ts";
 export type { MutationHistoryPort, RecordMutationInput } from "./mutation-history/port.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./ports/content-cache-port.ts";
-export type { ExternalSearchCachePort } from "./ports/external-search-cache-port.ts";
-export type { FileWatcherPort } from "./ports/file-watcher-port.ts";
-export type { InstalledPackageVersionResolverPort } from "./ports/installed-package-version-resolver-port.ts";
 export type { NpmRegistryPort } from "./ports/npm-registry-port.ts";
 export type { PackageSourceIndexPort } from "./ports/package-source-index-port.ts";
 export type { PackageSourceResolverPort } from "./ports/package-source-resolver-port.ts";

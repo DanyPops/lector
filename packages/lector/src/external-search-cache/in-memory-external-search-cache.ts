@@ -1,6 +1,6 @@
 import { LRUCache } from "lru-cache";
-import { deriveExternalSearchCacheKey, type ExternalSearchCacheKey } from "../domain/external-search-cache-key.ts";
-import type { ExternalSearchCachePort } from "../ports/external-search-cache-port.ts";
+import { deriveExternalSearchCacheKey, type ExternalSearchCacheKey } from "./external-search-cache-key.ts";
+import type { ExternalSearchCachePort } from "./port.ts";
 
 const DEFAULT_MAX_ENTRIES = 100;
 /** Short by design -- an external search result is a live, time-sensitive ranking (stars, npm score, code matches), not content-addressed data that "never invalidates". Long enough to dedupe a caller retrying the same query moments apart, short enough that a stale ranking never survives a real session. */

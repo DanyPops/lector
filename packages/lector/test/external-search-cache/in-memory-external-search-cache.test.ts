@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { InMemoryExternalSearchCache } from "../../src/adapters/in-memory-external-search-cache.ts";
+import { InMemoryExternalSearchCache } from "../../src/external-search-cache/in-memory-external-search-cache.ts";
 
 describe("InMemoryExternalSearchCache", () => {
 	it("returns undefined for a key that was never set", async () => {

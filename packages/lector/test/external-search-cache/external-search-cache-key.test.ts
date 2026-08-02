@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { deriveExternalSearchCacheKey } from "../../src/domain/external-search-cache-key.ts";
+import { deriveExternalSearchCacheKey } from "../../src/external-search-cache/external-search-cache-key.ts";
 
 describe("deriveExternalSearchCacheKey", () => {
 	it("distinguishes source, query, and maxResults", () => {

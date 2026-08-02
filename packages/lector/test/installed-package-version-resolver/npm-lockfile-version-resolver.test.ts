@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } from "../../src/adapters/npm-lockfile-version-resolver.ts";
-import type { InstalledPackageVersionOutcome } from "../../src/domain/installed-package-version.ts";
+import type { InstalledPackageVersionOutcome } from "../../src/installed-package-version-resolver/installed-package-version.ts";
+import {
+	InvalidInstalledPackageVersionRequest,
+	NpmLockfileVersionResolver,
+} from "../../src/installed-package-version-resolver/npm-lockfile-version-resolver.ts";
 import { materializeTypeScriptReferenceFixture, type TypeScriptReferenceFixture } from "../support/typescript-reference-fixture.ts";
 
 const BOUNDS = {
