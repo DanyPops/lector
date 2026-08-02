@@ -1,6 +1,7 @@
-import type { SymbolSearchResult, TextSearchResult, WorkspaceQueryOutcome } from "@danypops/lector";
+import type { SymbolSearchResult, TextSearchResult } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { renderTruncatedList } from "malevich-tui-components";
+import type { CrossWorkspaceOutcome } from "./cross-workspace-search-operations.ts";
 import { describeFindSymbolSources } from "./find-symbols-rendering.ts";
 import type { LectorTheme } from "./lector-tui-theme.ts";
 
@@ -12,21 +13,31 @@ export function formatCrossWorkspaceCall(args: { directories?: unknown; query?: 
 	return `${theme.fg("accent", `"${query}"`)} ${theme.fg("dim", `across ${directories.length} project(s)`)}`;
 }
 
-function formatOutcomeHeader(outcome: WorkspaceQueryOutcome<unknown>, theme: LectorTheme): string {
-	if (outcome.status === "ready") return theme.fg("accent", outcome.workspaceId);
-	if (outcome.status === "loading") return `${theme.fg("warning", outcome.workspaceId)} ${theme.fg("warning", `-- still loading: ${outcome.message}`)}`;
-	return `${theme.fg("error", outcome.workspaceId)} ${theme.fg("error", `-- ${outcome.message}`)}`;
+function formatOutcomeHeader(entry: CrossWorkspaceOutcome<unknown>, theme: LectorTheme): string {
+	const { outcome } = entry;
+	const label = theme.fg("accent", entry.directory);
+	const lines: string[] = [];
+	if (outcome.status === "ready") lines.push(label);
+	else if (outcome.status === "loading") lines.push(`${label} ${theme.fg("warning", `-- still loading: ${outcome.message}`)}`);
+	else lines.push(`${label} ${theme.fg("error", `-- ${outcome.message}`)}`);
+	// Surfaced explicitly, never silently -- two distinct inputs resolving to one workspace means
+	// one of their own result payloads below is a real duplicate of the other's, not two independent answers.
+	if (entry.collapsedWith.length > 0) {
+		lines.push(theme.fg("warning", `  resolved to the same workspace as: ${entry.collapsedWith.join(", ")}`));
+	}
+	return lines.join("\n");
 }
 
 export function formatFindSymbolsAcrossProjectsResult(
-	results: readonly WorkspaceQueryOutcome<SymbolSearchResult>[] | undefined,
+	results: readonly CrossWorkspaceOutcome<SymbolSearchResult>[] | undefined,
 	expanded: boolean,
 	theme: LectorTheme,
 ): string {
 	if (!results || results.length === 0) return theme.fg("dim", "No projects to search.");
 	const lines: string[] = [];
-	for (const outcome of results) {
-		lines.push(formatOutcomeHeader(outcome, theme));
+	for (const entry of results) {
+		lines.push(formatOutcomeHeader(entry, theme));
+		const { outcome } = entry;
 		if (outcome.status !== "ready") continue;
 		lines.push(
 			theme.fg("muted", `  ${outcome.result.provenance.fidelity} via ${outcome.result.provenance.backend}${outcome.result.truncated ? " (truncated)" : ""}`),
@@ -50,14 +61,15 @@ export function formatFindSymbolsAcrossProjectsResult(
 }
 
 export function formatSearchTextAcrossProjectsResult(
-	results: readonly WorkspaceQueryOutcome<TextSearchResult>[] | undefined,
+	results: readonly CrossWorkspaceOutcome<TextSearchResult>[] | undefined,
 	expanded: boolean,
 	theme: LectorTheme,
 ): string {
 	if (!results || results.length === 0) return theme.fg("dim", "No projects to search.");
 	const lines: string[] = [];
-	for (const outcome of results) {
-		lines.push(formatOutcomeHeader(outcome, theme));
+	for (const entry of results) {
+		lines.push(formatOutcomeHeader(entry, theme));
+		const { outcome } = entry;
 		if (outcome.status !== "ready") continue;
 		if (outcome.result.matches.length === 0) {
 			lines.push(theme.fg("dim", "  no matches"));

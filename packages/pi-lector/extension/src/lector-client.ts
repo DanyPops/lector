@@ -3,6 +3,7 @@ import { dirname, extname, parse } from "node:path";
 import {
 	connectLectorClient,
 	descriptorForExtension,
+	LANGUAGE_SERVER_DESCRIPTORS,
 	type LectorClient,
 	type OperationInputs,
 	type OperationName,
@@ -139,6 +140,30 @@ export function workspaceForCodeIntelligencePath(absolutePath: string): Promise<
 	const directory = dirname(absolutePath);
 	const descriptor = descriptorForExtension(extname(absolutePath));
 	const root = descriptor ? (nearestProjectRoot(directory, descriptor.rootMarkers) ?? directory) : (nearestGitRoot(directory) ?? directory);
+	return workspaceForRoot(root);
+}
+
+/** Every known language's own rootMarkers, deduplicated -- see workspaceForProjectDirectory. */
+const ALL_PROJECT_ROOT_MARKERS: readonly string[] = [...new Set(LANGUAGE_SERVER_DESCRIPTORS.flatMap((descriptor) => descriptor.rootMarkers))];
+
+/**
+ * Resolves a caller-supplied directory to its OWN nearest project root -- never the outer repo's
+ * git root -- so distinct sibling packages under one monorepo stay distinct workspaces. Unlike
+ * workspaceForDirectory (used by find_symbols/read/write, where one canonical workspaceId per
+ * repo is exactly the point), this is for a tool whose entire premise is comparing *different*
+ * scopes (find_symbols_across_projects, search_code_across_projects): collapsing two sibling
+ * packages into the same workspaceId there silently duplicates one package's own results under
+ * the other's name, with no error at all -- confirmed live against this monorepo
+ * (packages/lector and packages/pi-lector both resolved to the same workspaceId).
+ *
+ * Unlike workspaceForCodeIntelligencePath, there is no single file (and therefore no known
+ * extension) to pick one specific language's markers from -- a caller-supplied directory could
+ * be any language, so this checks the union of every known language's rootMarkers. Falls back to
+ * the nearest git root, then the directory itself, exactly as nearestProjectRoot already does
+ * internally (it appends ".git" to whatever marker list it's given).
+ */
+export function workspaceForProjectDirectory(directory: string): Promise<ResolvedWorkspace> {
+	const root = nearestProjectRoot(directory, ALL_PROJECT_ROOT_MARKERS) ?? directory;
 	return workspaceForRoot(root);
 }
 

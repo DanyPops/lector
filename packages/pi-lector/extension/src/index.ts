@@ -27,7 +27,6 @@ import type {
 	WorkspaceCacheStatus,
 	WorkspaceLocation,
 	WorkspaceMapResult,
-	WorkspaceQueryOutcome,
 } from "@danypops/lector";
 import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS, PACKAGE_ECOSYSTEMS } from "@danypops/lector";
 import {
@@ -68,7 +67,7 @@ import {
 	formatWorkspaceMapCall,
 	formatWorkspaceMapResult,
 } from "./code-intelligence-rendering.ts";
-import { createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-search-operations.ts";
+import { type CrossWorkspaceOutcome, createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-search-operations.ts";
 import { formatCrossWorkspaceCall, formatFindSymbolsAcrossProjectsResult, formatSearchTextAcrossProjectsResult } from "./cross-workspace-search-rendering.ts";
 import { createLectorEditOperations } from "./edit-operations.ts";
 import { createExternalSearchOperations } from "./external-search-operations.ts";
@@ -1725,7 +1724,7 @@ export default function (pi: ExtensionAPI) {
 			name: "find_symbols_across_projects",
 			label: "Find Symbols Across Projects",
 			description:
-				"Fans out a symbol-name search across several explicitly-named project directories at once (e.g. several fetched repos, or a handful of related local projects) and reports one outcome per project -- ready with real results, loading (a project's language server is still cold-starting; retry shortly), or error. Directories are required and explicit -- never every project this daemon happens to have registered, which can include unrelated projects from other concurrent sessions.",
+				"Fans out a symbol-name search across several explicitly-named project directories at once (e.g. several fetched repos, or a handful of related local projects) and reports one outcome per project -- ready with real results, loading (a project's language server is still cold-starting; retry shortly), or error. Directories are required and explicit -- never every project this daemon happens to have registered, which can include unrelated projects from other concurrent sessions. Each directory resolves to its OWN nearest project root (package.json/tsconfig.json/go.mod/Cargo.toml/...), not the outer repo's git root -- sibling packages under one monorepo stay distinct scopes rather than collapsing into one. A result's collapsedWith lists any other requested directories that genuinely did resolve to the same workspace; empty means it got its own.",
 			promptSnippet: "Search for a symbol name across several projects at once",
 			parameters: Type.Object({
 				directories: Type.Array(Type.String(), { description: "Project directories to search, each absolute or relative to the current working directory" }),
@@ -1751,7 +1750,7 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "find_symbols_across_projects failed"), 0, 0);
 				}
-				const details = result.details as { results?: readonly WorkspaceQueryOutcome<SymbolSearchResult>[] } | undefined;
+				const details = result.details as { results?: readonly CrossWorkspaceOutcome<SymbolSearchResult>[] } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatFindSymbolsAcrossProjectsResult(details?.results, expanded, theme));
 				return text;
@@ -1762,7 +1761,7 @@ export default function (pi: ExtensionAPI) {
 			name: "search_code_across_projects",
 			label: "Search Code Across Projects",
 			description:
-				"Fans out a ripgrep-backed text/regex search across several explicitly-named project directories at once and reports one outcome per project. Directories are required and explicit -- never every project this daemon happens to have registered, which can include unrelated projects from other concurrent sessions.",
+				"Fans out a ripgrep-backed text/regex search across several explicitly-named project directories at once and reports one outcome per project. Directories are required and explicit -- never every project this daemon happens to have registered, which can include unrelated projects from other concurrent sessions. Each directory resolves to its OWN nearest project root (package.json/tsconfig.json/go.mod/Cargo.toml/...), not the outer repo's git root -- sibling packages under one monorepo stay distinct scopes rather than collapsing into one. A result's collapsedWith lists any other requested directories that genuinely did resolve to the same workspace; empty means it got its own.",
 			promptSnippet: "Search for a pattern across several projects at once",
 			parameters: Type.Object({
 				directories: Type.Array(Type.String(), { description: "Project directories to search, each absolute or relative to the current working directory" }),
@@ -1790,7 +1789,7 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "search_code_across_projects failed"), 0, 0);
 				}
-				const details = result.details as { results?: readonly WorkspaceQueryOutcome<TextSearchResult>[] } | undefined;
+				const details = result.details as { results?: readonly CrossWorkspaceOutcome<TextSearchResult>[] } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatSearchTextAcrossProjectsResult(details?.results, expanded, theme));
 				return text;
