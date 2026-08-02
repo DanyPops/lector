@@ -168,6 +168,8 @@ export type {
 } from "./installed-package-version-resolver/installed-package-version.ts";
 export { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } from "./installed-package-version-resolver/npm-lockfile-version-resolver.ts";
 export type { InstalledPackageVersionResolverPort } from "./installed-package-version-resolver/port.ts";
+export { type BufferPosition, LiveBuffer } from "./live-buffer/live-buffer.ts";
+export { type HighlightSpan, highlightSpans } from "./live-buffer/syntax-highlight.ts";
 export { type CanRevertMutationInputs, canRevertMutation, type MutationHistoryEntry, type MutationOperation } from "./mutation-history/mutation-history.ts";
 export type { MutationHistoryPort, RecordMutationInput } from "./mutation-history/port.ts";
 export { NpmPackageSourceResolver, type NpmPackageSourceResolverOptions } from "./npm-registry/npm-package-source-resolver.ts";

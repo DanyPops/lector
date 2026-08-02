@@ -70,6 +70,8 @@ import {
 import { type CrossWorkspaceOutcome, createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-search/operations.ts";
 import { formatCrossWorkspaceCall, formatFindSymbolsAcrossProjectsResult, formatSearchTextAcrossProjectsResult } from "./cross-workspace-search/rendering.ts";
 import { createLectorEditOperations } from "./edit/operations.ts";
+import { NeovimEditorComponent, type NeovimEditorHost } from "./editor/neovim-editor-component.ts";
+import { openEditorFile } from "./editor/operations.ts";
 import { createExternalSearchOperations } from "./external-search/operations.ts";
 import {
 	formatExternalSearchCall,
@@ -344,6 +346,42 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const codeIntelligenceOperations = createLectorCodeIntelligenceOperations();
+
+		pi.registerCommand("editor", {
+			description: "Open a file in a neovim-style modal code editor",
+			handler: async (args, commandCtx) => {
+				const target = args.trim();
+				if (!target) {
+					commandCtx.ui.notify("Usage: /editor <path>", "error");
+					return;
+				}
+				const absolutePath = resolve(commandCtx.cwd, target);
+
+				let session: Awaited<ReturnType<typeof openEditorFile>>;
+				try {
+					session = await openEditorFile(absolutePath);
+				} catch (error) {
+					commandCtx.ui.notify(`Could not open ${absolutePath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+					return;
+				}
+
+				await commandCtx.ui.custom<void>(
+					(tui, theme, _keybindings, done) => {
+						const host: NeovimEditorHost = {
+							filePath: absolutePath,
+							save: (text) => session.save(text),
+							hover: async (line, character) => {
+								const result = await codeIntelligenceOperations.hover(absolutePath, line, character);
+								return result.hover;
+							},
+						};
+						return new NeovimEditorComponent(tui, theme, host, session.content, () => done(undefined));
+					},
+					{ overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", anchor: "center" } },
+				);
+			},
+		});
+
 		const referenceBasedRenameOperations = createReferenceBasedRenameOperations();
 		const renameOperations = createRenameOperations();
 		const positionParameters = {
