@@ -67,6 +67,6 @@ describe("LspSymbolIndex against a server that declares pull-model diagnostics",
 
 		await index.diagnostics(filePath);
 
-		expect(index.capabilities?.diagnosticProvider).toEqual({ interFileDependencies: false, workspaceDiagnostics: false });
+		expect(index.capabilities?.diagnosticProvider).toEqual({ interFileDependencies: false, workspaceDiagnostics: false, identifier: undefined });
 	});
 });

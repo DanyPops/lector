@@ -53,11 +53,23 @@ describe("parseServerCapabilities", () => {
 		expect(parseServerCapabilities({ diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } }).diagnosticProvider).toEqual({
 			interFileDependencies: false,
 			workspaceDiagnostics: false,
+			identifier: undefined,
 		});
 		expect(parseServerCapabilities({ diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: true } }).diagnosticProvider).toEqual({
 			interFileDependencies: true,
 			workspaceDiagnostics: true,
+			identifier: undefined,
 		});
+	});
+
+	it("reads a declared diagnosticProvider identifier, defaulting to undefined when the server omits one", () => {
+		expect(
+			parseServerCapabilities({ diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } }).diagnosticProvider?.identifier,
+		).toBeUndefined();
+		expect(
+			parseServerCapabilities({ diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false, identifier: "eslint" } }).diagnosticProvider
+				?.identifier,
+		).toBe("eslint");
 	});
 });
 

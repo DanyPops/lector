@@ -100,6 +100,22 @@ export class DynamicCapabilityRegistry {
 		}
 		return patterns;
 	}
+
+	/**
+	 * One entry per textDocument/diagnostic registration the server has made dynamically, post-initialize --
+	 * distinct from a server that only ever declares pull-diagnostic support statically in its initialize
+	 * response (ParsedServerCapabilities.diagnosticProvider). A server may register more than once with a
+	 * distinct identifier each time (DiagnosticRegistrationOptions.identifier) when it manages several
+	 * diagnostic sources for the same document.
+	 */
+	get diagnosticRegistrations(): readonly DiagnosticRegistration[] {
+		const result: DiagnosticRegistration[] = [];
+		for (const registration of this.registrations.values()) {
+			if (registration.method !== "textDocument/diagnostic") continue;
+			result.push({ identifier: extractDiagnosticIdentifier(registration.registerOptions) });
+		}
+		return result;
+	}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -124,6 +140,15 @@ function extractWatchers(registerOptions: unknown): FileSystemWatcherPattern[] {
 		result.push({ globPattern, kind });
 	}
 	return result;
+}
+
+export interface DiagnosticRegistration {
+	/** DiagnosticRegistrationOptions.identifier -- undefined for a registration that never declared one. */
+	readonly identifier: string | undefined;
+}
+
+function extractDiagnosticIdentifier(registerOptions: unknown): string | undefined {
+	return isRecord(registerOptions) && typeof registerOptions.identifier === "string" ? registerOptions.identifier : undefined;
 }
 
 export interface ParsedRegistration {

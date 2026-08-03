@@ -15,6 +15,8 @@ export interface WorkspaceFileOperationCapabilities {
 export interface DiagnosticProviderCapabilities {
 	readonly interFileDependencies: boolean;
 	readonly workspaceDiagnostics: boolean;
+	/** The identifier a pull request must echo back (DocumentDiagnosticParams.identifier) when a server distinguishes several diagnostic sources for the same document -- undefined when the server never declared one, matching a plain unlabeled pull. */
+	readonly identifier: string | undefined;
 }
 
 export interface ParsedServerCapabilities {
@@ -70,6 +72,7 @@ export function parseServerCapabilities(raw: unknown): ParsedServerCapabilities 
 		? {
 				interFileDependencies: diagnosticProviderValue.interFileDependencies === true,
 				workspaceDiagnostics: diagnosticProviderValue.workspaceDiagnostics === true,
+				identifier: typeof diagnosticProviderValue.identifier === "string" ? diagnosticProviderValue.identifier : undefined,
 			}
 		: undefined;
 

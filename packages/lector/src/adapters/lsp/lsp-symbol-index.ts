@@ -10,7 +10,7 @@ import type { CodeRange } from "../../domain/code-range.ts";
 import { contentHashOf } from "../../domain/content-hash.ts";
 import { type Diagnostic, type DiagnosticSeverity, mergeDiagnostics } from "../../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../../domain/document-symbol.ts";
-import type { FileSystemWatcherPattern } from "../../domain/dynamic-capability-registry.ts";
+import type { DiagnosticRegistration, FileSystemWatcherPattern } from "../../domain/dynamic-capability-registry.ts";
 import {
 	DynamicCapabilityRegistry,
 	parseConfigurationItemCount,
@@ -476,6 +476,11 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 							// typescript-language-server withholds renameProvider entirely without this --
 							// the same gating pattern its diagnostics/callHierarchy flags already use.
 							rename: { prepareSupport: true },
+							// Genuinely honored end to end (client/registerCapability is answered for this method too,
+							// diagnosticRegistrations is read back in diagnostics()) -- without this, a server that only
+							// ever wants to register pull-diagnostic support dynamically (Roslyn/C#, Kotlin) rather than
+							// statically in its initialize response has no spec grounds to ever send that registration.
+							diagnostic: { dynamicRegistration: true },
 							...this.descriptor.extraCapabilities,
 						},
 						// Genuinely honored end to end (window/workDoneProgress/create is answered, tokens
@@ -553,6 +558,11 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	/** Every glob pattern the warm server has dynamically registered via workspace/didChangeWatchedFiles, for a future local watcher to honor. */
 	get dynamicWatchedFilePatterns(): readonly FileSystemWatcherPattern[] {
 		return this.dynamicCapabilities.watchedFilePatterns;
+	}
+
+	/** Every textDocument/diagnostic registration the warm server has made dynamically, post-initialize -- test observability for a registration's own arrival, distinct from diagnostics()'s own internal use of the same registry. */
+	get dynamicDiagnosticRegistrations(): readonly DiagnosticRegistration[] {
+		return this.dynamicCapabilities.diagnosticRegistrations;
 	}
 
 	/** The latest $/progress value reported for every token seen so far (bounded). */
@@ -819,21 +829,43 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		const proc = await this.ensureInitialized(path);
 		const resolvedPath = this.resolveTargetPath(path);
 		await this.ensureFileOpen(proc, resolvedPath);
-		// Pull-model support is only known after initialize -- when declared, request fresh rather
-		// than waiting on push's own timing, and merge with whatever push has already delivered
-		// (a server may run both models at once, or have pushed before pull was even requested).
-		if (this.negotiatedCapabilities?.diagnosticProvider) {
-			const pulled = await this.pullDiagnostics(proc, resolvedPath);
+		// Pull-model support may be declared statically (initialize's own diagnosticProvider) or
+		// dynamically (a post-initialize client/registerCapability for textDocument/diagnostic --
+		// Roslyn/C#, Kotlin register this way rather than statically). Either source, or both at
+		// once, means: request fresh rather than waiting on push's own timing, and merge with
+		// whatever push has already delivered (a server may run both models at once, or have pushed
+		// before pull was even requested).
+		const identifiers = this.diagnosticPullIdentifiers();
+		if (identifiers.length > 0) {
+			let pulled: Diagnostic[] = [];
+			for (const identifier of identifiers) pulled = mergeDiagnostics(pulled, await this.pullDiagnostics(proc, resolvedPath, identifier));
 			return mergeDiagnostics(this.latestDiagnostics.get(resolvedPath) ?? [], pulled);
 		}
 		if (!this.latestDiagnostics.has(resolvedPath)) await this.waitForDiagnosticsNotification(resolvedPath, 5000);
 		return this.latestDiagnostics.get(resolvedPath) ?? [];
 	}
 
+	/**
+	 * Every distinct pull channel to query for one diagnostics() call: the static diagnosticProvider's
+	 * own identifier (if declared at all, even without one), plus one entry per dynamically-registered
+	 * textDocument/diagnostic (each may carry its own distinct identifier when a server manages several
+	 * diagnostic sources for the same document). Deduplicated by identifier value -- undefined counts as
+	 * one bucket -- so a server that both statically declares an unlabeled provider and later registers
+	 * the same unlabeled channel again dynamically is pulled once, not twice. An empty result means no
+	 * pull support exists anywhere for this server; the caller falls back to the push-wait path.
+	 */
+	private diagnosticPullIdentifiers(): (string | undefined)[] {
+		const identifiers = new Set<string | undefined>();
+		if (this.negotiatedCapabilities?.diagnosticProvider) identifiers.add(this.negotiatedCapabilities.diagnosticProvider.identifier);
+		for (const registration of this.dynamicCapabilities.diagnosticRegistrations) identifiers.add(registration.identifier);
+		return [...identifiers];
+	}
+
 	/** Requests textDocument/diagnostic directly rather than waiting on the server's own push timing. Returns [] for an "unchanged" report -- Lector never sends previousResultId, so it has nothing cached under that resultId to fall back to besides what push already holds. */
-	private async pullDiagnostics(proc: LanguageServerProcess, path: string): Promise<Diagnostic[]> {
+	private async pullDiagnostics(proc: LanguageServerProcess, path: string, identifier?: string): Promise<Diagnostic[]> {
 		const report = await proc.request<LspDocumentDiagnosticReport | null>("textDocument/diagnostic", {
 			textDocument: { uri: pathToFileURL(path).href },
+			...(identifier !== undefined ? { identifier } : {}),
 		});
 		if (report?.kind !== "full") return [];
 		return report.items.map((item) => normalizeDiagnostic(path, item));

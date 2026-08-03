@@ -38,6 +38,32 @@ describe("DynamicCapabilityRegistry", () => {
 		expect(registry.watchedFilePatterns).toEqual([]);
 	});
 
+	it("exposes zero diagnostic registrations when none has been made", () => {
+		const registry = new DynamicCapabilityRegistry();
+		registry.register("reg-1", "workspace/didChangeWatchedFiles", {});
+		expect(registry.diagnosticRegistrations).toEqual([]);
+	});
+
+	it("extracts a textDocument/diagnostic registration with no identifier", () => {
+		const registry = new DynamicCapabilityRegistry();
+		registry.register("reg-1", "textDocument/diagnostic", { interFileDependencies: false, workspaceDiagnostics: false });
+		expect(registry.diagnosticRegistrations).toEqual([{ identifier: undefined }]);
+	});
+
+	it("extracts multiple textDocument/diagnostic registrations, each with its own identifier", () => {
+		const registry = new DynamicCapabilityRegistry();
+		registry.register("reg-1", "textDocument/diagnostic", { identifier: "typescript" });
+		registry.register("reg-2", "textDocument/diagnostic", { identifier: "eslint" });
+		expect(registry.diagnosticRegistrations.map((r) => r.identifier).sort()).toEqual(["eslint", "typescript"]);
+	});
+
+	it("unregistering a diagnostic registration removes it from diagnosticRegistrations", () => {
+		const registry = new DynamicCapabilityRegistry();
+		registry.register("reg-1", "textDocument/diagnostic", {});
+		registry.unregister("reg-1");
+		expect(registry.diagnosticRegistrations).toEqual([]);
+	});
+
 	it("unregister removes a registration's patterns, and is idempotent for an unknown id", () => {
 		const registry = new DynamicCapabilityRegistry();
 		registry.register("reg-1", "workspace/didChangeWatchedFiles", { watchers: [{ globPattern: "**/*.ts" }] });
