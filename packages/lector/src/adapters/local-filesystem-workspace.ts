@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { type ContentHash, contentHashOf } from "../domain/content-hash.ts";
 import { StaleExpectedHash } from "../domain/exact-edit.ts";
+import { type FileTreeEntry, type FileTreePort, WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "../ports/file-tree-port.ts";
 import type { WorkspaceEntry, WorkspacePort } from "../ports/workspace-port.ts";
 
 const DEFAULT_NEW_FILE_MODE = 0o644;
@@ -31,7 +32,7 @@ function isEnoent(error: unknown): boolean {
  * existing mode before the rename (temp files default to a more
  * restrictive mode, which a naive rename would otherwise leave in place).
  */
-export class LocalFilesystemWorkspace implements WorkspacePort {
+export class LocalFilesystemWorkspace implements WorkspacePort, FileTreePort {
 	private readonly root: string;
 
 	constructor(root: string) {
@@ -111,5 +112,43 @@ export class LocalFilesystemWorkspace implements WorkspacePort {
 
 		await rm(absolute, { force: true });
 		return { previousHash };
+	}
+
+	async listDirectory(path: string): Promise<FileTreeEntry[]> {
+		const absolute = this.resolvePath(path);
+		const dirents = await readdir(absolute, { withFileTypes: true });
+		return dirents.map((dirent) => ({
+			name: dirent.name,
+			kind: dirent.isDirectory() ? "directory" : dirent.isSymbolicLink() ? "symlink" : "file",
+		}));
+	}
+
+	async createDirectory(path: string): Promise<void> {
+		const absolute = this.resolvePath(path);
+		await mkdir(absolute, { recursive: true });
+	}
+
+	async renamePath(oldPath: string, newPath: string): Promise<void> {
+		const absoluteOld = this.resolvePath(oldPath);
+		const absoluteNew = this.resolvePath(newPath);
+		if (!(await this.pathExists(absoluteOld))) throw new WorkspaceEntryDoesNotExist(oldPath);
+		if (await this.pathExists(absoluteNew)) throw new WorkspaceEntryAlreadyExists(newPath);
+		await mkdir(dirname(absoluteNew), { recursive: true });
+		await rename(absoluteOld, absoluteNew);
+	}
+
+	async deleteDirectory(path: string): Promise<void> {
+		const absolute = this.resolvePath(path);
+		await rm(absolute, { recursive: true, force: true });
+	}
+
+	private async pathExists(absolute: string): Promise<boolean> {
+		try {
+			await stat(absolute);
+			return true;
+		} catch (error) {
+			if (isEnoent(error)) return false;
+			throw error;
+		}
 	}
 }

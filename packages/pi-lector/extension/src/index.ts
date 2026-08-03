@@ -35,6 +35,7 @@ import {
 	createReadToolDefinition,
 	createWriteToolDefinition,
 	type ExtensionAPI,
+	type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { renderBoundedTable, type TextMeasure } from "malevich-tui-components";
@@ -70,6 +71,9 @@ import {
 import { type CrossWorkspaceOutcome, createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-search/operations.ts";
 import { formatCrossWorkspaceCall, formatFindSymbolsAcrossProjectsResult, formatSearchTextAcrossProjectsResult } from "./cross-workspace-search/rendering.ts";
 import { createLectorEditOperations } from "./edit/operations.ts";
+import { openDirectoryExplorer } from "./editor/directory-explorer-operations.ts";
+import { ExplorerComponent, type ExplorerResult } from "./editor/explorer-component.ts";
+import { runExplorerFlow } from "./editor/explorer-flow.ts";
 import { NeovimEditorComponent, type NeovimEditorHost } from "./editor/neovim-editor-component.ts";
 import { openEditorFile } from "./editor/operations.ts";
 import { createExternalSearchOperations } from "./external-search/operations.ts";
@@ -347,38 +351,59 @@ export default function (pi: ExtensionAPI) {
 
 		const codeIntelligenceOperations = createLectorCodeIntelligenceOperations();
 
+		const editorOverlayOptions = { overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", anchor: "center" } } as const;
+
+		async function openFileInEditor(commandCtx: ExtensionCommandContext, absolutePath: string): Promise<void> {
+			let session: Awaited<ReturnType<typeof openEditorFile>>;
+			try {
+				session = await openEditorFile(absolutePath);
+			} catch (error) {
+				commandCtx.ui.notify(`Could not open ${absolutePath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+				return;
+			}
+
+			await commandCtx.ui.custom<void>((tui, theme, _keybindings, done) => {
+				const host: NeovimEditorHost = {
+					filePath: absolutePath,
+					save: (text) => session.save(text),
+					hover: async (line, character) => {
+						const result = await codeIntelligenceOperations.hover(absolutePath, line, character);
+						return result.hover;
+					},
+				};
+				return new NeovimEditorComponent(tui, theme, host, session.content, () => done(undefined));
+			}, editorOverlayOptions);
+		}
+
+		/** Oil-style: /editor with no path browses the caller's cwd (nearest git root, matching workspaceForDirectory's own convention). runExplorerFlow owns the browse/open/return-to-explorer loop; this just wires it to the real UI and Lector session. */
+		async function openExplorerFlow(commandCtx: ExtensionCommandContext): Promise<void> {
+			let session: Awaited<ReturnType<typeof openDirectoryExplorer>>;
+			try {
+				session = await openDirectoryExplorer(commandCtx.cwd);
+			} catch (error) {
+				commandCtx.ui.notify(`Could not open explorer at ${commandCtx.cwd}: ${error instanceof Error ? error.message : String(error)}`, "error");
+				return;
+			}
+
+			await runExplorerFlow(session, {
+				showExplorer: (explorerSession, relativePath) =>
+					commandCtx.ui.custom<ExplorerResult>(
+						(tui, theme, _keybindings, done) => new ExplorerComponent(tui, theme, explorerSession, relativePath, done),
+						editorOverlayOptions,
+					),
+				showEditor: (absolutePath) => openFileInEditor(commandCtx, absolutePath),
+			});
+		}
+
 		pi.registerCommand("editor", {
-			description: "Open a file in a neovim-style modal code editor",
+			description: "Open a file in a neovim-style modal code editor, or a filesystem explorer with no path",
 			handler: async (args, commandCtx) => {
 				const target = args.trim();
 				if (!target) {
-					commandCtx.ui.notify("Usage: /editor <path>", "error");
+					await openExplorerFlow(commandCtx);
 					return;
 				}
-				const absolutePath = resolve(commandCtx.cwd, target);
-
-				let session: Awaited<ReturnType<typeof openEditorFile>>;
-				try {
-					session = await openEditorFile(absolutePath);
-				} catch (error) {
-					commandCtx.ui.notify(`Could not open ${absolutePath}: ${error instanceof Error ? error.message : String(error)}`, "error");
-					return;
-				}
-
-				await commandCtx.ui.custom<void>(
-					(tui, theme, _keybindings, done) => {
-						const host: NeovimEditorHost = {
-							filePath: absolutePath,
-							save: (text) => session.save(text),
-							hover: async (line, character) => {
-								const result = await codeIntelligenceOperations.hover(absolutePath, line, character);
-								return result.hover;
-							},
-						};
-						return new NeovimEditorComponent(tui, theme, host, session.content, () => done(undefined));
-					},
-					{ overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", anchor: "center" } },
-				);
+				await openFileInEditor(commandCtx, resolve(commandCtx.cwd, target));
 			},
 		});
 

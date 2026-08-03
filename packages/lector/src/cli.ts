@@ -39,6 +39,16 @@ const USAGE = `Usage:
   lector workspace register <dir> [--json]
   lector workspace read <workspace-id> <path> [--json]
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
+  lector workspace delete <workspace-id> <path> --expected-hash <hash> [--json]
+    deletes one file entry, guarded by --expected-hash the same way edit's own guard works
+  lector workspace list-directory <workspace-id> [path] [--json]
+    immediate children only, not recursive -- omit [path] (or pass "") for the workspace root
+  lector workspace create-directory <workspace-id> <path> [--json]
+    mkdir -p semantics; a no-op if <path> already exists as a directory
+  lector workspace rename-path <workspace-id> <old-path> <new-path> [--json]
+    atomic move for a file or directory; rejects if <new-path> already exists
+  lector workspace delete-directory <workspace-id> <path> [--json]
+    recursive; NOT hash-guarded -- directories have no single content hash to guard with
   lector workspace watch <workspace-id> --pattern <glob> [--json]
     blocks, printing every real matching file change (created/modified/deleted) as it happens
     (Ctrl-C to stop) -- connects to the daemon's PushChannel over a real WebSocket, the same
@@ -1282,6 +1292,56 @@ async function runWorkspaceLineEdit(workspaceId: string | undefined, path: strin
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.path}: ${result.previousHash} -> ${result.newHash}`);
 }
 
+async function runWorkspaceDelete(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const expectedHashFlag = flagValue(flags, "--expected-hash");
+	if (expectedHashFlag === undefined) fail("lector workspace delete requires --expected-hash <hash>");
+	// A raw CLI flag; the daemon rejects an invalid hash with a clear domain error either way.
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+	const expectedHash = expectedHashFlag as ContentHash;
+
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.deleteEntry", { workspaceId, path, expectedHash });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `deleted "${result.path}" (was ${result.previousHash ?? "(absent)"})`);
+}
+
+async function runWorkspaceListDirectory(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId) fail(USAGE);
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.listDirectory", { workspaceId, path: path ?? "" });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	for (const entry of result.entries) console.log(entry.kind === "directory" ? `${entry.name}/` : entry.name);
+}
+
+async function runWorkspaceCreateDirectory(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.createDirectory", { workspaceId, path });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `created directory "${result.path}"`);
+}
+
+async function runWorkspaceRenamePath(
+	workspaceId: string | undefined,
+	oldPath: string | undefined,
+	newPath: string | undefined,
+	flags: string[],
+): Promise<void> {
+	if (!workspaceId || !oldPath || !newPath) fail(USAGE);
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.renamePath", { workspaceId, oldPath, newPath });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `"${result.oldPath}" -> "${result.newPath}"`);
+}
+
+async function runWorkspaceDeleteDirectory(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !path) fail(USAGE);
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.deleteDirectory", { workspaceId, path });
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `deleted directory "${result.path}"`);
+}
+
 async function runWorkspaceWatch(workspaceId: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId) fail(USAGE);
 	const pattern = flagValue(flags, "--pattern");
@@ -1480,6 +1540,25 @@ async function main(): Promise<void> {
 		const [workspaceId, path, ...flags] = actionArgs;
 		if (action === "read") return runWorkspaceRead(workspaceId, path, flags);
 		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
+		if (action === "delete") return runWorkspaceDelete(workspaceId, path, flags);
+		if (action === "list-directory") {
+			// <path> is optional here (defaults to the workspace root) -- the generic
+			// [workspaceId, path, ...flags] destructure above would misparse a bare `--json` with no
+			// path positional as path itself, the same flag-vs-positional bug git-status/compare-symbol
+			// already guard against below.
+			const [ldWorkspaceId, ...ldRest] = actionArgs;
+			const ldPath = ldRest[0]?.startsWith("--") ? undefined : ldRest[0];
+			const ldFlags = ldPath === undefined ? ldRest : ldRest.slice(1);
+			return runWorkspaceListDirectory(ldWorkspaceId, ldPath, ldFlags);
+		}
+		if (action === "create-directory") return runWorkspaceCreateDirectory(workspaceId, path, flags);
+		if (action === "delete-directory") return runWorkspaceDeleteDirectory(workspaceId, path, flags);
+		if (action === "rename-path") {
+			// `path` above is really <old-path> here; the generic [workspaceId, path, ...flags]
+			// destructure still lines up correctly since rename-path's own second positional IS old-path.
+			const [rpNewPath, ...rpFlags] = flags;
+			return runWorkspaceRenamePath(workspaceId, path, rpNewPath, rpFlags);
+		}
 		if (action === "line-edit") return runWorkspaceLineEdit(workspaceId, path, flags);
 		if (action === "apply-patch") return runWorkspaceApplyPatch(workspaceId, path, flags);
 		if (action === "mutation-history") return runWorkspaceMutationHistory(workspaceId, path, flags);

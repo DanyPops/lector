@@ -6,12 +6,9 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { EditorAction } from "./editor-state.ts";
 import { EditorState } from "./editor-state.ts";
+import type { EditorTheme } from "./editor-theme.ts";
 
-/** Real theme, narrowed to exactly what this component needs -- avoids depending on pi-coding-agent's full internal Theme shape. */
-export interface EditorTheme {
-	fg(color: ThemeColor, text: string): string;
-	bg(color: "selectedBg", text: string): string;
-}
+export type { EditorTheme } from "./editor-theme.ts";
 
 export interface NeovimEditorHost {
 	filePath: string;

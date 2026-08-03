@@ -39,6 +39,7 @@ import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts"
 import type { IntelligenceProvenance } from "./domain/intelligence-provenance.ts";
 import { descriptorForPath, LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./domain/language-server-descriptor.ts";
 import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, lineEdit } from "./domain/line-edit.ts";
+import { type DirectoryListing, listDirectory } from "./domain/list-directory.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
 import { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
@@ -78,6 +79,7 @@ import type { PackageEcosystem, PackageSourceBounds, PackageSourceOperationResul
 import type { PackageSourceIndexQuery, PackageSourceListEntry } from "./package-source/package-source-index.ts";
 import type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
+import type { FileTreePort } from "./ports/file-tree-port.ts";
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
 import type { CachedRepositoryPage, CachedRepositoryQuery } from "./repo-fetcher/cached-repository-entry.ts";
@@ -340,6 +342,7 @@ export class JobWaitTooLong extends Error {
 export type OperationName =
 	| "workspace.rawRead"
 	| "workspace.exactEdit"
+	| "workspace.deleteEntry"
 	| "workspace.lineEdit"
 	| "workspace.applyPatch"
 	| "workspace.mutationHistory"
@@ -395,11 +398,16 @@ export type OperationName =
 	| "workspace.containAnnotation"
 	| "workspace.uncontainAnnotation"
 	| "workspace.annotationTree"
-	| "workspace.map";
+	| "workspace.map"
+	| "workspace.listDirectory"
+	| "workspace.createDirectory"
+	| "workspace.renamePath"
+	| "workspace.deleteDirectory";
 
 export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.rawRead",
 	"workspace.exactEdit",
+	"workspace.deleteEntry",
 	"workspace.lineEdit",
 	"workspace.applyPatch",
 	"workspace.mutationHistory",
@@ -456,6 +464,10 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.uncontainAnnotation",
 	"workspace.annotationTree",
 	"workspace.map",
+	"workspace.listDirectory",
+	"workspace.createDirectory",
+	"workspace.renamePath",
+	"workspace.deleteDirectory",
 ];
 
 /** A single position within a file already registered under `workspaceId`, 1-indexed. */
@@ -469,11 +481,16 @@ interface WorkspacePosition {
 export interface OperationInputs {
 	"workspace.rawRead": { workspaceId: WorkspaceId; path: string };
 	"workspace.exactEdit": { workspaceId: WorkspaceId } & ExpectedHashEdit;
+	"workspace.deleteEntry": { workspaceId: WorkspaceId; path: string; expectedHash: ContentHash };
 	"workspace.lineEdit": { workspaceId: WorkspaceId; path: string; edits: readonly LineEdit[] };
 	"workspace.applyPatch": { workspaceId: WorkspaceId; path: string; expectedHash: ContentHash; patchText: string };
 	"workspace.mutationHistory": { workspaceId: WorkspaceId; path: string; maxResults: number };
 	"workspace.revertMutation": { workspaceId: WorkspaceId; entryId: string };
 	"workspace.registerPath": { path: string };
+	"workspace.listDirectory": { workspaceId: WorkspaceId; path: string };
+	"workspace.createDirectory": { workspaceId: WorkspaceId; path: string };
+	"workspace.renamePath": { workspaceId: WorkspaceId; oldPath: string; newPath: string };
+	"workspace.deleteDirectory": { workspaceId: WorkspaceId; path: string };
 	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string; maxResults?: number; responseFormat?: ResponseFormat };
 	"workspace.goToDefinition": WorkspacePosition;
 	"workspace.goToImplementation": WorkspacePosition;
@@ -569,12 +586,17 @@ type Provenanced<T> = T & { readonly provenance: IntelligenceProvenance };
 export interface OperationOutputs {
 	"workspace.rawRead": RawRead;
 	"workspace.exactEdit": EditOutcome;
+	"workspace.deleteEntry": { path: string; previousHash: ContentHash | null };
 	"workspace.lineEdit": LineEditOutcome;
 	"workspace.applyPatch": EditOutcome;
 	"workspace.mutationHistory": { entries: readonly MutationHistoryEntry[] };
 	/** newHash is null when the reverted-to state is "the file doesn't exist" -- reverting a create back to nonexistence, or reverting a delete when the file has stayed deleted since. */
 	"workspace.revertMutation": { path: string; newHash: ContentHash | null };
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
+	"workspace.listDirectory": DirectoryListing;
+	"workspace.createDirectory": { path: string };
+	"workspace.renamePath": { oldPath: string; newPath: string };
+	"workspace.deleteDirectory": { path: string };
 	"workspace.findSymbols": SymbolSearchResult;
 	"workspace.goToDefinition": Provenanced<{ locations: readonly WorkspaceLocation[] }>;
 	"workspace.goToImplementation": Provenanced<{ locations: readonly WorkspaceLocation[] }>;
@@ -745,6 +767,25 @@ export function resolveWorkspace(registry: MutableRegistry, workspaceId: Workspa
 	const entry = registry.get(workspaceId);
 	if (!entry) throw new UnknownWorkspace(workspaceId);
 	return entry.port;
+}
+
+/** True when a WorkspacePort also implements FileTreePort -- mirrors supportsCodeIntelligence's own duck-typed capability check below. */
+function supportsFileTree(port: WorkspacePort): port is WorkspacePort & FileTreePort {
+	return "listDirectory" in port && typeof port.listDirectory === "function";
+}
+
+/** Raised when a workspace's own WorkspacePort implementation does not also implement FileTreePort (e.g. a read-only fetched-repo checkout). */
+export class WorkspaceDoesNotSupportFileTree extends Error {
+	constructor(readonly workspaceId: WorkspaceId) {
+		super(`workspace "${workspaceId}" does not support directory-tree operations`);
+		this.name = "WorkspaceDoesNotSupportFileTree";
+	}
+}
+
+function resolveFileTree(registry: MutableRegistry, workspaceId: WorkspaceId): FileTreePort {
+	const port = resolveWorkspace(registry, workspaceId);
+	if (!supportsFileTree(port)) throw new WorkspaceDoesNotSupportFileTree(workspaceId);
+	return port;
 }
 
 /** True when a warm SymbolIndexPort is also a real CodeIntelligencePort (currently: any LspSymbolIndex, never TreeSitterSymbolIndex). */
@@ -1918,6 +1959,19 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	}
 
 	const handlers: OperationHandlers = {
+		"workspace.listDirectory": (registry, input) => listDirectory(resolveFileTree(registry, input.workspaceId), input.path),
+		"workspace.createDirectory": async (registry, input) => {
+			await resolveFileTree(registry, input.workspaceId).createDirectory(input.path);
+			return { path: input.path };
+		},
+		"workspace.renamePath": async (registry, input) => {
+			await resolveFileTree(registry, input.workspaceId).renamePath(input.oldPath, input.newPath);
+			return { oldPath: input.oldPath, newPath: input.newPath };
+		},
+		"workspace.deleteDirectory": async (registry, input) => {
+			await resolveFileTree(registry, input.workspaceId).deleteDirectory(input.path);
+			return { path: input.path };
+		},
 		"workspace.rawRead": async (registry, input) => {
 			const read = await rawRead(resolveWorkspace(registry, input.workspaceId), input.path);
 			await contentCache.putRawContent(read.hash, read.content);
@@ -1928,6 +1982,13 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			const outcome = await recordMutation(workspaceId, edit.path, "exactEdit", () => exactEdit(resolveWorkspace(registry, workspaceId), edit));
 			await contentCache.putRawContent(outcome.newHash, edit.content);
 			return outcome;
+		},
+		"workspace.deleteEntry": async (registry, input) => {
+			const outcome = await recordMutation(input.workspaceId, input.path, "delete", async () => {
+				const result = await resolveWorkspace(registry, input.workspaceId).deleteEntry(input.path, input.expectedHash);
+				return { newHash: null, previousHash: result.previousHash };
+			});
+			return { path: input.path, previousHash: outcome.previousHash };
 		},
 		"workspace.lineEdit": (registry, input) => {
 			return recordMutation(input.workspaceId, input.path, "lineEdit", () =>

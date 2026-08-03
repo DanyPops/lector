@@ -105,6 +105,8 @@ export {
 } from "./domain/line-edit.ts";
 export type { LineHash } from "./domain/line-hash.ts";
 export { lineHashOf } from "./domain/line-hash.ts";
+export type { DirectoryListing } from "./domain/list-directory.ts";
+export { listDirectory } from "./domain/list-directory.ts";
 export type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "./domain/npm-package-metadata.ts";
 export { outgoingCalls } from "./domain/outgoing-calls.ts";
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
@@ -218,6 +220,8 @@ export { queryPackageSourceIndex } from "./package-source/package-source-index.t
 export { InvalidPackageSourceContract, resolvePackageSource } from "./package-source/resolve-package-source.ts";
 export type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
+export type { FileTreeEntry, FileTreeEntryKind, FileTreePort } from "./ports/file-tree-port.ts";
+export { WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "./ports/file-tree-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
 export type { CachedRepositoryEntry, CachedRepositoryPage, CachedRepositoryQuery, RepoCacheListEntry } from "./repo-fetcher/cached-repository-entry.ts";
