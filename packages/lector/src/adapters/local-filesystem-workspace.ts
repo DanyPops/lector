@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { Dirent } from "node:fs";
 import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { type ContentHash, contentHashOf } from "../domain/content-hash.ts";
@@ -117,10 +118,26 @@ export class LocalFilesystemWorkspace implements WorkspacePort, FileTreePort {
 	async listDirectory(path: string): Promise<FileTreeEntry[]> {
 		const absolute = this.resolvePath(path);
 		const dirents = await readdir(absolute, { withFileTypes: true });
-		return dirents.map((dirent) => ({
-			name: dirent.name,
-			kind: dirent.isDirectory() ? "directory" : dirent.isSymbolicLink() ? "symlink" : "file",
-		}));
+		return Promise.all(dirents.map(async (dirent) => ({ name: dirent.name, kind: await this.entryKind(absolute, dirent) })));
+	}
+
+	/**
+	 * A bun-managed node_modules layout symlinks scoped packages to their real store location --
+	 * the raw dirent type (isDirectory()/isSymbolicLink()) only describes the link itself, never
+	 * what it points to. Since FileTreeEntry.kind's own contract is "Enter descends vs. opens"
+	 * (see file-tree-port.ts), a symlink is resolved to its real target's kind here so navigation
+	 * is correct; a broken symlink (target no longer exists) falls back to "symlink", since it is
+	 * genuinely neither a real directory nor a real file to open.
+	 */
+	private async entryKind(parentAbsolute: string, dirent: Dirent): Promise<FileTreeEntry["kind"]> {
+		if (dirent.isDirectory()) return "directory";
+		if (!dirent.isSymbolicLink()) return "file";
+		try {
+			const resolved = await stat(join(parentAbsolute, dirent.name));
+			return resolved.isDirectory() ? "directory" : "file";
+		} catch {
+			return "symlink";
+		}
 	}
 
 	async createDirectory(path: string): Promise<void> {

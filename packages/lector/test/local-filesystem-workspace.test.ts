@@ -8,7 +8,7 @@
  * requirement for any real filesystem adapter.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmod, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "../src/adapters/local-filesystem-workspace.ts";
@@ -118,5 +118,44 @@ describe("LocalFilesystemWorkspace atomic writes", () => {
 
 		const read = await rawRead(workspace, "nested/dir/a.txt");
 		expect(read).toEqual({ path: "nested/dir/a.txt", content: "hello", hash: contentHashOf("hello") });
+	});
+});
+
+/**
+ * Regression coverage for a real incident: a bun-managed node_modules layout symlinks scoped
+ * packages (e.g. node_modules/@biomejs/biome -> .bun/@biomejs+biome@x/node_modules/@biomejs/biome),
+ * and a naive lstat-based kind (isDirectory()/isSymbolicLink() on the dirent itself, never
+ * following the link) reported every one of those as neither "directory" nor openable as a file --
+ * the /editor explorer's own Enter-descends-vs-opens contract (see file-tree-port.ts's own kind
+ * doc comment) then tried to open a real directory as a file and crashed with EISDIR.
+ */
+describe("LocalFilesystemWorkspace.listDirectory -- symlinks resolve to their real target kind", () => {
+	it("reports a symlink to a directory as kind 'directory', not 'symlink' or 'file'", async () => {
+		const dir = await freshRoot();
+		await mkdir(join(dir, "real-dir"));
+		await symlink(join(dir, "real-dir"), join(dir, "link-to-dir"), "dir");
+
+		const workspace = new LocalFilesystemWorkspace(dir);
+		const entries = await workspace.listDirectory("");
+		expect(entries.find((e) => e.name === "link-to-dir")).toEqual({ name: "link-to-dir", kind: "directory" });
+	});
+
+	it("reports a symlink to a file as kind 'file', not 'symlink'", async () => {
+		const dir = await freshRoot();
+		await writeFile(join(dir, "real.txt"), "hello");
+		await symlink(join(dir, "real.txt"), join(dir, "link-to-file"));
+
+		const workspace = new LocalFilesystemWorkspace(dir);
+		const entries = await workspace.listDirectory("");
+		expect(entries.find((e) => e.name === "link-to-file")).toEqual({ name: "link-to-file", kind: "file" });
+	});
+
+	it("reports a broken symlink (target no longer exists) as kind 'symlink' -- neither a real directory nor a real file", async () => {
+		const dir = await freshRoot();
+		await symlink(join(dir, "does-not-exist"), join(dir, "dangling-link"));
+
+		const workspace = new LocalFilesystemWorkspace(dir);
+		const entries = await workspace.listDirectory("");
+		expect(entries.find((e) => e.name === "dangling-link")).toEqual({ name: "dangling-link", kind: "symlink" });
 	});
 });
