@@ -76,6 +76,7 @@ export { goToImplementation } from "./domain/go-to-implementation.ts";
 export type { Hover } from "./domain/hover.ts";
 export { hoverAt } from "./domain/hover-at.ts";
 export { incomingCalls } from "./domain/incoming-calls.ts";
+export { type InstallReceipt, parseInstallReceipt, receiptPurl, serializeInstallReceipt } from "./domain/install-receipt.ts";
 export type {
 	IntelligenceFidelity,
 	IntelligenceProvenance,
@@ -90,6 +91,12 @@ export {
 	PYTHON_DESCRIPTOR,
 	TYPESCRIPT_DESCRIPTOR,
 } from "./domain/language-server-descriptor.ts";
+export type {
+	GithubReleaseLanguageServerSource,
+	LanguageServerPackageSpec,
+	LanguageServerSource,
+	NpmLanguageServerSource,
+} from "./domain/language-server-package-spec.ts";
 export {
 	type LineEdit,
 	type LineEditFailure,
@@ -107,9 +114,12 @@ export type { LineHash } from "./domain/line-hash.ts";
 export { lineHashOf } from "./domain/line-hash.ts";
 export type { DirectoryListing } from "./domain/list-directory.ts";
 export { listDirectory } from "./domain/list-directory.ts";
+export type { LibcVariant, LspArchitecture, LspOperatingSystem, LspPlatform } from "./domain/lsp-platform.ts";
+export { resolveLspPlatform, UnsupportedLspPlatform } from "./domain/lsp-platform.ts";
 export type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "./domain/npm-package-metadata.ts";
 export { outgoingCalls } from "./domain/outgoing-calls.ts";
 export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
+export type { ProvisionOutcome } from "./domain/provision-outcome.ts";
 export { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 export {
@@ -172,6 +182,28 @@ export { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } fro
 export type { InstalledPackageVersionResolverPort } from "./installed-package-version-resolver/port.ts";
 export { type BufferPosition, LiveBuffer } from "./live-buffer/live-buffer.ts";
 export { type HighlightSpan, highlightSpans } from "./live-buffer/syntax-highlight.ts";
+export { detectLibc } from "./lsp-provisioning/detect-libc.ts";
+export {
+	DEFAULT_GITHUB_API_BASE_URL as LSP_PROVISIONING_DEFAULT_GITHUB_API_BASE_URL,
+	GithubReleaseAssetUnavailable,
+	type GithubReleaseInstallerOptions,
+	GithubReleaseNotFound,
+	GithubReleaseRequestFailed,
+	resolveGithubReleaseInstall,
+	UnsupportedReleaseArchiveFormat,
+} from "./lsp-provisioning/github-release-installer.ts";
+export { InstallConcurrencyLimiter } from "./lsp-provisioning/install-concurrency-limiter.ts";
+export { InstallLocation } from "./lsp-provisioning/install-location.ts";
+export {
+	LanguageServerProvisioner,
+	type LanguageServerProvisionerOptions,
+} from "./lsp-provisioning/language-server-provisioner.ts";
+export { type NpmInstallerOptions, NpmInstallFailed, NpmInstallTimedOut, resolveNpmInstall } from "./lsp-provisioning/npm-installer.ts";
+export type { LanguageServerProvisionerPort } from "./lsp-provisioning/port.ts";
+export { tryReadReceipt, writeReceipt } from "./lsp-provisioning/receipt-store.ts";
+export { resolveLspProvisioningRoot } from "./lsp-provisioning/resolve-lsp-provisioning-root.ts";
+export type { ResolvedInstall } from "./lsp-provisioning/resolved-install.ts";
+export { runStagedInstall, type StagedInstallInput, type StagedInstallResult } from "./lsp-provisioning/staged-install.ts";
 export { type CanRevertMutationInputs, canRevertMutation, type MutationHistoryEntry, type MutationOperation } from "./mutation-history/mutation-history.ts";
 export type { MutationHistoryPort, RecordMutationInput } from "./mutation-history/port.ts";
 export { NpmPackageSourceResolver, type NpmPackageSourceResolverOptions } from "./npm-registry/npm-package-source-resolver.ts";
