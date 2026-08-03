@@ -56,16 +56,27 @@ export class ExplorerComponent implements Component {
 		this.theme = theme;
 		this.session = session;
 		this.done = done;
-		void this.loadDirectory(initialRelativePath);
+		this.pending = this.loadDirectory(initialRelativePath).catch((error: unknown) => this.reportError(error));
 	}
 
 	private pending: Promise<void> = Promise.resolve();
 
 	invalidate(): void {}
 
-	/** Fire-and-forget from the real TUI's own perspective (matching Component's void-returning contract) -- tests await settled() for deterministic assertions after triggering async work. */
+	/**
+	 * Fire-and-forget from the real TUI's own perspective (matching Component's void-returning
+	 * contract) -- tests await settled() for deterministic assertions after triggering async work.
+	 * Any rejection (a daemon call failing, a stale/incompatible daemon, a genuine bug) is caught
+	 * here rather than left to become an unhandled rejection: that crashed the whole Pi process in
+	 * production once already, when a stale running daemon didn't yet support workspace.listDirectory.
+	 */
 	handleInput(data: string): void {
-		this.pending = this.handleInputAsync(data);
+		this.pending = this.handleInputAsync(data).catch((error: unknown) => this.reportError(error));
+	}
+
+	private reportError(error: unknown): void {
+		this.statusMessage = `error: ${error instanceof Error ? error.message : String(error)}`;
+		this.tui.requestRender();
 	}
 
 	/** Resolves once every async operation triggered by the most recent handleInput() call has finished -- a test-determinism hook, not part of the Component contract. */

@@ -25,7 +25,7 @@
     },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.14.0",
+      "version": "0.15.0",
       "bin": {
         "lector": "src/cli.ts",
       },
@@ -59,13 +59,14 @@
     },
     "packages/pi-lector": {
       "name": "@danypops/pi-lector",
-      "version": "0.10.0",
+      "version": "0.11.0",
       "dependencies": {
-        "@danypops/lector": "^0.14.0",
+        "@danypops/lector": "^0.15.0",
         "@danypops/vehicle-client": "^0.2.0",
         "malevich-tui-components": "^0.19.0",
       },
       "devDependencies": {
+        "@danypops/pi-extension-harness": "^0.2.0",
         "@danypops/pi-tui-harness": "^0.0.1",
         "@earendil-works/pi-ai": "^0.81.1",
         "@earendil-works/pi-coding-agent": "^0.81.1",
@@ -159,6 +160,8 @@
     "@danypops/daemon-kit": ["@danypops/daemon-kit@0.14.0", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typescript": "^5" }, "optionalPeers": ["@earendil-works/pi-coding-agent"] }, "sha512-UuEn1by8wEQUnq75dqIqLqie7GQY3NvfQAhN4Uy585VmDnNgWicSlENYG5ZvRHLFUd83bCifx5tGHLZL70V9Iw=="],
 
     "@danypops/lector": ["@danypops/lector@workspace:packages/lector"],
+
+    "@danypops/pi-extension-harness": ["@danypops/pi-extension-harness@0.2.0", "", { "dependencies": { "jiti": "^2.0.0" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typebox": "*" } }, "sha512-jnyoA6VpQS+OciEPQeRHwvBHKJyaokgA73moSBSvi1DUoCn5sL39P/ooatu8nei/hhJTKkFN2FYlQahvBigznw=="],
 
     "@danypops/pi-lector": ["@danypops/pi-lector@workspace:packages/pi-lector"],
 

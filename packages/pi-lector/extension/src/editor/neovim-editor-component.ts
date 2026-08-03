@@ -54,19 +54,38 @@ export class NeovimEditorComponent implements Component {
 		this.done = done;
 		this.extension = extname(host.filePath);
 		this.state = new EditorState(content);
-		void this.refreshHighlights();
+		this.refreshHighlightsSafely();
 	}
 
 	invalidate(): void {
 		this.highlightCache = undefined;
 	}
 
+	/**
+	 * Fire-and-forget from the real TUI's own perspective (matching Component's void-returning
+	 * contract). Any rejection from performAction (host.save/host.hover talking to a daemon that
+	 * fails or restarts mid-session) is caught here rather than left to become an unhandled
+	 * rejection that crashes the whole Pi process -- the same defect class found and fixed in
+	 * ExplorerComponent's own constructor.
+	 */
 	handleInput(data: string): void {
 		this.state.handleKey(data);
 		this.scrollToKeepCursorVisible();
 		const action = this.state.pendingAction;
-		if (action) void this.performAction(action);
+		if (action) this.performActionSafely(action);
 		this.tui.requestRender();
+	}
+
+	private performActionSafely(action: EditorAction): void {
+		void this.performAction(action).catch((error: unknown) => {
+			this.statusMessage = `error: ${error instanceof Error ? error.message : String(error)}`;
+			this.tui.requestRender();
+		});
+	}
+
+	/** Highlighting is cosmetic: a failure here must never surface as a status message that stomps a real save/hover result, and must never crash the editor. */
+	private refreshHighlightsSafely(): void {
+		void this.refreshHighlights().catch(() => undefined);
 	}
 
 	private async performAction(action: EditorAction): Promise<void> {
@@ -112,6 +131,10 @@ export class NeovimEditorComponent implements Component {
 		this.tui.requestRender();
 	}
 
+	private refreshHighlightsIfStale(): void {
+		if (this.highlightCache?.text !== this.state.buffer.text) this.refreshHighlightsSafely();
+	}
+
 	private scrollToKeepCursorVisible(): void {
 		const viewportHeight = Math.max(1, this.tui.terminal.rows - 2);
 		if (this.state.cursorLine < this.scrollTop) this.scrollTop = this.state.cursorLine;
@@ -119,7 +142,7 @@ export class NeovimEditorComponent implements Component {
 	}
 
 	render(width: number): string[] {
-		if (this.highlightCache?.text !== this.state.buffer.text) void this.refreshHighlights();
+		this.refreshHighlightsIfStale();
 
 		const viewportHeight = Math.max(1, this.tui.terminal.rows - 2);
 		const gutterWidth = Math.max(3, String(this.state.buffer.lineCount).length) + 1;
