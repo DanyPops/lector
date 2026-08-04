@@ -1563,168 +1563,288 @@ function runService(action: string | undefined): void {
 	}
 }
 
+type ActionHandler = (actionArgs: string[]) => Promise<void>;
+
+const SEARCH_ACTIONS: Record<string, (query: string | undefined, flags: string[]) => Promise<void>> = {
+	symbols: runSearchSymbols,
+	text: runSearchText,
+	"github-repos": runSearchGithubRepos,
+	"npm-packages": runSearchNpmPackages,
+	"sourcegraph-code": runSearchSourcegraphCode,
+};
+
+async function runSearch(rest: string[]): Promise<void> {
+	const [action, query, ...searchFlags] = rest;
+	const handler = action ? SEARCH_ACTIONS[action] : undefined;
+	if (!handler) fail(USAGE);
+	return handler(query, searchFlags);
+}
+
+const JOB_ACTIONS: Record<string, (jobId: string | undefined, flags: string[]) => Promise<void>> = {
+	status: runJobStatus,
+	wait: runJobWait,
+};
+
+async function runJob(rest: string[]): Promise<void> {
+	const [action, jobId, ...jobFlags] = rest;
+	const handler = action ? JOB_ACTIONS[action] : undefined;
+	if (!handler) fail(USAGE);
+	return handler(jobId, jobFlags);
+}
+
+const PACKAGE_ACTIONS: Record<string, ActionHandler> = {
+	source: (actionRest) => {
+		const [projectDir, packageName, ...packageFlags] = actionRest;
+		return runPackageSource(projectDir, packageName, packageFlags);
+	},
+	"list-sources": (actionRest) => runPackageListSources(actionRest),
+	"remove-source": (actionRest) => {
+		const [ecosystem, name, resolvedVersion, ...removeFlags] = actionRest;
+		return runPackageRemoveSource(ecosystem, name, resolvedVersion, removeFlags);
+	},
+	"clean-sources": (actionRest) => runPackageCleanSources(actionRest),
+};
+
+async function runPackage(rest: string[]): Promise<void> {
+	const [action, ...actionRest] = rest;
+	const handler = action ? PACKAGE_ACTIONS[action] : undefined;
+	if (!handler) fail(USAGE);
+	return handler(actionRest);
+}
+
+const WORKSPACE_ANNOTATION_ACTIONS: Record<string, (annWorkspaceId: string | undefined, annRest: string[]) => Promise<void>> = {
+	create: runWorkspaceAnnotationCreate,
+	list: runWorkspaceAnnotationList,
+	contain: (annWorkspaceId, annRest) => {
+		const [parentId, childId, ...containFlags] = annRest;
+		return runWorkspaceAnnotationContain(annWorkspaceId, parentId, childId, containFlags);
+	},
+	uncontain: (annWorkspaceId, annRest) => {
+		const [parentId, childId, ...containFlags] = annRest;
+		return runWorkspaceAnnotationUncontain(annWorkspaceId, parentId, childId, containFlags);
+	},
+	get: (annWorkspaceId, annRest) => {
+		const [annotationId, ...annFlags] = annRest;
+		return runWorkspaceAnnotationGet(annWorkspaceId, annotationId, annFlags);
+	},
+	refresh: (annWorkspaceId, annRest) => {
+		const [annotationId, ...annFlags] = annRest;
+		return runWorkspaceAnnotationRefresh(annWorkspaceId, annotationId, annFlags);
+	},
+	scrub: (annWorkspaceId, annRest) => {
+		const [annotationId, ...annFlags] = annRest;
+		return runWorkspaceAnnotationScrub(annWorkspaceId, annotationId, annFlags);
+	},
+	restore: (annWorkspaceId, annRest) => {
+		const [annotationId, ...annFlags] = annRest;
+		return runWorkspaceAnnotationRestore(annWorkspaceId, annotationId, annFlags);
+	},
+	tree: (annWorkspaceId, annRest) => {
+		const [annotationId, ...annFlags] = annRest;
+		return runWorkspaceAnnotationTree(annWorkspaceId, annotationId, annFlags);
+	},
+};
+
+async function runWorkspaceAnnotation(actionArgs: string[]): Promise<void> {
+	const [subcommand, annWorkspaceId, ...annRest] = actionArgs;
+	const handler = subcommand ? WORKSPACE_ANNOTATION_ACTIONS[subcommand] : undefined;
+	if (!handler) fail(USAGE);
+	return handler(annWorkspaceId, annRest);
+}
+
+// Every entry re-derives whatever slice of actionArgs it needs itself (rather than sharing one
+// upfront [workspaceId, path, ...flags] destructure the way the old if-chain did) -- each action is
+// independently addressable via WORKSPACE_ACTIONS[action], so nothing upstream is in scope to share.
+const WORKSPACE_ACTIONS: Record<string, ActionHandler> = {
+	register: (actionArgs) => {
+		const [dir, ...flags] = actionArgs;
+		return runWorkspaceRegister(dir, flags);
+	},
+	read: (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceRead(workspaceId, path, flags);
+	},
+	edit: (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceEdit(workspaceId, path, flags);
+	},
+	delete: (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceDelete(workspaceId, path, flags);
+	},
+	"list-directory": (actionArgs) => {
+		// <path> is optional here (defaults to the workspace root) -- a generic
+		// [workspaceId, path, ...flags] destructure would misparse a bare `--json` with no path
+		// positional as path itself, the same flag-vs-positional bug git-status/compare-symbol below guard against.
+		const [ldWorkspaceId, ...ldRest] = actionArgs;
+		const ldPath = ldRest[0]?.startsWith("--") ? undefined : ldRest[0];
+		const ldFlags = ldPath === undefined ? ldRest : ldRest.slice(1);
+		return runWorkspaceListDirectory(ldWorkspaceId, ldPath, ldFlags);
+	},
+	"create-directory": (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceCreateDirectory(workspaceId, path, flags);
+	},
+	"delete-directory": (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceDeleteDirectory(workspaceId, path, flags);
+	},
+	"rename-path": (actionArgs) => {
+		// `path` here is really <old-path>; the generic [workspaceId, path, ...flags] destructure
+		// still lines up correctly since rename-path's own second positional IS old-path.
+		const [workspaceId, path, ...flags] = actionArgs;
+		const [rpNewPath, ...rpFlags] = flags;
+		return runWorkspaceRenamePath(workspaceId, path, rpNewPath, rpFlags);
+	},
+	"line-edit": (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceLineEdit(workspaceId, path, flags);
+	},
+	"apply-patch": (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceApplyPatch(workspaceId, path, flags);
+	},
+	"mutation-history": (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceMutationHistory(workspaceId, path, flags);
+	},
+	"revert-mutation": (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceRevertMutation(workspaceId, path, flags);
+	},
+	watch: (actionArgs) => {
+		const [workspaceId] = actionArgs;
+		return runWorkspaceWatch(workspaceId, actionArgs.slice(1));
+	},
+	unwatch: (actionArgs) => {
+		const [workspaceId, , ...flags] = actionArgs;
+		return runWorkspaceUnwatch(workspaceId, flags);
+	},
+	symbols: (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceSymbols(workspaceId, path, flags);
+	},
+	"search-text": (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceSearchText(workspaceId, path, flags);
+	},
+	"find-files": (actionArgs) => {
+		const [workspaceId] = actionArgs;
+		return runWorkspaceFindFiles(workspaceId, actionArgs.slice(1));
+	},
+	definition: (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceDefinition(workspaceId, path, flags);
+	},
+	implementation: (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceImplementation(workspaceId, path, flags);
+	},
+	references: (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceReferences(workspaceId, path, flags);
+	},
+	hover: (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceHover(workspaceId, path, flags);
+	},
+	"document-symbols": (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceDocumentSymbols(workspaceId, path, flags);
+	},
+	diagnostics: (actionArgs) => {
+		const [workspaceId, path, ...flags] = actionArgs;
+		return runWorkspaceDiagnostics(workspaceId, path, flags);
+	},
+	"call-hierarchy": (actionArgs) => {
+		const [subcommand, chWorkspaceId, chPath, ...chRest] = actionArgs;
+		return runWorkspaceCallHierarchy(subcommand, chWorkspaceId, chPath, chRest);
+	},
+	"populate-symbol-graph": (actionArgs) => {
+		const [psgWorkspaceId, ...psgFlags] = actionArgs;
+		return runWorkspacePopulateSymbolGraph(psgWorkspaceId, psgFlags);
+	},
+	"symbol-graph": (actionArgs) => {
+		const [subcommand, sgWorkspaceId, sgPath, ...sgRest] = actionArgs;
+		return runWorkspaceSymbolGraphQuery(subcommand, sgWorkspaceId, sgPath, sgRest);
+	},
+	"has-warm-index": (actionArgs) => {
+		const [hwiWorkspaceId, ...hwiFlags] = actionArgs;
+		return runWorkspaceHasWarmIndex(hwiWorkspaceId, hwiFlags);
+	},
+	"cache-status": (actionArgs) => {
+		const [cacheWorkspaceId, ...cacheFlags] = actionArgs;
+		return runWorkspaceCacheStatus(cacheWorkspaceId, cacheFlags);
+	},
+	"reference-based-rename": (actionArgs) => {
+		const [rbrWorkspaceId, rbrFromPath, rbrToPath, ...rbrFlags] = actionArgs;
+		return runWorkspaceReferenceBasedRename(rbrWorkspaceId, rbrFromPath, rbrToPath, rbrFlags);
+	},
+	"prepare-rename": (actionArgs) => {
+		const [prWorkspaceId, prPath, ...prRest] = actionArgs;
+		return runWorkspacePrepareRename(prWorkspaceId, prPath, prRest);
+	},
+	rename: (actionArgs) => {
+		const [renWorkspaceId, renPath, ...renRest] = actionArgs;
+		return runWorkspaceRename(renWorkspaceId, renPath, renRest);
+	},
+	map: (actionArgs) => {
+		const [mapWorkspaceId, ...mapFlags] = actionArgs;
+		return runWorkspaceMap(mapWorkspaceId, mapFlags);
+	},
+	"git-status": (actionArgs) => {
+		// None of git-status/git-log/git-diff take a <path> positional -- a generic
+		// [workspaceId, path, ...flags] destructure would misparse the first flag as path (the exact
+		// bug populate-symbol-graph's own CLI wiring hit).
+		const [gitWorkspaceId, ...gitFlags] = actionArgs;
+		return runWorkspaceGitStatus(gitWorkspaceId, gitFlags);
+	},
+	"git-log": (actionArgs) => {
+		const [gitWorkspaceId, ...gitFlags] = actionArgs;
+		return runWorkspaceGitLog(gitWorkspaceId, gitFlags);
+	},
+	"git-diff": (actionArgs) => {
+		const [gitWorkspaceId, ...gitFlags] = actionArgs;
+		return runWorkspaceGitDiff(gitWorkspaceId, gitFlags);
+	},
+	"compare-symbol": (actionArgs) => {
+		// Same reasoning as git-status/git-log/git-diff above -- --path is a flag here, not a positional.
+		const [csWorkspaceId, ...csFlags] = actionArgs;
+		return runWorkspaceCompareSymbol(csWorkspaceId, csFlags);
+	},
+	"repo-fetch": (actionArgs) => {
+		const [spec, ...repoFlags] = actionArgs;
+		return runWorkspaceRepoFetch(spec, repoFlags);
+	},
+	"repo-cache-list": (actionArgs) => runWorkspaceRepoCacheList(actionArgs),
+	"repo-cache-evict": (actionArgs) => {
+		const [spec, ...evictFlags] = actionArgs;
+		return runWorkspaceRepoCacheEvict(spec, evictFlags);
+	},
+	annotation: (actionArgs) => runWorkspaceAnnotation(actionArgs),
+};
+
+async function runWorkspace(rest: string[]): Promise<void> {
+	const [action, ...actionArgs] = rest;
+	const handler = action ? WORKSPACE_ACTIONS[action] : undefined;
+	if (!handler) fail(USAGE);
+	return handler(actionArgs);
+}
+
+const TOP_LEVEL_COMMANDS: Record<string, (rest: string[]) => Promise<void>> = {
+	serve: runServe,
+	service: async (rest) => runService(rest[0]),
+	search: runSearch,
+	job: runJob,
+	package: runPackage,
+	workspace: runWorkspace,
+};
+
 async function main(): Promise<void> {
 	const [command, ...rest] = process.argv.slice(2);
-
-	if (command === "serve") return runServe(rest);
-	if (command === "service") return runService(rest[0]);
-
-	if (command === "search") {
-		const [action, query, ...searchFlags] = rest;
-		if (action === "symbols") return runSearchSymbols(query, searchFlags);
-		if (action === "text") return runSearchText(query, searchFlags);
-		if (action === "github-repos") return runSearchGithubRepos(query, searchFlags);
-		if (action === "npm-packages") return runSearchNpmPackages(query, searchFlags);
-		if (action === "sourcegraph-code") return runSearchSourcegraphCode(query, searchFlags);
-		fail(USAGE);
-	}
-
-	if (command === "job") {
-		const [action, jobId, ...jobFlags] = rest;
-		if (action === "status") return runJobStatus(jobId, jobFlags);
-		if (action === "wait") return runJobWait(jobId, jobFlags);
-		fail(USAGE);
-	}
-
-	if (command === "package") {
-		const [action, ...actionRest] = rest;
-		if (action === "source") {
-			const [projectDir, packageName, ...packageFlags] = actionRest;
-			return runPackageSource(projectDir, packageName, packageFlags);
-		}
-		if (action === "list-sources") return runPackageListSources(actionRest);
-		if (action === "remove-source") {
-			const [ecosystem, name, resolvedVersion, ...removeFlags] = actionRest;
-			return runPackageRemoveSource(ecosystem, name, resolvedVersion, removeFlags);
-		}
-		if (action === "clean-sources") return runPackageCleanSources(actionRest);
-		fail(USAGE);
-	}
-
-	if (command === "workspace") {
-		const [action, ...actionArgs] = rest;
-		if (action === "register") {
-			const [dir, ...flags] = actionArgs;
-			return runWorkspaceRegister(dir, flags);
-		}
-		const [workspaceId, path, ...flags] = actionArgs;
-		if (action === "read") return runWorkspaceRead(workspaceId, path, flags);
-		if (action === "edit") return runWorkspaceEdit(workspaceId, path, flags);
-		if (action === "delete") return runWorkspaceDelete(workspaceId, path, flags);
-		if (action === "list-directory") {
-			// <path> is optional here (defaults to the workspace root) -- the generic
-			// [workspaceId, path, ...flags] destructure above would misparse a bare `--json` with no
-			// path positional as path itself, the same flag-vs-positional bug git-status/compare-symbol
-			// already guard against below.
-			const [ldWorkspaceId, ...ldRest] = actionArgs;
-			const ldPath = ldRest[0]?.startsWith("--") ? undefined : ldRest[0];
-			const ldFlags = ldPath === undefined ? ldRest : ldRest.slice(1);
-			return runWorkspaceListDirectory(ldWorkspaceId, ldPath, ldFlags);
-		}
-		if (action === "create-directory") return runWorkspaceCreateDirectory(workspaceId, path, flags);
-		if (action === "delete-directory") return runWorkspaceDeleteDirectory(workspaceId, path, flags);
-		if (action === "rename-path") {
-			// `path` above is really <old-path> here; the generic [workspaceId, path, ...flags]
-			// destructure still lines up correctly since rename-path's own second positional IS old-path.
-			const [rpNewPath, ...rpFlags] = flags;
-			return runWorkspaceRenamePath(workspaceId, path, rpNewPath, rpFlags);
-		}
-		if (action === "line-edit") return runWorkspaceLineEdit(workspaceId, path, flags);
-		if (action === "apply-patch") return runWorkspaceApplyPatch(workspaceId, path, flags);
-		if (action === "mutation-history") return runWorkspaceMutationHistory(workspaceId, path, flags);
-		if (action === "revert-mutation") return runWorkspaceRevertMutation(workspaceId, path, flags);
-		if (action === "watch") return runWorkspaceWatch(workspaceId, actionArgs.slice(1));
-		if (action === "unwatch") return runWorkspaceUnwatch(workspaceId, flags);
-		if (action === "symbols") return runWorkspaceSymbols(workspaceId, path, flags);
-		if (action === "search-text") return runWorkspaceSearchText(workspaceId, path, flags);
-		if (action === "find-files") return runWorkspaceFindFiles(workspaceId, actionArgs.slice(1));
-		if (action === "definition") return runWorkspaceDefinition(workspaceId, path, flags);
-		if (action === "implementation") return runWorkspaceImplementation(workspaceId, path, flags);
-		if (action === "references") return runWorkspaceReferences(workspaceId, path, flags);
-		if (action === "hover") return runWorkspaceHover(workspaceId, path, flags);
-		if (action === "document-symbols") return runWorkspaceDocumentSymbols(workspaceId, path, flags);
-		if (action === "diagnostics") return runWorkspaceDiagnostics(workspaceId, path, flags);
-		if (action === "call-hierarchy") {
-			const [subcommand, chWorkspaceId, chPath, ...chRest] = actionArgs;
-			return runWorkspaceCallHierarchy(subcommand, chWorkspaceId, chPath, chRest);
-		}
-		if (action === "populate-symbol-graph") {
-			const [psgWorkspaceId, ...psgFlags] = actionArgs;
-			return runWorkspacePopulateSymbolGraph(psgWorkspaceId, psgFlags);
-		}
-		if (action === "symbol-graph") {
-			const [subcommand, sgWorkspaceId, sgPath, ...sgRest] = actionArgs;
-			return runWorkspaceSymbolGraphQuery(subcommand, sgWorkspaceId, sgPath, sgRest);
-		}
-		if (action === "has-warm-index") {
-			const [hwiWorkspaceId, ...hwiFlags] = actionArgs;
-			return runWorkspaceHasWarmIndex(hwiWorkspaceId, hwiFlags);
-		}
-		if (action === "cache-status") {
-			const [cacheWorkspaceId, ...cacheFlags] = actionArgs;
-			return runWorkspaceCacheStatus(cacheWorkspaceId, cacheFlags);
-		}
-		if (action === "reference-based-rename") {
-			const [rbrWorkspaceId, rbrFromPath, rbrToPath, ...rbrFlags] = actionArgs;
-			return runWorkspaceReferenceBasedRename(rbrWorkspaceId, rbrFromPath, rbrToPath, rbrFlags);
-		}
-		if (action === "prepare-rename") {
-			const [prWorkspaceId, prPath, ...prRest] = actionArgs;
-			return runWorkspacePrepareRename(prWorkspaceId, prPath, prRest);
-		}
-		if (action === "rename") {
-			const [renWorkspaceId, renPath, ...renRest] = actionArgs;
-			return runWorkspaceRename(renWorkspaceId, renPath, renRest);
-		}
-		if (action === "map") {
-			const [mapWorkspaceId, ...mapFlags] = actionArgs;
-			return runWorkspaceMap(mapWorkspaceId, mapFlags);
-		}
-		if (action === "git-status" || action === "git-log" || action === "git-diff") {
-			// None of these take a <path> positional -- the generic [workspaceId, path, ...flags]
-			// destructure above would misparse the first flag as path (the exact bug
-			// populate-symbol-graph's own CLI wiring hit).
-			const [gitWorkspaceId, ...gitFlags] = actionArgs;
-			if (action === "git-status") return runWorkspaceGitStatus(gitWorkspaceId, gitFlags);
-			if (action === "git-log") return runWorkspaceGitLog(gitWorkspaceId, gitFlags);
-			return runWorkspaceGitDiff(gitWorkspaceId, gitFlags);
-		}
-		if (action === "compare-symbol") {
-			// Same reasoning as git-status/git-log/git-diff above -- --path is a flag here, not a positional.
-			const [csWorkspaceId, ...csFlags] = actionArgs;
-			return runWorkspaceCompareSymbol(csWorkspaceId, csFlags);
-		}
-		if (action === "repo-fetch") {
-			const [spec, ...repoFlags] = actionArgs;
-			return runWorkspaceRepoFetch(spec, repoFlags);
-		}
-		if (action === "repo-cache-list") return runWorkspaceRepoCacheList(actionArgs);
-		if (action === "repo-cache-evict") {
-			const [spec, ...evictFlags] = actionArgs;
-			return runWorkspaceRepoCacheEvict(spec, evictFlags);
-		}
-		if (action === "annotation") {
-			const [subcommand, annWorkspaceId, ...annRest] = actionArgs;
-			if (subcommand === "create") return runWorkspaceAnnotationCreate(annWorkspaceId, annRest);
-			if (subcommand === "list") return runWorkspaceAnnotationList(annWorkspaceId, annRest);
-			if (subcommand === "contain" || subcommand === "uncontain") {
-				const [parentId, childId, ...containFlags] = annRest;
-				return subcommand === "contain"
-					? runWorkspaceAnnotationContain(annWorkspaceId, parentId, childId, containFlags)
-					: runWorkspaceAnnotationUncontain(annWorkspaceId, parentId, childId, containFlags);
-			}
-			const [annotationId, ...annFlags] = annRest;
-			if (subcommand === "get") return runWorkspaceAnnotationGet(annWorkspaceId, annotationId, annFlags);
-			if (subcommand === "refresh") return runWorkspaceAnnotationRefresh(annWorkspaceId, annotationId, annFlags);
-			if (subcommand === "scrub") return runWorkspaceAnnotationScrub(annWorkspaceId, annotationId, annFlags);
-			if (subcommand === "restore") return runWorkspaceAnnotationRestore(annWorkspaceId, annotationId, annFlags);
-			if (subcommand === "tree") return runWorkspaceAnnotationTree(annWorkspaceId, annotationId, annFlags);
-			fail(USAGE);
-		}
-		fail(USAGE);
-	}
-
-	fail(USAGE);
+	const handler = command ? TOP_LEVEL_COMMANDS[command] : undefined;
+	if (!handler) fail(USAGE);
+	return handler(rest);
 }
 
 if (import.meta.main) {
