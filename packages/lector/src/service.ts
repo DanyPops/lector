@@ -40,7 +40,6 @@ import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, li
 import { type DirectoryListing, listDirectory } from "./domain/list-directory.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./domain/prepare-call-hierarchy.ts";
-import { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
 import { planReferenceBasedRename } from "./domain/reference-based-rename.ts";
 import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from "./domain/response-format.ts";
@@ -89,6 +88,7 @@ import type { RepoFetchResult } from "./repo-fetcher/repo-fetch-result.ts";
 import type { RepoReference } from "./repo-fetcher/repo-reference.ts";
 import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
 import type { SearchCachePort } from "./search-cache/port.ts";
+import { createCrossWorkspaceHandlers } from "./service/cross-workspace-handlers.ts";
 import { createExternalSearchHandlers } from "./service/external-search-handlers.ts";
 import { createGitHandlers } from "./service/git-handlers.ts";
 import { GraphRefreshCoordinator } from "./service/graph-refresh-coordinator.ts";
@@ -844,7 +844,6 @@ async function registerPath(registry: MutableRegistry, input: OperationInputs["w
  * Bash/YAML all settle well under 3s; only rust-analyzer's own measured ~2.5s worst case comes
  * close), bounded so one slow workspace can't stall every other workspace's real results.
  */
-const DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS = 3000;
 const MAX_INITIAL_JOB_WAIT_MS = 30_000;
 const MAX_SYMBOL_RESULTS = 5_000;
 const MAX_SOURCE_MANIFEST_BYTES = 50 * 1024 * 1024;
@@ -1045,6 +1044,11 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		npmSearchCache,
 		sourcegraphSearchCache,
 	});
+	const crossWorkspaceHandlers = createCrossWorkspaceHandlers({
+		registry,
+		findSymbols: (input) => findSymbols(registry, input),
+		searchText: (input) => searchTextHandler(registry, input),
+	});
 
 	async function searchTextHandler(
 		registry: MutableRegistry,
@@ -1118,78 +1122,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			osWatchersByWorkspace.delete(removed.workspaceId);
 		}
 		return { unwatched: removed !== undefined };
-	}
-
-	/** Every workspace with a known root -- the same precondition workspace.findSymbols/searchText already require individually, applied to all of them at once. */
-	function registeredWorkspaceIds(registry: MutableRegistry): readonly WorkspaceId[] {
-		return Array.from(registry.entries())
-			.filter(([, entry]) => entry.rootPath !== undefined)
-			.map(([workspaceId]) => workspaceId);
-	}
-
-	/**
-	 * `explicitIds` given: validates each one (an unknown id or one with no root path becomes an
-	 * immediate "error" outcome, not a silent drop) and searches exactly that set -- nothing more.
-	 * `explicitIds` omitted: every registered workspace, daemon-wide. This is the one place that
-	 * default is genuinely risky: found live, this daemon is a shared, system-wide service, and
-	 * "every registered workspace" can include a project an entirely different, concurrent Pi
-	 * session registered. A caller that means "just my own current projects" must pass
-	 * explicitIds -- pi-lector's own tools always do.
-	 */
-	function resolveCrossWorkspaceTargets(
-		registry: MutableRegistry,
-		explicitIds: readonly WorkspaceId[] | undefined,
-	): { targets: readonly WorkspaceId[]; immediateErrors: readonly { workspaceId: WorkspaceId; status: "error"; message: string }[] } {
-		if (!explicitIds) return { targets: registeredWorkspaceIds(registry), immediateErrors: [] };
-		const targets: WorkspaceId[] = [];
-		const immediateErrors: { workspaceId: WorkspaceId; status: "error"; message: string }[] = [];
-		for (const workspaceId of explicitIds) {
-			const entry = registry.get(workspaceId);
-			if (!entry) {
-				immediateErrors.push({ workspaceId, status: "error", message: `no workspace registered under id "${workspaceId}"` });
-			} else if (!entry.rootPath) {
-				immediateErrors.push({
-					workspaceId,
-					status: "error",
-					message: `workspace "${workspaceId}" has no known root path -- cross-workspace search requires workspace.registerPath or repo.fetch`,
-				});
-			} else {
-				targets.push(workspaceId);
-			}
-		}
-		return { targets, immediateErrors };
-	}
-
-	async function crossFindSymbols(registry: MutableRegistry, input: OperationInputs["search.symbols"]): Promise<OperationOutputs["search.symbols"]> {
-		const timeoutMs = input.timeoutMs ?? DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS;
-		const { targets, immediateErrors } = resolveCrossWorkspaceTargets(registry, input.workspaceIds);
-		const results = await Promise.all(
-			targets.map((workspaceId) =>
-				raceWorkspaceQuery(
-					workspaceId,
-					() => findSymbols(registry, { workspaceId, query: input.query }),
-					timeoutMs,
-					"this workspace's symbol index is still warming up (a cold-starting language server) -- its data may exist once it finishes; retry shortly",
-				),
-			),
-		);
-		return { results: [...immediateErrors, ...results] };
-	}
-
-	async function crossSearchText(registry: MutableRegistry, input: OperationInputs["search.text"]): Promise<OperationOutputs["search.text"]> {
-		const timeoutMs = input.timeoutMs ?? DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS;
-		const { targets, immediateErrors } = resolveCrossWorkspaceTargets(registry, input.workspaceIds);
-		const results = await Promise.all(
-			targets.map((workspaceId) =>
-				raceWorkspaceQuery(
-					workspaceId,
-					() => searchTextHandler(registry, { workspaceId, query: input.query, maxMatches: input.maxMatches, maxBytes: input.maxBytes }),
-					timeoutMs,
-					"this workspace's search is still running -- its data may exist once it finishes; retry shortly",
-				),
-			),
-		);
-		return { results: [...immediateErrors, ...results] };
 	}
 
 	/** Never spawns -- a caller deciding whether to enrich a result with LSP-backed info must not pay a cold-start cost just to check. With a path, checks that file's own language; without one, whether anything is warm for the workspace at all. */
@@ -1958,12 +1890,11 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...repoFetchHandlers,
 		...packageSourceHandlers,
 		...externalSearchHandlers,
+		...crossWorkspaceHandlers,
 		"workspace.searchText": searchTextHandler,
 		"workspace.findFiles": findFilesHandler,
 		"workspace.watch": watchHandler,
 		"workspace.unwatch": unwatchHandler,
-		"search.symbols": crossFindSymbols,
-		"search.text": crossSearchText,
 		"job.submit": submitJobHandler,
 		"job.status": jobStatusHandler,
 		"job.watch": jobWatchHandler,
