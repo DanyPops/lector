@@ -64,9 +64,7 @@ import { GithubSearchClient } from "./github-search/github-search-client.ts";
 import type { GithubSearchPort } from "./github-search/port.ts";
 import { NpmLockfileVersionResolver } from "./installed-package-version-resolver/npm-lockfile-version-resolver.ts";
 import type { LanguageServerProvisionerPort } from "./lsp-provisioning/port.ts";
-import { InMemoryMutationHistory } from "./mutation-history/in-memory-mutation-history.ts";
-import type { MutationHistoryEntry, MutationOperation } from "./mutation-history/mutation-history.ts";
-import { canRevertMutation } from "./mutation-history/mutation-history.ts";
+import type { MutationHistoryEntry } from "./mutation-history/mutation-history.ts";
 import type { MutationHistoryPort } from "./mutation-history/port.ts";
 import { NpmPackageSourceResolver } from "./npm-registry/npm-package-source-resolver.ts";
 import { NpmRegistryClient } from "./npm-registry/npm-registry-client.ts";
@@ -92,6 +90,7 @@ import { createCrossWorkspaceHandlers } from "./service/cross-workspace-handlers
 import { createExternalSearchHandlers } from "./service/external-search-handlers.ts";
 import { createGitHandlers } from "./service/git-handlers.ts";
 import { GraphRefreshCoordinator } from "./service/graph-refresh-coordinator.ts";
+import { MutationHistoryCoordinator } from "./service/mutation-history-handlers.ts";
 import { createPackageSourceHandlers } from "./service/package-source-handlers.ts";
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { type ClosableSymbolIndex, supportsCodeIntelligence, WarmIndexRegistry } from "./service/warm-index-registry.ts";
@@ -925,34 +924,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return store;
 	}
 
-	// One mutation-history store per workspace, same lazy-create-on-first-use shape as symbolAnnotations.
-	const mutationHistories = new Map<WorkspaceId, MutationHistoryPort>();
-	const createMutationHistory = options.createMutationHistory ?? (() => new InMemoryMutationHistory());
-
-	function ensureMutationHistory(workspaceId: WorkspaceId): MutationHistoryPort {
-		let store = mutationHistories.get(workspaceId);
-		if (!store) {
-			store = createMutationHistory(workspaceId);
-			mutationHistories.set(workspaceId, store);
-		}
-		return store;
-	}
-
-	/** Records one mutation-history entry after a successful write -- reads the file's content BEFORE the caller's own edit runs, since the edit's own outcome only ever reports a hash, never the prior text a revert would need to restore. Generic over the real outcome type (EditOutcome/LineEditOutcome) so callers get their full, correctly-typed result back, not a narrowed {newHash} shape. */
-	async function recordMutation<T extends { newHash: ContentHash | null }>(
-		workspaceId: WorkspaceId,
-		path: string,
-		operation: MutationOperation,
-		run: () => Promise<T>,
-	): Promise<T> {
-		const workspace = resolveWorkspace(registry, workspaceId);
-		const before = await workspace.readEntry(path);
-		const beforeContent = before.exists ? before.content : null;
-		const beforeHash = before.exists ? contentHashOf(before.content) : null;
-		const outcome = await run();
-		await ensureMutationHistory(workspaceId).record({ path, operation, beforeContent, beforeHash, afterHash: outcome.newHash });
-		return outcome;
-	}
+	const mutationHistory = new MutationHistoryCoordinator({ registry, createStore: options.createMutationHistory });
 
 	const createGitPort = options.createGitPort ?? ((rootPath: string) => new LocalGit(rootPath));
 	// Constructed once, not per-call -- reconstructing would rehydrate the same on-disk index
@@ -1515,45 +1487,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		});
 	}
 
-	async function mutationHistoryHandler(
-		_registry: MutableRegistry,
-		input: OperationInputs["workspace.mutationHistory"],
-	): Promise<OperationOutputs["workspace.mutationHistory"]> {
-		if (!registry.has(input.workspaceId)) throw new UnknownWorkspace(input.workspaceId);
-		const entries = await ensureMutationHistory(input.workspaceId).listForPath(input.path, input.maxResults);
-		return { entries };
-	}
-
-	async function revertMutationHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.revertMutation"],
-	): Promise<OperationOutputs["workspace.revertMutation"]> {
-		if (!registry.has(input.workspaceId)) throw new UnknownWorkspace(input.workspaceId);
-		const target = await ensureMutationHistory(input.workspaceId).get(input.entryId);
-		if (!target) throw new MutationEntryNotFound(input.entryId);
-
-		const workspace = resolveWorkspace(registry, input.workspaceId);
-		const current = await workspace.readEntry(target.path);
-		const currentHash = current.exists ? contentHashOf(current.content) : null;
-		if (!canRevertMutation({ entry: target, currentHash })) throw new MutationRevertStale(input.entryId, target.path);
-
-		const outcome = await recordMutation(input.workspaceId, target.path, "revert", async () => {
-			if (target.beforeContent === null) {
-				// The targeted mutation created this file -- reverting it means it must not exist again.
-				// currentHash is provably non-null here: canRevertMutation already confirmed it equals
-				// target.afterHash, and a create's own afterHash is never null (exactEdit/lineEdit/
-				// applyPatch never produce one) -- but narrowed via a real runtime check, not assumed.
-				if (currentHash === null) throw new MutationRevertStale(input.entryId, target.path);
-				await workspace.deleteEntry(target.path, currentHash);
-				return { newHash: null };
-			}
-			const written = await workspace.writeEntry(target.path, currentHash, target.beforeContent);
-			return { newHash: written.newHash };
-		});
-
-		return { path: target.path, newHash: outcome.newHash };
-	}
-
 	function isRecord(value: unknown): value is Record<string, unknown> {
 		return typeof value === "object" && value !== null;
 	}
@@ -1843,29 +1776,27 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		},
 		"workspace.exactEdit": async (registry, input) => {
 			const { workspaceId, ...edit } = input;
-			const outcome = await recordMutation(workspaceId, edit.path, "exactEdit", () => exactEdit(resolveWorkspace(registry, workspaceId), edit));
+			const outcome = await mutationHistory.record(workspaceId, edit.path, "exactEdit", () => exactEdit(resolveWorkspace(registry, workspaceId), edit));
 			await contentCache.putRawContent(outcome.newHash, edit.content);
 			return outcome;
 		},
 		"workspace.deleteEntry": async (registry, input) => {
-			const outcome = await recordMutation(input.workspaceId, input.path, "delete", async () => {
+			const outcome = await mutationHistory.record(input.workspaceId, input.path, "delete", async () => {
 				const result = await resolveWorkspace(registry, input.workspaceId).deleteEntry(input.path, input.expectedHash);
 				return { newHash: null, previousHash: result.previousHash };
 			});
 			return { path: input.path, previousHash: outcome.previousHash };
 		},
 		"workspace.lineEdit": (registry, input) => {
-			return recordMutation(input.workspaceId, input.path, "lineEdit", () =>
+			return mutationHistory.record(input.workspaceId, input.path, "lineEdit", () =>
 				lineEdit(resolveWorkspace(registry, input.workspaceId), { path: input.path, edits: input.edits }),
 			);
 		},
 		"workspace.applyPatch": (registry, input) => {
-			return recordMutation(input.workspaceId, input.path, "applyPatch", () =>
+			return mutationHistory.record(input.workspaceId, input.path, "applyPatch", () =>
 				applyPatch(resolveWorkspace(registry, input.workspaceId), { path: input.path, expectedHash: input.expectedHash, patchText: input.patchText }),
 			);
 		},
-		"workspace.mutationHistory": mutationHistoryHandler,
-		"workspace.revertMutation": revertMutationHandler,
 		"workspace.registerPath": registerPath,
 		"workspace.findSymbols": findSymbols,
 		"workspace.goToDefinition": goToDefinition,
@@ -1889,6 +1820,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...gitHandlers,
 		...repoFetchHandlers,
 		...packageSourceHandlers,
+		...mutationHistory.handlers,
 		...externalSearchHandlers,
 		...crossWorkspaceHandlers,
 		"workspace.searchText": searchTextHandler,
