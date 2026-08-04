@@ -1,8 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import picomatch from "picomatch";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { discoverWorkspaceDescriptors } from "./adapters/lsp/discover-seed-file.ts";
@@ -51,10 +50,9 @@ import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts"
 import type { SymbolSearchResult, WorkspaceLocation } from "./domain/workspace-symbol.ts";
 import { InMemoryExternalSearchCache } from "./external-search-cache/in-memory-external-search-cache.ts";
 import type { ExternalSearchCachePort } from "./external-search-cache/port.ts";
-import type { FileChangeEvent } from "./file-watcher/file-change-event.ts";
 import { NodeFsFileWatcher } from "./file-watcher/node-fs-file-watcher.ts";
 import type { FileWatcherPort } from "./file-watcher/port.ts";
-import { WatchLimitExceeded, WatchRegistry } from "./file-watcher/watch-registry.ts";
+import { WatchLimitExceeded } from "./file-watcher/watch-registry.ts";
 import type { GitDiffResult } from "./git/diff-result.ts";
 import { LocalGit } from "./git/local-git.ts";
 import type { GitLogEntry } from "./git/log-entry.ts";
@@ -96,6 +94,7 @@ import { createPackageSourceHandlers } from "./service/package-source-handlers.t
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { type ClosableSymbolIndex, supportsCodeIntelligence, WarmIndexRegistry } from "./service/warm-index-registry.ts";
 import { createWorkspaceMapHandler } from "./service/workspace-map-handler.ts";
+import { WorkspaceWatchHandlers } from "./service/workspace-watch-handlers.ts";
 import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
 import { SourcegraphSearchClient } from "./sourcegraph-search/sourcegraph-search-client.ts";
 import type { SymbolAnnotationPort } from "./symbol-annotation/port.ts";
@@ -933,24 +932,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const searchCache = options.createSearchCache?.() ?? new InMemorySearchCache();
 	const createFileWatcher = options.createFileWatcher ?? (() => new NodeFsFileWatcher());
 	const publish = options.publish ?? (() => {});
-	const watchRegistry = new WatchRegistry();
 	/** Serializes workspace.rename's atomic multi-file apply per workspace root -- a concurrent second rename (or reference-based rename) for the same workspace waits its turn rather than interleaving mid-apply. */
 	const renameMutationBarrier = new SerialExecutionQueue();
-	/**
-	 * One real OS watcher per workspace, shared across every pattern registered for it AND
-	 * graph-freshness watching -- lazily created on the first workspace.watch call or the first
-	 * successful population (whichever comes first), closed only once BOTH reasons are gone
-	 * (see GraphRefreshCoordinator).
-	 */
-	const osWatchersByWorkspace = new Map<WorkspaceId, { close(): void }>();
-
-	/** Ensures a workspace's shared OS watcher exists, for either reason (agent watch or graph freshness) -- idempotent, safe to call when one already exists for the other reason. */
-	function ensureOsWatcher(workspaceId: WorkspaceId, rootPath: string): void {
-		if (osWatchersByWorkspace.has(workspaceId)) return;
-		const handle = createFileWatcher().watch(rootPath, (event) => handleFileChange(workspaceId, event));
-		osWatchersByWorkspace.set(workspaceId, handle);
-	}
-
 	/**
 	 * Submits a fresh background population for `workspaceId` using its last generation's own
 	 * bounds, deduplicated against any already-in-flight population the same way
@@ -992,6 +975,18 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		graphRefresh.setActiveJob(workspaceId, submitted.id);
 	}
 
+	const workspaceWatchHandlers = new WorkspaceWatchHandlers({
+		registry,
+		createWatcher: createFileWatcher,
+		publish,
+		notifyWarmIndexes: (workspaceId, event) => warmIndexes.notifyFileChanged(workspaceId, event),
+		isGraphWatched: (workspaceId) => graphRefresh.isWatched(workspaceId),
+		scheduleGraphRefresh: (workspaceId) => {
+			graphRefresh.schedule(workspaceId, () => {
+				void scheduleGraphRefresh(workspaceId);
+			});
+		},
+	});
 	const gitHandlers = createGitHandlers({ registry, createGitPort, logger });
 	const repoFetchHandlers = createRepoFetchHandlers({ repoFetcher, logger });
 	const packageSourceHandlers = createPackageSourceHandlers({ packageSourceResolver, packageSourceIndex, repoFetcher, logger });
@@ -1024,63 +1019,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
 		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 		return findFilesQuery(textSearch, entry.rootPath, input.patterns, { maxResults: input.maxResults, maxBytes: input.maxBytes });
-	}
-
-	/**
-	 * The one callback every workspace's single shared OS watcher uses, regardless of how many
-	 * patterns are registered against it. Three independent effects, none gating the others:
-	 * (1) dispatch to every agent-registered workspace.watch pattern, publishing to each match's
-	 * own topic; (2) forward to the workspace's warm code-intelligence index(es), which decide
-	 * for themselves (via their own dynamically registered LSP patterns) whether the server cares;
-	 * (3) schedule a debounced automatic symbol-graph refresh if this workspace has ever been
-	 * populated.
-	 */
-	function handleFileChange(workspaceId: WorkspaceId, event: FileChangeEvent): void {
-		for (const registration of watchRegistry.registrationsFor(workspaceId)) {
-			if (picomatch(registration.pattern)(event.path)) publish(registration.topic, event);
-		}
-		warmIndexes.notifyFileChanged(workspaceId, event);
-		// git's own internal bookkeeping (index, refs, packed-refs, objects, logs, ...) writes real
-		// files under .git/ on every status check/commit -- none of it is source code, and the
-		// automatic graph watcher requiring a real git repository (see populateSymbolGraphHandler)
-		// means this noise is now guaranteed to exist for every graph-watched workspace, not a rare
-		// case. Explicit workspace.watch/notifyFileChanged keep seeing it -- only the graph-refresh
-		// trigger, which never has a legitimate reason to react to .git's own internals, excludes it.
-		const isGitInternal = event.path === ".git" || event.path.startsWith(".git/");
-		if (!isGitInternal && graphRefresh.isWatched(workspaceId)) {
-			graphRefresh.schedule(workspaceId, () => {
-				void scheduleGraphRefresh(workspaceId);
-			});
-		}
-	}
-
-	async function watchHandler(registry: MutableRegistry, input: OperationInputs["workspace.watch"]): Promise<OperationOutputs["workspace.watch"]> {
-		const entry = registry.get(input.workspaceId);
-		if (!entry) throw new UnknownWorkspace(input.workspaceId);
-		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
-		if (!input.pattern) throw new TypeError("workspace.watch requires a non-empty pattern");
-
-		const watchId = randomUUID();
-		const topic = `watch:${watchId}`;
-		// Registered before the OS watcher is (possibly) created: if WatchLimitExceeded throws
-		// here, no OS watcher is ever touched for a workspace already at its bound.
-		watchRegistry.add(input.workspaceId, input.pattern, watchId, topic);
-
-		ensureOsWatcher(input.workspaceId, entry.rootPath);
-
-		return { watchId, topic };
-	}
-
-	async function unwatchHandler(_registry: MutableRegistry, input: OperationInputs["workspace.unwatch"]): Promise<OperationOutputs["workspace.unwatch"]> {
-		const removed = watchRegistry.remove(input.watchId);
-		// Only close the shared OS watcher once NEITHER reason to keep it open remains -- a
-		// workspace whose graph is being kept warm must keep observing disk changes even after
-		// every agent-registered watch on it is gone.
-		if (removed && !watchRegistry.hasAnyFor(removed.workspaceId) && !graphRefresh.isWatched(removed.workspaceId)) {
-			osWatchersByWorkspace.get(removed.workspaceId)?.close();
-			osWatchersByWorkspace.delete(removed.workspaceId);
-		}
-		return { unwatched: removed !== undefined };
 	}
 
 	/** Never spawns -- a caller deciding whether to enrich a result with LSP-backed info must not pay a cold-start cost just to check. With a path, checks that file's own language; without one, whether anything is warm for the workspace at all. */
@@ -1325,7 +1263,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		// state into "No Project" under load).
 		if (entry.origin === "remote" || (await createGitPort(rootPath).isGitRepository())) {
 			graphRefresh.markWatched(input.workspaceId);
-			ensureOsWatcher(input.workspaceId, rootPath);
+			workspaceWatchHandlers.ensureOsWatcher(input.workspaceId, rootPath);
 		}
 		return result;
 	}
@@ -1649,8 +1587,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...crossWorkspaceHandlers,
 		"workspace.searchText": searchTextHandler,
 		"workspace.findFiles": findFilesHandler,
-		"workspace.watch": watchHandler,
-		"workspace.unwatch": unwatchHandler,
+		...workspaceWatchHandlers.handlers,
 		"job.submit": submitJobHandler,
 		"job.status": jobStatusHandler,
 		"job.watch": jobWatchHandler,
@@ -1671,8 +1608,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		},
 		async close(): Promise<void> {
 			jobs.close();
-			for (const watcher of osWatchersByWorkspace.values()) watcher.close();
-			osWatchersByWorkspace.clear();
+			workspaceWatchHandlers.close();
 			await Promise.all([warmIndexes.closeAll(), graphRefresh.close(), annotationHandlers.close()]);
 		},
 		async reapIdleSymbolIndexes(maxIdleMs: number): Promise<number> {
