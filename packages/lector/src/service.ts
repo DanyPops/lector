@@ -5,9 +5,8 @@ import type { Logger } from "@danypops/vehicle-server/logging";
 import picomatch from "picomatch";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
-import { discoverWorkspaceDescriptor, discoverWorkspaceDescriptors } from "./adapters/lsp/discover-seed-file.ts";
+import { discoverWorkspaceDescriptors } from "./adapters/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
-import { PolyglotCodeIntelligenceIndex } from "./adapters/polyglot-code-intelligence-index.ts";
 import { deriveSourceManifest } from "./adapters/source-manifest.ts";
 import { findImportSpecifiers } from "./adapters/tree-sitter/import-specifiers.ts";
 import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
@@ -37,7 +36,7 @@ import type { Hover } from "./domain/hover.ts";
 import { hoverAt } from "./domain/hover-at.ts";
 import { incomingCalls as incomingCallsQuery } from "./domain/incoming-calls.ts";
 import type { IntelligenceProvenance } from "./domain/intelligence-provenance.ts";
-import { descriptorForPath, LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./domain/language-server-descriptor.ts";
+import { LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./domain/language-server-descriptor.ts";
 import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, lineEdit } from "./domain/line-edit.ts";
 import { type DirectoryListing, listDirectory } from "./domain/list-directory.ts";
 import { outgoingCalls as outgoingCallsQuery } from "./domain/outgoing-calls.ts";
@@ -95,6 +94,7 @@ import { createExternalSearchHandlers } from "./service/external-search-handlers
 import { createGitHandlers } from "./service/git-handlers.ts";
 import { createPackageSourceHandlers } from "./service/package-source-handlers.ts";
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
+import { type ClosableSymbolIndex, supportsCodeIntelligence, WarmIndexRegistry } from "./service/warm-index-registry.ts";
 import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
 import { SourcegraphSearchClient } from "./sourcegraph-search/sourcegraph-search-client.ts";
 import { annotationsContainedFrom, wouldCreateContainmentCycle } from "./symbol-annotation/annotation-containment.ts";
@@ -720,9 +720,6 @@ export interface RegisteredWorkspace {
 
 export type MutableRegistry = Map<WorkspaceId, RegisteredWorkspace>;
 
-/** A SymbolIndexPort the service can also shut down when it stops. */
-export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void> };
-
 export interface LectorServiceOptions {
 	/** Threaded into the default LspSymbolIndex's open-file lifecycle and every workspace.populateSymbolGraph run. Defaults to a no-op. */
 	logger?: Logger;
@@ -812,11 +809,6 @@ function resolveFileTree(registry: MutableRegistry, workspaceId: WorkspaceId): F
 	return port;
 }
 
-/** True when a warm SymbolIndexPort is also a real CodeIntelligencePort (currently: any LspSymbolIndex, never TreeSitterSymbolIndex). */
-function supportsCodeIntelligence(index: SymbolIndexPort): index is SymbolIndexPort & CodeIntelligencePort {
-	return "goToDefinition" in index && typeof index.goToDefinition === "function";
-}
-
 type OperationHandlers = {
 	[Name in OperationName]: (registry: MutableRegistry, input: OperationInputs[Name]) => Promise<OperationOutputs[Name]>;
 };
@@ -895,11 +887,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	// owns its own construction and does not automatically receive this instance.
 	const contentCache = options.createContentCache?.() ?? new InMemoryContentCache();
 
-	// One warm symbol index per (workspace, language) actually queried, reused across calls --
-	// a fresh process per query would pay a fork+initialize cost every time. A polyglot
-	// workspace holds one warm index per language touched, never one guessed for the whole tree.
-	// lastUsedAt backs reapIdleSymbolIndexes -- an idle-eviction TTL, not just a warm cache.
-	const symbolIndexes = new Map<string, { index: ClosableSymbolIndex; workspaceId: WorkspaceId; lastUsedAt: number }>();
 	const createSymbolIndex =
 		options.createSymbolIndex ??
 		((rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => {
@@ -907,9 +894,17 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			if (descriptor.languageId !== "typescript") return semantic;
 			return new FallbackCodeIntelligenceIndex(semantic, [new TypeScriptCompilerSymbolIndex(rootPath), new TreeSitterSymbolIndex(rootPath, contentCache)]);
 		});
-	function symbolIndexKey(workspaceId: WorkspaceId, languageId: string): string {
-		return `${workspaceId}:${languageId}`;
-	}
+	const warmIndexes = new WarmIndexRegistry<WorkspaceId>({
+		descriptors: LANGUAGE_SERVER_DESCRIPTORS,
+		createIndex: createSymbolIndex,
+		resolveRoot: (workspaceId) => {
+			const entry = registry.get(workspaceId);
+			if (!entry) throw new UnknownWorkspace(workspaceId);
+			if (!entry.rootPath) throw new SymbolQueryUnavailable(workspaceId);
+			return entry.rootPath;
+		},
+		unsupportedLanguage: (path) => new UnsupportedLanguage(path),
+	});
 
 	// One symbol graph per workspace, populated only when workspace.populateSymbolGraph is
 	// actually invoked -- unlike symbolIndexes, there is no idle-eviction TTL here: a graph
@@ -1094,10 +1089,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		for (const registration of watchRegistry.registrationsFor(workspaceId)) {
 			if (picomatch(registration.pattern)(event.path)) publish(registration.topic, event);
 		}
-		for (const entry of symbolIndexes.values()) {
-			if (entry.workspaceId !== workspaceId) continue;
-			if (supportsCodeIntelligence(entry.index)) entry.index.notifyFileChanged?.(event);
-		}
+		warmIndexes.notifyFileChanged(workspaceId, event);
 		// git's own internal bookkeeping (index, refs, packed-refs, objects, logs, ...) writes real
 		// files under .git/ on every status check/commit -- none of it is source code, and the
 		// automatic graph watcher requiring a real git repository (see populateSymbolGraphHandler)
@@ -1213,83 +1205,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return { results: [...immediateErrors, ...results] };
 	}
 
-	/** Resolves which descriptor a call targets: path/seedFile's own extension, per-file like every mainstream editor -- never a guess about "the workspace's language" -- except findSymbols with neither, which has no anchor file at all. */
-	function resolveDescriptor(
-		rootPath: string,
-		hint: { path?: string; seedFile?: string },
-	): { descriptor: LanguageServerDescriptor; seedFile: string | undefined } {
-		const pathHint = hint.path ?? hint.seedFile;
-		if (pathHint) {
-			const descriptor = descriptorForPath(pathHint);
-			if (!descriptor) throw new UnsupportedLanguage(pathHint);
-			return { descriptor, seedFile: hint.seedFile };
-		}
-		const discovered = discoverWorkspaceDescriptor(rootPath, LANGUAGE_SERVER_DESCRIPTORS);
-		if (!discovered) throw new UnsupportedLanguage(rootPath);
-		return { descriptor: discovered.descriptor, seedFile: discovered.seedFile };
-	}
-
-	function ensureLanguageIndex(workspaceId: WorkspaceId, rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string): ClosableSymbolIndex {
-		const key = symbolIndexKey(workspaceId, descriptor.languageId);
-		let entryIndex = symbolIndexes.get(key);
-		if (!entryIndex) {
-			entryIndex = { index: createSymbolIndex(rootPath, descriptor, seedFile), workspaceId, lastUsedAt: Date.now() };
-			symbolIndexes.set(key, entryIndex);
-		} else {
-			entryIndex.lastUsedAt = Date.now();
-		}
-		return entryIndex.index;
-	}
-
-	async function ensureWarmIndex(input: {
-		workspaceId: WorkspaceId;
-		path?: string;
-		seedFile?: string;
-	}): Promise<{ index: ClosableSymbolIndex; descriptor: LanguageServerDescriptor }> {
-		const entry = registry.get(input.workspaceId);
-		if (!entry) throw new UnknownWorkspace(input.workspaceId);
-		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
-		const { descriptor, seedFile } = resolveDescriptor(entry.rootPath, input);
-		return { index: ensureLanguageIndex(input.workspaceId, entry.rootPath, descriptor, seedFile), descriptor };
-	}
-
-	function ensureWorkspaceIndex(
-		workspaceId: WorkspaceId,
-		preferredSeedFile?: string,
-	): {
-		index: SymbolIndexPort;
-		descriptors: readonly LanguageServerDescriptor[];
-		sources: readonly IntelligenceProvenance[];
-	} {
-		const entry = registry.get(workspaceId);
-		if (!entry) throw new UnknownWorkspace(workspaceId);
-		if (!entry.rootPath) throw new SymbolQueryUnavailable(workspaceId);
-		const rootPath = entry.rootPath;
-		const preferredDescriptor = preferredSeedFile ? descriptorForPath(preferredSeedFile) : undefined;
-		if (preferredSeedFile && !preferredDescriptor) throw new UnsupportedLanguage(preferredSeedFile);
-		const discovered = [...discoverWorkspaceDescriptors(rootPath, LANGUAGE_SERVER_DESCRIPTORS)];
-		if (preferredDescriptor && preferredSeedFile && !discovered.some(({ descriptor }) => descriptor.languageId === preferredDescriptor.languageId)) {
-			discovered.push({ descriptor: preferredDescriptor, seedFile: preferredSeedFile });
-		}
-		if (discovered.length === 0) throw new UnsupportedLanguage(rootPath);
-		const indexes = discovered.map(({ descriptor, seedFile }) => ({
-			descriptor,
-			index: ensureLanguageIndex(workspaceId, rootPath, descriptor, preferredDescriptor?.languageId === descriptor.languageId ? preferredSeedFile : seedFile),
-		}));
-		const first = indexes[0];
-		let index: SymbolIndexPort;
-		if (indexes.length === 1 && first) {
-			index = first.index;
-		} else {
-			index = new PolyglotCodeIntelligenceIndex(indexes);
-		}
-		return { index, descriptors: discovered.map(({ descriptor }) => descriptor), sources: indexes.map(({ index: source }) => source.provenance) };
-	}
-
-	function workspaceSourceExtensions(descriptors: readonly LanguageServerDescriptor[]): readonly string[] {
-		return Array.from(new Set(descriptors.flatMap((descriptor) => descriptor.extensions)));
-	}
-
 	/** Never spawns -- a caller deciding whether to enrich a result with LSP-backed info must not pay a cold-start cost just to check. With a path, checks that file's own language; without one, whether anything is warm for the workspace at all. */
 	async function hasWarmIndex(
 		registry: MutableRegistry,
@@ -1297,15 +1212,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	): Promise<OperationOutputs["workspace.hasWarmIndex"]> {
 		const entry = registry.get(input.workspaceId);
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
-		if (input.path) {
-			const descriptor = descriptorForPath(input.path);
-			if (!descriptor) return { warm: false };
-			return { warm: symbolIndexes.has(symbolIndexKey(input.workspaceId, descriptor.languageId)) };
-		}
-		for (const value of symbolIndexes.values()) {
-			if (value.workspaceId === input.workspaceId) return { warm: true };
-		}
-		return { warm: false };
+		return { warm: warmIndexes.hasWarmIndex(input.workspaceId, input.path) };
 	}
 
 	async function findSymbols(_registry: MutableRegistry, input: OperationInputs["workspace.findSymbols"]): Promise<OperationOutputs["workspace.findSymbols"]> {
@@ -1314,7 +1221,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (!Number.isSafeInteger(maxResults) || maxResults < 1 || maxResults > MAX_SYMBOL_RESULTS) {
 			throw new TypeError(`maxResults must be a positive safe integer no greater than ${MAX_SYMBOL_RESULTS}`);
 		}
-		const { index } = ensureWorkspaceIndex(input.workspaceId, input.seedFile);
+		const { index } = warmIndexes.ensureWorkspaceIndex(input.workspaceId, input.seedFile);
 		const result = await findWorkspaceSymbols(index, input.query, { maxResults });
 		// "concise" narrows the actual JSON payload per domain/response-format.ts; the declared
 		// output type stays SymbolSearchResult (this operation's default, and every untouched
@@ -1329,7 +1236,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		path?: string;
 		seedFile?: string;
 	}): Promise<{ index: SymbolIndexPort & CodeIntelligencePort; descriptor: LanguageServerDescriptor }> {
-		const { index, descriptor } = await ensureWarmIndex(input);
+		const { index, descriptor } = warmIndexes.ensureWarmIndex(input);
 		if (!supportsCodeIntelligence(index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
 		return { index, descriptor };
 	}
@@ -1462,9 +1369,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	 * ensureLanguageIndex call for this workspace spawns a fresh process against the new content.
 	 */
 	async function closeWarmIndexesForWorkspace(workspaceId: WorkspaceId): Promise<void> {
-		const stale = Array.from(symbolIndexes.entries()).filter(([, entry]) => entry.workspaceId === workspaceId);
-		for (const [key] of stale) symbolIndexes.delete(key);
-		await Promise.all(stale.map(([, entry]) => entry.index.close()));
+		await warmIndexes.closeWorkspace(workspaceId);
 	}
 
 	/**
@@ -1506,9 +1411,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		// directory and does not survive having it swapped out from under it, and "before"
 		// further down must see the freshly-fetched content, not what was on disk previously.
 		await refreshRemoteWorkspaceIfMoved(input.workspaceId, entry, previousGeneration);
-		const workspaceIndex = ensureWorkspaceIndex(input.workspaceId);
+		const workspaceIndex = warmIndexes.ensureWorkspaceIndex(input.workspaceId);
 		if (!supportsCodeIntelligence(workspaceIndex.index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
-		const extensions = workspaceSourceExtensions(workspaceIndex.descriptors);
+		const extensions = warmIndexes.sourceExtensions(workspaceIndex.descriptors);
 		const before = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		await purgeFilesNoLongerWalked(graph, previousGeneration?.walkedFiles, before.absoluteFiles);
 		const result = await populateSymbolGraphQuery(workspaceIndex.index, graph, before.absoluteFiles, input.maxSymbolsPerFile, logger);
@@ -1581,7 +1486,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		}
 		const discovered = discoverWorkspaceDescriptors(entry.rootPath, LANGUAGE_SERVER_DESCRIPTORS);
 		if (discovered.length === 0) return { status: "not-cached", reason: "source-changed" };
-		const extensions = workspaceSourceExtensions(discovered.map(({ descriptor }) => descriptor));
+		const extensions = warmIndexes.sourceExtensions(discovered.map(({ descriptor }) => descriptor));
 		let currentFingerprint: string;
 		try {
 			currentFingerprint = (await deriveSourceManifest(entry.rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES)).fingerprint;
@@ -2102,8 +2007,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		async close(): Promise<void> {
 			jobs.close();
 			graphRefreshDebouncer.clear();
-			const entries = Array.from(symbolIndexes.values());
-			symbolIndexes.clear();
 			const graphs = Array.from(symbolGraphs.values());
 			symbolGraphs.clear();
 			const annotationStores = Array.from(symbolAnnotations.values());
@@ -2111,21 +2014,14 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			for (const watcher of osWatchersByWorkspace.values()) watcher.close();
 			osWatchersByWorkspace.clear();
 			graphWatchedWorkspaces.clear();
-			await Promise.all([
-				...entries.map((entry) => entry.index.close()),
-				...graphs.map((graph) => graph.close()),
-				...annotationStores.map((store) => store.close()),
-			]);
+			await Promise.all([warmIndexes.closeAll(), ...graphs.map((graph) => graph.close()), ...annotationStores.map((store) => store.close())]);
 		},
 		async reapIdleSymbolIndexes(maxIdleMs: number): Promise<number> {
-			const now = Date.now();
-			const idle = Array.from(symbolIndexes.entries()).filter(([, entry]) => now - entry.lastUsedAt > maxIdleMs);
-			for (const [workspaceId] of idle) symbolIndexes.delete(workspaceId);
-			await Promise.all(idle.map(([, entry]) => entry.index.close()));
-			return idle.length;
+			return warmIndexes.reapIdle(maxIdleMs);
 		},
 	};
 }
 
 export { JobCapacityExceeded, JobNotFound } from "./domain/bounded-job-executor.ts";
+export type { ClosableSymbolIndex } from "./service/warm-index-registry.ts";
 export { LineEditRace, LineEditRejected, PatchRejected, RelativeWorkspacePath, StaleExpectedHash, WatchLimitExceeded, WorkspaceEntryNotFound };
