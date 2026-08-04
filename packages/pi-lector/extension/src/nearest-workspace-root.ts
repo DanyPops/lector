@@ -1,5 +1,6 @@
-import { existsSync } from "node:fs";
-import { dirname, join, parse } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, parse, relative } from "node:path";
+import picomatch from "picomatch";
 
 /**
  * The bare filesystem root is never a legitimate discovered project root, even if it happens
@@ -68,4 +69,62 @@ export function nearestGitRoot(startDirectory: string, exists: (path: string) =>
  */
 export function nearestProjectRoot(startDirectory: string, rootMarkers: readonly string[], exists: (path: string) => boolean = existsSync): string | undefined {
 	return walkUpForMarkers(startDirectory, [...rootMarkers, ".git"], exists);
+}
+
+/** An npm/yarn/bun package.json's own "workspaces" field: either a bare glob array, or `{ packages: [...] }` (pnpm's own equivalent shape for the same field, embedded inside package.json rather than a separate pnpm-workspace.yaml). */
+interface WorkspacesManifest {
+	workspaces?: string[] | { packages?: string[] };
+}
+
+function readWorkspaceGlobs(packageJsonPath: string, readFile: (path: string) => string): string[] | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(readFile(packageJsonPath));
+	} catch {
+		return undefined;
+	}
+	if (typeof parsed !== "object" || parsed === null) return undefined;
+	const { workspaces } = parsed as WorkspacesManifest;
+	const globs = Array.isArray(workspaces) ? workspaces : (workspaces?.packages ?? undefined);
+	return Array.isArray(globs) ? globs.filter((entry): entry is string => typeof entry === "string") : undefined;
+}
+
+/**
+ * The nearest ancestor of a real project root (as found by nearestProjectRoot) whose own
+ * package.json declares that project as a workspace member via npm/yarn/bun's "workspaces"
+ * field -- never an arbitrary ancestor that merely happens to have its own marker file. Walks
+ * upward past ancestors with no "workspaces" field (or one that doesn't actually match this
+ * project's relative path) rather than stopping at the first package.json found, since an
+ * intermediate directory can be a plain package with no workspaces declaration of its own.
+ *
+ * Mirrors how mature language tooling handles this same monorepo shape: TypeScript's tsserver
+ * only widens a file's project scope to an ancestor "solution" tsconfig that explicitly lists
+ * the nearer project in its own `references`, and rust-analyzer treats Cargo's `[workspace]`
+ * `members` list as the authoritative multi-crate boundary rather than inferring one from
+ * directory structure. This is the same idea applied to npm/yarn/bun's own declared
+ * "workspaces" glob instead of a language-specific manifest.
+ *
+ * Returns undefined (no declared ancestor) for a plain single-package repo, or when no ancestor's
+ * "workspaces" globs actually match this project -- callers must not treat an arbitrary git root
+ * as an implicit stand-in.
+ */
+export function nearestDeclaredWorkspaceRoot(
+	projectRoot: string,
+	exists: (path: string) => boolean = existsSync,
+	readFile: (path: string) => string = (path) => readFileSync(path, "utf8"),
+): string | undefined {
+	let dir = dirname(projectRoot);
+	const fsRoot = parse(dir).root;
+	while (dir !== fsRoot) {
+		const packageJsonPath = join(dir, "package.json");
+		if (exists(packageJsonPath)) {
+			const globs = readWorkspaceGlobs(packageJsonPath, readFile);
+			const relativePath = relative(dir, projectRoot);
+			if (globs?.some((glob) => picomatch(glob)(relativePath))) return dir;
+		}
+		const parent = dirname(dir);
+		if (parent === dir) break; // defensive: dirname must be strictly ascending
+		dir = parent;
+	}
+	return undefined;
 }

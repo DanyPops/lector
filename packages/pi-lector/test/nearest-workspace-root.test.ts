@@ -10,7 +10,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isFilesystemRoot, nearestGitRoot, nearestProjectRoot } from "../extension/src/nearest-workspace-root.ts";
+import { isFilesystemRoot, nearestDeclaredWorkspaceRoot, nearestGitRoot, nearestProjectRoot } from "../extension/src/nearest-workspace-root.ts";
 
 describe("isFilesystemRoot", () => {
 	it("is true for the bare filesystem root and false for everything else", () => {
@@ -162,6 +162,92 @@ describe("nearestProjectRoot", () => {
 			expect(nearestProjectRoot(deep, ["package.json"], existsWithMarkerAtFsRoot)).toBeUndefined();
 		} finally {
 			rmSync(root, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("nearestDeclaredWorkspaceRoot", () => {
+	it("finds an ancestor whose package.json workspaces glob declares this project as a member", () => {
+		const repo = mkdtempSync(join(tmpdir(), "declared-workspace-root-basic-"));
+		try {
+			writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "repo", workspaces: ["packages/*"] }));
+			const projectRoot = join(repo, "packages", "library");
+			mkdirSync(projectRoot, { recursive: true });
+			writeFileSync(join(projectRoot, "package.json"), JSON.stringify({ name: "library" }));
+
+			expect(nearestDeclaredWorkspaceRoot(projectRoot)).toBe(repo);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("supports pnpm's { packages: [...] } shape for the workspaces field", () => {
+		const repo = mkdtempSync(join(tmpdir(), "declared-workspace-root-packages-shape-"));
+		try {
+			writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "repo", workspaces: { packages: ["apps/*"] } }));
+			const projectRoot = join(repo, "apps", "web");
+			mkdirSync(projectRoot, { recursive: true });
+
+			expect(nearestDeclaredWorkspaceRoot(projectRoot)).toBe(repo);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("returns undefined for a plain single-package repo with no workspaces field anywhere", () => {
+		const repo = mkdtempSync(join(tmpdir(), "declared-workspace-root-none-"));
+		try {
+			writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "solo" }));
+			const projectRoot = join(repo, "src");
+			mkdirSync(projectRoot);
+
+			expect(nearestDeclaredWorkspaceRoot(projectRoot)).toBeUndefined();
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("never treats an unrelated ancestor as a declared root when its workspaces globs don't actually match this project", () => {
+		const repo = mkdtempSync(join(tmpdir(), "declared-workspace-root-no-match-"));
+		try {
+			writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "repo", workspaces: ["apps/*"] }));
+			// Has its own project marker, but lives under "packages/", never listed in the ancestor's "apps/*" glob.
+			const projectRoot = join(repo, "packages", "library");
+			mkdirSync(projectRoot, { recursive: true });
+
+			expect(nearestDeclaredWorkspaceRoot(projectRoot)).toBeUndefined();
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("walks past an intermediate ancestor with a package.json but no workspaces field of its own", () => {
+		const repo = mkdtempSync(join(tmpdir(), "declared-workspace-root-skip-intermediate-"));
+		try {
+			writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "repo", workspaces: ["group/packages/*"] }));
+			const group = join(repo, "group");
+			mkdirSync(group, { recursive: true });
+			// A plain package.json with no "workspaces" field of its own -- not itself a declared root.
+			writeFileSync(join(group, "package.json"), JSON.stringify({ name: "group" }));
+			const projectRoot = join(group, "packages", "library");
+			mkdirSync(projectRoot, { recursive: true });
+
+			expect(nearestDeclaredWorkspaceRoot(projectRoot)).toBe(repo);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("returns undefined when the ancestor's package.json is malformed JSON", () => {
+		const repo = mkdtempSync(join(tmpdir(), "declared-workspace-root-malformed-"));
+		try {
+			writeFileSync(join(repo, "package.json"), "{ not valid json");
+			const projectRoot = join(repo, "packages", "library");
+			mkdirSync(projectRoot, { recursive: true });
+
+			expect(nearestDeclaredWorkspaceRoot(projectRoot)).toBeUndefined();
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
 		}
 	});
 });

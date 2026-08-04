@@ -54,4 +54,38 @@ describe("Lector-backed reference-based rename operations", () => {
 		expect(outcome.filesUpdated).toEqual([fixture.consumerFile]);
 		expect(readFileSync(fixture.consumerFile, "utf8")).toContain('from "./arithmetic"');
 	}, 20_000);
+
+	it("falls back to the declared monorepo root's graph when only that ancestor -- not the file's own nearest project -- was populated", async () => {
+		// Real, reported bug: workspace_cache resolves the outer monorepo root's own package.json
+		// as its project (workspaceForProjectDirectory starts AT the given directory), while rename
+		// resolves the file's nearest tsconfig/package.json (workspaceForCodeIntelligencePath starts
+		// at the file's own directory and walks up) -- landing on the nested package instead. Populating
+		// at fixture.root only, never fixture.packageRoot, previously left rename permanently unable to
+		// see a graph that already contained its target file.
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const fixture = buildNestedTypeScriptMonorepoFixture("pi-lector-reference-based-rename-declared-root-");
+		projectDir = fixture.root;
+		const toPath = join(fixture.sourceDirectory, "arithmetic.ts");
+
+		const cache = createWorkspaceCacheOperations();
+		const submitted = await cache.submit(fixture.root, 10, 10);
+		let completed = submitted;
+		for (let attempt = 0; attempt < 200 && completed.status !== "succeeded" && completed.status !== "failed"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			completed = await cache.jobStatus(submitted.id);
+		}
+		expect(completed.status).toBe("succeeded");
+		// The file's own nearest project (matching what rename would resolve without the fallback) was
+		// never separately populated -- confirms this exercises the fallback path, not a coincidence.
+		expect((await cache.status(fixture.sourceDirectory, 10, 10)).status).toBe("not-cached");
+
+		const ops = createReferenceBasedRenameOperations();
+		const outcome = await ops.rename(fixture.declarationFile, toPath, 10, 10);
+
+		expect(outcome.movedTo).toBe(toPath);
+		expect(outcome.filesUpdated).toEqual([fixture.consumerFile]);
+		expect(readFileSync(fixture.consumerFile, "utf8")).toContain('from "./arithmetic"');
+	}, 20_000);
 });
