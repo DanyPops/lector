@@ -86,6 +86,7 @@ import type { RepoFetchResult } from "./repo-fetcher/repo-fetch-result.ts";
 import type { RepoReference } from "./repo-fetcher/repo-reference.ts";
 import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
 import type { SearchCachePort } from "./search-cache/port.ts";
+import { AnnotationHandlers } from "./service/annotation-handlers.ts";
 import { createCrossWorkspaceHandlers } from "./service/cross-workspace-handlers.ts";
 import { createExternalSearchHandlers } from "./service/external-search-handlers.ts";
 import { createGitHandlers } from "./service/git-handlers.ts";
@@ -96,11 +97,8 @@ import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { type ClosableSymbolIndex, supportsCodeIntelligence, WarmIndexRegistry } from "./service/warm-index-registry.ts";
 import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
 import { SourcegraphSearchClient } from "./sourcegraph-search/sourcegraph-search-client.ts";
-import { annotationsContainedFrom, wouldCreateContainmentCycle } from "./symbol-annotation/annotation-containment.ts";
-import { checkAnnotationStaleness } from "./symbol-annotation/check-annotation-staleness.ts";
-import { InMemorySymbolAnnotations } from "./symbol-annotation/in-memory-symbol-annotations.ts";
-import type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./symbol-annotation/port.ts";
-import type { AnnotationId, SymbolAnnotation, SymbolAnnotationAnchor } from "./symbol-annotation/symbol-annotation.ts";
+import type { SymbolAnnotationPort } from "./symbol-annotation/port.ts";
+import type { AnnotationId, SymbolAnnotation } from "./symbol-annotation/symbol-annotation.ts";
 import { InMemorySymbolGraph } from "./symbol-graph/in-memory-symbol-graph.ts";
 import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./symbol-graph/populate-symbol-graph.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./symbol-graph/port.ts";
@@ -911,19 +909,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	});
 	const ensureSymbolGraph = (workspaceId: WorkspaceId): SymbolGraphPort => graphRefresh.graph(workspaceId);
 
-	// One annotation store per workspace, lazily created on first use.
-	const symbolAnnotations = new Map<WorkspaceId, SymbolAnnotationPort>();
-	const createSymbolAnnotations = options.createSymbolAnnotations ?? (() => new InMemorySymbolAnnotations());
-
-	function ensureSymbolAnnotations(workspaceId: WorkspaceId): SymbolAnnotationPort {
-		let store = symbolAnnotations.get(workspaceId);
-		if (!store) {
-			store = createSymbolAnnotations(workspaceId);
-			symbolAnnotations.set(workspaceId, store);
-		}
-		return store;
-	}
-
+	const annotationHandlers = new AnnotationHandlers({ registry, graph: ensureSymbolGraph, createStore: options.createSymbolAnnotations });
 	const mutationHistory = new MutationHistoryCoordinator({ registry, createStore: options.createMutationHistory });
 
 	const createGitPort = options.createGitPort ?? ((rootPath: string) => new LocalGit(rootPath));
@@ -1589,161 +1575,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return { symbols };
 	}
 
-	/** Positions only in, real anchors out -- symbolNodeId and the baseline file hash are derived server-side from the live graph/workspace, never trusted from the caller. */
-	async function resolveAnnotationAnchors(
-		graph: SymbolGraphPort,
-		workspace: WorkspacePort,
-		positions: readonly { path: string; line: number; character: number }[],
-	): Promise<SymbolAnnotationAnchor[]> {
-		if (positions.length === 0) throw new AnnotationRequiresAnchors();
-		const hashByPath = new Map<string, ContentHash>();
-		const anchors: SymbolAnnotationAnchor[] = [];
-		for (const position of positions) {
-			// A caller may give a workspace-relative path (the convention every other path
-			// argument in this service accepts); the graph's own node ids are always keyed by
-			// whatever absolute form the language server reported, so resolve to that same
-			// identity before deriving the id -- otherwise a perfectly correct relative anchor
-			// looks indistinguishable from a genuinely unknown position.
-			const resolvedPath = workspace.resolvePath(position.path);
-			const resolvedPosition = { ...position, path: resolvedPath };
-			const symbolNodeId = deriveSymbolNodeId(resolvedPosition);
-			const node = await graph.getNode(symbolNodeId);
-			if (!node) throw new UnknownAnnotationAnchor(position.path, position.line, position.character);
-			let hash = hashByPath.get(resolvedPath);
-			if (hash === undefined) {
-				const entry = await workspace.readEntry(resolvedPath);
-				if (!entry.exists) throw new UnknownAnnotationAnchor(position.path, position.line, position.character);
-				hash = contentHashOf(entry.content);
-				hashByPath.set(resolvedPath, hash);
-			}
-			anchors.push({ symbolNodeId, path: resolvedPath, fileContentHash: hash });
-		}
-		return anchors;
-	}
-
-	/**
-	 * Option A: every read live-checks staleness against the current graph/workspace and
-	 * persists a correction before returning -- a caller never sees a status that disagrees
-	 * with reality, at the cost of a live check per read. Never touches a "scrubbed"
-	 * annotation -- that status is a terminal, explicit caller decision staleness detection
-	 * must not override.
-	 */
-	async function withLiveStatus(
-		graph: SymbolGraphPort,
-		workspace: WorkspacePort,
-		store: SymbolAnnotationPort,
-		annotation: SymbolAnnotation,
-	): Promise<SymbolAnnotation> {
-		if (annotation.status === "scrubbed") return annotation;
-		const stale = await checkAnnotationStaleness(graph, workspace, annotation);
-		const wantedStatus: "fresh" | "stale" = stale ? "stale" : "fresh";
-		if (annotation.status === wantedStatus) return annotation;
-		const updated = await store.setStatus(annotation.id, wantedStatus);
-		return updated ?? annotation;
-	}
-
-	async function createAnnotationHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.createAnnotation"],
-	): Promise<OperationOutputs["workspace.createAnnotation"]> {
-		const workspace = resolveWorkspace(registry, input.workspaceId);
-		const graph = ensureSymbolGraph(input.workspaceId);
-		const anchors = await resolveAnnotationAnchors(graph, workspace, input.anchors);
-		const store = ensureSymbolAnnotations(input.workspaceId);
-		const annotation = await store.create({ subtype: input.subtype, title: input.title, body: input.body, anchors });
-		return { annotation };
-	}
-
-	async function getAnnotationHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.getAnnotation"],
-	): Promise<OperationOutputs["workspace.getAnnotation"]> {
-		const workspace = resolveWorkspace(registry, input.workspaceId);
-		const store = ensureSymbolAnnotations(input.workspaceId);
-		const found = await store.get(input.id);
-		if (!found) return { annotation: undefined };
-		const graph = ensureSymbolGraph(input.workspaceId);
-		return { annotation: await withLiveStatus(graph, workspace, store, found) };
-	}
-
-	async function listAnnotationsHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.listAnnotations"],
-	): Promise<OperationOutputs["workspace.listAnnotations"]> {
-		const workspace = resolveWorkspace(registry, input.workspaceId);
-		const store = ensureSymbolAnnotations(input.workspaceId);
-		const graph = ensureSymbolGraph(input.workspaceId);
-		const listOptions: SymbolAnnotationListOptions = { subtype: input.subtype, status: input.status, maxResults: input.maxResults, query: input.query };
-		const found = await store.list(listOptions);
-		const annotations = await Promise.all(found.map((annotation) => withLiveStatus(graph, workspace, store, annotation)));
-		return { annotations };
-	}
-
-	async function refreshAnnotationHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.refreshAnnotation"],
-	): Promise<OperationOutputs["workspace.refreshAnnotation"]> {
-		const workspace = resolveWorkspace(registry, input.workspaceId);
-		const graph = ensureSymbolGraph(input.workspaceId);
-		const anchors = await resolveAnnotationAnchors(graph, workspace, input.anchors);
-		const store = ensureSymbolAnnotations(input.workspaceId);
-		const annotation = await store.refresh(input.id, { subtype: input.subtype, title: input.title, body: input.body, anchors });
-		return { annotation };
-	}
-
-	async function scrubAnnotationHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.scrubAnnotation"],
-	): Promise<OperationOutputs["workspace.scrubAnnotation"]> {
-		resolveWorkspace(registry, input.workspaceId);
-		const store = ensureSymbolAnnotations(input.workspaceId);
-		return { scrubbed: await store.scrub(input.id) };
-	}
-
-	async function restoreAnnotationHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.restoreAnnotation"],
-	): Promise<OperationOutputs["workspace.restoreAnnotation"]> {
-		resolveWorkspace(registry, input.workspaceId);
-		const store = ensureSymbolAnnotations(input.workspaceId);
-		return { restored: await store.restore(input.id) };
-	}
-
-	async function containAnnotationHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.containAnnotation"],
-	): Promise<OperationOutputs["workspace.containAnnotation"]> {
-		resolveWorkspace(registry, input.workspaceId);
-		const store = ensureSymbolAnnotations(input.workspaceId);
-		if (!(await store.get(input.parentId))) throw new UnknownAnnotationForContainment(input.parentId);
-		if (!(await store.get(input.childId))) throw new UnknownAnnotationForContainment(input.childId);
-		if (await wouldCreateContainmentCycle(store, input.parentId, input.childId)) {
-			throw new AnnotationContainmentCycle(input.parentId, input.childId);
-		}
-		return { contained: await store.addContainmentEdge(input.parentId, input.childId) };
-	}
-
-	async function uncontainAnnotationHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.uncontainAnnotation"],
-	): Promise<OperationOutputs["workspace.uncontainAnnotation"]> {
-		resolveWorkspace(registry, input.workspaceId);
-		const store = ensureSymbolAnnotations(input.workspaceId);
-		return { uncontained: await store.removeContainmentEdge(input.parentId, input.childId) };
-	}
-
-	async function annotationTreeHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.annotationTree"],
-	): Promise<OperationOutputs["workspace.annotationTree"]> {
-		const workspace = resolveWorkspace(registry, input.workspaceId);
-		const store = ensureSymbolAnnotations(input.workspaceId);
-		const graph = ensureSymbolGraph(input.workspaceId);
-		const found = await annotationsContainedFrom(store, input.rootId, input.maxDepth);
-		const annotations = await Promise.all(found.map((annotation) => withLiveStatus(graph, workspace, store, annotation)));
-		return { annotations };
-	}
-
 	async function workspaceMapHandler(registry: MutableRegistry, input: OperationInputs["workspace.map"]): Promise<OperationOutputs["workspace.map"]> {
 		const workspace = resolveWorkspace(registry, input.workspaceId);
 		const graph = ensureSymbolGraph(input.workspaceId);
@@ -1821,6 +1652,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...repoFetchHandlers,
 		...packageSourceHandlers,
 		...mutationHistory.handlers,
+		...annotationHandlers.handlers,
 		...externalSearchHandlers,
 		...crossWorkspaceHandlers,
 		"workspace.searchText": searchTextHandler,
@@ -1830,15 +1662,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"job.submit": submitJobHandler,
 		"job.status": jobStatusHandler,
 		"job.watch": jobWatchHandler,
-		"workspace.createAnnotation": createAnnotationHandler,
-		"workspace.getAnnotation": getAnnotationHandler,
-		"workspace.listAnnotations": listAnnotationsHandler,
-		"workspace.refreshAnnotation": refreshAnnotationHandler,
-		"workspace.scrubAnnotation": scrubAnnotationHandler,
-		"workspace.restoreAnnotation": restoreAnnotationHandler,
-		"workspace.containAnnotation": containAnnotationHandler,
-		"workspace.uncontainAnnotation": uncontainAnnotationHandler,
-		"workspace.annotationTree": annotationTreeHandler,
 		"workspace.map": workspaceMapHandler,
 	};
 
@@ -1856,11 +1679,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		},
 		async close(): Promise<void> {
 			jobs.close();
-			const annotationStores = Array.from(symbolAnnotations.values());
-			symbolAnnotations.clear();
 			for (const watcher of osWatchersByWorkspace.values()) watcher.close();
 			osWatchersByWorkspace.clear();
-			await Promise.all([warmIndexes.closeAll(), graphRefresh.close(), ...annotationStores.map((store) => store.close())]);
+			await Promise.all([warmIndexes.closeAll(), graphRefresh.close(), annotationHandlers.close()]);
 		},
 		async reapIdleSymbolIndexes(maxIdleMs: number): Promise<number> {
 			return warmIndexes.reapIdle(maxIdleMs);
