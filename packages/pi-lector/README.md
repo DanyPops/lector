@@ -20,9 +20,10 @@ it's still building, instead of requiring an explicit "start indexing" call.
 When a session starts inside a Git repository, pi-lector checks a durable, bounded
 source-content manifest without blocking startup. The footer reports not cached,
 caching, or cached across every workspace touched so far this session; completion
-also emits a one-shot notification. Session shutdown stops polling, and the agent
-receives each state transition once in its context.
+also emits a one-shot notification. The adapter subscribes to daemon job completion,
+keeps bounded status polling as the disconnect fallback, and closes both on session shutdown.
+The agent receives each state transition once in its context.
 
 For an explicit, custom-bound population outside of Pi (a larger scan than the
 default 500 files / 100 symbols per file), use `lector workspace populate-symbol-graph`
-and `lector job status` directly.
+and `lector job wait` directly.

@@ -54,7 +54,7 @@ async function runCli(args: readonly string[]): Promise<string> {
 }
 
 describe("lector CLI background-job parity", () => {
-	it("submits populate-symbol-graph in the background and polls the same job through job status", async () => {
+	it("submits populate-symbol-graph in the background and waits through the daemon completion channel", async () => {
 		isolated = isolatedLectorPaths();
 		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
@@ -78,14 +78,10 @@ describe("lector CLI background-job parity", () => {
 		expect(["queued", "running"]).toContain(submitted.status);
 		expect(submitted.id.length).toBeGreaterThan(0);
 
-		let polled = JSON.parse(await runCli(["job", "status", submitted.id, "--json"])) as JobSnapshot<PopulateSymbolGraphResult>;
-		for (let attempt = 0; attempt < 100 && polled.status !== "succeeded"; attempt++) {
-			await new Promise((resolve) => setTimeout(resolve, 20));
-			polled = JSON.parse(await runCli(["job", "status", submitted.id, "--json"])) as JobSnapshot<PopulateSymbolGraphResult>;
-		}
-		expect(polled.id).toBe(submitted.id);
-		expect(polled.status).toBe("succeeded");
-		if (polled.status === "succeeded") expect(polled.result.completeness).toBe("complete");
+		const completed = JSON.parse(await runCli(["job", "wait", submitted.id, "--wait-ms", "10000", "--json"])) as JobSnapshot<PopulateSymbolGraphResult>;
+		expect(completed.id).toBe(submitted.id);
+		expect(completed.status).toBe("succeeded");
+		if (completed.status === "succeeded") expect(completed.result.completeness).toBe("complete");
 		const cacheStatus = JSON.parse(
 			await runCli(["workspace", "cache-status", registered.workspaceId, "--max-files", "10", "--max-symbols-per-file", "10", "--json"]),
 		) as { status: string };

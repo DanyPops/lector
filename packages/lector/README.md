@@ -40,15 +40,17 @@ lector workspace read <workspace-id> <path>
 lector workspace edit <workspace-id> <path> --content <text> (--create | --expected-hash <hash>)
 lector workspace symbols <workspace-id> <query>
 lector workspace populate-symbol-graph <workspace-id> --max-files <n> --max-symbols-per-file <n> --background --wait-ms 500
+lector job wait <job-id> [--wait-ms <n>]
 lector job status <job-id>
 lector workspace cache-status <workspace-id> --max-files <n> --max-symbols-per-file <n>
 lector package source <project-dir> <package-name> [--version <exact-version>] [--registry <url>] [--json]
 ```
 
 Background jobs are process-lifetime and bounded. A daemon restart or retention
-expiry makes an old id unavailable; `job status` reports that explicitly. A running
-scan returns its job id and an actionable still-loading state instead of blocking
-the caller.
+expiry makes an old id unavailable; `job status` reports that explicitly. `job wait`
+subscribes to the daemon's completion channel and uses bounded status polling only while
+push delivery is unavailable. A running scan returns its job id instead of blocking the
+submitting call.
 
 `package source` resolves the installed version from npm, pnpm, Yarn, or Bun lockfiles, then verifies registry repository metadata against an exact Git ref, commit, and source `package.json`. Missing, ambiguous, or mismatched source fails closed. Verified package directories are registered read-only. Private registry requests use `NPM_TOKEN`; output reports only that variable name when authentication is required.
 

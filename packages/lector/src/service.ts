@@ -329,12 +329,29 @@ export class ReferenceBasedRenameRequiresFreshGraph extends Error {
 	}
 }
 
+export type JobTopic = string & { readonly __brand: "JobTopic" };
+export type JobWatchId = string & { readonly __brand: "JobWatchId" };
+
+function jobTopicFor(jobId: string): JobTopic {
+	// The only constructor for this topic namespace; callers cannot mix arbitrary push topics with job topics.
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+	return `lector.job.${jobId}` as JobTopic;
+}
+
+function jobWatchIdFor(jobId: string): JobWatchId {
+	// The only constructor for job-watch ids; a job id cannot be passed where a watch id is required.
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+	return `job-watch:${jobId}` as JobWatchId;
+}
+
 export class JobWaitTooLong extends Error {
 	constructor(
 		readonly waitMs: number,
 		readonly maxWaitMs: number,
 	) {
-		super(`background job initial wait ${waitMs}ms exceeds the ${maxWaitMs}ms service bound; submit with a shorter wait and poll job.status`);
+		super(
+			`background job initial wait ${waitMs}ms exceeds the ${maxWaitMs}ms service bound; submit with a shorter wait and follow completion through job.watch`,
+		);
 		this.name = "JobWaitTooLong";
 	}
 }
@@ -389,6 +406,7 @@ export type OperationName =
 	| "search.text"
 	| "job.submit"
 	| "job.status"
+	| "job.watch"
 	| "workspace.createAnnotation"
 	| "workspace.getAnnotation"
 	| "workspace.listAnnotations"
@@ -454,6 +472,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"search.text",
 	"job.submit",
 	"job.status",
+	"job.watch",
 	"workspace.createAnnotation",
 	"workspace.getAnnotation",
 	"workspace.listAnnotations",
@@ -555,6 +574,7 @@ export interface OperationInputs {
 		waitMs?: number;
 	};
 	"job.status": { jobId: string };
+	"job.watch": { jobId: string };
 	"workspace.createAnnotation": {
 		workspaceId: WorkspaceId;
 		subtype: string;
@@ -647,6 +667,7 @@ export interface OperationOutputs {
 	"search.text": { results: readonly WorkspaceQueryOutcome<TextSearchResult>[] };
 	"job.submit": { job: JobSnapshot<PopulateSymbolGraphResult> };
 	"job.status": { job: JobSnapshot<PopulateSymbolGraphResult> };
+	"job.watch": { watchId: JobWatchId; topic: JobTopic };
 	"workspace.createAnnotation": { annotation: SymbolAnnotation };
 	"workspace.getAnnotation": { annotation: SymbolAnnotation | undefined };
 	"workspace.listAnnotations": { annotations: readonly SymbolAnnotation[] };
@@ -1751,15 +1772,30 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		});
 		submittedJobId = submitted.id;
 		activePopulationJobByWorkspace.set(workspaceId, submitted.id);
+		jobs.onTerminal(submitted.id, (job) => {
+			try {
+				publish(jobTopicFor(job.id), { job });
+			} catch {
+				logger.warn("background job terminal event publish failed", { component: "background-jobs", jobId: job.id });
+			}
+		});
 		return { job: waitMs === 0 ? submitted : await jobs.wait(submitted.id, waitMs) };
 	}
 
+	function validatedJobId(input: unknown): string {
+		if (!isRecord(input) || typeof input.jobId !== "string" || input.jobId.length === 0) throw new InvalidJobInput("jobId must be a non-empty string");
+		return input.jobId;
+	}
+
 	function jobStatusHandler(_registry: MutableRegistry, input: OperationInputs["job.status"]): Promise<OperationOutputs["job.status"]> {
-		const rawInput: unknown = input;
-		if (!isRecord(rawInput) || typeof rawInput.jobId !== "string" || rawInput.jobId.length === 0) {
-			return Promise.reject(new InvalidJobInput("jobId must be a non-empty string"));
-		}
-		return Promise.resolve({ job: jobs.status(rawInput.jobId) });
+		const jobId = validatedJobId(input);
+		return Promise.resolve({ job: jobs.status(jobId) });
+	}
+
+	function jobWatchHandler(_registry: MutableRegistry, input: OperationInputs["job.watch"]): Promise<OperationOutputs["job.watch"]> {
+		const jobId = validatedJobId(input);
+		jobs.status(jobId);
+		return Promise.resolve({ watchId: jobWatchIdFor(jobId), topic: jobTopicFor(jobId) });
 	}
 
 	async function reachableFromHandler(
@@ -2034,6 +2070,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"search.text": crossSearchText,
 		"job.submit": submitJobHandler,
 		"job.status": jobStatusHandler,
+		"job.watch": jobWatchHandler,
 		"workspace.createAnnotation": createAnnotationHandler,
 		"workspace.getAnnotation": getAnnotationHandler,
 		"workspace.listAnnotations": listAnnotationsHandler,

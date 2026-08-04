@@ -36,6 +36,13 @@ describe("formatWorkspaceCacheCall", () => {
 		expect(text).toContain("2000");
 	});
 
+	it("renders a wait call with the jobId, not a directory", () => {
+		const text = formatWorkspaceCacheCall("wait", { jobId: "job-42", directory: "/wrong" }, theme);
+		expect(text).toContain("wait");
+		expect(text).toContain("job-42");
+		expect(text).not.toContain("/wrong");
+	});
+
 	it("renders a job_status call with the jobId, not a directory", () => {
 		const text = formatWorkspaceCacheCall("job_status", { jobId: "job-42" }, theme);
 		expect(text).toContain("job_status");
@@ -49,7 +56,7 @@ describe("formatWorkspaceCacheStatusResult", () => {
 		expect(formatWorkspaceCacheStatusResult(status, theme)).toContain("source-changed");
 	});
 
-	it("renders caching with the in-flight jobId, so a caller knows what to poll", () => {
+	it("renders caching with the in-flight jobId, so a caller can wait for it", () => {
 		const status: WorkspaceCacheStatus = { status: "caching", jobId: "job-7" };
 		expect(formatWorkspaceCacheStatusResult(status, theme)).toContain("job-7");
 	});
@@ -112,7 +119,7 @@ describe("formatJobSnapshotResult", () => {
 		};
 	}
 
-	it("renders queued and running distinctly, both naming the jobId to poll", () => {
+	it("renders queued and running distinctly, both naming the jobId to wait for", () => {
 		const queued = formatJobSnapshotResult(baseJob("queued"), theme);
 		const running = formatJobSnapshotResult(baseJob("running"), theme);
 		expect(queued).toContain("job-1");

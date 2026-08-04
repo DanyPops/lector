@@ -14,7 +14,7 @@ import type { RepoFetcherPort } from "./repo-fetcher/port.ts";
 import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
 import { SqliteSearchCache } from "./search-cache/sqlite-search-cache.ts";
 import { TieredSearchCache } from "./search-cache/tiered-search-cache.ts";
-import { createLectorService, type LectorService, type OperationName, type WorkspaceId } from "./service.ts";
+import { type ClosableSymbolIndex, createLectorService, type LectorService, type OperationName, type WorkspaceId } from "./service.ts";
 import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
 import { SqliteSymbolGraph } from "./symbol-graph/sqlite-symbol-graph.ts";
 import { lectorVersion } from "./version.ts";
@@ -94,6 +94,8 @@ export interface LectorDaemonOptions {
 	logger?: Logger;
 	/** Forwarded to createLectorService -- see its own doc comment. Still refuses zero workspaces by default. */
 	allowDynamicOnly?: boolean;
+	/** Override symbol-index construction. Tests use controlled indexes; production uses the service's language-dispatching default. */
+	createSymbolIndex?: (rootPath: string) => ClosableSymbolIndex;
 	/** Override the idle-eviction TTL for warm symbol indexes. Tests use a short value to observe eviction without waiting. */
 	symbolIndexIdleTtlMs?: number;
 	/** Override how often the idle-eviction sweep runs. */
@@ -145,6 +147,7 @@ function prepare(options: LectorDaemonOptions): {
 	const service = createLectorService(options.workspaces, {
 		allowDynamicOnly: options.allowDynamicOnly,
 		logger: options.logger,
+		createSymbolIndex: options.createSymbolIndex,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
 		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),
 		createPackageSourceResolver: options.createPackageSourceResolver,

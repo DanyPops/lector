@@ -5,6 +5,7 @@ import {
 	describeCacheState,
 	monitorWorkspaceCache,
 	type WorkspaceCacheOperations,
+	waitForJobCompletion,
 } from "../../extension/src/workspace-cache/operations.ts";
 
 function runningJob(id = "job-1"): JobSnapshot<PopulateSymbolGraphResult> {
@@ -96,6 +97,89 @@ describe("cache status presentation", () => {
 		expect(cacheContextMessage(state)).toBe(
 			"Lector workspace cache: partially cached (1 failed file). The graph is usable, but live code-intelligence operations are required for failed files.",
 		);
+	});
+});
+
+describe("waitForJobCompletion", () => {
+	it("finishes from a pushed terminal snapshot without waiting for a fallback poll", async () => {
+		let listener: ((job: JobSnapshot<PopulateSymbolGraphResult>) => void) | undefined;
+		let polls = 0;
+		let sleeps = 0;
+		const operations: WorkspaceCacheOperations = {
+			status: () => Promise.resolve({ status: "caching", jobId: "job-1" }),
+			submit: () => Promise.resolve(runningJob()),
+			jobStatus: () => {
+				polls++;
+				return Promise.resolve(runningJob());
+			},
+			watchJob: (_jobId, onJob) => {
+				listener = onJob;
+				return Promise.resolve({ status: "subscribed", handle: { close() {} } });
+			},
+		};
+
+		const completion = waitForJobCompletion(operations, "job-1", {
+			pollIntervalMs: 100,
+			maxPolls: 2,
+			shouldContinue: () => true,
+			sleep: () => {
+				sleeps++;
+				return new Promise<void>(() => {});
+			},
+		});
+		await Promise.resolve();
+		listener?.(succeededJob());
+
+		expect(await completion).toMatchObject({ status: "succeeded" });
+		expect(polls).toBe(1);
+		expect(sleeps).toBe(1);
+	});
+
+	it("closes the push subscription immediately when the wait is canceled", async () => {
+		const controller = new AbortController();
+		let closed = false;
+		let polls = 0;
+		const operations: WorkspaceCacheOperations = {
+			status: () => Promise.resolve({ status: "caching", jobId: "job-1" }),
+			submit: () => Promise.resolve(runningJob()),
+			jobStatus: () => {
+				polls++;
+				return Promise.resolve(runningJob());
+			},
+			watchJob: () => Promise.resolve({ status: "subscribed", handle: { close: () => (closed = true) } }),
+		};
+		controller.abort();
+
+		expect(
+			await waitForJobCompletion(operations, "job-1", {
+				pollIntervalMs: 100,
+				maxPolls: 2,
+				shouldContinue: () => true,
+				signal: controller.signal,
+			}),
+		).toBeUndefined();
+		expect(closed).toBe(true);
+		expect(polls).toBe(0);
+	});
+
+	it("falls back to bounded status polling when the push channel is unavailable", async () => {
+		let polls = 0;
+		const operations: WorkspaceCacheOperations = {
+			status: () => Promise.resolve({ status: "caching", jobId: "job-1" }),
+			submit: () => Promise.resolve(runningJob()),
+			jobStatus: () => Promise.resolve(++polls === 1 ? runningJob() : succeededJob()),
+			watchJob: () => Promise.resolve({ status: "unavailable" }),
+		};
+
+		const job = await waitForJobCompletion(operations, "job-1", {
+			pollIntervalMs: 1,
+			maxPolls: 2,
+			shouldContinue: () => true,
+			sleep: () => Promise.resolve(),
+		});
+
+		expect(job).toMatchObject({ status: "succeeded" });
+		expect(polls).toBe(2);
 	});
 });
 
@@ -198,7 +282,7 @@ describe("monitorWorkspaceCache", () => {
 		expect(states).toEqual(["not-cached", "finished-caching", "partial"]);
 	});
 
-	it("stops after maxPolls instead of polling forever", async () => {
+	it("stops after bounded fallback intervals and one final status check", async () => {
 		let polls = 0;
 		const operations: WorkspaceCacheOperations = {
 			status: () => Promise.resolve({ status: "caching", jobId: "job-1" }),
@@ -218,6 +302,6 @@ describe("monitorWorkspaceCache", () => {
 			onState: () => {},
 			sleep: () => Promise.resolve(),
 		});
-		expect(polls).toBe(2);
+		expect(polls).toBe(3);
 	});
 });

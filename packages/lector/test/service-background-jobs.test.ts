@@ -64,6 +64,14 @@ function fixture(trackAsPrimary = true): string {
 	return directory;
 }
 
+async function waitForPublished(predicate: () => boolean, timeoutMs = 100): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!predicate()) {
+		if (Date.now() >= deadline) throw new Error(`event was not published within ${timeoutMs}ms`);
+		await new Promise((resolve) => setTimeout(resolve, 1));
+	}
+}
+
 function testExecutor(): BoundedJobExecutor<PopulateSymbolGraphResult> {
 	let id = 0;
 	return new BoundedJobExecutor<PopulateSymbolGraphResult>({
@@ -115,6 +123,35 @@ describe("createLectorService background jobs", () => {
 			status: "not-cached",
 			reason: "source-changed",
 		});
+	});
+
+	it("publishes one terminal snapshot on the topic returned by job.watch", async () => {
+		const documents = deferred<readonly DocumentSymbolEntry[]>();
+		const published: Array<{ topic: string; payload: unknown }> = [];
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createJobExecutor: testExecutor,
+			createSymbolIndex: () => new DelayedCodeIndex(documents.promise),
+			publish: (topic, payload) => published.push({ topic, payload }),
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixture() });
+		const { job } = await service.dispatch("job.submit", {
+			operation: "workspace.populateSymbolGraph",
+			input: { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 },
+			waitMs: 0,
+		});
+		const watch = await service.dispatch("job.watch", { jobId: job.id });
+
+		expect(String(watch.watchId)).toBe(`job-watch:${job.id}`);
+		expect(String(watch.topic)).toBe(`lector.job.${job.id}`);
+		documents.resolve([]);
+		await waitForPublished(() => published.length === 1);
+		expect(published).toEqual([
+			{
+				topic: watch.topic,
+				payload: { job: expect.objectContaining({ id: job.id, status: "succeeded" }) },
+			},
+		]);
 	});
 
 	it("does not record a cached generation when source files change during population", async () => {
@@ -219,9 +256,10 @@ describe("createLectorService background jobs", () => {
 		gates.get(remoteRoot)?.resolve([]);
 	});
 
-	it("job.status explains an unknown/process-expired id instead of returning an empty result", async () => {
+	it("job status and watch explain an unknown/process-expired id instead of returning an empty result", async () => {
 		service = createLectorService(new Map(), { allowDynamicOnly: true, createJobExecutor: testExecutor });
 		await expect(service.dispatch("job.status", { jobId: "previous-process-job" })).rejects.toBeInstanceOf(JobNotFound);
+		await expect(service.dispatch("job.watch", { jobId: "previous-process-job" })).rejects.toBeInstanceOf(JobNotFound);
 	});
 
 	it("rejects an initial wait above the service bound", async () => {

@@ -132,6 +132,7 @@ import {
 	createWorkspaceCacheOperations,
 	describeCacheState,
 	monitorWorkspaceCache,
+	waitForJobCompletion,
 } from "./workspace-cache/operations.ts";
 import { formatJobSnapshotResult, formatWorkspaceCacheCall, formatWorkspaceCacheStatusResult } from "./workspace-cache/rendering.ts";
 import { createLectorWriteOperations } from "./write/operations.ts";
@@ -1108,7 +1109,7 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		interface WorkspaceCacheToolDetails {
-			readonly action: "status" | "populate" | "job_status";
+			readonly action: "status" | "populate" | "wait" | "job_status";
 			readonly status?: WorkspaceCacheStatus;
 			readonly job?: JobSnapshot<PopulateSymbolGraphResult>;
 		}
@@ -1117,14 +1118,14 @@ export default function (pi: ExtensionAPI) {
 			name: "workspace_cache",
 			label: "Workspace Cache",
 			description:
-				"Checks or drives population of the workspace's persisted symbol graph -- the store reachable_from, symbol_annotations (anchor resolution), reference_based_rename, and workspace_map all read from, separate from the live language-server index find_symbols/hover/go_to_definition use. action=status reports not-cached/caching/partial/cached for the given bounds, without starting any work. action=populate explicitly requests a scan (optionally larger than the default 500-file/100-symbol auto-scan every workspace gets on first touch) and waits up to waitMs for it to finish, returning a job snapshot either way. action=job_status polls a job returned by populate that didn't finish within its own wait.",
+				"Checks or drives population of the workspace's persisted symbol graph -- the store reachable_from, symbol_annotations (anchor resolution), reference_based_rename, and workspace_map all read from, separate from the live language-server index find_symbols/hover/go_to_definition use. action=status reports not-cached/caching/partial/cached for the given bounds, without starting work. action=populate requests a scan and briefly waits for fast completion. action=wait subscribes to daemon job completion, with bounded status polling only when push delivery is unavailable. action=job_status is a point-in-time diagnostic read.",
 			promptSnippet: "Check or force-populate the workspace's persisted symbol graph",
 			promptGuidelines: [
 				"Use action=populate with a larger maxFiles/maxSymbolsPerFile before relying on reachable_from/symbol_annotations/reference_based_rename against a workspace bigger than the default 500-file auto-scan -- their own errors (empty results, UnknownAnnotationAnchor, ReferenceBasedRenameRequiresFreshGraph) usually mean the graph never reached the files you need, not that population is simply still catching up.",
-				"action=populate returns immediately once its own waitMs elapses even if the job is still running -- check the returned job's status and poll with action=job_status (the same jobId) rather than assuming a non-succeeded result means failure.",
+				"When action=populate returns a queued/running job, call action=wait once with that jobId; do not run shell sleep or manually poll job_status.",
 			],
 			parameters: Type.Object({
-				action: Type.Union([Type.Literal("status"), Type.Literal("populate"), Type.Literal("job_status")]),
+				action: Type.Union([Type.Literal("status"), Type.Literal("populate"), Type.Literal("wait"), Type.Literal("job_status")]),
 				directory: Type.Optional(
 					Type.String({ description: "Required for action=status/populate -- absolute or cwd-relative path used to resolve the workspace" }),
 				),
@@ -1137,16 +1138,32 @@ export default function (pi: ExtensionAPI) {
 				waitMs: Type.Optional(
 					Type.Number({
 						description:
-							"action=populate only -- how long to wait for the job to finish before returning its current snapshot; defaults to 3000, capped by the daemon at 30000",
+							"action=populate: initial daemon wait, defaults to 3000 and capped at 30000. action=wait: total subscription/fallback bound, defaults to 300000 and capped at 300000",
 					}),
 				),
-				jobId: Type.Optional(Type.String({ description: "Required for action=job_status -- a jobId returned by a prior action=populate call" })),
+				jobId: Type.Optional(Type.String({ description: "Required for action=wait/job_status -- a jobId returned by action=populate" })),
 			}),
-			async execute(_toolCallId, params): Promise<AgentToolResult<WorkspaceCacheToolDetails>> {
+			async execute(_toolCallId, params, signal): Promise<AgentToolResult<WorkspaceCacheToolDetails>> {
 				if (params.action === "job_status") {
 					if (!params.jobId) throw new Error("workspace_cache action=job_status requires jobId");
-					const job = await codeIntelligenceOperations.jobStatus(params.jobId);
+					const job = await cacheOperations.jobStatus(params.jobId);
 					return { content: [{ type: "text", text: JSON.stringify(job) }], details: { action: "job_status", job } };
+				}
+				if (params.action === "wait") {
+					if (!params.jobId) throw new Error("workspace_cache action=wait requires jobId");
+					const waitMs = params.waitMs ?? 300_000;
+					if (!Number.isSafeInteger(waitMs) || waitMs < 1 || waitMs > 300_000)
+						throw new Error("workspace_cache action=wait waitMs must be an integer from 1 to 300000");
+					const pollIntervalMs = 5_000;
+					const completed = await waitForJobCompletion(cacheOperations, params.jobId, {
+						pollIntervalMs,
+						maxPolls: Math.ceil(waitMs / pollIntervalMs),
+						shouldContinue: () => !signal?.aborted,
+						signal,
+					});
+					if (signal?.aborted) throw new DOMException("workspace cache wait canceled", "AbortError");
+					const job = completed ?? (await cacheOperations.jobStatus(params.jobId));
+					return { content: [{ type: "text", text: JSON.stringify(job) }], details: { action: "wait", job } };
 				}
 				if (!params.directory) throw new Error(`workspace_cache action=${params.action} requires directory`);
 				const directory = resolve(cwd, params.directory);
@@ -1156,11 +1173,11 @@ export default function (pi: ExtensionAPI) {
 					const status = await cacheOperations.status(directory, maxFiles, maxSymbolsPerFile);
 					return { content: [{ type: "text", text: JSON.stringify(status) }], details: { action: "status", status } };
 				}
-				const job = await codeIntelligenceOperations.populateSymbolGraph(directory, maxFiles, maxSymbolsPerFile, params.waitMs ?? 3_000);
+				const job = await cacheOperations.submit(directory, maxFiles, maxSymbolsPerFile, params.waitMs ?? 3_000);
 				return { content: [{ type: "text", text: JSON.stringify(job) }], details: { action: "populate", job } };
 			},
 			renderCall(args, theme, context) {
-				const action = args.action === "populate" || args.action === "job_status" ? args.action : "status";
+				const action = args.action === "populate" || args.action === "wait" || args.action === "job_status" ? args.action : "status";
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatWorkspaceCacheCall(action, args, theme));
 				return text;

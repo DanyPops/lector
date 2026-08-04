@@ -1,10 +1,18 @@
-import type { JobSnapshot, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
+import { type JobSnapshot, type PopulateSymbolGraphResult, resolveLectorDaemonConnection, type WorkspaceCacheStatus } from "@danypops/lector";
+import { connectPushChannel } from "@danypops/vehicle-client/daemon-client";
 import { lectorClient, withWorkspace, workspaceForProjectDirectory } from "../lector-client.ts";
+
+export interface JobWatchHandle {
+	close(): void;
+}
+
+export type JobWatchOutcome = { readonly status: "subscribed"; readonly handle: JobWatchHandle } | { readonly status: "unavailable" };
 
 export interface WorkspaceCacheOperations {
 	status(directory: string, maxFiles: number, maxSymbolsPerFile: number): Promise<WorkspaceCacheStatus>;
-	submit(directory: string, maxFiles: number, maxSymbolsPerFile: number): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
+	submit(directory: string, maxFiles: number, maxSymbolsPerFile: number, waitMs?: number): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
 	jobStatus(jobId: string): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
+	watchJob?(jobId: string, onJob: (job: JobSnapshot<PopulateSymbolGraphResult>) => void): Promise<JobWatchOutcome>;
 }
 
 export function createWorkspaceCacheOperations(): WorkspaceCacheOperations {
@@ -18,7 +26,7 @@ export function createWorkspaceCacheOperations(): WorkspaceCacheOperations {
 				},
 			);
 		},
-		submit(directory, maxFiles, maxSymbolsPerFile) {
+		submit(directory, maxFiles, maxSymbolsPerFile, waitMs = 0) {
 			return withWorkspace(
 				() => workspaceForProjectDirectory(directory),
 				async ({ workspaceId }) => {
@@ -26,7 +34,7 @@ export function createWorkspaceCacheOperations(): WorkspaceCacheOperations {
 					const { job } = await client.callOnce("job.submit", {
 						operation: "workspace.populateSymbolGraph",
 						input: { workspaceId, maxFiles, maxSymbolsPerFile },
-						waitMs: 0,
+						waitMs,
 					});
 					return job;
 				},
@@ -36,6 +44,33 @@ export function createWorkspaceCacheOperations(): WorkspaceCacheOperations {
 			const client = await lectorClient();
 			const { job } = await client.call("job.status", { jobId });
 			return job;
+		},
+		async watchJob(jobId, onJob) {
+			try {
+				const client = await lectorClient();
+				const { topic } = await client.call("job.watch", { jobId });
+				const initialTarget = resolveLectorDaemonConnection();
+				const channel = connectPushChannel({
+					url: () => {
+						const target = resolveLectorDaemonConnection();
+						return `ws://${target.host}:${target.port}/push`;
+					},
+					token: initialTarget.token,
+					topics: [topic],
+					onMessage(receivedTopic) {
+						if (receivedTopic !== topic) return;
+						void client
+							.call("job.status", { jobId })
+							.then(({ job }) => onJob(job))
+							.catch(() => {
+								// The bounded status cadence remains authoritative when push refresh fails.
+							});
+					},
+				});
+				return { status: "subscribed", handle: { close: () => channel.close() } };
+			} catch {
+				return { status: "unavailable" };
+			}
 		},
 	};
 }
@@ -74,6 +109,49 @@ export interface MonitorWorkspaceCacheOptions {
 	readonly sleep?: (ms: number) => Promise<void>;
 }
 
+export interface WaitForJobCompletionOptions {
+	readonly pollIntervalMs: number;
+	readonly maxPolls: number;
+	readonly shouldContinue: () => boolean;
+	readonly signal?: AbortSignal;
+	readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/** Waits on Vehicle push delivery and checks status on a bounded cadence when push is unavailable or disconnected. */
+export async function waitForJobCompletion(
+	operations: WorkspaceCacheOperations,
+	jobId: string,
+	options: WaitForJobCompletionOptions,
+): Promise<JobSnapshot<PopulateSymbolGraphResult> | undefined> {
+	const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	let pushedResolve: ((job: JobSnapshot<PopulateSymbolGraphResult>) => void) | undefined;
+	const pushed = new Promise<JobSnapshot<PopulateSymbolGraphResult>>((resolve) => {
+		pushedResolve = resolve;
+	});
+	let watch: JobWatchHandle | undefined;
+	let resolveAbort!: () => void;
+	const aborted = new Promise<void>((resolve) => {
+		resolveAbort = resolve;
+	});
+	const onAbort = () => resolveAbort();
+	options.signal?.addEventListener("abort", onAbort, { once: true });
+	try {
+		const outcome = await operations.watchJob?.(jobId, (job) => pushedResolve?.(job));
+		if (outcome?.status === "subscribed") watch = outcome.handle;
+		for (let poll = 0; poll < options.maxPolls && options.shouldContinue() && !options.signal?.aborted; poll++) {
+			const current = await operations.jobStatus(jobId);
+			if (current.status === "succeeded" || current.status === "failed") return current;
+			const next = await Promise.race([pushed, sleep(options.pollIntervalMs).then(() => undefined), aborted.then(() => undefined)]);
+			if (next?.status === "succeeded" || next?.status === "failed") return next;
+		}
+		if (options.shouldContinue() && !options.signal?.aborted) return operations.jobStatus(jobId);
+		return undefined;
+	} finally {
+		options.signal?.removeEventListener("abort", onAbort);
+		watch?.close();
+	}
+}
+
 /** Drives one bounded session cache lifecycle; Pi event handlers only render its states. */
 export async function monitorWorkspaceCache(operations: WorkspaceCacheOperations, options: MonitorWorkspaceCacheOptions): Promise<void> {
 	const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -108,14 +186,12 @@ export async function monitorWorkspaceCache(operations: WorkspaceCacheOperations
 	}
 	options.onState({ status: "caching", jobId });
 
-	for (let poll = 0; poll < options.maxPolls && options.shouldContinue(); poll++) {
-		await sleep(options.pollIntervalMs);
-		if (!options.shouldContinue()) return;
-		const job = await operations.jobStatus(jobId);
-		if (job.status === "failed") throw new Error(`${job.error.code}: ${job.error.message}`);
-		if (job.status === "succeeded") {
-			reportCompleted(job);
-			return;
-		}
-	}
+	const job = await waitForJobCompletion(operations, jobId, {
+		pollIntervalMs: options.pollIntervalMs,
+		maxPolls: options.maxPolls,
+		shouldContinue: options.shouldContinue,
+		sleep,
+	});
+	if (job?.status === "failed") throw new Error(`${job.error.code}: ${job.error.message}`);
+	if (job?.status === "succeeded") reportCompleted(job);
 }

@@ -1,7 +1,7 @@
 import type { JobSnapshot, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
 import type { LectorTheme } from "../lector-tui-theme.ts";
 
-type WorkspaceCacheAction = "status" | "populate" | "job_status";
+type WorkspaceCacheAction = "status" | "populate" | "wait" | "job_status";
 
 export function formatWorkspaceCacheCall(
 	action: WorkspaceCacheAction,
@@ -9,9 +9,9 @@ export function formatWorkspaceCacheCall(
 	theme: LectorTheme,
 ): string {
 	const label = theme.fg("toolTitle", theme.bold("workspace_cache"));
-	if (action === "job_status") {
+	if (action === "job_status" || action === "wait") {
 		const jobId = typeof args.jobId === "string" ? args.jobId : "";
-		return `${label} ${theme.fg("accent", "job_status")} ${theme.fg("dim", jobId)}`;
+		return `${label} ${theme.fg("accent", action)} ${theme.fg("dim", jobId)}`;
 	}
 	const directory = typeof args.directory === "string" ? args.directory : "";
 	const maxFiles = typeof args.maxFiles === "number" ? String(args.maxFiles) : "default";

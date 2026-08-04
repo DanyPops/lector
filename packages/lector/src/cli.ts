@@ -2,6 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { connectPushChannel } from "@danypops/vehicle-client/daemon-client";
 import { createLogger } from "@danypops/vehicle-server/logging";
 import { createNodeServiceInstallDeps, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
@@ -85,6 +86,8 @@ const USAGE = `Usage:
     [--background] [--wait-ms <n>] [--json]
     --background submits a bounded process-lifetime job; --wait-ms waits briefly for a fast result
   lector job status <job-id> [--json]
+  lector job wait <job-id> [--wait-ms <n>] [--json]
+    waits up to 300000ms for PushChannel completion; status polling is the disconnect fallback
   lector workspace symbol-graph <reachable-from|edges-from|edges-to> <workspace-id> <path> <line> <character>
     [--max-depth <n>] [--kind <calls|references|contains>] [--json]
     --max-depth is required for reachable-from, ignored for edges-from/edges-to
@@ -496,8 +499,8 @@ function formatPopulationResult(result: PopulateSymbolGraphResult): string {
 }
 
 function formatJobSnapshot(job: JobSnapshot<PopulateSymbolGraphResult>): string {
-	if (job.status === "queued") return `${job.id}: queued (${job.operation}); poll with: lector job status ${job.id}`;
-	if (job.status === "running") return `${job.id}: still running (${job.operation}); poll with: lector job status ${job.id}`;
+	if (job.status === "queued") return `${job.id}: queued (${job.operation}); wait with: lector job wait ${job.id}`;
+	if (job.status === "running") return `${job.id}: still running (${job.operation}); wait with: lector job wait ${job.id}`;
 	if (job.status === "failed") return `${job.id}: failed [${job.error.code}] -- ${job.error.message}`;
 	return `${job.id}: succeeded -- ${formatPopulationResult(job.result)}`;
 }
@@ -527,6 +530,72 @@ async function runJobStatus(jobId: string | undefined, flags: string[]): Promise
 	const client = await connectLectorClient();
 	const { job } = await client.call("job.status", { jobId });
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(job) : formatJobSnapshot(job));
+}
+
+async function runJobWait(jobId: string | undefined, flags: string[]): Promise<void> {
+	if (!jobId) fail(USAGE);
+	const waitMsRaw = flagValue(flags, "--wait-ms");
+	const waitMs = waitMsRaw === undefined ? 300_000 : Number(waitMsRaw);
+	if (!Number.isSafeInteger(waitMs) || waitMs < 1 || waitMs > 300_000) fail("--wait-ms must be an integer from 1 to 300000");
+	const client = await connectLectorClient();
+	const initial = (await client.call("job.status", { jobId })).job;
+	if (initial.status === "succeeded" || initial.status === "failed") {
+		console.log(hasFlag(flags, "--json") ? JSON.stringify(initial) : formatJobSnapshot(initial));
+		return;
+	}
+	const { topic } = await client.call("job.watch", { jobId });
+	const initialTarget = resolveLectorDaemonConnection();
+	let terminal: JobSnapshot<PopulateSymbolGraphResult> | undefined;
+	let checking = false;
+	let resolveDone!: () => void;
+	let rejectDone!: (error: unknown) => void;
+	const done = new Promise<void>((resolvePromise, rejectPromise) => {
+		resolveDone = resolvePromise;
+		rejectDone = rejectPromise;
+	});
+	const refresh = async (): Promise<void> => {
+		if (checking || terminal) return;
+		checking = true;
+		try {
+			const current = (await client.call("job.status", { jobId })).job;
+			if (current.status === "succeeded" || current.status === "failed") {
+				terminal = current;
+				resolveDone();
+			}
+		} catch (error) {
+			rejectDone(error);
+		} finally {
+			checking = false;
+		}
+	};
+	const channel = connectPushChannel({
+		url: () => {
+			const target = resolveLectorDaemonConnection();
+			return `ws://${target.host}:${target.port}/push`;
+		},
+		token: initialTarget.token,
+		topics: [topic],
+		onMessage: (receivedTopic) => {
+			if (receivedTopic === topic) refresh().catch(rejectDone);
+		},
+	});
+	const pollTimer = setInterval(() => {
+		refresh().catch(rejectDone);
+	}, 1_000);
+	let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<void>((resolvePromise) => {
+		timeoutTimer = setTimeout(resolvePromise, waitMs);
+	});
+	try {
+		await refresh();
+		await Promise.race([done, timeout]);
+	} finally {
+		clearInterval(pollTimer);
+		if (timeoutTimer) clearTimeout(timeoutTimer);
+		channel.close();
+	}
+	const result = terminal ?? (await client.call("job.status", { jobId })).job;
+	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : formatJobSnapshot(result));
 }
 
 async function runWorkspaceCacheStatus(workspaceId: string | undefined, flags: string[]): Promise<void> {
@@ -1513,6 +1582,7 @@ async function main(): Promise<void> {
 	if (command === "job") {
 		const [action, jobId, ...jobFlags] = rest;
 		if (action === "status") return runJobStatus(jobId, jobFlags);
+		if (action === "wait") return runJobWait(jobId, jobFlags);
 		fail(USAGE);
 	}
 

@@ -50,6 +50,20 @@ describe("BoundedJobExecutor", () => {
 		expect(await jobs.wait(submitted.id, 100)).toMatchObject({ status: "succeeded", result: { count: 7 } });
 	});
 
+	it("notifies terminal subscribers exactly once with the completed snapshot", async () => {
+		const work = deferred<{ count: number }>();
+		const { executor: jobs } = executor();
+		const submitted = jobs.submit({ operation: "workspace.populateSymbolGraph", priority: "local", run: () => work.promise });
+		const observed: unknown[] = [];
+		jobs.onTerminal(submitted.id, (snapshot) => observed.push(snapshot));
+
+		work.resolve({ count: 7 });
+		await jobs.wait(submitted.id, 100);
+
+		expect(observed).toHaveLength(1);
+		expect(observed[0]).toMatchObject({ id: submitted.id, status: "succeeded", result: { count: 7 } });
+	});
+
 	it("captures a bounded machine-readable failure without rejecting unrelated callers", async () => {
 		const { executor: jobs } = executor();
 		const submitted = jobs.submit({

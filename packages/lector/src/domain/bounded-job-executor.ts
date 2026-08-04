@@ -52,6 +52,7 @@ interface JobEntry<Result> {
 	snapshot: JobSnapshot<Result>;
 	readonly run: () => Promise<Result>;
 	readonly settled: Set<() => void>;
+	readonly terminalListeners: Set<(snapshot: JobSnapshot<Result>) => void>;
 }
 
 const MAX_ERROR_MESSAGE_LENGTH = 1_000;
@@ -102,6 +103,7 @@ export class BoundedJobExecutor<Result = unknown> {
 			snapshot: { id, operation: input.operation, priority: input.priority, submittedAt: this.#now(), status: "queued" },
 			run: input.run,
 			settled: new Set(),
+			terminalListeners: new Set(),
 		};
 		this.#jobs.set(id, entry);
 		if (this.#running < this.#maxConcurrent) this.#start(entry);
@@ -114,6 +116,17 @@ export class BoundedJobExecutor<Result = unknown> {
 		const entry = this.#jobs.get(jobId);
 		if (!entry) throw new JobNotFound(jobId);
 		return entry.snapshot;
+	}
+
+	onTerminal(jobId: string, listener: (snapshot: JobSnapshot<Result>) => void): () => void {
+		const entry = this.#jobs.get(jobId);
+		if (!entry) throw new JobNotFound(jobId);
+		if (entry.snapshot.status === "succeeded" || entry.snapshot.status === "failed") {
+			listener(entry.snapshot);
+			return () => {};
+		}
+		entry.terminalListeners.add(listener);
+		return () => entry.terminalListeners.delete(listener);
 	}
 
 	async wait(jobId: string, maxWaitMs: number): Promise<JobSnapshot<Result>> {
@@ -202,6 +215,8 @@ export class BoundedJobExecutor<Result = unknown> {
 		this.#terminalIds.push(entry.snapshot.id);
 		for (const listener of entry.settled) listener();
 		entry.settled.clear();
+		for (const listener of entry.terminalListeners) listener(entry.snapshot);
+		entry.terminalListeners.clear();
 		while (this.#terminalIds.length > this.#maxRetained) {
 			const evictedId = this.#terminalIds.shift();
 			if (evictedId) this.#jobs.delete(evictedId);
