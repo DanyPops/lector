@@ -6,6 +6,10 @@ import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
 import { resolveLectorPaths } from "./constants.ts";
 import type { GithubSearchPort } from "./github-search/port.ts";
+import { InstallLocation } from "./lsp-provisioning/install-location.ts";
+import { LanguageServerProvisioner } from "./lsp-provisioning/language-server-provisioner.ts";
+import type { LanguageServerProvisionerPort } from "./lsp-provisioning/port.ts";
+import { resolveLspProvisioningRoot } from "./lsp-provisioning/resolve-lsp-provisioning-root.ts";
 import type { NpmRegistryPort } from "./npm-registry/port.ts";
 import type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 import type { WorkspacePort } from "./ports/workspace-port.ts";
@@ -96,6 +100,8 @@ export interface LectorDaemonOptions {
 	allowDynamicOnly?: boolean;
 	/** Override symbol-index construction. Tests use controlled indexes; production uses the service's language-dispatching default. */
 	createSymbolIndex?: (rootPath: string) => ClosableSymbolIndex;
+	/** Override managed language-server installation while retaining the real spawn-failure seam. */
+	createLanguageServerProvisioner?: (rootPath: string) => LanguageServerProvisionerPort;
 	/** Override the idle-eviction TTL for warm symbol indexes. Tests use a short value to observe eviction without waiting. */
 	symbolIndexIdleTtlMs?: number;
 	/** Override how often the idle-eviction sweep runs. */
@@ -135,6 +141,9 @@ function prepare(options: LectorDaemonOptions): {
 	// manages its own disk-bounded LRU cache of fetched external repos under a sibling
 	// directory of the main database, independent of any single registered workspace.
 	const reposDirectory = join(dirname(paths.database), "repos");
+	const lspProvisioningRoot = resolveLspProvisioningRoot(paths);
+	const languageServerProvisioner =
+		options.createLanguageServerProvisioner?.(lspProvisioningRoot) ?? new LanguageServerProvisioner(new InstallLocation(lspProvisioningRoot));
 	// The same token that guards the ops HTTP endpoint also guards the push WebSocket upgrade --
 	// one authenticated boundary for this daemon, not two independently-managed ones. Computed
 	// before createLectorService so its publish callback can close over the real channel instance.
@@ -148,6 +157,7 @@ function prepare(options: LectorDaemonOptions): {
 		allowDynamicOnly: options.allowDynamicOnly,
 		logger: options.logger,
 		createSymbolIndex: options.createSymbolIndex,
+		languageServerProvisioner,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
 		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),
 		createPackageSourceResolver: options.createPackageSourceResolver,

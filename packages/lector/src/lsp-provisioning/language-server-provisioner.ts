@@ -76,7 +76,9 @@ export class LanguageServerProvisioner implements LanguageServerProvisionerPort 
 		try {
 			const { resolved, platform } = await this.resolveInstall(spec);
 			const binName =
-				spec.source.kind === "npm" ? spec.source.binName : binNameFromPath(spec.source.binPathInArchive(platform ?? (await this.resolvePlatform())));
+				spec.source.kind === "npm"
+					? spec.source.binName
+					: binNameFromPath(spec.source.binPathInArchive(platform ?? (await this.resolvePlatform()), resolved.resolvedVersion));
 			const staged = await runStagedInstall({
 				location: this.location,
 				packageId: spec.id,

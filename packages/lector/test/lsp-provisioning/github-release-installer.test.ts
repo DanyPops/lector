@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { LspPlatform } from "../../src/domain/lsp-platform.ts";
 import { GithubReleaseAssetUnavailable, GithubReleaseNotFound, resolveGithubReleaseInstall } from "../../src/lsp-provisioning/github-release-installer.ts";
 import type { GithubReleaseFixture } from "../support/github-release-fixture.ts";
@@ -31,6 +31,24 @@ function buildRealTarGz(binName: string, content: string): Buffer {
 	return readFileSync(tarballPath);
 }
 
+function buildRealZip(binPath: string, content: string): Buffer {
+	workDir = mkdtempSync(join(tmpdir(), "lector-github-fixture-src-"));
+	const fullBinPath = join(workDir, binPath);
+	mkdirSync(dirname(fullBinPath), { recursive: true });
+	writeFileSync(fullBinPath, content, { mode: 0o755 });
+	const archivePath = join(workDir, "asset.zip");
+	execFileSync("zip", ["-q", archivePath, binPath], { cwd: workDir });
+	return readFileSync(archivePath);
+}
+
+function buildRealGzip(content: string): Buffer {
+	workDir = mkdtempSync(join(tmpdir(), "lector-github-fixture-src-"));
+	const binPath = join(workDir, "rust-analyzer");
+	writeFileSync(binPath, content, { mode: 0o755 });
+	execFileSync("gzip", [binPath]);
+	return readFileSync(`${binPath}.gz`);
+}
+
 describe("resolveGithubReleaseInstall", () => {
 	it("resolves the latest release, downloads a .tar.gz asset matching the platform, and extracts it for real", async () => {
 		const tarball = buildRealTarGz("zls", "#!/bin/sh\necho zls fixture\n");
@@ -56,6 +74,52 @@ describe("resolveGithubReleaseInstall", () => {
 		const relativeBinPath = await resolved.install(stagingDir);
 		expect(relativeBinPath).toBe("zls");
 		expect(readFileSync(join(stagingDir, relativeBinPath), "utf8")).toContain("zls fixture");
+	}, 20_000);
+
+	it("extracts a version-named .zip asset and resolves its nested executable", async () => {
+		const zip = buildRealZip("clangd_22.1.6/bin/clangd", "#!/bin/sh\necho clangd fixture\n");
+		fixture = startGithubReleaseFixture({ repo: "clangd/clangd", tagName: "22.1.6", assets: [{ name: "clangd-linux-22.1.6.zip", bytes: zip }] });
+		stagingDir = mkdtempSync(join(tmpdir(), "lector-github-installer-"));
+
+		const resolved = await resolveGithubReleaseInstall(
+			{
+				kind: "github-release",
+				repo: "clangd/clangd",
+				assetName: (_platform, tag) => `clangd-linux-${tag}.zip`,
+				binPathInArchive: (_platform, tag) => `clangd_${tag}/bin/clangd`,
+			},
+			LINUX_X64,
+			{ apiBaseUrl: fixture.apiBaseUrl },
+		);
+
+		const relativeBinPath = await resolved.install(stagingDir);
+		expect(relativeBinPath).toBe("clangd_22.1.6/bin/clangd");
+		expect(readFileSync(join(stagingDir, relativeBinPath), "utf8")).toContain("clangd fixture");
+	}, 20_000);
+
+	it("extracts a single-binary .gz asset under its declared executable name", async () => {
+		const gzip = buildRealGzip("#!/bin/sh\necho rust analyzer fixture\n");
+		fixture = startGithubReleaseFixture({
+			repo: "rust-lang/rust-analyzer",
+			tagName: "2026-08-03",
+			assets: [{ name: "rust-analyzer-x86_64-unknown-linux-gnu.gz", bytes: gzip }],
+		});
+		stagingDir = mkdtempSync(join(tmpdir(), "lector-github-installer-"));
+
+		const resolved = await resolveGithubReleaseInstall(
+			{
+				kind: "github-release",
+				repo: "rust-lang/rust-analyzer",
+				assetName: () => "rust-analyzer-x86_64-unknown-linux-gnu.gz",
+				binPathInArchive: () => "rust-analyzer",
+			},
+			LINUX_X64,
+			{ apiBaseUrl: fixture.apiBaseUrl },
+		);
+
+		const relativeBinPath = await resolved.install(stagingDir);
+		expect(relativeBinPath).toBe("rust-analyzer");
+		expect(readFileSync(join(stagingDir, relativeBinPath), "utf8")).toContain("rust analyzer fixture");
 	}, 20_000);
 
 	it("resolves a pinned tag rather than always latest", async () => {

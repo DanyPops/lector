@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { LanguageFileOutsideWorkspace, LspSymbolIndex } from "../../../src/adapters/lsp/lsp-symbol-index.ts";
+import { LanguageFileOutsideWorkspace, LanguageServerProvisioningUnavailable, LspSymbolIndex } from "../../../src/adapters/lsp/lsp-symbol-index.ts";
 import { InMemoryContentCache } from "../../../src/content-cache/in-memory-content-cache.ts";
 import { contentHashOf } from "../../../src/domain/content-hash.ts";
 import { diagnostics } from "../../../src/domain/diagnostics.ts";
@@ -20,10 +20,14 @@ import { goToDefinition } from "../../../src/domain/go-to-definition.ts";
 import { goToImplementation } from "../../../src/domain/go-to-implementation.ts";
 import { hoverAt } from "../../../src/domain/hover-at.ts";
 import { incomingCalls } from "../../../src/domain/incoming-calls.ts";
-import { TYPESCRIPT_DESCRIPTOR } from "../../../src/domain/language-server-descriptor.ts";
+import { type LanguageServerDescriptor, TYPESCRIPT_DESCRIPTOR } from "../../../src/domain/language-server-descriptor.ts";
 import { outgoingCalls } from "../../../src/domain/outgoing-calls.ts";
 import { prepareCallHierarchy } from "../../../src/domain/prepare-call-hierarchy.ts";
+import { InstallLocation } from "../../../src/lsp-provisioning/install-location.ts";
+import { LanguageServerProvisioner } from "../../../src/lsp-provisioning/language-server-provisioner.ts";
+import type { LanguageServerProvisionerPort } from "../../../src/lsp-provisioning/port.ts";
 import { findPositionOf } from "../../support/find-position.ts";
+import { startGithubReleaseFixture } from "../../support/github-release-fixture.ts";
 
 const LECTOR_ROOT = new URL("../../..", import.meta.url).pathname;
 const EXACT_EDIT_FILE = join(LECTOR_ROOT, "src/domain/exact-edit.ts");
@@ -32,11 +36,153 @@ const FIND_WORKSPACE_SYMBOLS_FILE = join(LECTOR_ROOT, "src/domain/find-workspace
 const SYMBOL_INDEX_PORT_FILE = join(LECTOR_ROOT, "src/ports/symbol-index-port.ts");
 const SYMBOL_GRAPH_PORT_FILE = join(LECTOR_ROOT, "src/symbol-graph/port.ts");
 const LSP_SYMBOL_INDEX_FILE = join(LECTOR_ROOT, "src/adapters/lsp/lsp-symbol-index.ts");
+const EVIL_LSP_SERVER = join(LECTOR_ROOT, "test/support/evil-lsp-server.ts");
 
 let index: LspSymbolIndex | undefined;
 afterEach(async () => {
 	await index?.close();
 	index = undefined;
+});
+
+describe("LspSymbolIndex managed spawn fallback", () => {
+	it("provisions once after ENOENT, retries with the installed binary, and reuses the warm process", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-managed-lsp-"));
+		writeFileSync(join(root, "seed.ts"), "export const seed = 1;\n");
+		const source = { kind: "npm", packageName: "fixture-lsp", binName: "fixture-lsp" } as const;
+		const descriptor: LanguageServerDescriptor = {
+			languageId: "fixture",
+			backendId: "fixture-lsp",
+			extensions: [".ts"],
+			launch: { kind: "system-binary", command: "lector-definitely-missing-lsp" },
+			provisioning: source,
+			args: [EVIL_LSP_SERVER],
+			rootMarkers: [],
+			commonSeedCandidates: ["seed.ts"],
+			settleMs: 0,
+		};
+		let provisionCalls = 0;
+		const provisioner: LanguageServerProvisionerPort = {
+			async ensureInstalled() {
+				provisionCalls += 1;
+				return {
+					kind: "installed",
+					binPath: process.execPath,
+					receipt: { packageId: "fixture-lsp", source, resolvedVersion: "1.0.0", binPath: process.execPath, installedAt: new Date(0).toISOString() },
+				};
+			},
+		};
+		index = new LspSymbolIndex(root, descriptor, "seed.ts", { provisioner });
+
+		expect(index.processId).toBeUndefined();
+		expect(provisionCalls).toBe(0);
+		await findWorkspaceSymbols(index, "anything");
+		const processId = index.processId;
+		expect(processId).toBeDefined();
+		expect(provisionCalls).toBe(1);
+
+		await findWorkspaceSymbols(index, "again");
+		expect(index.processId).toBe(processId);
+		expect(provisionCalls).toBe(1);
+		await index.close();
+		index = undefined;
+		rmSync(root, { recursive: true, force: true });
+	}, 20_000);
+
+	it("runs the real provisioner, installs a release asset, and spawns the resulting executable", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-managed-lsp-"));
+		const installRoot = mkdtempSync(join(tmpdir(), "lector-managed-lsp-install-"));
+		writeFileSync(join(root, "seed.ts"), "export const seed = 1;\n");
+		const assetName = "fixture-lsp-linux-x64";
+		const wrapper = Buffer.from(`#!/bin/sh\nexec "${process.execPath}" "${EVIL_LSP_SERVER}" "$@"\n`);
+		const fixture = startGithubReleaseFixture({ repo: "acme/fixture-lsp", tagName: "1.0.0", assets: [{ name: assetName, bytes: wrapper }] });
+		const descriptor: LanguageServerDescriptor = {
+			languageId: "fixture",
+			backendId: "fixture-lsp",
+			extensions: [".ts"],
+			launch: { kind: "system-binary", command: "lector-definitely-missing-lsp" },
+			provisioning: {
+				kind: "github-release",
+				repo: "acme/fixture-lsp",
+				assetName: () => assetName,
+				binPathInArchive: () => "fixture-lsp",
+			},
+			args: [],
+			rootMarkers: [],
+			commonSeedCandidates: ["seed.ts"],
+			settleMs: 0,
+		};
+		const provisioner = new LanguageServerProvisioner(new InstallLocation(installRoot), {
+			githubRelease: { apiBaseUrl: fixture.apiBaseUrl },
+			resolvePlatform: async () => ({ os: "linux", arch: "x64", libc: "glibc" }),
+		});
+		index = new LspSymbolIndex(root, descriptor, "seed.ts", { provisioner });
+
+		try {
+			await findWorkspaceSymbols(index, "anything");
+			expect(index.processId).toBeDefined();
+		} finally {
+			await index.close();
+			index = undefined;
+			fixture.stop();
+			rmSync(root, { recursive: true, force: true });
+			rmSync(installRoot, { recursive: true, force: true });
+		}
+	}, 20_000);
+
+	it("does not provision when an installed command starts but fails for a non-ENOENT reason", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-managed-lsp-"));
+		writeFileSync(join(root, "seed.ts"), "export const seed = 1;\n");
+		let provisionCalls = 0;
+		const descriptor: LanguageServerDescriptor = {
+			languageId: "fixture",
+			backendId: "fixture-lsp",
+			extensions: [".ts"],
+			launch: { kind: "system-binary", command: process.execPath },
+			provisioning: { kind: "npm", packageName: "fixture-lsp", binName: "fixture-lsp" },
+			args: [join(root, "missing-server-script.ts")],
+			rootMarkers: [],
+			commonSeedCandidates: ["seed.ts"],
+			settleMs: 0,
+		};
+		const provisioner: LanguageServerProvisionerPort = {
+			async ensureInstalled() {
+				provisionCalls += 1;
+				return { kind: "unavailable", reason: "must not be reached" };
+			},
+		};
+		index = new LspSymbolIndex(root, descriptor, "seed.ts", { provisioner });
+
+		await expect(findWorkspaceSymbols(index, "anything")).rejects.toThrow();
+		expect(provisionCalls).toBe(0);
+		rmSync(root, { recursive: true, force: true });
+	}, 20_000);
+
+	it("surfaces a typed actionable error when managed installation is unavailable", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-managed-lsp-"));
+		writeFileSync(join(root, "seed.ts"), "export const seed = 1;\n");
+		const descriptor: LanguageServerDescriptor = {
+			languageId: "fixture",
+			backendId: "fixture-lsp",
+			extensions: [".ts"],
+			launch: { kind: "system-binary", command: "lector-definitely-missing-lsp" },
+			provisioning: { kind: "npm", packageName: "fixture-lsp", binName: "fixture-lsp" },
+			args: [],
+			rootMarkers: [],
+			commonSeedCandidates: ["seed.ts"],
+			settleMs: 0,
+		};
+		const provisioner: LanguageServerProvisionerPort = {
+			async ensureInstalled() {
+				return { kind: "unavailable", reason: "no matching platform asset" };
+			},
+		};
+		index = new LspSymbolIndex(root, descriptor, "seed.ts", { provisioner });
+
+		const query = findWorkspaceSymbols(index, "anything");
+		await expect(query).rejects.toThrow(LanguageServerProvisioningUnavailable);
+		await expect(query).rejects.toThrow("no matching platform asset");
+		rmSync(root, { recursive: true, force: true });
+	}, 20_000);
 });
 
 describe("LspSymbolIndex configured for TypeScript", () => {

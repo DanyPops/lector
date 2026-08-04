@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
 import { InMemoryContentCache } from "../src/content-cache/in-memory-content-cache.ts";
 import { contentHashOf } from "../src/domain/content-hash.ts";
+import type { LanguageServerProvisionerPort } from "../src/lsp-provisioning/port.ts";
 import { createLectorService, type LectorService } from "../src/service.ts";
 
 let fixtureRoot: string | undefined;
@@ -60,6 +61,24 @@ describe("createLectorService's shared content cache", () => {
 		});
 
 		await expect(contentCache.get(outcome.newHash)).resolves.toMatchObject({ rawContent: "export const fresh = true;\n" });
+	});
+
+	it("does not invoke managed LSP provisioning for filesystem-only reads and writes", async () => {
+		fixtureRoot = buildFixture();
+		let provisionCalls = 0;
+		const provisioner: LanguageServerProvisionerPort = {
+			async ensureInstalled() {
+				provisionCalls += 1;
+				return { kind: "unavailable", reason: "must not be reached" };
+			},
+		};
+		service = createLectorService(new Map(), { allowDynamicOnly: true, languageServerProvisioner: provisioner });
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+
+		await service.dispatch("workspace.rawRead", { workspaceId, path: "src/a.ts" });
+		await service.dispatch("workspace.exactEdit", { workspaceId, path: "src/b.ts", expectedHash: null, content: "export const fresh = true;\n" });
+
+		expect(provisionCalls).toBe(0);
 	});
 
 	it("a real query through the default LspSymbolIndex warms the exact same shared instance rawRead reads from", async () => {

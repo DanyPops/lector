@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import fetchBuilder, { type RequestInitWithRetry } from "fetch-retry";
 import { discardResponseBody, readBoundedJson } from "../adapters/bounded-response-reader.ts";
@@ -48,7 +48,7 @@ export class GithubReleaseRequestFailed extends Error {
 
 export class UnsupportedReleaseArchiveFormat extends Error {
 	constructor(readonly assetName: string) {
-		super(`unsupported release archive format: ${assetName} (only .tar.gz/.tgz and a bare binary asset are supported)`);
+		super(`unsupported release archive format: ${assetName} (only .tar.gz/.tgz, .zip, .gz, and a bare binary asset are supported)`);
 		this.name = "UnsupportedReleaseArchiveFormat";
 	}
 }
@@ -69,6 +69,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isGithubReleaseResponse(value: unknown): value is GithubReleaseResponse {
 	return isRecord(value) && typeof value.tag_name === "string" && Array.isArray(value.assets);
+}
+
+interface ArchiveExtraction {
+	readonly command: string;
+	readonly args: readonly string[];
+}
+
+function archiveExtraction(assetName: string, archivePath: string, stagingDir: string): ArchiveExtraction | undefined {
+	if (assetName.endsWith(".tar.gz") || assetName.endsWith(".tgz")) return { command: "tar", args: ["-xzf", archivePath, "-C", stagingDir] };
+	if (assetName.endsWith(".zip")) return { command: "unzip", args: ["-q", archivePath, "-d", stagingDir] };
+	if (assetName.endsWith(".gz")) return { command: "gzip", args: ["-d", archivePath] };
+	return undefined;
 }
 
 export interface GithubReleaseInstallerOptions {
@@ -132,9 +144,9 @@ async function downloadAsset(url: string, timeoutMs: number): Promise<Buffer> {
 /**
  * Resolves the release for `source.tag` (or latest), matches its own platform-specific asset via
  * `source.assetName`, downloads it, and extracts it into the staging directory. Supports
- * `.tar.gz`/`.tgz` (extracted via the real `tar` binary, matching how this repo's own npm
- * registry test fixture builds archives) and a bare, unarchived binary asset -- `.zip` is a
- * known, explicit gap (thrown as UnsupportedReleaseArchiveFormat), not silently mishandled.
+ * `.tar.gz`/`.tgz`, `.zip`, and single-binary `.gz` assets through bounded system extractors,
+ * plus bare binaries. Extractor failures remain typed provisioning failures and staging cleanup
+ * keeps partial installs unreachable.
  */
 export async function resolveGithubReleaseInstall(
 	source: GithubReleaseLanguageServerSource,
@@ -142,7 +154,7 @@ export async function resolveGithubReleaseInstall(
 	options: GithubReleaseInstallerOptions = {},
 ): Promise<ResolvedInstall> {
 	const release = await fetchRelease(source.repo, source.tag, options);
-	const assetName = source.assetName(platform);
+	const assetName = source.assetName(platform, release.tag_name);
 	if (!assetName) throw new GithubReleaseAssetUnavailable(source.repo, platform);
 	const asset = release.assets.find((candidate) => candidate.name === assetName);
 	if (!asset) throw new GithubReleaseAssetUnavailable(source.repo, platform);
@@ -151,18 +163,24 @@ export async function resolveGithubReleaseInstall(
 		resolvedVersion: release.tag_name,
 		install: async (stagingDir: string): Promise<string> => {
 			const bytes = await downloadAsset(asset.browser_download_url, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-			if (assetName.endsWith(".tar.gz") || assetName.endsWith(".tgz")) {
-				const archivePath = join(stagingDir, assetName);
+			const binPath = source.binPathInArchive(platform, release.tag_name);
+			const singleGzip = assetName.endsWith(".gz") && !assetName.endsWith(".tar.gz");
+			const archivePath = join(stagingDir, singleGzip ? `${binPath}.gz` : assetName);
+			const extraction = archiveExtraction(assetName, archivePath, stagingDir);
+			if (extraction) {
+				mkdirSync(dirname(archivePath), { recursive: true });
 				writeFileSync(archivePath, bytes);
-				const result = await runBoundedSubprocess("tar", ["-xzf", archivePath, "-C", stagingDir], {
+				const result = await runBoundedSubprocess(extraction.command, extraction.args, {
 					timeoutMs: options.extractTimeoutMs ?? DEFAULT_EXTRACT_TIMEOUT_MS,
 				});
-				if (result.code !== 0) throw new GithubReleaseRequestFailed(`tar extraction failed: ${result.stderr.trim() || `exit code ${result.code}`}`);
-				return source.binPathInArchive(platform);
+				if (result.code !== 0) {
+					throw new GithubReleaseRequestFailed(`${extraction.command} extraction failed: ${result.stderr.trim() || `exit code ${result.code}`}`);
+				}
+				rmSync(archivePath, { force: true });
+				chmodSync(join(stagingDir, binPath), 0o755);
+				return binPath;
 			}
 			if (!assetName.includes(".") || assetName.endsWith(".exe")) {
-				// A bare binary asset, not an archive -- write it directly as the executable itself.
-				const binPath = source.binPathInArchive(platform);
 				const fullPath = join(stagingDir, binPath);
 				mkdirSync(dirname(fullPath), { recursive: true });
 				writeFileSync(fullPath, bytes, { mode: 0o755 });

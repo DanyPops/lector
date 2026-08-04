@@ -8,6 +8,8 @@
  * here.
  */
 
+import type { LanguageServerSource } from "./language-server-package-spec.ts";
+
 /** An npm-module server resolves its JS entry via import.meta.resolve and runs under bun; a system-binary server (gopls, rust-analyzer, clangd) resolves by bare name against PATH. */
 export type LanguageServerLaunch = { readonly kind: "npm-module"; readonly entryModule: string } | { readonly kind: "system-binary"; readonly command: string };
 
@@ -18,6 +20,8 @@ export interface LanguageServerDescriptor {
 	/** Per-extension document language ids when one server owns a language family. */
 	readonly documentLanguageIds?: Readonly<Record<string, string>>;
 	readonly launch: LanguageServerLaunch;
+	/** Optional managed source used only after a system-binary spawn fails with ENOENT. */
+	readonly provisioning?: LanguageServerSource;
 	readonly args: readonly string[];
 	/** Checked nearest-first; closest match wins over a more distant one -- a monorepo subproject with its own root marker resolves to itself, not the outer repo. */
 	readonly rootMarkers: readonly string[];
@@ -80,8 +84,31 @@ export const RUST_DESCRIPTOR: LanguageServerDescriptor = {
 	languageId: "rust",
 	backendId: "rust-analyzer",
 	extensions: [".rs"],
-	// rust-analyzer ships via rustup, not npm.
 	launch: { kind: "system-binary", command: "rust-analyzer" },
+	provisioning: {
+		kind: "github-release",
+		repo: "rust-lang/rust-analyzer",
+		assetName: (platform) => {
+			if (platform.os === "darwin" && (platform.arch === "x64" || platform.arch === "arm64")) {
+				return `rust-analyzer-${platform.arch === "x64" ? "x86_64" : "aarch64"}-apple-darwin.gz`;
+			}
+			if (platform.os === "linux" && platform.arch === "x64" && platform.libc) {
+				return `rust-analyzer-x86_64-unknown-linux-${platform.libc === "musl" ? "musl" : "gnu"}.gz`;
+			}
+			if (platform.os === "linux" && platform.arch === "arm64" && platform.libc === "glibc") {
+				return "rust-analyzer-aarch64-unknown-linux-gnu.gz";
+			}
+			if (platform.os === "linux" && platform.arch === "arm" && platform.libc === "glibc") {
+				return "rust-analyzer-arm-unknown-linux-gnueabihf.gz";
+			}
+			if (platform.os === "win32" && (platform.arch === "x64" || platform.arch === "x86" || platform.arch === "arm64")) {
+				const arch = platform.arch === "x64" ? "x86_64" : platform.arch === "x86" ? "i686" : "aarch64";
+				return `rust-analyzer-${arch}-pc-windows-msvc.zip`;
+			}
+			return undefined;
+		},
+		binPathInArchive: (platform) => `rust-analyzer${platform.os === "win32" ? ".exe" : ""}`,
+	},
 	args: [],
 	rootMarkers: ["Cargo.toml"],
 	commonSeedCandidates: ["src/main.rs", "src/lib.rs"],
@@ -92,8 +119,18 @@ export const CPP_DESCRIPTOR: LanguageServerDescriptor = {
 	languageId: "cpp",
 	backendId: "clangd",
 	extensions: [".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"],
-	// clangd ships via LLVM's system packaging, not npm.
 	launch: { kind: "system-binary", command: "clangd" },
+	provisioning: {
+		kind: "github-release",
+		repo: "clangd/clangd",
+		assetName: (platform, releaseTag) => {
+			if (platform.os === "linux" && platform.arch === "x64" && platform.libc === "glibc") return `clangd-linux-${releaseTag}.zip`;
+			if (platform.os === "darwin" && (platform.arch === "x64" || platform.arch === "arm64")) return `clangd-mac-${releaseTag}.zip`;
+			if (platform.os === "win32" && platform.arch === "x64") return `clangd-windows-${releaseTag}.zip`;
+			return undefined;
+		},
+		binPathInArchive: (platform, releaseTag) => `clangd_${releaseTag}/bin/clangd${platform.os === "win32" ? ".exe" : ""}`,
+	},
 	args: [],
 	rootMarkers: ["compile_commands.json", "compile_flags.txt", "CMakeLists.txt"],
 	commonSeedCandidates: ["main.cpp", "main.c", "src/main.cpp", "src/main.c"],
@@ -109,8 +146,8 @@ export const BASH_DESCRIPTOR: LanguageServerDescriptor = {
 	// GHSA-23c5-xmqv-rm74, GHSA-mh99-v99m-4gvg) with no upstream fix. That chain is only reachable
 	// through textDocument/formatting, which Lector never sends -- but bundling it as a production
 	// npm dependency still ships the vulnerable code and the audit finding to every consumer.
-	// Resolving by bare name against PATH, like gopls/rust-analyzer/clangd, keeps Bash support
-	// available to whoever installs the real server themselves without shipping it by default.
+	// PATH-only launch keeps Bash support available to users who install it themselves without
+	// shipping or managed-provisioning the vulnerable package by default.
 	launch: { kind: "system-binary", command: "bash-language-server" },
 	args: ["start"],
 	rootMarkers: [],

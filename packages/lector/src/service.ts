@@ -66,6 +66,7 @@ import type { GitStatusSummary } from "./git/status.ts";
 import { GithubSearchClient } from "./github-search/github-search-client.ts";
 import type { GithubSearchPort } from "./github-search/port.ts";
 import { NpmLockfileVersionResolver } from "./installed-package-version-resolver/npm-lockfile-version-resolver.ts";
+import type { LanguageServerProvisionerPort } from "./lsp-provisioning/port.ts";
 import { InMemoryMutationHistory } from "./mutation-history/in-memory-mutation-history.ts";
 import type { MutationHistoryEntry, MutationOperation } from "./mutation-history/mutation-history.ts";
 import { canRevertMutation } from "./mutation-history/mutation-history.ts";
@@ -727,6 +728,8 @@ export interface LectorServiceOptions {
 	logger?: Logger;
 	/** Factory for the symbol index backing workspace.findSymbols and code intelligence, given the descriptor resolved for the call. Defaults to an LspSymbolIndex configured for whichever descriptor is passed. */
 	createSymbolIndex?: (rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => ClosableSymbolIndex;
+	/** Shared managed installer for provisionable system-binary language servers. Never used by filesystem-only operations. */
+	languageServerProvisioner?: LanguageServerProvisionerPort;
 	/**
 	 * Explicit opt-in to start with zero registered workspaces, relying entirely on
 	 * workspace.registerPath at runtime -- the shape a long-lived background daemon that
@@ -900,7 +903,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const createSymbolIndex =
 		options.createSymbolIndex ??
 		((rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => {
-			const semantic = new LspSymbolIndex(rootPath, descriptor, seedFile, { contentCache, logger });
+			const semantic = new LspSymbolIndex(rootPath, descriptor, seedFile, { contentCache, logger, provisioner: options.languageServerProvisioner });
 			if (descriptor.languageId !== "typescript") return semantic;
 			return new FallbackCodeIntelligenceIndex(semantic, [new TypeScriptCompilerSymbolIndex(rootPath), new TreeSitterSymbolIndex(rootPath, contentCache)]);
 		});

@@ -21,9 +21,9 @@ export interface GithubReleaseLanguageServerSource {
 	readonly repo: string;
 	/** A tag name, or undefined for the latest release. */
 	readonly tag?: string;
-	/** Returns the exact release asset filename for `platform`, or undefined if this server has no build for it. */
-	assetName(platform: LspPlatform): string | undefined;
-	binPathInArchive(platform: LspPlatform): string;
+	/** Returns the exact release asset filename for `platform`, or undefined if this server has no build for it. `releaseTag` supports upstreams that embed the version in each asset name. */
+	assetName(platform: LspPlatform, releaseTag: string): string | undefined;
+	binPathInArchive(platform: LspPlatform, releaseTag: string): string;
 }
 
 export type LanguageServerSource = NpmLanguageServerSource | GithubReleaseLanguageServerSource;

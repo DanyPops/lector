@@ -28,6 +28,7 @@ import { SerialExecutionQueue } from "../../domain/serial-execution-queue.ts";
 import { type ParsedWorkspaceEdit, parsePrepareRenameResult, parseWorkspaceEdit, type RenameRange } from "../../domain/workspace-edit.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { FileChangeEvent } from "../../file-watcher/file-change-event.ts";
+import type { LanguageServerProvisionerPort } from "../../lsp-provisioning/port.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
 import { TypeScriptCompilerSymbolIndex } from "../typescript-compiler-symbol-index.ts";
@@ -56,6 +57,8 @@ export interface LspSymbolIndexOptions {
 	 * unshared cache when not given, for full backward compatibility.
 	 */
 	readonly contentCache?: ContentCachePort;
+	/** Optional managed installer used only when a provisionable system binary is absent from PATH. */
+	readonly provisioner?: LanguageServerProvisionerPort;
 }
 
 export class LanguageFileOutsideWorkspace extends Error {
@@ -65,6 +68,16 @@ export class LanguageFileOutsideWorkspace extends Error {
 	) {
 		super(`language file "${path}" resolves outside workspace root "${root}"`);
 		this.name = "LanguageFileOutsideWorkspace";
+	}
+}
+
+export class LanguageServerProvisioningUnavailable extends Error {
+	constructor(
+		readonly backendId: string,
+		readonly reason: string,
+	) {
+		super(`language server ${backendId} is unavailable and managed provisioning failed: ${reason}`);
+		this.name = "LanguageServerProvisioningUnavailable";
 	}
 }
 
@@ -273,6 +286,10 @@ function resolveLanguageServerCommand(descriptor: LanguageServerDescriptor): { c
 	return { command: descriptor.launch.command, args: [...descriptor.args] };
 }
 
+function isMissingExecutable(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
 /** LSP positions are 0-indexed; WorkspaceLocation/CodeRange are 1-indexed (doc convention: humans and CLIs present positions 1-indexed). */
 function toLspPosition(line: number, character: number): LspPosition {
 	return { line: line - 1, character: character - 1 };
@@ -390,6 +407,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private readonly mutationQueue = new SerialExecutionQueue();
 	private readonly contentCache: ContentCachePort;
 	private readonly logger: Logger;
+	private readonly provisioner: LanguageServerProvisionerPort | undefined;
 
 	constructor(cwd: string, descriptor: LanguageServerDescriptor, seedFile?: string, options: LspSymbolIndexOptions = {}) {
 		this.cwd = resolve(cwd);
@@ -398,6 +416,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		this.explicitSeedFile = seedFile;
 		this.contentCache = options.contentCache ?? new InMemoryContentCache();
 		this.logger = options.logger ?? NOOP_LOGGER;
+		this.provisioner = options.provisioner;
 		this.maxOpenFiles = positiveLimit(options.maxOpenFiles, DEFAULT_MAX_OPEN_FILES, "maxOpenFiles");
 		this.maxFileBytes = positiveLimit(options.maxFileBytes, DEFAULT_MAX_FILE_BYTES, "maxFileBytes");
 		this.maxRefreshBytes = positiveLimit(options.maxRefreshBytes, 50 * 1024 * 1024, "maxRefreshBytes");
@@ -430,72 +449,103 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		return absolute;
 	}
 
+	private configureProcess(proc: LanguageServerProcess): void {
+		this.dynamicCapabilities = new DynamicCapabilityRegistry();
+		proc.onNotification("textDocument/publishDiagnostics", (params) => {
+			const parsed = parsePublishDiagnosticsParams(params);
+			if (!parsed) return;
+			const { uri, diagnostics } = parsed;
+			const path = fileURLToPath(uri);
+			this.latestDiagnostics.set(
+				path,
+				diagnostics.map((item) => normalizeDiagnostic(path, item)),
+			);
+			const waiters = this.diagnosticsWaiters.get(path);
+			if (waiters) {
+				this.diagnosticsWaiters.delete(path);
+				for (const resolve of waiters) resolve();
+			}
+		});
+		this.registerServerInitiatedRequestHandlers(proc);
+		proc.onNotification("$/progress", (params) => {
+			const progress = parseProgressNotification(params);
+			if (progress) this.dynamicCapabilities.recordProgress(progress.token, progress.value);
+		});
+	}
+
+	private requestInitialize(proc: LanguageServerProcess): Promise<{ capabilities?: unknown }> {
+		return proc.request("initialize", {
+			processId: process.pid,
+			rootUri: pathToFileURL(this.cwd).href,
+			workspaceFolders: [{ uri: pathToFileURL(this.cwd).href, name: this.cwd }],
+			capabilities: {
+				textDocument: {
+					documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+					definition: { linkSupport: true },
+					hover: { contentFormat: ["markdown", "plaintext"] },
+					rename: { prepareSupport: true },
+					diagnostic: { dynamicRegistration: true },
+					...this.descriptor.extraCapabilities,
+				},
+				window: { workDoneProgress: true },
+				workspace: { didChangeWatchedFiles: { dynamicRegistration: true } },
+			},
+			initializationOptions: {},
+		});
+	}
+
+	private async provisionMissingServer(): Promise<string> {
+		if (!this.provisioner) throw new LanguageServerProvisioningUnavailable(this.descriptor.backendId, "no provisioner is configured");
+		if (!this.descriptor.provisioning) throw new LanguageServerProvisioningUnavailable(this.descriptor.backendId, "no managed source is configured");
+		this.logger.info("language server provisioning started", { component: "lsp", operation: "provision", backendId: this.descriptor.backendId });
+		const outcome = await this.provisioner.ensureInstalled({ id: this.descriptor.backendId, source: this.descriptor.provisioning });
+		switch (outcome.kind) {
+			case "installed":
+			case "already-installed":
+				this.logger.info("language server provisioning ready", {
+					component: "lsp",
+					operation: "provision",
+					backendId: this.descriptor.backendId,
+					outcome: outcome.kind,
+				});
+				return outcome.binPath;
+			case "unavailable":
+				this.logger.warn("language server provisioning unavailable", { component: "lsp", operation: "provision", backendId: this.descriptor.backendId });
+				throw new LanguageServerProvisioningUnavailable(this.descriptor.backendId, outcome.reason);
+			case "timed-out":
+				this.logger.warn("language server provisioning timed out", { component: "lsp", operation: "provision", backendId: this.descriptor.backendId });
+				throw new LanguageServerProvisioningUnavailable(this.descriptor.backendId, "installation timed out");
+			default: {
+				const exhaustive: never = outcome;
+				throw new TypeError(`unsupported provisioning outcome: ${String(exhaustive)}`);
+			}
+		}
+	}
+
 	private async ensureInitialized(initialPath?: string): Promise<LanguageServerProcess> {
 		const initialTargetPath = initialPath ? this.resolveTargetPath(initialPath) : undefined;
 		if (this.process) return this.process;
 		if (!this.initializing) {
 			let spawned: LanguageServerProcess | undefined;
 			this.initializing = (async () => {
-				const proc = LanguageServerProcess.spawnProcess({
+				let proc = LanguageServerProcess.spawnProcess({
 					...resolveLanguageServerCommand(this.descriptor),
 					cwd: this.cwd,
 				});
 				spawned = proc;
-				this.dynamicCapabilities = new DynamicCapabilityRegistry();
-				proc.onNotification("textDocument/publishDiagnostics", (params) => {
-					const parsed = parsePublishDiagnosticsParams(params);
-					if (!parsed) return;
-					const { uri, diagnostics } = parsed;
-					const path = fileURLToPath(uri);
-					this.latestDiagnostics.set(
-						path,
-						diagnostics.map((item) => normalizeDiagnostic(path, item)),
-					);
-					const waiters = this.diagnosticsWaiters.get(path);
-					if (waiters) {
-						this.diagnosticsWaiters.delete(path);
-						for (const resolve of waiters) resolve();
-					}
-				});
-				this.registerServerInitiatedRequestHandlers(proc);
-				proc.onNotification("$/progress", (params) => {
-					const progress = parseProgressNotification(params);
-					if (progress) this.dynamicCapabilities.recordProgress(progress.token, progress.value);
-				});
-				const initializeResult = await proc.request<{ capabilities?: unknown }>("initialize", {
-					processId: process.pid,
-					rootUri: pathToFileURL(this.cwd).href,
-					// pyright needs this to resolve its own workspace root -- without it, workspace/symbol
-					// silently returns [] forever, even though rootUri alone is enough for tsserver/gopls.
-					workspaceFolders: [{ uri: pathToFileURL(this.cwd).href, name: this.cwd }],
-					capabilities: {
-						textDocument: {
-							documentSymbol: { hierarchicalDocumentSymbolSupport: true },
-							definition: { linkSupport: true },
-							hover: { contentFormat: ["markdown", "plaintext"] },
-							// typescript-language-server withholds renameProvider entirely without this --
-							// the same gating pattern its diagnostics/callHierarchy flags already use.
-							rename: { prepareSupport: true },
-							// Genuinely honored end to end (client/registerCapability is answered for this method too,
-							// diagnosticRegistrations is read back in diagnostics()) -- without this, a server that only
-							// ever wants to register pull-diagnostic support dynamically (Roslyn/C#, Kotlin) rather than
-							// statically in its initialize response has no spec grounds to ever send that registration.
-							diagnostic: { dynamicRegistration: true },
-							...this.descriptor.extraCapabilities,
-						},
-						// Genuinely honored end to end (window/workDoneProgress/create is answered, tokens
-						// and $/progress values are tracked) -- declaring it lets a real server actually use
-						// progress reporting with Lector, which a spec-compliant one otherwise wouldn't
-						// attempt without this client capability present.
-						window: { workDoneProgress: true },
-						// Also genuinely honored end to end (client/registerCapability is answered, patterns
-						// are tracked, notifyFileChanged() actually sends workspace/didChangeWatchedFiles for a
-						// matching path) -- without this, a spec-compliant server has no reason to ever
-						// dynamically register for these notifications at all.
-						workspace: { didChangeWatchedFiles: { dynamicRegistration: true } },
-					},
-					initializationOptions: {},
-				});
+				this.configureProcess(proc);
+				let initializeResult: { capabilities?: unknown };
+				try {
+					initializeResult = await this.requestInitialize(proc);
+				} catch (error) {
+					if (!isMissingExecutable(error) || this.descriptor.launch.kind !== "system-binary" || !this.descriptor.provisioning) throw error;
+					await proc.stop();
+					const installedCommand = await this.provisionMissingServer();
+					proc = LanguageServerProcess.spawnProcess({ command: installedCommand, args: [...this.descriptor.args], cwd: this.cwd });
+					spawned = proc;
+					this.configureProcess(proc);
+					initializeResult = await this.requestInitialize(proc);
+				}
 				this.negotiatedCapabilities = parseServerCapabilities(initializeResult.capabilities);
 				proc.notify("initialized", {});
 
