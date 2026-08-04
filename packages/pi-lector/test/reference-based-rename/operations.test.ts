@@ -9,12 +9,13 @@
  * wires workspace resolution and the daemon call correctly.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { resetLectorClientForTests, setLectorClientConnectorForTests } from "../../extension/src/lector-client.ts";
 import { createReferenceBasedRenameOperations } from "../../extension/src/reference-based-rename/operations.ts";
+import { createWorkspaceCacheOperations } from "../../extension/src/workspace-cache/operations.ts";
 import { startIsolatedLectorDaemon } from "../support/isolated-lector-daemon.ts";
+import { buildNestedTypeScriptMonorepoFixture } from "../support/nested-typescript-monorepo.ts";
 
 let projectDir: string | undefined;
 let stopDaemon: (() => Promise<void>) | undefined;
@@ -27,39 +28,30 @@ afterEach(async () => {
 	projectDir = undefined;
 });
 
-function buildProjectFixture(): { root: string; mathFile: string; consumerFile: string } {
-	const root = mkdtempSync(join(tmpdir(), "pi-lector-reference-based-rename-"));
-	mkdirSync(join(root, ".git"));
-	mkdirSync(join(root, "src"));
-	const mathFile = join(root, "src", "math.ts");
-	writeFileSync(mathFile, "export function add(a: number, b: number): number {\n\treturn a + b;\n}\n");
-	const consumerFile = join(root, "src", "consumer.ts");
-	writeFileSync(consumerFile, 'import { add } from "./math";\n\nadd(1, 2);\n');
-	writeFileSync(
-		join(root, "tsconfig.json"),
-		JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true }, include: ["src"] }),
-	);
-	return { root, mathFile, consumerFile };
-}
-
 describe("Lector-backed reference-based rename operations", () => {
 	it("moves a real file and rewrites a real importing file's specifier via a running Lector daemon", async () => {
 		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
 		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
-		const { root, mathFile, consumerFile } = buildProjectFixture();
-		projectDir = root;
-		const toPath = join(root, "src", "arithmetic.ts");
+		const fixture = buildNestedTypeScriptMonorepoFixture("pi-lector-reference-based-rename-");
+		projectDir = fixture.root;
+		const toPath = join(fixture.sourceDirectory, "arithmetic.ts");
 
-		await daemon.client
-			.call("workspace.registerPath", { path: root })
-			.then(({ workspaceId }) => daemon.client.call("workspace.populateSymbolGraph", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 }));
+		const cache = createWorkspaceCacheOperations();
+		const submitted = await cache.submit(fixture.packageRoot, 10, 10);
+		let completed = submitted;
+		for (let attempt = 0; attempt < 200 && completed.status !== "succeeded" && completed.status !== "failed"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			completed = await cache.jobStatus(submitted.id);
+		}
+		expect(completed.status).toBe("succeeded");
+		expect((await cache.status(fixture.sourceDirectory, 10, 10)).status).toBe("cached");
 
 		const ops = createReferenceBasedRenameOperations();
-		const outcome = await ops.rename(mathFile, toPath, 10, 10);
+		const outcome = await ops.rename(fixture.declarationFile, toPath, 10, 10);
 
 		expect(outcome.movedTo).toBe(toPath);
-		expect(outcome.filesUpdated).toEqual([consumerFile]);
-		expect(readFileSync(consumerFile, "utf8")).toContain('from "./arithmetic"');
+		expect(outcome.filesUpdated).toEqual([fixture.consumerFile]);
+		expect(readFileSync(fixture.consumerFile, "utf8")).toContain('from "./arithmetic"');
 	}, 20_000);
 });

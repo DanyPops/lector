@@ -1,5 +1,5 @@
 import type { JobSnapshot, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
-import { lectorClient, withWorkspace, workspaceForDirectory } from "../lector-client.ts";
+import { lectorClient, withWorkspace, workspaceForProjectDirectory } from "../lector-client.ts";
 
 export interface WorkspaceCacheOperations {
 	status(directory: string, maxFiles: number, maxSymbolsPerFile: number): Promise<WorkspaceCacheStatus>;
@@ -11,7 +11,7 @@ export function createWorkspaceCacheOperations(): WorkspaceCacheOperations {
 	return {
 		status(directory, maxFiles, maxSymbolsPerFile) {
 			return withWorkspace(
-				() => workspaceForDirectory(directory),
+				() => workspaceForProjectDirectory(directory),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.call("workspace.cacheStatus", { workspaceId, maxFiles, maxSymbolsPerFile });
@@ -20,7 +20,7 @@ export function createWorkspaceCacheOperations(): WorkspaceCacheOperations {
 		},
 		submit(directory, maxFiles, maxSymbolsPerFile) {
 			return withWorkspace(
-				() => workspaceForDirectory(directory),
+				() => workspaceForProjectDirectory(directory),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { job } = await client.callOnce("job.submit", {
