@@ -10,6 +10,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLectorService, type LectorService, NotAGitRepository, UnknownWorkspace } from "../src/service.ts";
+import { recordingLogger } from "./support/recording-logger.ts";
 
 let root: string | undefined;
 let service: LectorService | undefined;
@@ -26,14 +27,20 @@ function git(cwd: string, ...args: string[]): void {
 }
 
 describe("createLectorService's git operations", () => {
-	it("gitStatus/gitLog/gitDiff reject NotAGitRepository for a plain (non-git) registered workspace", async () => {
+	it("gitStatus/gitLog/gitDiff reject NotAGitRepository for a plain workspace and log the typed failure", async () => {
 		root = mkdtempSync(join(tmpdir(), "lector-git-service-plain-"));
-		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		const { logger, calls } = recordingLogger();
+		service = createLectorService(new Map(), { allowDynamicOnly: true, logger });
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
 
 		await expect(service.dispatch("workspace.gitStatus", { workspaceId })).rejects.toBeInstanceOf(NotAGitRepository);
 		await expect(service.dispatch("workspace.gitLog", { workspaceId, maxCount: 10 })).rejects.toBeInstanceOf(NotAGitRepository);
 		await expect(service.dispatch("workspace.gitDiff", { workspaceId, maxBytes: 1000 })).rejects.toBeInstanceOf(NotAGitRepository);
+		expect(calls.filter((call) => call.message === "git operation failed")).toEqual([
+			{ level: "warn", message: "git operation failed", fields: { component: "git", operation: "workspace.gitStatus", code: "NotAGitRepository" } },
+			{ level: "warn", message: "git operation failed", fields: { component: "git", operation: "workspace.gitLog", code: "NotAGitRepository" } },
+			{ level: "warn", message: "git operation failed", fields: { component: "git", operation: "workspace.gitDiff", code: "NotAGitRepository" } },
+		]);
 	});
 
 	it("rejects an unknown workspaceId before ever touching git", async () => {

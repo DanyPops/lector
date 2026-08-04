@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { LocalFilesystemWorkspace } from "../adapters/local-filesystem-workspace.ts";
 import { ReadOnlyWorkspace } from "../adapters/read-only-workspace.ts";
 import type { PackageSourceIndexPort } from "../package-source/index-port.ts";
@@ -22,6 +23,7 @@ export interface PackageSourceHandlerDeps {
 	readonly packageSourceResolver: PackageSourceResolverPort | undefined;
 	readonly packageSourceIndex: PackageSourceIndexPort;
 	readonly repoFetcher: RepoFetcherPort | undefined;
+	readonly logger: Logger;
 }
 
 export interface PackageSourceHandlers {
@@ -35,17 +37,45 @@ export interface PackageSourceHandlers {
 export function createPackageSourceHandlers(deps: PackageSourceHandlerDeps): PackageSourceHandlers {
 	return {
 		async "package.resolveSource"(registry, input) {
-			if (!deps.packageSourceResolver) throw new PackageSourceResolverNotConfigured();
+			if (!deps.packageSourceResolver) {
+				deps.logger.warn("package source resolution failed", {
+					component: "package-source",
+					operation: "package.resolveSource",
+					status: "unavailable",
+					code: "PackageSourceResolverNotConfigured",
+				});
+				throw new PackageSourceResolverNotConfigured();
+			}
 			const outcome = await resolvePackageSource(deps.packageSourceResolver, input.request, input.bounds);
-			if (outcome.status !== "verified") return { outcome, workspaceId: null };
+			if (outcome.status !== "verified") {
+				deps.logger.warn("package source resolution failed", {
+					component: "package-source",
+					operation: "package.resolveSource",
+					status: outcome.status,
+					code: outcome.code,
+				});
+				return { outcome, workspaceId: null };
+			}
 			const absolutePath = resolve(outcome.workspace.cachePath);
 			let sourceStats: Awaited<ReturnType<typeof stat>>;
 			try {
 				sourceStats = await stat(absolutePath);
 			} catch {
+				deps.logger.warn("package source workspace rejected", {
+					component: "package-source",
+					operation: "package.resolveSource",
+					code: "InvalidWorkspaceRoot",
+				});
 				throw new InvalidWorkspaceRoot(absolutePath, "verified package source does not exist or is not accessible");
 			}
-			if (!sourceStats.isDirectory()) throw new InvalidWorkspaceRoot(absolutePath, "verified package source is not a directory");
+			if (!sourceStats.isDirectory()) {
+				deps.logger.warn("package source workspace rejected", {
+					component: "package-source",
+					operation: "package.resolveSource",
+					code: "InvalidWorkspaceRoot",
+				});
+				throw new InvalidWorkspaceRoot(absolutePath, "verified package source is not a directory");
+			}
 			const workspaceId = deriveWorkspaceId(absolutePath);
 			if (!registry.has(workspaceId)) {
 				registry.set(workspaceId, { port: new ReadOnlyWorkspace(new LocalFilesystemWorkspace(absolutePath)), rootPath: absolutePath, origin: "remote" });
@@ -64,6 +94,11 @@ export function createPackageSourceHandlers(deps: PackageSourceHandlerDeps): Pac
 				origin: outcome.workspace.origin,
 				verificationMethod: outcome.verification.method,
 				resolvedAt: Date.now(),
+			});
+			deps.logger.info("package source registered", {
+				component: "package-source",
+				operation: "package.resolveSource",
+				status: "verified",
 			});
 			return { outcome, workspaceId };
 		},
@@ -90,8 +125,16 @@ export function createPackageSourceHandlers(deps: PackageSourceHandlerDeps): Pac
 					entry.name === input.name &&
 					entry.resolvedVersion === input.resolvedVersion,
 			);
-			if (existing && registry.has(existing.workspaceId)) throw new PackageSourceEntryInUse(existing.workspaceId);
+			if (existing && registry.has(existing.workspaceId)) {
+				deps.logger.warn("package source removal rejected", {
+					component: "package-source",
+					operation: "package.removeSource",
+					code: "PackageSourceEntryInUse",
+				});
+				throw new PackageSourceEntryInUse(existing.workspaceId);
+			}
 			const removed = await deps.packageSourceIndex.remove(input);
+			deps.logger.info("package source removal completed", { component: "package-source", operation: "package.removeSource", removed });
 			return { removed };
 		},
 		async "package.cleanSources"(registry, input) {
@@ -109,6 +152,12 @@ export function createPackageSourceHandlers(deps: PackageSourceHandlerDeps): Pac
 				await deps.packageSourceIndex.remove(entry);
 				removed++;
 			}
+			deps.logger.info("package source cleanup completed", {
+				component: "package-source",
+				operation: "package.cleanSources",
+				removed,
+				skipped,
+			});
 			return { removed, skipped };
 		},
 	};

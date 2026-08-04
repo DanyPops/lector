@@ -872,6 +872,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		);
 	}
 	const registry: MutableRegistry = new Map(Array.from(workspaces, ([id, port]) => [id, { port, origin: "local" as const }]));
+	const logger = options.logger ?? NOOP_LOGGER;
 	let nextJobId = 0;
 	const jobs =
 		options.createJobExecutor?.() ??
@@ -881,6 +882,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			maxRetained: 128,
 			retentionMs: 10 * 60 * 1000,
 			createId: () => `job-${Date.now().toString(36)}-${(++nextJobId).toString(36)}`,
+			logger,
 		});
 
 	// The one hash-addressed content registry shared by rawRead/exactEdit and the DEFAULT
@@ -889,7 +891,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	// regardless of which file or workspace they came from). A caller-supplied createSymbolIndex
 	// owns its own construction and does not automatically receive this instance.
 	const contentCache = options.createContentCache?.() ?? new InMemoryContentCache();
-	const logger = options.logger ?? NOOP_LOGGER;
 
 	// One warm symbol index per (workspace, language) actually queried, reused across calls --
 	// a fresh process per query would pay a fork+initialize cost every time. A polyglot
@@ -997,7 +998,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const osWatchersByWorkspace = new Map<WorkspaceId, { close(): void }>();
 	/** Workspaces with at least one completed symbol-graph generation -- a real file change under one of these schedules a debounced automatic re-population, independent of whether any agent also called workspace.watch. */
 	const graphWatchedWorkspaces = new Set<WorkspaceId>();
-	const graphRefreshDebouncer = new DebouncedScheduler(options.graphRefreshDebounceMs ?? 1000);
+	const graphRefreshDebouncer = new DebouncedScheduler(options.graphRefreshDebounceMs ?? 1000, { logger });
 
 	/** Ensures a workspace's shared OS watcher exists, for either reason (agent watch or graph freshness) -- idempotent, safe to call when one already exists for the other reason. */
 	function ensureOsWatcher(workspaceId: WorkspaceId, rootPath: string): void {
@@ -1048,9 +1049,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		activePopulationJobByWorkspace.set(workspaceId, submitted.id);
 	}
 
-	const gitHandlers = createGitHandlers({ registry, createGitPort });
-	const repoFetchHandlers = createRepoFetchHandlers({ repoFetcher });
-	const packageSourceHandlers = createPackageSourceHandlers({ packageSourceResolver, packageSourceIndex, repoFetcher });
+	const gitHandlers = createGitHandlers({ registry, createGitPort, logger });
+	const repoFetchHandlers = createRepoFetchHandlers({ repoFetcher, logger });
+	const packageSourceHandlers = createPackageSourceHandlers({ packageSourceResolver, packageSourceIndex, repoFetcher, logger });
 	const externalSearchHandlers = createExternalSearchHandlers({
 		githubSearch,
 		npmRegistry,

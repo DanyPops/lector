@@ -6,6 +6,7 @@ import { WorkspaceIsReadOnly } from "../src/adapters/read-only-workspace.ts";
 import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOutcome, type PackageSourceRequest } from "../src/package-source/package-source.ts";
 import type { PackageSourceResolverPort } from "../src/package-source/resolver-port.ts";
 import { createLectorService, type LectorService, PackageSourceResolverNotConfigured } from "../src/service.ts";
+import { recordingLogger } from "./support/recording-logger.ts";
 
 let root: string | undefined;
 let service: LectorService | undefined;
@@ -77,14 +78,23 @@ describe("createLectorService package.resolveSource", () => {
 		).rejects.toBeInstanceOf(WorkspaceIsReadOnly);
 	});
 
-	it("does not invent a workspace id for an unavailable source", async () => {
+	it("does not invent a workspace id for an unavailable source and logs only its typed failure classification", async () => {
+		const { logger, calls } = recordingLogger();
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
+			logger,
 			createPackageSourceResolver: () => new FixedResolver({ status: "unavailable", code: "source-metadata-missing" }),
 		});
 
 		const result = await service.dispatch("package.resolveSource", { request: REQUEST, bounds: DEFAULT_PACKAGE_SOURCE_BOUNDS });
 
 		expect(result).toEqual({ outcome: { status: "unavailable", code: "source-metadata-missing" }, workspaceId: null });
+		expect(calls).toContainEqual({
+			level: "warn",
+			message: "package source resolution failed",
+			fields: { component: "package-source", operation: "package.resolveSource", status: "unavailable", code: "source-metadata-missing" },
+		});
+		expect(JSON.stringify(calls)).not.toContain(REQUEST.coordinate.registry);
+		expect(JSON.stringify(calls)).not.toContain(REQUEST.projectRoot);
 	});
 });

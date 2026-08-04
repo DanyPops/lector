@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { DebounceCapacityExceeded, DebouncedScheduler } from "../../src/domain/debounced-scheduler.ts";
+import { recordingLogger } from "../support/recording-logger.ts";
 
 function wait(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -82,28 +83,41 @@ describe("DebouncedScheduler", () => {
 		expect(calls).toBe(0);
 	});
 
-	it("one key's callback throwing does not prevent another key's callback from firing", async () => {
-		const scheduler = new DebouncedScheduler(15);
+	it("one key's callback throwing logs its classification without exposing the message or blocking another key", async () => {
+		const { logger, calls } = recordingLogger();
+		const scheduler = new DebouncedScheduler(15, { logger });
 		let bFired = false;
 		scheduler.schedule("a", () => {
-			throw new Error("boom");
+			throw new TypeError("secret-bearing detail");
 		});
 		scheduler.schedule("b", () => {
 			bFired = true;
 		});
 		await wait(30);
 		expect(bFired).toBe(true);
+		expect(calls).toContainEqual({
+			level: "warn",
+			message: "debounced callback failed",
+			fields: { component: "debounced-scheduler", operation: "fire", code: "TypeError" },
+		});
+		expect(JSON.stringify(calls)).not.toContain("secret-bearing detail");
 	});
 
-	it("rejects a new distinct key beyond the bounded key count, while an already-pending key keeps working", async () => {
-		const scheduler = new DebouncedScheduler(15, { maxKeys: 1 });
-		let calls = 0;
-		scheduler.schedule("a", () => calls++);
-		expect(() => scheduler.schedule("b", () => calls++)).toThrow(DebounceCapacityExceeded);
+	it("rejects and logs a new distinct key beyond the bound, while an already-pending key keeps working", async () => {
+		const { logger, calls: logCalls } = recordingLogger();
+		const scheduler = new DebouncedScheduler(15, { maxKeys: 1, logger });
+		let callbackCalls = 0;
+		scheduler.schedule("a", () => callbackCalls++);
+		expect(() => scheduler.schedule("b", () => callbackCalls++)).toThrow(DebounceCapacityExceeded);
+		expect(logCalls).toContainEqual({
+			level: "warn",
+			message: "debounced schedule rejected",
+			fields: { component: "debounced-scheduler", operation: "schedule", code: "DebounceCapacityExceeded" },
+		});
 		// Re-scheduling the SAME already-pending key is not a new key -- must not be rejected.
-		expect(() => scheduler.schedule("a", () => calls++)).not.toThrow();
+		expect(() => scheduler.schedule("a", () => callbackCalls++)).not.toThrow();
 		await wait(30);
-		expect(calls).toBe(1);
+		expect(callbackCalls).toBe(1);
 	});
 
 	it("a key's bookkeeping is released once it fires, so it can be scheduled again without hitting the key bound", async () => {

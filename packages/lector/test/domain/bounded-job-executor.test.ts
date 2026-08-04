@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { BoundedJobExecutor, JobCapacityExceeded, JobNotFound } from "../../src/domain/bounded-job-executor.ts";
+import { recordingLogger } from "../support/recording-logger.ts";
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -64,8 +65,9 @@ describe("BoundedJobExecutor", () => {
 		expect(observed[0]).toMatchObject({ id: submitted.id, status: "succeeded", result: { count: 7 } });
 	});
 
-	it("captures a bounded machine-readable failure without rejecting unrelated callers", async () => {
-		const { executor: jobs } = executor();
+	it("captures and logs a bounded machine-readable failure without rejecting unrelated callers", async () => {
+		const { logger, calls } = recordingLogger();
+		const { executor: jobs } = executor({ logger });
 		const submitted = jobs.submit({
 			operation: "workspace.populateSymbolGraph",
 			priority: "local",
@@ -76,6 +78,12 @@ describe("BoundedJobExecutor", () => {
 			status: "failed",
 			error: { code: "TypeError", message: "language server crashed" },
 		});
+		expect(calls).toContainEqual({
+			level: "warn",
+			message: "background job failed",
+			fields: { component: "background-jobs", operation: "workspace.populateSymbolGraph", jobId: submitted.id, priority: "local", code: "TypeError" },
+		});
+		expect(JSON.stringify(calls)).not.toContain("language server crashed");
 	});
 
 	it("never runs more than maxConcurrent jobs", async () => {
@@ -144,13 +152,19 @@ describe("BoundedJobExecutor", () => {
 		remote.resolve();
 	});
 
-	it("rejects submission when the bounded queue is full", () => {
+	it("rejects submission when the bounded queue is full and logs bounded machine fields", () => {
 		const never = new Promise<void>(() => {});
-		const { executor: jobs } = executor({ maxQueued: 1 });
+		const { logger, calls } = recordingLogger();
+		const { executor: jobs } = executor({ maxQueued: 1, logger });
 		jobs.submit({ operation: "running", priority: "local", run: () => never });
 		jobs.submit({ operation: "queued", priority: "local", run: () => never });
 
 		expect(() => jobs.submit({ operation: "overflow", priority: "local", run: () => never })).toThrow(JobCapacityExceeded);
+		expect(calls).toContainEqual({
+			level: "warn",
+			message: "background job submission rejected",
+			fields: { component: "background-jobs", operation: "overflow", priority: "local", code: "JobCapacityExceeded" },
+		});
 	});
 
 	it("expires terminal jobs after retentionMs and explains that process-lifetime jobs do not survive restart", async () => {

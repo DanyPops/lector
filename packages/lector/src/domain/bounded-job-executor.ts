@@ -1,3 +1,5 @@
+import type { Logger } from "@danypops/vehicle-server/logging";
+
 export type JobPriority = "local" | "remote";
 
 interface JobIdentity {
@@ -46,6 +48,7 @@ export interface BoundedJobExecutorOptions {
 	readonly retentionMs: number;
 	readonly createId: () => string;
 	readonly now?: () => number;
+	readonly logger?: Logger;
 }
 
 interface JobEntry<Result> {
@@ -56,6 +59,7 @@ interface JobEntry<Result> {
 }
 
 const MAX_ERROR_MESSAGE_LENGTH = 1_000;
+const NOOP_LOGGER: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 
 /** Runs process-lifetime work with explicit concurrency, queue, retention, and priority bounds. */
 export class BoundedJobExecutor<Result = unknown> {
@@ -65,6 +69,7 @@ export class BoundedJobExecutor<Result = unknown> {
 	readonly #retentionMs: number;
 	readonly #createId: () => string;
 	readonly #now: () => number;
+	readonly #logger: Logger;
 	readonly #jobs = new Map<string, JobEntry<Result>>();
 	readonly #queuedIds: string[] = [];
 	readonly #terminalIds: string[] = [];
@@ -88,12 +93,27 @@ export class BoundedJobExecutor<Result = unknown> {
 		this.#retentionMs = options.retentionMs;
 		this.#createId = options.createId;
 		this.#now = options.now ?? Date.now;
+		this.#logger = options.logger ?? NOOP_LOGGER;
 	}
 
 	submit(input: { operation: string; priority: JobPriority; run: () => Promise<Result> }): JobSnapshot<Result> {
-		if (this.#closed) throw new JobExecutorClosed();
+		if (this.#closed) {
+			this.#logger.warn("background job submission rejected", {
+				component: "background-jobs",
+				operation: input.operation,
+				priority: input.priority,
+				code: "JobExecutorClosed",
+			});
+			throw new JobExecutorClosed();
+		}
 		this.reap();
 		if (this.#running >= this.#maxConcurrent && this.#queuedIds.length >= this.#maxQueued) {
+			this.#logger.warn("background job submission rejected", {
+				component: "background-jobs",
+				operation: input.operation,
+				priority: input.priority,
+				code: "JobCapacityExceeded",
+			});
 			throw new JobCapacityExceeded(this.#maxQueued);
 		}
 
@@ -108,6 +128,13 @@ export class BoundedJobExecutor<Result = unknown> {
 		this.#jobs.set(id, entry);
 		if (this.#running < this.#maxConcurrent) this.#start(entry);
 		else this.#queuedIds.push(id);
+		this.#logger.debug("background job submitted", {
+			component: "background-jobs",
+			operation: input.operation,
+			jobId: id,
+			priority: input.priority,
+			status: entry.snapshot.status,
+		});
 		return entry.snapshot;
 	}
 
@@ -200,6 +227,13 @@ export class BoundedJobExecutor<Result = unknown> {
 			finishedAt: this.#now(),
 			error: { code: failure.name || "Error", message: failure.message.slice(0, MAX_ERROR_MESSAGE_LENGTH) },
 		};
+		this.#logger.warn("background job failed", {
+			component: "background-jobs",
+			operation: entry.snapshot.operation,
+			jobId: entry.snapshot.id,
+			priority: entry.snapshot.priority,
+			code: failure.name || "Error",
+		});
 		if (wasRunning) this.#running--;
 		this.#recordTerminal(entry);
 		if (wasRunning) this.#startNext();

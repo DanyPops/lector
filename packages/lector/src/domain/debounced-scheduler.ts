@@ -1,3 +1,5 @@
+import type { Logger } from "@danypops/vehicle-server/logging";
+
 /**
  * Coalesces a burst of calls for the same key into exactly one callback fire,
  * delayMs after the last call for that key -- the classic debounce shape,
@@ -21,19 +23,23 @@ export class DebounceCapacityExceeded extends Error {
 export interface DebouncedSchedulerOptions {
 	/** Maximum distinct keys with a pending fire at once. Default 4096. */
 	readonly maxKeys?: number;
+	readonly logger?: Logger;
 }
 
 const DEFAULT_MAX_KEYS = 4096;
+const NOOP_LOGGER: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 
 export class DebouncedScheduler {
 	private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
 	private readonly delayMs: number;
 	private readonly maxKeys: number;
+	private readonly logger: Logger;
 
 	constructor(delayMs: number, options: DebouncedSchedulerOptions = {}) {
 		if (!Number.isSafeInteger(delayMs) || delayMs < 0) throw new TypeError("delayMs must be a non-negative safe integer");
 		this.delayMs = delayMs;
 		this.maxKeys = options.maxKeys ?? DEFAULT_MAX_KEYS;
+		this.logger = options.logger ?? NOOP_LOGGER;
 	}
 
 	/**
@@ -47,14 +53,25 @@ export class DebouncedScheduler {
 		const existing = this.timers.get(key);
 		if (existing) {
 			clearTimeout(existing);
+			this.logger.debug("debounced schedule coalesced", { component: "debounced-scheduler", operation: "schedule" });
 		} else if (this.timers.size >= this.maxKeys) {
+			this.logger.warn("debounced schedule rejected", {
+				component: "debounced-scheduler",
+				operation: "schedule",
+				code: "DebounceCapacityExceeded",
+			});
 			throw new DebounceCapacityExceeded(key, this.maxKeys);
 		}
 		const timer = setTimeout(() => {
 			this.timers.delete(key);
 			try {
 				callback();
-			} catch {
+			} catch (error: unknown) {
+				this.logger.warn("debounced callback failed", {
+					component: "debounced-scheduler",
+					operation: "fire",
+					code: error instanceof Error ? error.name || "Error" : "Error",
+				});
 				// Swallowed by design -- see doc comment above.
 			}
 		}, this.delayMs);

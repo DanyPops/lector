@@ -13,6 +13,7 @@ import { WorkspaceIsReadOnly } from "../src/adapters/read-only-workspace.ts";
 import { GitRepoFetcher } from "../src/repo-fetcher/git-repo-fetcher.ts";
 import type { RepoReference } from "../src/repo-fetcher/repo-reference.ts";
 import { createLectorService, type LectorService, RepoCacheEntryInUse, RepoFetcherNotConfigured } from "../src/service.ts";
+import { recordingLogger } from "./support/recording-logger.ts";
 import { requireDefined } from "./support/require-defined.ts";
 
 let sourceRepo: string | undefined;
@@ -72,11 +73,13 @@ describe("createLectorService's repo.fetch", () => {
 		).rejects.toBeInstanceOf(WorkspaceIsReadOnly);
 	});
 
-	it("a second repo.fetch of the same reference reuses the same workspaceId, not a new registration", async () => {
+	it("a second repo.fetch reuses the same workspaceId and logs the cache decision without the remote identity", async () => {
 		sourceRepo = buildSourceRepo();
 		reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-service-cache-"));
+		const { logger, calls } = recordingLogger();
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
+			logger,
 			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
 		});
 
@@ -85,6 +88,12 @@ describe("createLectorService's repo.fetch", () => {
 
 		expect(second.fromCache).toBe(true);
 		expect(second.workspaceId).toBe(first.workspaceId);
+		expect(calls.filter((call) => call.message === "repository fetch completed").map((call) => call.fields)).toEqual([
+			{ component: "repo-fetch", operation: "repo.fetch", fromCache: false },
+			{ component: "repo-fetch", operation: "repo.fetch", fromCache: true },
+		]);
+		expect(JSON.stringify(calls)).not.toContain("acme");
+		expect(JSON.stringify(calls)).not.toContain("widgets");
 	});
 
 	it("threads forceRefresh through to a real reclone -- the 'update' verb, previously unreachable through the public operation", async () => {

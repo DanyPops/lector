@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { LocalFilesystemWorkspace } from "../adapters/local-filesystem-workspace.ts";
 import { ReadOnlyWorkspace } from "../adapters/read-only-workspace.ts";
 import { type CachedRepositoryEntry, queryCachedRepositories } from "../repo-fetcher/cached-repository-entry.ts";
@@ -14,6 +15,7 @@ import {
 
 export interface RepoFetchHandlerDeps {
 	readonly repoFetcher: RepoFetcherPort | undefined;
+	readonly logger: Logger;
 }
 
 export interface RepoFetchHandlers {
@@ -29,7 +31,17 @@ export function createRepoFetchHandlers(deps: RepoFetchHandlerDeps): RepoFetchHa
 		async "repo.fetch"(registry, input) {
 			if (!deps.repoFetcher) throw new RepoFetcherNotConfigured();
 			const { forceRefresh, ...reference } = input;
-			const result = await deps.repoFetcher.fetch(reference, { forceRefresh });
+			let result: Awaited<ReturnType<RepoFetcherPort["fetch"]>>;
+			try {
+				result = await deps.repoFetcher.fetch(reference, { forceRefresh });
+			} catch (error: unknown) {
+				deps.logger.warn("repository fetch failed", {
+					component: "repo-fetch",
+					operation: "repo.fetch",
+					code: error instanceof Error ? error.name || "Error" : "Error",
+				});
+				throw error;
+			}
 			const absolutePath = resolve(result.path);
 			const workspaceId = deriveWorkspaceId(absolutePath);
 			if (!registry.has(workspaceId)) {
@@ -40,6 +52,11 @@ export function createRepoFetchHandlers(deps: RepoFetchHandlerDeps): RepoFetchHa
 					remoteReference: reference,
 				});
 			}
+			deps.logger.info("repository fetch completed", {
+				component: "repo-fetch",
+				operation: "repo.fetch",
+				fromCache: result.fromCache,
+			});
 			return { workspaceId, ...result };
 		},
 		async "repo.listCache"(registry, input) {
@@ -61,9 +78,17 @@ export function createRepoFetchHandlers(deps: RepoFetchHandlerDeps): RepoFetchHa
 			);
 			if (cached) {
 				const workspaceId = deriveWorkspaceId(resolve(cached.path));
-				if (registry.has(workspaceId)) throw new RepoCacheEntryInUse(workspaceId);
+				if (registry.has(workspaceId)) {
+					deps.logger.warn("repository cache eviction rejected", {
+						component: "repo-fetch",
+						operation: "repo.evictCache",
+						code: "RepoCacheEntryInUse",
+					});
+					throw new RepoCacheEntryInUse(workspaceId);
+				}
 			}
 			const evicted = await deps.repoFetcher.evict(input);
+			deps.logger.info("repository cache eviction completed", { component: "repo-fetch", operation: "repo.evictCache", evicted });
 			return { evicted };
 		},
 	};
