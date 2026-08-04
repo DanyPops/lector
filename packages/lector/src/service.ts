@@ -46,7 +46,7 @@ import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from
 import { SerialExecutionQueue } from "./domain/serial-execution-queue.ts";
 import { assertBoundedSymbolQuery } from "./domain/symbol-query.ts";
 import type { ParsedWorkspaceEdit, RenameRange } from "./domain/workspace-edit.ts";
-import { computeWorkspaceMap, type WorkspaceMapResult } from "./domain/workspace-map.ts";
+import type { WorkspaceMapResult } from "./domain/workspace-map.ts";
 import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts";
 import type { SymbolSearchResult, WorkspaceLocation } from "./domain/workspace-symbol.ts";
 import { InMemoryExternalSearchCache } from "./external-search-cache/in-memory-external-search-cache.ts";
@@ -95,6 +95,7 @@ import { MutationHistoryCoordinator } from "./service/mutation-history-handlers.
 import { createPackageSourceHandlers } from "./service/package-source-handlers.ts";
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { type ClosableSymbolIndex, supportsCodeIntelligence, WarmIndexRegistry } from "./service/warm-index-registry.ts";
+import { createWorkspaceMapHandler } from "./service/workspace-map-handler.ts";
 import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
 import { SourcegraphSearchClient } from "./sourcegraph-search/sourcegraph-search-client.ts";
 import type { SymbolAnnotationPort } from "./symbol-annotation/port.ts";
@@ -1575,16 +1576,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return { symbols };
 	}
 
-	async function workspaceMapHandler(registry: MutableRegistry, input: OperationInputs["workspace.map"]): Promise<OperationOutputs["workspace.map"]> {
-		const workspace = resolveWorkspace(registry, input.workspaceId);
-		const graph = ensureSymbolGraph(input.workspaceId);
-		return computeWorkspaceMap(graph, workspace, {
-			maxNodes: input.maxNodes,
-			maxEdges: input.maxEdges,
-			maxEntries: input.maxEntries,
-			maxBytes: input.maxBytes,
-		});
-	}
+	const workspaceMapHandler = createWorkspaceMapHandler(ensureSymbolGraph);
 
 	const handlers: OperationHandlers = {
 		"workspace.listDirectory": (registry, input) => listDirectory(resolveFileTree(registry, input.workspaceId), input.path),
