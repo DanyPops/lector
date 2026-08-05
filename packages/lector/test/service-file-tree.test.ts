@@ -8,9 +8,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
-import { ReadOnlyWorkspace } from "../src/adapters/read-only-workspace.ts";
 import { createLectorService, type LectorService, UnknownWorkspace, WorkspaceDoesNotSupportFileTree } from "../src/service.ts";
+import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
+import { ReadOnlyWorkspace } from "../src/workspace/read-only-workspace.ts";
 
 let root: string | undefined;
 let service: LectorService | undefined;

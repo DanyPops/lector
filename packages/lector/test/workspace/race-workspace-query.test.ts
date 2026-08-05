@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { raceWorkspaceQuery } from "../../src/domain/race-workspace-query.ts";
+import { raceWorkspaceQuery } from "../../src/workspace/race-workspace-query.ts";
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));

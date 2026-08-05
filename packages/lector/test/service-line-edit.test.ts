@@ -27,7 +27,7 @@ describe("createLectorService's workspace.lineEdit", () => {
 	});
 
 	it("routes a real edit through to the registered workspace", async () => {
-		const { InMemoryWorkspace } = await import("../src/adapters/in-memory-workspace.ts");
+		const { InMemoryWorkspace } = await import("../src/workspace/in-memory-workspace.ts");
 		service = createLectorService(new Map([["mem-1", new InMemoryWorkspace()]]));
 		await service.dispatch("workspace.exactEdit", { workspaceId: "mem-1", path: "a.ts", expectedHash: null, content: "line 1\nline 2" });
 
@@ -45,7 +45,7 @@ describe("createLectorService's workspace.lineEdit", () => {
 	});
 
 	it("a rejected edit's error message spells out every failure, not just a bare count -- the daemon RPC boundary carries only this string", async () => {
-		const { InMemoryWorkspace } = await import("../src/adapters/in-memory-workspace.ts");
+		const { InMemoryWorkspace } = await import("../src/workspace/in-memory-workspace.ts");
 		service = createLectorService(new Map([["mem-1", new InMemoryWorkspace()]]));
 		await service.dispatch("workspace.exactEdit", { workspaceId: "mem-1", path: "a.ts", expectedHash: null, content: "line 1\nline 2" });
 

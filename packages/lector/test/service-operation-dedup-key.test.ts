@@ -9,9 +9,9 @@
  * fails this suite immediately instead of shipping silently.
  */
 import { describe, expect, it } from "bun:test";
-import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { contentHashOf } from "../src/content-identity/content-hash.ts";
 import { createLectorService, StaleExpectedHash } from "../src/service.ts";
+import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
 
 describe("concurrent operations differing in a result-affecting field are never coalesced", () => {
 	it("two concurrent edits racing on the same path with different expectedHash settle independently, not merged", async () => {

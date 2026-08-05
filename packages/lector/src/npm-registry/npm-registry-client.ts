@@ -1,6 +1,6 @@
 import fetchBuilder, { type RequestInitWithRetry } from "fetch-retry";
-import { BoundedResponseTooLarge, discardResponseBody, isJsonRecord, MalformedBoundedResponse, readBoundedJson } from "../adapters/bounded-response-reader.ts";
 import type { ExternalSearchBounds, NpmPackageCandidate } from "../external-search/external-search-result.ts";
+import { BoundedResponseTooLarge, discardResponseBody, isJsonRecord, MalformedBoundedResponse, readBoundedJson } from "../workspace/bounded-response-reader.ts";
 import type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "./npm-package-metadata.ts";
 import type { NpmRegistryPort } from "./port.ts";
 

@@ -6,7 +6,7 @@ import {
 	isJsonRecord,
 	MalformedBoundedResponse,
 	readBoundedJson,
-} from "../../src/adapters/bounded-response-reader.ts";
+} from "../../src/workspace/bounded-response-reader.ts";
 
 const GENEROUS_LIMIT_BYTES = 1024;
 const TIGHT_LIMIT_BYTES = 100;

@@ -28,7 +28,7 @@ describe("createLectorService's workspace.findFiles", () => {
 	});
 
 	it("rejects a workspace with no known root path (e.g. an in-memory-only registration)", async () => {
-		const { InMemoryWorkspace } = await import("../src/adapters/in-memory-workspace.ts");
+		const { InMemoryWorkspace } = await import("../src/workspace/in-memory-workspace.ts");
 		service = createLectorService(new Map([["mem-1", new InMemoryWorkspace()]]));
 		await expect(service.dispatch("workspace.findFiles", { workspaceId: "mem-1", patterns: ["*.ts"], maxResults: 10, maxBytes: 1000 })).rejects.toBeInstanceOf(
 			SymbolQueryUnavailable,

@@ -1,7 +1,7 @@
 import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
-import type { WorkspacePort } from "../ports/workspace-port.ts";
 import type { SymbolGraphPort } from "../symbol-graph/port.ts";
 import type { SymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
+import type { WorkspacePort } from "../workspace/port.ts";
 import type { SymbolAnnotation } from "./symbol-annotation.ts";
 import { type AnchorReality, isAnnotationStale } from "./symbol-annotation-staleness.ts";
 

@@ -8,10 +8,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
-import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { contentHashOf } from "../src/content-identity/content-hash.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
 import type { EditOutcome } from "../src/index.ts";
+import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 let daemon: RunningDaemon | undefined;

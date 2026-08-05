@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { InMemoryWorkspace } from "../../src/adapters/in-memory-workspace.ts";
 import { type ContentHash, contentHashOf } from "../../src/content-identity/content-hash.ts";
-import { applyWorkspaceEdit, collectTouchedPaths } from "../../src/domain/apply-workspace-edit.ts";
-import { exactEdit } from "../../src/domain/exact-edit.ts";
-import type { ParsedWorkspaceEdit } from "../../src/domain/workspace-edit.ts";
+import { applyWorkspaceEdit, collectTouchedPaths } from "../../src/workspace/apply-workspace-edit.ts";
+import { exactEdit } from "../../src/workspace/exact-edit.ts";
+import { InMemoryWorkspace } from "../../src/workspace/in-memory-workspace.ts";
+import type { ParsedWorkspaceEdit } from "../../src/workspace/workspace-edit.ts";
 
 /** Mirrors what the service layer does for real: snapshot every touched path's real current hash right before applying. */
 async function snapshot(workspace: InMemoryWorkspace, edit: ParsedWorkspaceEdit): Promise<Map<string, ContentHash | null>> {

@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { startLectorDaemon } from "../src/daemon.ts";
-import type { SymbolSearchResult } from "../src/domain/workspace-symbol.ts";
+import type { SymbolSearchResult } from "../src/workspace/workspace-symbol.ts";
 import { findPositionOf } from "./support/find-position.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 import { materializeTypeScriptReferenceFixture, type TypeScriptReferenceFixture } from "./support/typescript-reference-fixture.ts";

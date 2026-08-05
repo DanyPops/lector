@@ -1,8 +1,6 @@
 import { stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { LocalFilesystemWorkspace } from "../adapters/local-filesystem-workspace.ts";
-import { ReadOnlyWorkspace } from "../adapters/read-only-workspace.ts";
 import type { PackageSourceIndexPort } from "../package-source/index-port.ts";
 import { PACKAGE_ECOSYSTEMS } from "../package-source/package-source.ts";
 import { type PackageSourceListEntry, queryPackageSourceIndex } from "../package-source/package-source-index.ts";
@@ -18,6 +16,8 @@ import {
 	PackageSourceEntryInUse,
 	PackageSourceResolverNotConfigured,
 } from "../service.ts";
+import { LocalFilesystemWorkspace } from "../workspace/local-filesystem-workspace.ts";
+import { ReadOnlyWorkspace } from "../workspace/read-only-workspace.ts";
 
 export interface PackageSourceHandlerDeps {
 	readonly packageSourceResolver: PackageSourceResolverPort | undefined;

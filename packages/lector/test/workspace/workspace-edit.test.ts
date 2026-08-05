@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parsePrepareRenameResult, parseWorkspaceEdit, UnsupportedWorkspaceEditVariant } from "../../src/domain/workspace-edit.ts";
+import { parsePrepareRenameResult, parseWorkspaceEdit, UnsupportedWorkspaceEditVariant } from "../../src/workspace/workspace-edit.ts";
 
 const RANGE_0_INDEXED = { start: { line: 0, character: 4 }, end: { line: 0, character: 7 } };
 

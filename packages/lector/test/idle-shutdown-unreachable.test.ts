@@ -19,7 +19,7 @@ afterEach(() => {
 describe("a daemon that idles out", () => {
 	it("becomes unreachable with exactly the client-visible error a user would see", async () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
-		const { InMemoryWorkspace } = await import("../src/adapters/in-memory-workspace.ts");
+		const { InMemoryWorkspace } = await import("../src/workspace/in-memory-workspace.ts");
 		const daemon = await startLectorDaemon({
 			workspaces: new Map([["main", new InMemoryWorkspace()]]),
 			paths,

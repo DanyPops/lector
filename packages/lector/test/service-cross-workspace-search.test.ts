@@ -8,10 +8,10 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { WorkspaceQueryOutcome } from "../src/domain/workspace-query-outcome.ts";
-import type { WorkspaceSymbol } from "../src/domain/workspace-symbol.ts";
 import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";
 import { createLectorService } from "../src/service.ts";
+import type { WorkspaceQueryOutcome } from "../src/workspace/workspace-query-outcome.ts";
+import type { WorkspaceSymbol } from "../src/workspace/workspace-symbol.ts";
 import { symbolSearchResult, TEST_SEMANTIC_PROVENANCE } from "./support/intelligence-provenance.ts";
 
 function expectReady<T>(outcome: WorkspaceQueryOutcome<T> | undefined, workspaceId: string): T {
@@ -105,7 +105,7 @@ describe("createLectorService's search.symbols (cross-workspace fan-out)", () =>
 	});
 
 	it("excludes a workspace with no known root path from the fan-out, rather than erroring on it", async () => {
-		const { InMemoryWorkspace } = await import("../src/adapters/in-memory-workspace.ts");
+		const { InMemoryWorkspace } = await import("../src/workspace/in-memory-workspace.ts");
 		service = createLectorService(new Map([["mem-1", new InMemoryWorkspace()]]));
 
 		const { results } = await service.dispatch("search.symbols", { query: "anything" });
@@ -114,7 +114,7 @@ describe("createLectorService's search.symbols (cross-workspace fan-out)", () =>
 	});
 
 	it("returns an empty results array, not an error, when no workspace has a known root", async () => {
-		const { InMemoryWorkspace } = await import("../src/adapters/in-memory-workspace.ts");
+		const { InMemoryWorkspace } = await import("../src/workspace/in-memory-workspace.ts");
 		service = createLectorService(new Map([["mem-1", new InMemoryWorkspace()]]));
 		const { results } = await service.dispatch("search.text", { query: "anything", maxMatches: 10, maxBytes: 1000 });
 		expect(results).toEqual([]);

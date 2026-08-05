@@ -1,4 +1,4 @@
-import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
+import type { WorkspaceLocation } from "../workspace/workspace-symbol.ts";
 import type { SymbolGraphGeneration } from "./symbol-graph-generation.ts";
 import type { SymbolNodeId } from "./symbol-node-id.ts";
 

@@ -16,9 +16,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspSymbolIndex } from "../../../src/adapters/lsp/lsp-symbol-index.ts";
 import { documentSymbols } from "../../../src/domain/document-symbols.ts";
-import { findWorkspaceSymbols } from "../../../src/domain/find-workspace-symbols.ts";
 import { goToDefinition } from "../../../src/domain/go-to-definition.ts";
 import { BASH_DESCRIPTOR } from "../../../src/domain/language-server-descriptor.ts";
+import { findWorkspaceSymbols } from "../../../src/workspace/find-workspace-symbols.ts";
 import { findPositionOf } from "../../support/find-position.ts";
 
 /** The most severe published minimatch extglob-nesting trigger (GHSA-23c5-xmqv-rm74): ~7s+ for a single non-matching minimatch() call, growing to minutes with one more nesting level. */

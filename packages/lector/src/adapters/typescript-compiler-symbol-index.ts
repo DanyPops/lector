@@ -2,9 +2,9 @@ import { readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 import ts from "typescript";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../domain/intelligence-provenance.ts";
-import type { SymbolSearchResult, WorkspaceSymbol } from "../domain/workspace-symbol.ts";
 import type { SymbolIndexPort } from "../ports/symbol-index-port.ts";
 import { findSourceFiles } from "../text-search/find-source-files.ts";
+import type { SymbolSearchResult, WorkspaceSymbol } from "../workspace/workspace-symbol.ts";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 

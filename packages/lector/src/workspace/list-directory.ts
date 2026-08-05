@@ -1,4 +1,4 @@
-import type { FileTreeEntry, FileTreePort } from "../ports/file-tree-port.ts";
+import type { FileTreeEntry, FileTreePort } from "./file-tree-port.ts";
 
 export interface DirectoryListing {
 	readonly path: string;

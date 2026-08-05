@@ -5,9 +5,9 @@
  */
 import { describe, expect, it } from "bun:test";
 import { contentHashOf } from "../../src/content-identity/content-hash.ts";
-import { exactEdit, StaleExpectedHash } from "../../src/domain/exact-edit.ts";
-import { rawRead, WorkspaceEntryNotFound } from "../../src/domain/raw-read.ts";
-import type { WorkspacePort } from "../../src/ports/workspace-port.ts";
+import { exactEdit, StaleExpectedHash } from "../../src/workspace/exact-edit.ts";
+import type { WorkspacePort } from "../../src/workspace/port.ts";
+import { rawRead, WorkspaceEntryNotFound } from "../../src/workspace/raw-read.ts";
 
 export interface ConformanceHarness {
 	/** Fresh, empty workspace instance for one test. */

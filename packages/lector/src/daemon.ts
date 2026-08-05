@@ -12,7 +12,6 @@ import type { LanguageServerProvisionerPort } from "./lsp-provisioning/port.ts";
 import { resolveLspProvisioningRoot } from "./lsp-provisioning/resolve-lsp-provisioning-root.ts";
 import type { NpmRegistryPort } from "./npm-registry/port.ts";
 import type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
-import type { WorkspacePort } from "./ports/workspace-port.ts";
 import { GitRepoFetcher } from "./repo-fetcher/git-repo-fetcher.ts";
 import type { RepoFetcherPort } from "./repo-fetcher/port.ts";
 import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
@@ -22,6 +21,7 @@ import { type ClosableSymbolIndex, createLectorService, type LectorService, type
 import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
 import { SqliteSymbolGraph } from "./symbol-graph/sqlite-symbol-graph.ts";
 import { lectorVersion } from "./version.ts";
+import type { WorkspacePort } from "./workspace/port.ts";
 
 /** The Lector daemon's HTTP surface: Bearer-auth, health/ready, and the ops dispatch endpoint. */
 export function buildLectorApp(service: LectorService, token: string): { fetch(request: Request): Promise<Response> } {

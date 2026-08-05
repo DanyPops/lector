@@ -3,7 +3,7 @@ import { mkdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LRUCache } from "lru-cache";
 import simpleGit from "simple-git";
-import { measureDirectorySizeBytes } from "../adapters/directory-size.ts";
+import { measureDirectorySizeBytes } from "../workspace/directory-size.ts";
 import { assertSafeRepoReference } from "./assert-safe-repo-reference.ts";
 import type { RepoCacheListEntry } from "./cached-repository-entry.ts";
 import type { RepoFetcherPort } from "./port.ts";

@@ -2,9 +2,9 @@ import { describe, expect, it } from "bun:test";
 import { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "../../src/adapters/polyglot-code-intelligence-index.ts";
 import type { IntelligenceProvenance } from "../../src/domain/intelligence-provenance.ts";
 import { GO_DESCRIPTOR, PYTHON_DESCRIPTOR } from "../../src/domain/language-server-descriptor.ts";
-import type { SymbolSearchResult, WorkspaceLocation } from "../../src/domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../../src/ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../src/ports/symbol-index-port.ts";
+import type { SymbolSearchResult, WorkspaceLocation } from "../../src/workspace/workspace-symbol.ts";
 
 function provenance(languageId: string, backend: string): IntelligenceProvenance {
 	return { fidelity: "semantic", backend, languageId, authority: "language-server", freshness: "live-process", limitations: [] };

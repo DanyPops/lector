@@ -3,10 +3,8 @@ import { stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
-import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { discoverWorkspaceDescriptors } from "./adapters/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./adapters/lsp/lsp-symbol-index.ts";
-import { deriveSourceManifest } from "./adapters/source-manifest.ts";
 import { findImportSpecifiers } from "./adapters/tree-sitter/import-specifiers.ts";
 import { TreeSitterSymbolIndex } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "./adapters/typescript-compiler-symbol-index.ts";
@@ -15,31 +13,19 @@ import { SerialExecutionQueue } from "./concurrency/serial-execution-queue.ts";
 import { InMemoryContentCache } from "./content-cache/in-memory-content-cache.ts";
 import type { ContentCachePort } from "./content-cache/port.ts";
 import { type ContentHash, contentHashOf } from "./content-identity/content-hash.ts";
-import { applyPatch, PatchRejected } from "./domain/apply-patch.ts";
-import { applyWorkspaceEdit, collectTouchedPaths } from "./domain/apply-workspace-edit.ts";
 import type { SymbolComparisonStatus } from "./domain/compare-symbol-declarations.ts";
 import type { Diagnostic } from "./domain/diagnostic.ts";
 import { diagnostics as diagnosticsQuery } from "./domain/diagnostics.ts";
 import type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
 import { documentSymbols as documentSymbolsQuery } from "./domain/document-symbols.ts";
-import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash } from "./domain/exact-edit.ts";
 import { findReferences as findReferencesQuery } from "./domain/find-references.ts";
-import { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 import { goToDefinition as goToDefinitionQuery } from "./domain/go-to-definition.ts";
 import { goToImplementation as goToImplementationQuery } from "./domain/go-to-implementation.ts";
 import type { Hover } from "./domain/hover.ts";
 import { hoverAt } from "./domain/hover-at.ts";
 import type { IntelligenceProvenance } from "./domain/intelligence-provenance.ts";
 import { LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./domain/language-server-descriptor.ts";
-import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, lineEdit } from "./domain/line-edit.ts";
-import { type DirectoryListing, listDirectory } from "./domain/list-directory.ts";
-import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
-import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from "./domain/response-format.ts";
 import { assertBoundedSymbolQuery } from "./domain/symbol-query.ts";
-import type { ParsedWorkspaceEdit, RenameRange } from "./domain/workspace-edit.ts";
-import type { WorkspaceMapResult } from "./domain/workspace-map.ts";
-import type { WorkspaceQueryOutcome } from "./domain/workspace-query-outcome.ts";
-import type { SymbolSearchResult, WorkspaceLocation } from "./domain/workspace-symbol.ts";
 import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "./external-search/external-search-result.ts";
 import { InMemoryExternalSearchCache } from "./external-search-cache/in-memory-external-search-cache.ts";
 import type { ExternalSearchCachePort } from "./external-search-cache/port.ts";
@@ -67,9 +53,7 @@ import type { PackageSourceIndexQuery, PackageSourceListEntry } from "./package-
 import type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 import { assertAbsolutePath, RelativeWorkspacePath } from "./path-safety/assert-absolute-path.ts";
 import type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
-import type { FileTreePort } from "./ports/file-tree-port.ts";
 import type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
-import type { WorkspacePort } from "./ports/workspace-port.ts";
 import { applyReferenceBasedRename, type ReferenceBasedRenameOutcome } from "./reference-based-rename/apply-reference-based-rename.ts";
 import { planReferenceBasedRename } from "./reference-based-rename/reference-based-rename.ts";
 import type { CachedRepositoryPage, CachedRepositoryQuery } from "./repo-fetcher/cached-repository-entry.ts";
@@ -118,6 +102,22 @@ import type { TextSearchPort } from "./text-search/port.ts";
 import { RipgrepTextSearch } from "./text-search/ripgrep-text-search.ts";
 import { searchText as searchTextQuery } from "./text-search/search-text.ts";
 import type { TextSearchResult } from "./text-search/text-search-result.ts";
+import { applyPatch, PatchRejected } from "./workspace/apply-patch.ts";
+import { applyWorkspaceEdit, collectTouchedPaths } from "./workspace/apply-workspace-edit.ts";
+import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash } from "./workspace/exact-edit.ts";
+import type { FileTreePort } from "./workspace/file-tree-port.ts";
+import { findWorkspaceSymbols } from "./workspace/find-workspace-symbols.ts";
+import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, lineEdit } from "./workspace/line-edit.ts";
+import { type DirectoryListing, listDirectory } from "./workspace/list-directory.ts";
+import { LocalFilesystemWorkspace } from "./workspace/local-filesystem-workspace.ts";
+import type { WorkspacePort } from "./workspace/port.ts";
+import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./workspace/raw-read.ts";
+import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from "./workspace/response-format.ts";
+import { deriveSourceManifest } from "./workspace/source-manifest.ts";
+import type { ParsedWorkspaceEdit, RenameRange } from "./workspace/workspace-edit.ts";
+import type { WorkspaceMapResult } from "./workspace/workspace-map.ts";
+import type { WorkspaceQueryOutcome } from "./workspace/workspace-query-outcome.ts";
+import type { SymbolSearchResult, WorkspaceLocation } from "./workspace/workspace-symbol.ts";
 
 /**
  * Identifies which registered workspace an operation targets. There is no
@@ -1052,7 +1052,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		}
 		const { index } = warmIndexes.ensureWorkspaceIndex(input.workspaceId, input.seedFile);
 		const result = await findWorkspaceSymbols(index, input.query, { maxResults });
-		// "concise" narrows the actual JSON payload per domain/response-format.ts; the declared
+		// "concise" narrows the actual JSON payload per workspace/response-format.ts; the declared
 		// output type stays SymbolSearchResult (this operation's default, and every untouched
 		// caller's honest shape) -- a caller that opts into responseFormat:"concise" already knows
 		// to treat fields absent from the concise contract as absent, not to trust this type for it.

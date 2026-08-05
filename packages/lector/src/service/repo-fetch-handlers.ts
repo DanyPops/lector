@@ -1,7 +1,5 @@
 import { resolve } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { LocalFilesystemWorkspace } from "../adapters/local-filesystem-workspace.ts";
-import { ReadOnlyWorkspace } from "../adapters/read-only-workspace.ts";
 import { type CachedRepositoryEntry, queryCachedRepositories } from "../repo-fetcher/cached-repository-entry.ts";
 import type { RepoFetcherPort } from "../repo-fetcher/port.ts";
 import {
@@ -12,6 +10,8 @@ import {
 	RepoCacheEntryInUse,
 	RepoFetcherNotConfigured,
 } from "../service.ts";
+import { LocalFilesystemWorkspace } from "../workspace/local-filesystem-workspace.ts";
+import { ReadOnlyWorkspace } from "../workspace/read-only-workspace.ts";
 
 export interface RepoFetchHandlerDeps {
 	readonly repoFetcher: RepoFetcherPort | undefined;

@@ -1,5 +1,5 @@
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../domain/intelligence-provenance.ts";
-import type { SymbolSearchResult } from "../domain/workspace-symbol.ts";
+import type { SymbolSearchResult } from "../workspace/workspace-symbol.ts";
 
 /**
  * SymbolIndexPort -- the role a driven adapter plays for symbol queries:

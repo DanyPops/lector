@@ -8,8 +8,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { contentHashOf } from "../src/content-identity/content-hash.ts";
-import { StaleExpectedHash } from "../src/domain/exact-edit.ts";
 import { createLectorService, type LectorService } from "../src/service.ts";
+import { StaleExpectedHash } from "../src/workspace/exact-edit.ts";
 
 let root: string | undefined;
 let service: LectorService | undefined;

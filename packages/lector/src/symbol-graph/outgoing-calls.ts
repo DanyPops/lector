@@ -1,5 +1,5 @@
-import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../ports/code-intelligence-port.ts";
+import type { WorkspaceLocation } from "../workspace/workspace-symbol.ts";
 import type { OutgoingCall } from "./call-hierarchy.ts";
 
 /** Every function/method the symbol at `at` itself calls. */

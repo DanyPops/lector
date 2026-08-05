@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { listDirectory } from "../../src/domain/list-directory.ts";
-import type { FileTreeEntry, FileTreePort } from "../../src/ports/file-tree-port.ts";
+import type { FileTreeEntry, FileTreePort } from "../../src/workspace/file-tree-port.ts";
+import { listDirectory } from "../../src/workspace/list-directory.ts";
 
 function fakeFileTree(entries: FileTreeEntry[]): FileTreePort {
 	return {

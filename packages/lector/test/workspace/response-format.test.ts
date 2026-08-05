@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { IntelligenceProvenance } from "../../src/domain/intelligence-provenance.ts";
-import { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "../../src/domain/response-format.ts";
-import type { SymbolSearchResult } from "../../src/domain/workspace-symbol.ts";
+import { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "../../src/workspace/response-format.ts";
+import type { SymbolSearchResult } from "../../src/workspace/workspace-symbol.ts";
 
 const FULL_PROVENANCE: IntelligenceProvenance = {
 	fidelity: "semantic",

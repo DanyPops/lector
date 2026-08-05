@@ -1,6 +1,4 @@
 export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
-export { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
-export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./adapters/local-filesystem-workspace.ts";
 export {
 	LanguageServerCapacityExceeded,
 	LanguageServerProcess,
@@ -9,8 +7,6 @@ export {
 } from "./adapters/lsp/language-server-process.ts";
 export { LanguageFileLimitExceeded, LanguageFileOutsideWorkspace, LspSymbolIndex, type LspSymbolIndexOptions } from "./adapters/lsp/lsp-symbol-index.ts";
 export { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "./adapters/polyglot-code-intelligence-index.ts";
-export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./adapters/read-only-workspace.ts";
-export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./adapters/source-manifest.ts";
 export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./adapters/typescript-compiler-symbol-index.ts";
 export {
@@ -38,25 +34,12 @@ export { type ContentHash, contentHashOf } from "./content-identity/content-hash
 export type { LineHash } from "./content-identity/line-hash.ts";
 export { lineHashOf } from "./content-identity/line-hash.ts";
 export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
-export {
-	type ApplyPatchRequest,
-	applyPatch,
-	PatchRejected,
-} from "./domain/apply-patch.ts";
-export type { CodeRange } from "./domain/code-range.ts";
 export type { SymbolComparisonStatus, SymbolDeclarationComparison } from "./domain/compare-symbol-declarations.ts";
 export type { Diagnostic, DiagnosticSeverity } from "./domain/diagnostic.ts";
 export { diagnostics } from "./domain/diagnostics.ts";
 export type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
 export { documentSymbols } from "./domain/document-symbols.ts";
-export {
-	type EditOutcome,
-	type ExpectedHashEdit,
-	exactEdit,
-	StaleExpectedHash,
-} from "./domain/exact-edit.ts";
 export { findReferences } from "./domain/find-references.ts";
-export { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 export { goToDefinition } from "./domain/go-to-definition.ts";
 export { goToImplementation } from "./domain/go-to-implementation.ts";
 export type { Hover } from "./domain/hover.ts";
@@ -75,36 +58,8 @@ export {
 	PYTHON_DESCRIPTOR,
 	TYPESCRIPT_DESCRIPTOR,
 } from "./domain/language-server-descriptor.ts";
-export {
-	type LineEdit,
-	type LineEditFailure,
-	type LineEditFailureReason,
-	type LineEditInsertAfter,
-	type LineEditInsertBefore,
-	type LineEditOutcome,
-	LineEditRace,
-	LineEditRejected,
-	type LineEditReplace,
-	type LineEditRequest,
-	lineEdit,
-} from "./domain/line-edit.ts";
-export type { DirectoryListing } from "./domain/list-directory.ts";
-export { listDirectory } from "./domain/list-directory.ts";
-export { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
-export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
-export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./domain/response-format.ts";
-export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./domain/response-format.ts";
 export type { SymbolDeclarationSnapshot } from "./domain/symbol-declaration-snapshot.ts";
 export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./domain/symbol-query.ts";
-export {
-	InvalidUnifiedDiff,
-	parseUnifiedDiff,
-	type UnifiedDiffHunk,
-} from "./domain/unified-diff.ts";
-export type { WorkspaceMapEntry, WorkspaceMapOptions, WorkspaceMapResult } from "./domain/workspace-map.ts";
-export { computeWorkspaceMap } from "./domain/workspace-map.ts";
-export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";
-export type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
 export type {
 	ExternalSearchBounds,
 	GithubRepoCandidate,
@@ -235,10 +190,7 @@ export { InvalidPackageSourceContract, resolvePackageSource } from "./package-so
 export type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 export { assertSafePathSegment, UnsafePathSegment } from "./path-safety/assert-safe-path-segment.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
-export type { FileTreeEntry, FileTreeEntryKind, FileTreePort } from "./ports/file-tree-port.ts";
-export { WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "./ports/file-tree-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
-export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
 export { applyReferenceBasedRename, type ReferenceBasedRenameOutcome } from "./reference-based-rename/apply-reference-based-rename.ts";
 export {
 	type FileMove,
@@ -340,3 +292,51 @@ export { RipgrepTextSearch } from "./text-search/ripgrep-text-search.ts";
 export { searchText } from "./text-search/search-text.ts";
 export type { TextSearchMatch, TextSearchResult } from "./text-search/text-search-result.ts";
 export { lectorVersion } from "./version.ts";
+export {
+	type ApplyPatchRequest,
+	applyPatch,
+	PatchRejected,
+} from "./workspace/apply-patch.ts";
+export type { CodeRange } from "./workspace/code-range.ts";
+export {
+	type EditOutcome,
+	type ExpectedHashEdit,
+	exactEdit,
+	StaleExpectedHash,
+} from "./workspace/exact-edit.ts";
+export type { FileTreeEntry, FileTreeEntryKind, FileTreePort } from "./workspace/file-tree-port.ts";
+export { WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "./workspace/file-tree-port.ts";
+export { findWorkspaceSymbols } from "./workspace/find-workspace-symbols.ts";
+export { InMemoryWorkspace } from "./workspace/in-memory-workspace.ts";
+export {
+	type LineEdit,
+	type LineEditFailure,
+	type LineEditFailureReason,
+	type LineEditInsertAfter,
+	type LineEditInsertBefore,
+	type LineEditOutcome,
+	LineEditRace,
+	LineEditRejected,
+	type LineEditReplace,
+	type LineEditRequest,
+	lineEdit,
+} from "./workspace/line-edit.ts";
+export type { DirectoryListing } from "./workspace/list-directory.ts";
+export { listDirectory } from "./workspace/list-directory.ts";
+export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./workspace/local-filesystem-workspace.ts";
+export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./workspace/port.ts";
+export { raceWorkspaceQuery } from "./workspace/race-workspace-query.ts";
+export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./workspace/raw-read.ts";
+export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./workspace/read-only-workspace.ts";
+export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./workspace/response-format.ts";
+export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./workspace/response-format.ts";
+export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./workspace/source-manifest.ts";
+export {
+	InvalidUnifiedDiff,
+	parseUnifiedDiff,
+	type UnifiedDiffHunk,
+} from "./workspace/unified-diff.ts";
+export type { WorkspaceMapEntry, WorkspaceMapOptions, WorkspaceMapResult } from "./workspace/workspace-map.ts";
+export { computeWorkspaceMap } from "./workspace/workspace-map.ts";
+export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./workspace/workspace-query-outcome.ts";
+export type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "./workspace/workspace-symbol.ts";

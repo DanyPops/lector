@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { InMemoryWorkspace } from "../../src/adapters/in-memory-workspace.ts";
 import { contentHashOf } from "../../src/content-identity/content-hash.ts";
-import { applyPatch, PatchRejected } from "../../src/domain/apply-patch.ts";
-import { exactEdit, StaleExpectedHash } from "../../src/domain/exact-edit.ts";
+import { applyPatch, PatchRejected } from "../../src/workspace/apply-patch.ts";
+import { exactEdit, StaleExpectedHash } from "../../src/workspace/exact-edit.ts";
+import { InMemoryWorkspace } from "../../src/workspace/in-memory-workspace.ts";
 
 async function seed(content: string): Promise<InMemoryWorkspace> {
 	const workspace = new InMemoryWorkspace();

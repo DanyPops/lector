@@ -8,9 +8,9 @@ import { rmSync } from "node:fs";
 import { LspSymbolIndex } from "../../src/adapters/lsp/lsp-symbol-index.ts";
 import { measureProcessTreeRssKb } from "../../src/adapters/lsp/process-resource-usage.ts";
 import { documentSymbols } from "../../src/domain/document-symbols.ts";
-import { findWorkspaceSymbols } from "../../src/domain/find-workspace-symbols.ts";
 import { goToDefinition } from "../../src/domain/go-to-definition.ts";
 import type { LanguageServerDescriptor } from "../../src/domain/language-server-descriptor.ts";
+import { findWorkspaceSymbols } from "../../src/workspace/find-workspace-symbols.ts";
 import { findPositionOf } from "./find-position.ts";
 
 export interface LanguageConformanceFixture {

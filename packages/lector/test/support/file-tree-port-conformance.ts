@@ -3,11 +3,11 @@
  * LocalFilesystemWorkspace, and any future one) must pass this unmodified.
  *
  * Deliberately does not assert an ordering from listDirectory itself -- sorting (directories
- * before files, then alphabetical) is domain policy (see domain/list-directory.ts), not a port
+ * before files, then alphabetical) is domain policy (see workspace/list-directory.ts), not a port
  * contract every adapter must independently reproduce.
  */
 import { describe, expect, it } from "bun:test";
-import type { FileTreeEntry, FileTreePort } from "../../src/ports/file-tree-port.ts";
+import type { FileTreeEntry, FileTreePort } from "../../src/workspace/file-tree-port.ts";
 
 export interface FileTreeConformanceHarness {
 	/** Fresh, empty tree for one test, plus a way to create a plain file at a path (WorkspacePort.writeEntry in production, a bare helper here since not every harness wants to construct a whole WorkspacePort). */

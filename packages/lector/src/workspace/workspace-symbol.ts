@@ -1,4 +1,4 @@
-import type { IntelligenceProvenance, IntelligenceSourceOutcome } from "./intelligence-provenance.ts";
+import type { IntelligenceProvenance, IntelligenceSourceOutcome } from "../domain/intelligence-provenance.ts";
 
 /** A location within a workspace file: 1-indexed line and character, matching how humans and CLIs present positions. */
 export interface WorkspaceLocation {

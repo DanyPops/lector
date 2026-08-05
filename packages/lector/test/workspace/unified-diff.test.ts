@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { InvalidUnifiedDiff, parseUnifiedDiff } from "../../src/domain/unified-diff.ts";
+import { InvalidUnifiedDiff, parseUnifiedDiff } from "../../src/workspace/unified-diff.ts";
 
 describe("parseUnifiedDiff", () => {
 	it("parses a single hunk with context, removal, and addition lines", () => {

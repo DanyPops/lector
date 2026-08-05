@@ -4,7 +4,6 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import type { Server } from "bun";
-import { deriveSourceManifest } from "../../src/adapters/source-manifest.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../src/domain/language-server-descriptor.ts";
 import type { NpmPackageCandidate } from "../../src/external-search/external-search-result.ts";
 import { LocalGit } from "../../src/git/local-git.ts";
@@ -17,6 +16,7 @@ import { DEFAULT_PACKAGE_SOURCE_BOUNDS } from "../../src/package-source/package-
 import { GitRepoFetcher } from "../../src/repo-fetcher/git-repo-fetcher.ts";
 import { createLectorService, type LectorService } from "../../src/service.ts";
 import { RipgrepTextSearch } from "../../src/text-search/ripgrep-text-search.ts";
+import { deriveSourceManifest } from "../../src/workspace/source-manifest.ts";
 import {
 	materializeTypeScriptReferenceFixture,
 	materializeTypeScriptReferenceGitFixture,

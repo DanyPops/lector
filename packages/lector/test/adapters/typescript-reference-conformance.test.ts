@@ -7,12 +7,12 @@ import { TypeScriptCompilerSymbolIndex } from "../../src/adapters/typescript-com
 import { diagnostics } from "../../src/domain/diagnostics.ts";
 import { documentSymbols } from "../../src/domain/document-symbols.ts";
 import { findReferences } from "../../src/domain/find-references.ts";
-import { findWorkspaceSymbols } from "../../src/domain/find-workspace-symbols.ts";
 import { goToDefinition } from "../../src/domain/go-to-definition.ts";
 import { goToImplementation } from "../../src/domain/go-to-implementation.ts";
 import { hoverAt } from "../../src/domain/hover-at.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../src/domain/language-server-descriptor.ts";
 import { outgoingCalls } from "../../src/symbol-graph/outgoing-calls.ts";
+import { findWorkspaceSymbols } from "../../src/workspace/find-workspace-symbols.ts";
 import { findPositionOf } from "../support/find-position.ts";
 import {
 	materializeTypeScriptReferenceFixture,

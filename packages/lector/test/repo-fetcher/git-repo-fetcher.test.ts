@@ -9,12 +9,12 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { measureDirectorySizeBytes } from "../../src/adapters/directory-size.ts";
 import { UnsafeGitArgument } from "../../src/git/assert-safe-git-argument.ts";
 import { UnsafePathSegment } from "../../src/path-safety/assert-safe-path-segment.ts";
 import { GitRepoFetcher } from "../../src/repo-fetcher/git-repo-fetcher.ts";
 import { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded } from "../../src/repo-fetcher/repo-fetch-result.ts";
 import type { RepoReference } from "../../src/repo-fetcher/repo-reference.ts";
+import { measureDirectorySizeBytes } from "../../src/workspace/directory-size.ts";
 import { requireDefined } from "../support/require-defined.ts";
 
 let sourceRepo: string | undefined;

@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WorkspaceIsReadOnly } from "../src/adapters/read-only-workspace.ts";
 import { DEFAULT_PACKAGE_SOURCE_BOUNDS, type PackageSourceOutcome, type PackageSourceRequest } from "../src/package-source/package-source.ts";
 import type { PackageSourceResolverPort } from "../src/package-source/resolver-port.ts";
 import { createLectorService, type LectorService, PackageSourceResolverNotConfigured } from "../src/service.ts";
+import { WorkspaceIsReadOnly } from "../src/workspace/read-only-workspace.ts";
 import { recordingLogger } from "./support/recording-logger.ts";
 
 let root: string | undefined;

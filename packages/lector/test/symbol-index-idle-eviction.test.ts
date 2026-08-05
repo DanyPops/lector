@@ -10,9 +10,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { startDaemon } from "@danypops/vehicle-server/daemon";
 import { ensureAuthToken } from "@danypops/vehicle-server/paths";
-import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { buildLectorApp } from "../src/daemon.ts";
 import { createLectorService, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
+import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
 import { symbolSearchResult, TEST_SEMANTIC_PROVENANCE } from "./support/intelligence-provenance.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 

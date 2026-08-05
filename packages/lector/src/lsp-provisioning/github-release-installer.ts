@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import fetchBuilder, { type RequestInitWithRetry } from "fetch-retry";
-import { discardResponseBody, readBoundedJson } from "../adapters/bounded-response-reader.ts";
+import { discardResponseBody, readBoundedJson } from "../workspace/bounded-response-reader.ts";
 import { runBoundedSubprocess } from "./bounded-subprocess.ts";
 import type { GithubReleaseLanguageServerSource } from "./language-server-package-spec.ts";
 import type { LspPlatform } from "./lsp-platform.ts";

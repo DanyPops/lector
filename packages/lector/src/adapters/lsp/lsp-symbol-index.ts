@@ -16,7 +16,6 @@ import { SerialExecutionQueue } from "../../concurrency/serial-execution-queue.t
 import { InMemoryContentCache } from "../../content-cache/in-memory-content-cache.ts";
 import type { ContentCachePort } from "../../content-cache/port.ts";
 import { contentHashOf } from "../../content-identity/content-hash.ts";
-import type { CodeRange } from "../../domain/code-range.ts";
 import { type Diagnostic, type DiagnosticSeverity, mergeDiagnostics } from "../../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../../domain/document-symbol.ts";
 import type { Hover } from "../../domain/hover.ts";
@@ -24,13 +23,14 @@ import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/in
 import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
 import { toLspFileChangeType } from "../../domain/lsp-file-change-type.ts";
 import { type ParsedServerCapabilities, parseServerCapabilities, shouldSyncDocuments } from "../../domain/lsp-server-capabilities.ts";
-import { type ParsedWorkspaceEdit, parsePrepareRenameResult, parseWorkspaceEdit, type RenameRange } from "../../domain/workspace-edit.ts";
-import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { FileChangeEvent } from "../../file-watcher/file-change-event.ts";
 import type { LanguageServerProvisionerPort } from "../../lsp-provisioning/port.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../symbol-graph/call-hierarchy.ts";
+import type { CodeRange } from "../../workspace/code-range.ts";
+import { type ParsedWorkspaceEdit, parsePrepareRenameResult, parseWorkspaceEdit, type RenameRange } from "../../workspace/workspace-edit.ts";
+import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../workspace/workspace-symbol.ts";
 import { TypeScriptCompilerSymbolIndex } from "../typescript-compiler-symbol-index.ts";
 import { resolveSeedFile } from "./discover-seed-file.ts";
 import { LanguageServerProcess } from "./language-server-process.ts";

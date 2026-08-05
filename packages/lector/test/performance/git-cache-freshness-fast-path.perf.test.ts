@@ -33,8 +33,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deriveSourceManifest } from "../../src/adapters/source-manifest.ts";
 import { LocalGit } from "../../src/git/local-git.ts";
+import { deriveSourceManifest } from "../../src/workspace/source-manifest.ts";
 
 function git(cwd: string, ...args: string[]): void {
 	execFileSync("git", args, { cwd });

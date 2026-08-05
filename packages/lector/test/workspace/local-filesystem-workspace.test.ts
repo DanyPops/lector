@@ -11,10 +11,10 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "../src/adapters/local-filesystem-workspace.ts";
-import { contentHashOf } from "../src/content-identity/content-hash.ts";
-import { exactEdit } from "../src/domain/exact-edit.ts";
-import { rawRead } from "../src/domain/raw-read.ts";
+import { contentHashOf } from "../../src/content-identity/content-hash.ts";
+import { exactEdit } from "../../src/workspace/exact-edit.ts";
+import { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "../../src/workspace/local-filesystem-workspace.ts";
+import { rawRead } from "../../src/workspace/raw-read.ts";
 
 let root: string | undefined;
 afterEach(async () => {

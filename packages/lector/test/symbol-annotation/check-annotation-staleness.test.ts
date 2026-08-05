@@ -1,11 +1,11 @@
 /** Uses InMemorySymbolGraph and InMemoryWorkspace directly -- a real seam, not mocks of the ports. */
 import { describe, expect, it } from "bun:test";
-import { InMemoryWorkspace } from "../../src/adapters/in-memory-workspace.ts";
 import { contentHashOf } from "../../src/content-identity/content-hash.ts";
 import { checkAnnotationStaleness } from "../../src/symbol-annotation/check-annotation-staleness.ts";
 import type { SymbolAnnotation } from "../../src/symbol-annotation/symbol-annotation.ts";
 import { InMemorySymbolGraph } from "../../src/symbol-graph/in-memory-symbol-graph.ts";
 import { deriveSymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";
+import { InMemoryWorkspace } from "../../src/workspace/in-memory-workspace.ts";
 
 const ADD_ID = deriveSymbolNodeId({ path: "a.ts", line: 1, character: 1 });
 const SUB_ID = deriveSymbolNodeId({ path: "a.ts", line: 2, character: 1 });

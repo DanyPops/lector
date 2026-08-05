@@ -5,8 +5,8 @@
  * conformance suite (test/support) so every future adapter is held to the
  * exact same contract.
  */
-import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
-import { runWorkspacePortConformanceSuite } from "./support/workspace-port-conformance.ts";
+import { InMemoryWorkspace } from "../../src/workspace/in-memory-workspace.ts";
+import { runWorkspacePortConformanceSuite } from "../support/workspace-port-conformance.ts";
 
 runWorkspacePortConformanceSuite("InMemoryWorkspace", {
 	createWorkspace: () => new InMemoryWorkspace(),

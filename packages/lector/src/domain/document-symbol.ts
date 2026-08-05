@@ -1,4 +1,4 @@
-import type { CodeRange } from "./code-range.ts";
+import type { CodeRange } from "../workspace/code-range.ts";
 
 /**
  * A symbol declared in one specific file (LSP textDocument/documentSymbol),

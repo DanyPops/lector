@@ -28,7 +28,7 @@ describe("createLectorService's workspace.applyPatch", () => {
 	});
 
 	it("routes a real patch through to the registered workspace", async () => {
-		const { InMemoryWorkspace } = await import("../src/adapters/in-memory-workspace.ts");
+		const { InMemoryWorkspace } = await import("../src/workspace/in-memory-workspace.ts");
 		service = createLectorService(new Map([["mem-1", new InMemoryWorkspace()]]));
 		const content = "line 1\nline 2";
 		await service.dispatch("workspace.exactEdit", { workspaceId: "mem-1", path: "a.ts", expectedHash: null, content });

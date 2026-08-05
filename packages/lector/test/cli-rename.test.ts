@@ -7,8 +7,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
-import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
+import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 let daemon: RunningDaemon | undefined;

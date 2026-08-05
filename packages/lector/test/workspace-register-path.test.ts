@@ -11,7 +11,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
-import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
 import {
 	createLectorService,
@@ -21,6 +20,7 @@ import {
 	type OperationOutputs,
 	RelativeWorkspacePath,
 } from "../src/service.ts";
+import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 let cleanupFns: Array<() => void | Promise<void>> = [];

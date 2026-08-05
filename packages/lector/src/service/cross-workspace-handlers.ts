@@ -1,5 +1,5 @@
-import { raceWorkspaceQuery } from "../domain/race-workspace-query.ts";
 import type { MutableRegistry, OperationInputs, OperationOutputs, WorkspaceId } from "../service.ts";
+import { raceWorkspaceQuery } from "../workspace/race-workspace-query.ts";
 
 const DEFAULT_CROSS_WORKSPACE_TIMEOUT_MS = 3000;
 

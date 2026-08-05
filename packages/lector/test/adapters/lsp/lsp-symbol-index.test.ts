@@ -15,7 +15,6 @@ import { contentHashOf } from "../../../src/content-identity/content-hash.ts";
 import { diagnostics } from "../../../src/domain/diagnostics.ts";
 import { documentSymbols } from "../../../src/domain/document-symbols.ts";
 import { findReferences } from "../../../src/domain/find-references.ts";
-import { findWorkspaceSymbols } from "../../../src/domain/find-workspace-symbols.ts";
 import { goToDefinition } from "../../../src/domain/go-to-definition.ts";
 import { goToImplementation } from "../../../src/domain/go-to-implementation.ts";
 import { hoverAt } from "../../../src/domain/hover-at.ts";
@@ -26,13 +25,14 @@ import type { LanguageServerProvisionerPort } from "../../../src/lsp-provisionin
 import { incomingCalls } from "../../../src/symbol-graph/incoming-calls.ts";
 import { outgoingCalls } from "../../../src/symbol-graph/outgoing-calls.ts";
 import { prepareCallHierarchy } from "../../../src/symbol-graph/prepare-call-hierarchy.ts";
+import { findWorkspaceSymbols } from "../../../src/workspace/find-workspace-symbols.ts";
 import { findPositionOf } from "../../support/find-position.ts";
 import { startGithubReleaseFixture } from "../../support/github-release-fixture.ts";
 
 const LECTOR_ROOT = new URL("../../..", import.meta.url).pathname;
-const EXACT_EDIT_FILE = join(LECTOR_ROOT, "src/domain/exact-edit.ts");
+const EXACT_EDIT_FILE = join(LECTOR_ROOT, "src/workspace/exact-edit.ts");
 const SERVICE_FILE = join(LECTOR_ROOT, "src/service.ts");
-const FIND_WORKSPACE_SYMBOLS_FILE = join(LECTOR_ROOT, "src/domain/find-workspace-symbols.ts");
+const FIND_WORKSPACE_SYMBOLS_FILE = join(LECTOR_ROOT, "src/workspace/find-workspace-symbols.ts");
 const SYMBOL_INDEX_PORT_FILE = join(LECTOR_ROOT, "src/ports/symbol-index-port.ts");
 const SYMBOL_GRAPH_PORT_FILE = join(LECTOR_ROOT, "src/symbol-graph/port.ts");
 const LSP_SYMBOL_INDEX_FILE = join(LECTOR_ROOT, "src/adapters/lsp/lsp-symbol-index.ts");

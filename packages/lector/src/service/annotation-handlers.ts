@@ -1,5 +1,4 @@
 import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
-import type { WorkspacePort } from "../ports/workspace-port.ts";
 import {
 	AnnotationContainmentCycle,
 	AnnotationRequiresAnchors,
@@ -18,6 +17,7 @@ import type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "../symbo
 import type { SymbolAnnotation, SymbolAnnotationAnchor } from "../symbol-annotation/symbol-annotation.ts";
 import type { SymbolGraphPort } from "../symbol-graph/port.ts";
 import { deriveSymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
+import type { WorkspacePort } from "../workspace/port.ts";
 
 export interface AnnotationHandlerDeps {
 	readonly registry: MutableRegistry;

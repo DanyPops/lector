@@ -6,9 +6,9 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
-import { LocalFilesystemWorkspace } from "../src/adapters/local-filesystem-workspace.ts";
-import { runFileTreePortConformanceSuite } from "./support/file-tree-port-conformance.ts";
+import { InMemoryWorkspace } from "../../src/workspace/in-memory-workspace.ts";
+import { LocalFilesystemWorkspace } from "../../src/workspace/local-filesystem-workspace.ts";
+import { runFileTreePortConformanceSuite } from "../support/file-tree-port-conformance.ts";
 
 runFileTreePortConformanceSuite("InMemoryWorkspace", {
 	create: async () => {

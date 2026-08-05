@@ -39,7 +39,7 @@ describe("startLectorDaemon", () => {
 
 	it("starts normally and writes a real handle once at least one workspace is registered", async () => {
 		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
-		const { InMemoryWorkspace } = await import("../src/adapters/in-memory-workspace.ts");
+		const { InMemoryWorkspace } = await import("../src/workspace/in-memory-workspace.ts");
 		const daemon = await startLectorDaemon({ workspaces: new Map([["main", new InMemoryWorkspace()]]), paths });
 		cleanup = () => {
 			void daemon.stop();

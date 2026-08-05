@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoundedJobExecutor } from "../src/concurrency/bounded-job-executor.ts";
 import type { DocumentSymbolEntry } from "../src/domain/document-symbol.ts";
-import type { WorkspaceLocation } from "../src/domain/workspace-symbol.ts";
 import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";
 import { createLectorService, JobNotFound, JobWaitTooLong } from "../src/service.ts";
 import type { PopulateSymbolGraphResult } from "../src/symbol-graph/populate-symbol-graph.ts";
+import type { WorkspaceLocation } from "../src/workspace/workspace-symbol.ts";
 import { symbolSearchResult, TEST_SEMANTIC_PROVENANCE } from "./support/intelligence-provenance.ts";
 
 function deferred<T>() {

@@ -1,7 +1,7 @@
 import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
-import { StaleExpectedHash } from "../domain/exact-edit.ts";
-import { type FileTreeEntry, type FileTreePort, WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "../ports/file-tree-port.ts";
-import type { WorkspaceEntry, WorkspacePort } from "../ports/workspace-port.ts";
+import { StaleExpectedHash } from "./exact-edit.ts";
+import { type FileTreeEntry, type FileTreePort, WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "./file-tree-port.ts";
+import type { WorkspaceEntry, WorkspacePort } from "./port.ts";
 
 function normalizeDirectoryPath(path: string): string {
 	return path.replace(/^\/+|\/+$/g, "");

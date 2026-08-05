@@ -5,9 +5,9 @@ import { InMemoryContentCache } from "../../content-cache/in-memory-content-cach
 import type { ContentCachePort, ContentSymbol } from "../../content-cache/port.ts";
 import { contentHashOf } from "../../content-identity/content-hash.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
-import type { SymbolSearchResult, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
 import { findSourceFiles } from "../../text-search/find-source-files.ts";
+import type { SymbolSearchResult, WorkspaceSymbol } from "../../workspace/workspace-symbol.ts";
 import { parserForWasmPath, wasmPathForExtension } from "./typescript-parser.ts";
 
 const DEFAULT_MAX_FILES = 5_000;

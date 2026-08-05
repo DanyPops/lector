@@ -3,12 +3,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
-import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
 import { connectLectorClientAt } from "../src/client.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
 import type { DocumentSymbolEntry } from "../src/domain/document-symbol.ts";
-import type { WorkspaceLocation } from "../src/domain/workspace-symbol.ts";
 import type { ClosableSymbolIndex } from "../src/service.ts";
+import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
+import type { WorkspaceLocation } from "../src/workspace/workspace-symbol.ts";
 import { symbolSearchResult, TEST_SEMANTIC_PROVENANCE } from "./support/intelligence-provenance.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 

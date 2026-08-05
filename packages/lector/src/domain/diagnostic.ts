@@ -1,4 +1,4 @@
-import type { CodeRange } from "./code-range.ts";
+import type { CodeRange } from "../workspace/code-range.ts";
 
 export type DiagnosticSeverity = "error" | "warning" | "information" | "hint";
 

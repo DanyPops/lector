@@ -1,7 +1,7 @@
 import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
-import type { WorkspacePort } from "../ports/workspace-port.ts";
 import type { EditOutcome } from "./exact-edit.ts";
 import { StaleExpectedHash } from "./exact-edit.ts";
+import type { WorkspacePort } from "./port.ts";
 import { WorkspaceEntryNotFound } from "./raw-read.ts";
 import { parseUnifiedDiff, type UnifiedDiffHunk } from "./unified-diff.ts";
 

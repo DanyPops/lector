@@ -5,15 +5,11 @@ import { fileURLToPath } from "node:url";
 import { connectPushChannel } from "@danypops/vehicle-client/daemon-client";
 import { createLogger } from "@danypops/vehicle-server/logging";
 import { createNodeServiceInstallDeps, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
-import { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
-import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { connectLectorClient, resolveLectorDaemonConnection } from "./client.ts";
 import type { JobSnapshot } from "./concurrency/bounded-job-executor.ts";
 import { LECTOR_PATH_NAMES, resolveLectorPaths } from "./constants.ts";
 import type { ContentHash } from "./content-identity/content-hash.ts";
 import { serveMain } from "./daemon.ts";
-import type { ResponseFormat } from "./domain/response-format.ts";
-import type { SymbolSearchResult } from "./domain/workspace-symbol.ts";
 import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS } from "./external-search/external-search-result.ts";
 import {
 	DEFAULT_PACKAGE_SOURCE_BOUNDS,
@@ -21,10 +17,14 @@ import {
 	type PackageEcosystem,
 	type PackageSourceOperationResult,
 } from "./package-source/package-source.ts";
-import type { WorkspacePort } from "./ports/workspace-port.ts";
 import type { WorkspaceId } from "./service.ts";
 import type { SymbolAnnotation } from "./symbol-annotation/symbol-annotation.ts";
 import type { PopulateSymbolGraphResult } from "./symbol-graph/populate-symbol-graph.ts";
+import { InMemoryWorkspace } from "./workspace/in-memory-workspace.ts";
+import { LocalFilesystemWorkspace } from "./workspace/local-filesystem-workspace.ts";
+import type { WorkspacePort } from "./workspace/port.ts";
+import type { ResponseFormat } from "./workspace/response-format.ts";
+import type { SymbolSearchResult } from "./workspace/workspace-symbol.ts";
 
 const USAGE = `Usage:
   lector serve [--workspace <id>]... [--workspace-path <id>=<dir>]... [--dynamic-workspaces]

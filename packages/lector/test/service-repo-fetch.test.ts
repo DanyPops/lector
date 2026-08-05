@@ -9,10 +9,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WorkspaceIsReadOnly } from "../src/adapters/read-only-workspace.ts";
 import { GitRepoFetcher } from "../src/repo-fetcher/git-repo-fetcher.ts";
 import type { RepoReference } from "../src/repo-fetcher/repo-reference.ts";
 import { createLectorService, type LectorService, RepoCacheEntryInUse, RepoFetcherNotConfigured } from "../src/service.ts";
+import { WorkspaceIsReadOnly } from "../src/workspace/read-only-workspace.ts";
 import { recordingLogger } from "./support/recording-logger.ts";
 import { requireDefined } from "./support/require-defined.ts";
 

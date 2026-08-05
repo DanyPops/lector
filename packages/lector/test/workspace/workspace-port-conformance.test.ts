@@ -6,9 +6,9 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
-import { LocalFilesystemWorkspace } from "../src/adapters/local-filesystem-workspace.ts";
-import { runWorkspacePortConformanceSuite } from "./support/workspace-port-conformance.ts";
+import { InMemoryWorkspace } from "../../src/workspace/in-memory-workspace.ts";
+import { LocalFilesystemWorkspace } from "../../src/workspace/local-filesystem-workspace.ts";
+import { runWorkspacePortConformanceSuite } from "../support/workspace-port-conformance.ts";
 
 runWorkspacePortConformanceSuite("InMemoryWorkspace", {
 	createWorkspace: () => new InMemoryWorkspace(),

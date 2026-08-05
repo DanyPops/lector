@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deriveSourceManifest, SourceManifestLimitExceeded } from "../../src/adapters/source-manifest.ts";
+import { deriveSourceManifest, SourceManifestLimitExceeded } from "../../src/workspace/source-manifest.ts";
 
 let root: string | undefined;
 afterEach(() => {

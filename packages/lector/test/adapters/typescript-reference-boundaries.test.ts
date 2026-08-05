@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { FallbackCodeIntelligenceIndex } from "../../src/adapters/fallback-code-intelligence-index.ts";
 import { LanguageFileLimitExceeded, LspSymbolIndex } from "../../src/adapters/lsp/lsp-symbol-index.ts";
-import { deriveSourceManifest, SourceManifestLimitExceeded } from "../../src/adapters/source-manifest.ts";
 import { TreeSitterSymbolIndex } from "../../src/adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "../../src/adapters/typescript-compiler-symbol-index.ts";
 import { documentSymbols } from "../../src/domain/document-symbols.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../src/domain/language-server-descriptor.ts";
+import { deriveSourceManifest, SourceManifestLimitExceeded } from "../../src/workspace/source-manifest.ts";
 import { findPositionOf } from "../support/find-position.ts";
 import { materializeTypeScriptReferenceFixture, type TypeScriptReferenceFixture } from "../support/typescript-reference-fixture.ts";
 
