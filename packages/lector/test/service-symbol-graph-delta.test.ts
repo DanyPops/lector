@@ -88,7 +88,9 @@ describe("populateSymbolGraphHandler: delta repopulate", () => {
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
 		await service.dispatch("workspace.findSymbols", { workspaceId, query: "fn0", seedFile: "f0.ts" });
 
+		const firstStart = performance.now();
 		const firstResult = await service.dispatch("workspace.populateSymbolGraph", { workspaceId, maxFiles: 100, maxSymbolsPerFile: 50 });
+		const firstMs = performance.now() - firstStart;
 		expect(firstResult.completeness).toBe("complete");
 		expect(firstResult.filesProcessed).toBe(fileCount);
 		expect(log.documentSymbolsPaths).toHaveLength(fileCount);
@@ -107,7 +109,10 @@ describe("populateSymbolGraphHandler: delta repopulate", () => {
 		);
 
 		log.documentSymbolsPaths.length = 0;
+		const secondStart = performance.now();
 		const secondResult = await service.dispatch("workspace.populateSymbolGraph", { workspaceId, maxFiles: 100, maxSymbolsPerFile: 50 });
+		const secondMs = performance.now() - secondStart;
+		console.log(`[service-symbol-graph-delta] fileCount=${fileCount} firstMs=${firstMs.toFixed(1)} secondMs=${secondMs.toFixed(1)}`);
 
 		// The fix: only the changed file and its real caller were re-walked, not all fileCount.
 		expect(new Set(log.documentSymbolsPaths)).toEqual(new Set([changedFile, callerFile]));
