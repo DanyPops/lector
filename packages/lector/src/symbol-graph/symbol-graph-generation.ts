@@ -1,3 +1,4 @@
+import type { ContentHash } from "../domain/content-hash.ts";
 import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
 import type { RepoReference } from "../repo-fetcher/repo-reference.ts";
 import type { PopulateSymbolGraphResult } from "./populate-symbol-graph.ts";
@@ -28,6 +29,14 @@ export interface SymbolGraphGeneration {
 	 * generations persisted before purge-on-regeneration existed.
 	 */
 	readonly walkedFiles?: readonly string[];
+	/**
+	 * Content hash of every successfully-processed file in walkedFiles, bounded the same way.
+	 * A file absent here (never processed, or processed but failed) is always reprocessed on the
+	 * next population -- absence, not a stale/wrong hash, is what forces a retry. Lets the next
+	 * population skip re-walking a file whose hash is unchanged. Absent entirely for generations
+	 * persisted before delta population existed, which forces a full reprocess of everything.
+	 */
+	readonly fileContentHashes?: Readonly<Record<string, ContentHash>>;
 	/**
 	 * The remote reference this generation was populated against, present only for a workspace
 	 * fetched via repo.fetch. Absent for a local workspace, or a remote one persisted before this

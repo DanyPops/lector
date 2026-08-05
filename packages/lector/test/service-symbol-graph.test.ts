@@ -35,6 +35,16 @@ function buildFixture(): string {
 	return root;
 }
 
+function buildIndependentFilesFixture(fileCount: number): string {
+	const root = mkdtempSync(join(tmpdir(), "lector-service-symbol-graph-concurrency-"));
+	mkdirSync(join(root, "src"));
+	writeFileSync(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true } }));
+	for (let n = 0; n < fileCount; n++) {
+		writeFileSync(join(root, "src", `f${n}.ts`), `export function fn${n}(x: number): number {\n\treturn x + ${n};\n}\n`);
+	}
+	return root;
+}
+
 describe("createLectorService's symbol-graph operations", () => {
 	it("populateSymbolGraph walks real files, and reachableFrom answers a real multi-hop question against the result", async () => {
 		fixtureRoot = buildFixture();
@@ -98,4 +108,24 @@ describe("createLectorService's symbol-graph operations", () => {
 
 		expect(result.symbols).toEqual([]);
 	}, 20_000);
+
+	it("populateSymbolGraph processes every file of a many-independent-file workspace correctly under real service-level concurrent dispatch", async () => {
+		// Regression guard for the population-concurrency fix: exercises the real dispatch path
+		// (populateSymbolGraphHandler -> populateSymbolGraph with POPULATION_CONCURRENCY).
+		const fileCount = 24;
+		fixtureRoot = buildIndependentFilesFixture(fileCount);
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolIndex: (rootPath, descriptor, seedFile) => new LspSymbolIndex(rootPath, descriptor, seedFile),
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		await service.dispatch("workspace.findSymbols", { workspaceId, query: "fn0", seedFile: "src/f0.ts" });
+
+		const result = await service.dispatch("workspace.populateSymbolGraph", { workspaceId, maxFiles: 100, maxSymbolsPerFile: 50 });
+
+		expect(result.completeness).toBe("complete");
+		expect(result.filesProcessed).toBe(fileCount);
+		expect(result.symbolsProcessed).toBe(fileCount); // exactly one exported function per file
+		expect(result.failureCount).toBe(0);
+	}, 30_000);
 });

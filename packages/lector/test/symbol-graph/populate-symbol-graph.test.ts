@@ -315,6 +315,78 @@ describe("populateSymbolGraph", () => {
 		expect(dirtySummary?.fields).toMatchObject({ filesAttempted: 2, filesProcessed: 1, filesFailed: 1, failureCount: 1 });
 	});
 
+	function delay(ms: number): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+
+	/** documentSymbols takes a real delay, so concurrent vs. sequential dispatch is observable via timing and an in-flight counter, without a real LSP process. */
+	function delayedPort(delayMs: number, maxInFlight: { current: number; peak: number }): CodeIntelligencePort {
+		return {
+			provenance: {
+				fidelity: "semantic",
+				backend: "delayed-test-server",
+				languageId: "test",
+				authority: "language-server",
+				freshness: "live-process",
+				limitations: [],
+			},
+			goToDefinition: async () => [],
+			goToImplementation: async () => [],
+			findReferences: async () => [],
+			hover: async () => undefined,
+			documentSymbols: async () => {
+				maxInFlight.current++;
+				maxInFlight.peak = Math.max(maxInFlight.peak, maxInFlight.current);
+				await delay(delayMs);
+				maxInFlight.current--;
+				return [];
+			},
+			diagnostics: async () => [],
+			prepareCallHierarchy: async () => [],
+			incomingCalls: async () => [],
+			outgoingCalls: async () => [],
+			releaseFile: async () => {},
+		};
+	}
+
+	it("defaults to strictly sequential dispatch (concurrency omitted): never more than one file in flight at once", async () => {
+		graph = new InMemorySymbolGraph();
+		const inFlight = { current: 0, peak: 0 };
+		const files = Array.from({ length: 6 }, (_, n) => `/repo/file-${n}.test`);
+
+		const result = await populateSymbolGraph(delayedPort(20, inFlight), graph, files, 10);
+
+		expect(result.filesProcessed).toBe(6);
+		expect(inFlight.peak).toBe(1);
+	});
+
+	it("dispatches up to `concurrency` files at once, and never more, finishing meaningfully faster than sequential", async () => {
+		graph = new InMemorySymbolGraph();
+		const inFlight = { current: 0, peak: 0 };
+		const fileCount = 20;
+		const delayMs = 20;
+		const concurrency = 5;
+		const files = Array.from({ length: fileCount }, (_, n) => `/repo/file-${n}.test`);
+
+		const startedAt = performance.now();
+		const result = await populateSymbolGraph(delayedPort(delayMs, inFlight), graph, files, 10, undefined, concurrency);
+		const elapsedMs = performance.now() - startedAt;
+
+		expect(result.filesProcessed).toBe(fileCount);
+		expect(inFlight.peak).toBeLessThanOrEqual(concurrency);
+		expect(inFlight.peak).toBeGreaterThan(1);
+
+		// Theoretical batched minimum: (fileCount / concurrency) * delayMs. 2x margin for overhead.
+		const theoreticalBatchedMs = (fileCount / concurrency) * delayMs;
+		expect(elapsedMs).toBeLessThan(theoreticalBatchedMs * 2);
+	});
+
+	it("rejects a non-positive or non-integer concurrency rather than silently misbehaving", async () => {
+		graph = new InMemorySymbolGraph();
+		await expect(populateSymbolGraph(delayedPort(1, { current: 0, peak: 0 }), graph, [], 10, undefined, 0)).rejects.toThrow(/concurrency/);
+		await expect(populateSymbolGraph(delayedPort(1, { current: 0, peak: 0 }), graph, [], 10, undefined, 1.5)).rejects.toThrow(/concurrency/);
+	});
+
 	it("returns honest zero counts for an empty file list, not an error", async () => {
 		const { root } = buildFixture();
 		fixtureRoot = root;

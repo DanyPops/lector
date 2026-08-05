@@ -92,12 +92,19 @@ function flattenDocumentSymbols(entries: readonly DocumentSymbolEntry[], parentL
 	return flattened;
 }
 
+/** Default: strictly sequential, matching the crawl's original behavior exactly. Production passes a real value (service.ts's POPULATION_CONCURRENCY). */
+const DEFAULT_POPULATION_CONCURRENCY = 1;
+
 /**
  * Walks documentSymbols for each file, then outgoingCalls for every callable
  * declaration found, to fill a SymbolGraphPort with real "contains" (free,
  * from the hierarchy already returned) and "calls" (one LSP round trip per
  * callable symbol) edges. maxSymbolsPerFile bounds a single large file's
  * declarations rather than processing an unbounded number from it.
+ *
+ * `concurrency` dispatches up to that many files at once -- files are independent, and cost
+ * is round-trip latency, not CPU (see populate-symbol-graph-concurrency.perf.test.ts). Caller
+ * must keep it within the backend's own open-file bound (e.g. LspSymbolIndex.maxOpenFiles).
  */
 export async function populateSymbolGraph(
 	index: CodeIntelligencePort,
@@ -106,7 +113,9 @@ export async function populateSymbolGraph(
 	maxSymbolsPerFile: number,
 	/** Warn per failure as it happens (a long-running background job has no other way to surface one before the crawl finishes), warn/info summary on completion. Defaults to a no-op. */
 	logger: Logger = NOOP_LOGGER,
+	concurrency: number = DEFAULT_POPULATION_CONCURRENCY,
 ): Promise<PopulateSymbolGraphResult> {
+	if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("concurrency must be a positive integer");
 	let filesProcessed = 0;
 	let symbolsProcessed = 0;
 	let nodesAdded = 0;
@@ -138,19 +147,17 @@ export async function populateSymbolGraph(
 		nodesAdded++;
 	}
 
-	for (const file of files) {
-		// Always released, success or failure (finally, not just the happy path): a bulk crawl
-		// over many files doesn't need any of them to stay open once processed -- unlike a live
-		// caller genuinely juggling several files at once, this is a one-shot read per file, and
-		// leaving every one open is what silently exhausts LspSymbolIndex's open-file bound partway
-		// through the very first population run on a real-sized repo.
+	// Counters above are mutated from concurrent file pipelines, but every mutation is a
+	// synchronous check-then-write with no `await` between -- safe under JS's single-threaded
+	// interleaving, no lock needed.
+	async function processOneFile(file: string): Promise<void> {
 		try {
 			let topLevel: DocumentSymbolEntry[];
 			try {
 				topLevel = await index.documentSymbols(file, { settleMs: POPULATION_SETTLE_MS });
 			} catch (error) {
 				recordFailure(file, "document-symbols", error);
-				continue;
+				return;
 			}
 			const flattened = flattenDocumentSymbols(topLevel).slice(0, maxSymbolsPerFile);
 			filesProcessed++;
@@ -185,6 +192,12 @@ export async function populateSymbolGraph(
 		} finally {
 			await index.releaseFile?.(file);
 		}
+	}
+
+	// Bounded batches, not one unbounded Promise.all: at most `concurrency` files open at once.
+	for (let start = 0; start < files.length; start += concurrency) {
+		const batch = files.slice(start, start + concurrency);
+		await Promise.all(batch.map((file) => processOneFile(file)));
 	}
 
 	const completeness = failureCount === 0 ? "complete" : "partial";

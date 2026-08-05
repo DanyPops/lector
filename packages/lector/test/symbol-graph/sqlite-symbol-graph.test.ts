@@ -11,6 +11,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ContentHash } from "../../src/domain/content-hash.ts";
 import { SqliteSymbolGraph } from "../../src/symbol-graph/sqlite-symbol-graph.ts";
 import { deriveSymbolNodeId, type SymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";
 import { runSymbolGraphPortConformanceSuite } from "../support/symbol-graph-port-conformance.ts";
@@ -210,6 +211,44 @@ describe("SqliteSymbolGraph durability", () => {
 				expect(await second.getNode(nid("b"))).toBeUndefined();
 				expect(await second.getNode(nid("a"))).toBeDefined();
 				expect(await second.edgesFrom(nid("a"))).toEqual([]);
+			} finally {
+				await second.close();
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps fileContentHashes after reopen", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "lector-sqlite-symbol-graph-file-hashes-"));
+		const dbPath = join(dir, "symbol-graph.db");
+		try {
+			const first = new SqliteSymbolGraph(dbPath);
+			const fileContentHashes = { "/src/a.ts": "deadbeef" as ContentHash, "/src/b.ts": "cafef00d" as ContentHash };
+			await first.setGeneration({
+				sourceFingerprint: "gen1",
+				maxFiles: 10,
+				maxSymbolsPerFile: 20,
+				completedAt: 1,
+				fileContentHashes,
+				result: {
+					completeness: "complete",
+					filesAttempted: 2,
+					filesProcessed: 2,
+					filesFailed: 0,
+					symbolsProcessed: 2,
+					nodesAdded: 0,
+					edgesAdded: 0,
+					failureCount: 0,
+					failures: [],
+					failuresTruncated: false,
+				},
+			});
+			await first.close();
+
+			const second = new SqliteSymbolGraph(dbPath);
+			try {
+				expect((await second.getGeneration())?.fileContentHashes).toEqual(fileContentHashes);
 			} finally {
 				await second.close();
 			}

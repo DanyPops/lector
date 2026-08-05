@@ -99,11 +99,15 @@ import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
 import { SourcegraphSearchClient } from "./sourcegraph-search/sourcegraph-search-client.ts";
 import type { SymbolAnnotationPort } from "./symbol-annotation/port.ts";
 import type { AnnotationId, SymbolAnnotation } from "./symbol-annotation/symbol-annotation.ts";
+import { computeUpdatedFileContentHashes } from "./symbol-graph/compute-updated-file-content-hashes.ts";
+import { findDependentFiles } from "./symbol-graph/find-dependent-files.ts";
 import { InMemorySymbolGraph } from "./symbol-graph/in-memory-symbol-graph.ts";
+import { mergePopulationResult } from "./symbol-graph/merge-population-result.ts";
 import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./symbol-graph/populate-symbol-graph.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./symbol-graph/port.ts";
 import { purgeFilesNoLongerWalked } from "./symbol-graph/purge-stale-graph-entries.ts";
 import { reachableSymbolsFrom } from "./symbol-graph/reachable-symbols-from.ts";
+import { diffFileHashes } from "./symbol-graph/select-files-to-reprocess.ts";
 import { symbolEdgesFrom } from "./symbol-graph/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./symbol-graph/symbol-edges-to.ts";
 import type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./symbol-graph/symbol-graph-generation.ts";
@@ -844,6 +848,15 @@ async function registerPath(registry: MutableRegistry, input: OperationInputs["w
 const MAX_INITIAL_JOB_WAIT_MS = 30_000;
 const MAX_SYMBOL_RESULTS = 5_000;
 const MAX_SOURCE_MANIFEST_BYTES = 50 * 1024 * 1024;
+/** Files populateSymbolGraph dispatches to the LSP concurrently -- cost is round-trip latency, not CPU (see populate-symbol-graph-concurrency.perf.test.ts). Well under LspSymbolIndex's default 256 open-file cap. */
+const POPULATION_CONCURRENCY = 8;
+/**
+ * Bound for the allNodes/allEdges reads used to find files referencing a changed file's
+ * declarations, when deciding what a repopulate can safely skip. If the graph is at or beyond
+ * this size, the read may be truncated and could miss a real dependent -- fails closed by
+ * reprocessing every file instead, never by risking a silently dropped cross-file edge.
+ */
+const MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP = 200_000;
 const NOOP_LOGGER: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 
 /**
@@ -1231,10 +1244,66 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (!supportsCodeIntelligence(workspaceIndex.index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
 		const extensions = warmIndexes.sourceExtensions(workspaceIndex.descriptors);
 		const before = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
+
+		// Delta selection: a file whose content hash matches the previous generation's needs no
+		// LSP round trip at all. A changed or deleted file's own declarations may have shifted
+		// position, so any OTHER file with a direct edge into them must be re-walked too, or its
+		// own outgoing edge is silently lost when the changed file's stale nodes are purged (see
+		// findDependentFiles). Computed BEFORE any purge, against the graph as it still stands.
+		const currentFileSet = new Set(before.absoluteFiles);
+		const deletedFiles = (previousGeneration?.walkedFiles ?? []).filter((path) => !currentFileSet.has(path));
+		const { changed, unchanged } = diffFileHashes(before.absoluteFiles, before.fileHashes, previousGeneration?.fileContentHashes);
+
+		let filesToReprocess: readonly string[] = before.absoluteFiles;
+		let filesToSkip: readonly string[] = [];
+		if (unchanged.length > 0) {
+			if (changed.length === 0 && deletedFiles.length === 0) {
+				filesToReprocess = [];
+				filesToSkip = unchanged;
+			} else {
+				const invalidated = new Set([...changed, ...deletedFiles]);
+				const [nodes, edges] = await Promise.all([
+					graph.allNodes(MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP + 1),
+					graph.allEdges(MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP + 1),
+				]);
+				const withinLookupBound = nodes.length <= MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP && edges.length <= MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP;
+				if (withinLookupBound) {
+					const dependents = findDependentFiles(nodes, edges, invalidated);
+					const reprocessSet = new Set([...changed, ...dependents]);
+					filesToReprocess = [...reprocessSet];
+					filesToSkip = unchanged.filter((file) => !reprocessSet.has(file));
+				}
+			}
+		}
+
 		await purgeFilesNoLongerWalked(graph, previousGeneration?.walkedFiles, before.absoluteFiles);
-		const result = await populateSymbolGraphQuery(workspaceIndex.index, graph, before.absoluteFiles, input.maxSymbolsPerFile, logger);
+		// Only genuinely-changed files' own nodes are purged -- their positions may have shifted.
+		// A dependent file's own declarations haven't moved, so purging it would also cascade-delete
+		// a THIRD file's still-valid edge into it for no reason; reprocessing alone (idempotent
+		// addNode/addEdge) already refreshes its outgoing edges correctly.
+		for (const file of changed) await graph.removeNodesForFile(file);
+
+		const reprocessResult = await populateSymbolGraphQuery(
+			workspaceIndex.index,
+			graph,
+			filesToReprocess,
+			input.maxSymbolsPerFile,
+			logger,
+			POPULATION_CONCURRENCY,
+		);
 		const after = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		if (after.fingerprint !== before.fingerprint) throw new WorkspaceChangedDuringPopulation(input.workspaceId);
+
+		const result = mergePopulationResult(reprocessResult, filesToSkip.length, before.absoluteFiles.length);
+		const fileContentHashes = computeUpdatedFileContentHashes(
+			previousGeneration?.fileContentHashes,
+			filesToSkip,
+			filesToReprocess,
+			before.fileHashes,
+			reprocessResult.failures,
+			reprocessResult.failuresTruncated,
+		);
+
 		await graph.setGeneration({
 			sourceFingerprint: after.fingerprint,
 			maxFiles: input.maxFiles,
@@ -1245,6 +1314,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			result,
 			gitHeadSha: await captureGitHeadShaIfClean(rootPath),
 			walkedFiles: before.absoluteFiles,
+			fileContentHashes,
 			remoteReference: entry.remoteReference,
 			remoteCommit: entry.remoteReference ? await repoFetcher?.resolveRemoteCommit(entry.remoteReference) : undefined,
 		});

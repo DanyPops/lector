@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { type Migration, openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
+import type { ContentHash } from "../domain/content-hash.ts";
 import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
 import type { PopulateSymbolGraphResult, SymbolGraphPopulationFailure } from "./populate-symbol-graph.ts";
 import type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./port.ts";
@@ -44,6 +45,10 @@ const MIGRATIONS: Migration[] = [
 			db.exec("CREATE INDEX symbol_nodes_path_idx ON symbol_nodes (path)");
 		},
 	},
+	{
+		version: 7,
+		up: (db) => db.exec("ALTER TABLE symbol_graph_generation ADD COLUMN file_content_hashes_json TEXT"),
+	},
 ];
 
 interface NodeRow {
@@ -67,6 +72,7 @@ interface GenerationRow {
 	sources_json: string | null;
 	result_json: string | null;
 	walked_files_json: string | null;
+	file_content_hashes_json: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -122,6 +128,15 @@ function parseWalkedFiles(json: string | null, maxFiles: number): readonly strin
 	const value = parseJson(json);
 	if (!Array.isArray(value) || value.length > maxFiles || !value.every((item) => typeof item === "string")) return undefined;
 	return value;
+}
+
+/** Absent for generations persisted before delta population existed; bounded the same way as walkedFiles. */
+function parseFileContentHashes(json: string | null, maxFiles: number): Readonly<Record<string, ContentHash>> | undefined {
+	const value = parseJson(json);
+	if (!isRecord(value)) return undefined;
+	const entries = Object.entries(value);
+	if (entries.length > maxFiles || !entries.every(([, hash]) => typeof hash === "string")) return undefined;
+	return value as Readonly<Record<string, ContentHash>>;
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
@@ -277,13 +292,14 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 	async getGeneration(): Promise<SymbolGraphGeneration | undefined> {
 		const row = this.db
 			.query(
-				"SELECT source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added, provenance_json, sources_json, result_json, walked_files_json FROM symbol_graph_generation WHERE singleton = 1",
+				"SELECT source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added, provenance_json, sources_json, result_json, walked_files_json, file_content_hashes_json FROM symbol_graph_generation WHERE singleton = 1",
 			)
 			.get() as GenerationRow | null;
 		if (!row) return undefined;
 		const provenance = parseProvenance(row.provenance_json);
 		const sources = parseSources(row.sources_json);
 		const walkedFiles = parseWalkedFiles(row.walked_files_json, row.max_files);
+		const fileContentHashes = parseFileContentHashes(row.file_content_hashes_json, row.max_files);
 		const result =
 			parsePopulationResult(row.result_json) ??
 			({
@@ -306,6 +322,7 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 			...(provenance ? { provenance } : {}),
 			...(sources ? { sources } : {}),
 			...(walkedFiles ? { walkedFiles } : {}),
+			...(fileContentHashes ? { fileContentHashes } : {}),
 			result,
 		};
 	}
@@ -313,7 +330,7 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 	async setGeneration(generation: SymbolGraphGeneration): Promise<void> {
 		this.db
 			.query(
-				"INSERT INTO symbol_graph_generation (singleton, source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added, provenance_json, sources_json, result_json, walked_files_json) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(singleton) DO UPDATE SET source_fingerprint = excluded.source_fingerprint, max_files = excluded.max_files, max_symbols_per_file = excluded.max_symbols_per_file, completed_at = excluded.completed_at, files_processed = excluded.files_processed, symbols_processed = excluded.symbols_processed, nodes_added = excluded.nodes_added, edges_added = excluded.edges_added, provenance_json = excluded.provenance_json, sources_json = excluded.sources_json, result_json = excluded.result_json, walked_files_json = excluded.walked_files_json",
+				"INSERT INTO symbol_graph_generation (singleton, source_fingerprint, max_files, max_symbols_per_file, completed_at, files_processed, symbols_processed, nodes_added, edges_added, provenance_json, sources_json, result_json, walked_files_json, file_content_hashes_json) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(singleton) DO UPDATE SET source_fingerprint = excluded.source_fingerprint, max_files = excluded.max_files, max_symbols_per_file = excluded.max_symbols_per_file, completed_at = excluded.completed_at, files_processed = excluded.files_processed, symbols_processed = excluded.symbols_processed, nodes_added = excluded.nodes_added, edges_added = excluded.edges_added, provenance_json = excluded.provenance_json, sources_json = excluded.sources_json, result_json = excluded.result_json, walked_files_json = excluded.walked_files_json, file_content_hashes_json = excluded.file_content_hashes_json",
 			)
 			.run(
 				generation.sourceFingerprint,
@@ -328,6 +345,7 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 				generation.sources ? JSON.stringify(generation.sources) : null,
 				JSON.stringify(generation.result),
 				generation.walkedFiles ? JSON.stringify(generation.walkedFiles) : null,
+				generation.fileContentHashes ? JSON.stringify(generation.fileContentHashes) : null,
 			);
 	}
 

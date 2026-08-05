@@ -43,6 +43,18 @@ describe("deriveSourceManifest", () => {
 		expect([join(directory, "src", "a.ts"), join(directory, "src", "b.ts")]).toContain(selectedFile);
 	});
 
+	it("records each file's own content hash, changing only for the file that actually changed", async () => {
+		const directory = fixture();
+		const before = await deriveSourceManifest(directory, [".ts"], 10, 10_000);
+		const aPath = join(directory, "src", "a.ts");
+		const bPath = join(directory, "src", "b.ts");
+		writeFileSync(aPath, "export const a = 9;\n");
+		const after = await deriveSourceManifest(directory, [".ts"], 10, 10_000);
+
+		expect(after.fileHashes.get(aPath)).not.toBe(before.fileHashes.get(aPath));
+		expect(after.fileHashes.get(bPath)).toBe(before.fileHashes.get(bPath));
+	});
+
 	it("rejects a manifest whose source content exceeds maxBytes before returning a partial fingerprint", async () => {
 		const directory = fixture();
 		await expect(deriveSourceManifest(directory, [".ts"], 10, 5)).rejects.toBeInstanceOf(SourceManifestLimitExceeded);
