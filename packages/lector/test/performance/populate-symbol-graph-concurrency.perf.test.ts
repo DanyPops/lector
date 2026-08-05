@@ -11,8 +11,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LspSymbolIndex } from "../../src/adapters/lsp/lsp-symbol-index.ts";
-import { TYPESCRIPT_DESCRIPTOR } from "../../src/domain/language-server-descriptor.ts";
+import { TYPESCRIPT_DESCRIPTOR } from "../../src/code-intelligence/language-server-descriptor.ts";
+import { LspSymbolIndex } from "../../src/code-intelligence/lsp/lsp-symbol-index.ts";
 
 let fixtureRoot: string | undefined;
 let index: LspSymbolIndex | undefined;

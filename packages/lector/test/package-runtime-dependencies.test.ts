@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import packageJson from "../package.json";
-import { LANGUAGE_SERVER_DESCRIPTORS } from "../src/domain/language-server-descriptor.ts";
+import { LANGUAGE_SERVER_DESCRIPTORS } from "../src/code-intelligence/language-server-descriptor.ts";
 
 function packageName(modulePath: string): string {
 	const [first, second] = modulePath.split("/");

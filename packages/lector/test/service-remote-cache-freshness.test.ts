@@ -13,7 +13,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
+import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
 import { GitRepoFetcher } from "../src/repo-fetcher/git-repo-fetcher.ts";
 import type { RepoFetcherPort } from "../src/repo-fetcher/port.ts";
 import type { RepoFetchPolicy, RepoFetchResult } from "../src/repo-fetcher/repo-fetch-result.ts";

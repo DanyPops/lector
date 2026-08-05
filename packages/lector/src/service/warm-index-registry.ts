@@ -1,10 +1,10 @@
-import { discoverWorkspaceDescriptor, discoverWorkspaceDescriptors } from "../adapters/lsp/discover-seed-file.ts";
-import { PolyglotCodeIntelligenceIndex } from "../adapters/polyglot-code-intelligence-index.ts";
-import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
-import type { LanguageServerDescriptor } from "../domain/language-server-descriptor.ts";
+import type { IntelligenceProvenance } from "../code-intelligence/intelligence-provenance.ts";
+import type { LanguageServerDescriptor } from "../code-intelligence/language-server-descriptor.ts";
+import { discoverWorkspaceDescriptor, discoverWorkspaceDescriptors } from "../code-intelligence/lsp/discover-seed-file.ts";
+import { PolyglotCodeIntelligenceIndex } from "../code-intelligence/polyglot-code-intelligence-index.ts";
+import type { CodeIntelligencePort } from "../code-intelligence/port.ts";
+import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts";
 import type { FileChangeEvent } from "../file-watcher/file-change-event.ts";
-import type { CodeIntelligencePort } from "../ports/code-intelligence-port.ts";
-import type { SymbolIndexPort } from "../ports/symbol-index-port.ts";
 
 /** A SymbolIndexPort the registry can shut down when its workspace goes cold. */
 export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void> };

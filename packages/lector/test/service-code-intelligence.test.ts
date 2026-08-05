@@ -13,8 +13,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
-import { TreeSitterSymbolIndex } from "../src/adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
+import { TreeSitterSymbolIndex } from "../src/code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { type ClosableSymbolIndex, CodeIntelligenceUnavailable, createLectorService, type LectorService } from "../src/service.ts";
 
 let fixtureRoot: string | undefined;

@@ -1,4 +1,4 @@
-import type { CodeIntelligencePort } from "../ports/code-intelligence-port.ts";
+import type { CodeIntelligencePort } from "../code-intelligence/port.ts";
 import type { WorkspaceLocation } from "../workspace/workspace-symbol.ts";
 import type { CallHierarchyEntry } from "./call-hierarchy.ts";
 

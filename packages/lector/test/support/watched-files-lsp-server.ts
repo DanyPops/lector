@@ -12,7 +12,7 @@
  */
 import { appendFileSync } from "node:fs";
 import { join } from "node:path";
-import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/adapters/lsp/json-rpc-stream.ts";
+import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/code-intelligence/lsp/json-rpc-stream.ts";
 
 const decoder = new JsonRpcStreamDecoder();
 const RECEIVED_LOG_PATH = join(process.cwd(), ".received-watched-files.json");

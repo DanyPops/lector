@@ -1,5 +1,5 @@
 import type Parser from "web-tree-sitter";
-import { parserForExtension } from "../adapters/tree-sitter/typescript-parser.ts";
+import { parserForExtension } from "../code-intelligence/tree-sitter/typescript-parser.ts";
 
 export interface HighlightSpan {
 	readonly startIndex: number;

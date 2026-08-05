@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { startDaemon } from "@danypops/vehicle-server/daemon";
 import { ensureAuthToken, readDaemonHandle } from "@danypops/vehicle-server/paths";
-import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
+import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
 import { buildLectorApp, startLectorDaemon } from "../src/daemon.ts";
 import { createLectorService, type LectorServiceOptions, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
 import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";

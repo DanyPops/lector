@@ -1,7 +1,7 @@
 import type { Logger } from "@danypops/vehicle-server/logging";
-import type { DocumentSymbolEntry } from "../domain/document-symbol.ts";
-import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
-import type { CodeIntelligencePort } from "../ports/code-intelligence-port.ts";
+import type { DocumentSymbolEntry } from "../code-intelligence/document-symbol.ts";
+import type { IntelligenceProvenance } from "../code-intelligence/intelligence-provenance.ts";
+import type { CodeIntelligencePort } from "../code-intelligence/port.ts";
 import type { WorkspaceLocation } from "../workspace/workspace-symbol.ts";
 import type { OutgoingCall } from "./call-hierarchy.ts";
 import type { SymbolGraphPort, SymbolNode } from "./port.ts";

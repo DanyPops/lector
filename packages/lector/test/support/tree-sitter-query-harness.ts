@@ -1,5 +1,5 @@
 import type Parser from "web-tree-sitter";
-import { parserForExtension } from "../../src/adapters/tree-sitter/typescript-parser.ts";
+import { parserForExtension } from "../../src/code-intelligence/tree-sitter/typescript-parser.ts";
 
 /**
  * Reusable tree-sitter query harness: compiles a `.scm` query source against a real grammar and

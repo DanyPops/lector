@@ -26,7 +26,7 @@
  *                          receives back via a test/syncNotificationReceived notification -- lets
  *                          a test assert none were sent, not just that nothing crashed.
  */
-import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/adapters/lsp/json-rpc-stream.ts";
+import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/code-intelligence/lsp/json-rpc-stream.ts";
 
 const mode = process.env.EVIL_LSP_MODE ?? "normal";
 const decoder = new JsonRpcStreamDecoder();

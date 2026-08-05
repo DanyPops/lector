@@ -1,9 +1,9 @@
 import { extname } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { extractDeclarationSnapshot } from "../adapters/tree-sitter/declaration-text.ts";
-import { wasmPathForExtension } from "../adapters/tree-sitter/typescript-parser.ts";
-import { compareSymbolDeclarations } from "../domain/compare-symbol-declarations.ts";
-import type { SymbolDeclarationSnapshot } from "../domain/symbol-declaration-snapshot.ts";
+import { compareSymbolDeclarations } from "../code-intelligence/compare-symbol-declarations.ts";
+import type { SymbolDeclarationSnapshot } from "../code-intelligence/symbol-declaration-snapshot.ts";
+import { extractDeclarationSnapshot } from "../code-intelligence/tree-sitter/declaration-text.ts";
+import { wasmPathForExtension } from "../code-intelligence/tree-sitter/typescript-parser.ts";
 import type { GitPort } from "../git/port.ts";
 import {
 	type MutableRegistry,

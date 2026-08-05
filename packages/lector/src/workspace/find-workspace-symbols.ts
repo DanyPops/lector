@@ -1,5 +1,5 @@
-import type { SymbolSearchBounds } from "../domain/intelligence-provenance.ts";
-import type { SymbolIndexPort } from "../ports/symbol-index-port.ts";
+import type { SymbolSearchBounds } from "../code-intelligence/intelligence-provenance.ts";
+import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts";
 import type { SymbolSearchResult } from "./workspace-symbol.ts";
 
 /** Find workspace symbols matching a fuzzy query string. */

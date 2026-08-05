@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
+import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
 import { createLectorService, type LectorService, ReferenceBasedRenameRequiresFreshGraph } from "../src/service.ts";
 
 let fixtureRoot: string | undefined;

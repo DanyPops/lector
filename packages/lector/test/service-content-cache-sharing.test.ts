@@ -2,13 +2,13 @@
  * Service-level proof that rawRead, exactEdit, and the default LspSymbolIndex share ONE
  * content-addressed cache instance -- the real point of this task, not just that each
  * individually accepts a ContentCachePort (already proven directly in
- * test/adapters/lsp/lsp-symbol-index.test.ts's own content-cache describe block).
+ * test/code-intelligence/lsp/lsp-symbol-index.test.ts's own content-cache describe block).
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
+import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
 import { InMemoryContentCache } from "../src/content-cache/in-memory-content-cache.ts";
 import { contentHashOf } from "../src/content-identity/content-hash.ts";
 import type { LanguageServerProvisionerPort } from "../src/lsp-provisioning/port.ts";

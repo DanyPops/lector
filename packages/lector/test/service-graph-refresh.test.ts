@@ -4,8 +4,8 @@
  * automatically -- without any caller re-invoking workspace.populateSymbolGraph -- and should
  * also forward the change to the workspace's warm code-intelligence index via
  * notifyFileChanged. Uses an injected fake CodeIntelligencePort (not a real LSP subprocess:
- * that plumbing is already proven end to end in test/adapters/lsp/notify-file-changed.test.ts
- * and test/adapters/lsp/lsp-symbol-index.test.ts) so runs are fast and deterministic.
+ * that plumbing is already proven end to end in test/code-intelligence/lsp/notify-file-changed.test.ts
+ * and test/code-intelligence/lsp/lsp-symbol-index.test.ts) so runs are fast and deterministic.
  *
  * The automatic watcher requires a real git repository (confirmed live: a non-git, broad, or
  * ambiguous root must never get an automatic OS-level recursive watcher armed against it) --
@@ -18,10 +18,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { DocumentSymbolEntry } from "../src/domain/document-symbol.ts";
-import type { IntelligenceProvenance } from "../src/domain/intelligence-provenance.ts";
+import type { DocumentSymbolEntry } from "../src/code-intelligence/document-symbol.ts";
+import type { IntelligenceProvenance } from "../src/code-intelligence/intelligence-provenance.ts";
+import type { CodeIntelligencePort } from "../src/code-intelligence/port.ts";
 import type { FileChangeEvent } from "../src/file-watcher/file-change-event.ts";
-import type { CodeIntelligencePort } from "../src/ports/code-intelligence-port.ts";
 import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";
 import { createLectorService } from "../src/service.ts";
 

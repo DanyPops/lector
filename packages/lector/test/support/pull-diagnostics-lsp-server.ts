@@ -8,7 +8,7 @@
  * push/pull merge/dedup both work end to end, something TypeScript
  * (Lector's push-only reference server) cannot exercise.
  */
-import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/adapters/lsp/json-rpc-stream.ts";
+import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/code-intelligence/lsp/json-rpc-stream.ts";
 
 const decoder = new JsonRpcStreamDecoder();
 

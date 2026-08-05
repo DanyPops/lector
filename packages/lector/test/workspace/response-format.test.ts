@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { IntelligenceProvenance } from "../../src/domain/intelligence-provenance.ts";
+import type { IntelligenceProvenance } from "../../src/code-intelligence/intelligence-provenance.ts";
 import { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "../../src/workspace/response-format.ts";
 import type { SymbolSearchResult } from "../../src/workspace/workspace-symbol.ts";
 

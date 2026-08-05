@@ -1,14 +1,3 @@
-export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./adapters/fallback-code-intelligence-index.ts";
-export {
-	LanguageServerCapacityExceeded,
-	LanguageServerProcess,
-	LanguageServerProcessExited,
-	LanguageServerRequestTimedOut,
-} from "./adapters/lsp/language-server-process.ts";
-export { LanguageFileLimitExceeded, LanguageFileOutsideWorkspace, LspSymbolIndex, type LspSymbolIndexOptions } from "./adapters/lsp/lsp-symbol-index.ts";
-export { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "./adapters/polyglot-code-intelligence-index.ts";
-export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./adapters/tree-sitter/typescript-tree-sitter-symbol-index.ts";
-export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./adapters/typescript-compiler-symbol-index.ts";
 export {
 	type ConnectLectorClientOptions,
 	connectLectorClient,
@@ -17,6 +6,50 @@ export {
 	remoteErrorIs,
 	resolveLectorDaemonConnection,
 } from "./client.ts";
+export type { SymbolComparisonStatus, SymbolDeclarationComparison } from "./code-intelligence/compare-symbol-declarations.ts";
+export type { Diagnostic, DiagnosticSeverity } from "./code-intelligence/diagnostic.ts";
+export { diagnostics } from "./code-intelligence/diagnostics.ts";
+export type { DocumentSymbolEntry } from "./code-intelligence/document-symbol.ts";
+export { documentSymbols } from "./code-intelligence/document-symbols.ts";
+export { type ClosableIntelligenceIndex, FallbackCodeIntelligenceIndex } from "./code-intelligence/fallback-code-intelligence-index.ts";
+export { findReferences } from "./code-intelligence/find-references.ts";
+export { goToDefinition } from "./code-intelligence/go-to-definition.ts";
+export { goToImplementation } from "./code-intelligence/go-to-implementation.ts";
+export type { Hover } from "./code-intelligence/hover.ts";
+export { hoverAt } from "./code-intelligence/hover-at.ts";
+export type {
+	IntelligenceFidelity,
+	IntelligenceProvenance,
+	IntelligenceSourceOutcome,
+	ProvenancedResult,
+	SymbolSearchBounds,
+} from "./code-intelligence/intelligence-provenance.ts";
+export {
+	descriptorForExtension,
+	LANGUAGE_SERVER_DESCRIPTORS,
+	type LanguageServerDescriptor,
+	PYTHON_DESCRIPTOR,
+	TYPESCRIPT_DESCRIPTOR,
+} from "./code-intelligence/language-server-descriptor.ts";
+export {
+	LanguageServerCapacityExceeded,
+	LanguageServerProcess,
+	LanguageServerProcessExited,
+	LanguageServerRequestTimedOut,
+} from "./code-intelligence/lsp/language-server-process.ts";
+export {
+	LanguageFileLimitExceeded,
+	LanguageFileOutsideWorkspace,
+	LspSymbolIndex,
+	type LspSymbolIndexOptions,
+} from "./code-intelligence/lsp/lsp-symbol-index.ts";
+export { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "./code-intelligence/polyglot-code-intelligence-index.ts";
+export type { CodeIntelligencePort } from "./code-intelligence/port.ts";
+export type { SymbolDeclarationSnapshot } from "./code-intelligence/symbol-declaration-snapshot.ts";
+export type { SymbolIndexPort } from "./code-intelligence/symbol-index-port.ts";
+export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./code-intelligence/symbol-query.ts";
+export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./code-intelligence/typescript-compiler-symbol-index.ts";
 export {
 	BoundedJobExecutor,
 	type BoundedJobExecutorOptions,
@@ -34,32 +67,6 @@ export { type ContentHash, contentHashOf } from "./content-identity/content-hash
 export type { LineHash } from "./content-identity/line-hash.ts";
 export { lineHashOf } from "./content-identity/line-hash.ts";
 export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
-export type { SymbolComparisonStatus, SymbolDeclarationComparison } from "./domain/compare-symbol-declarations.ts";
-export type { Diagnostic, DiagnosticSeverity } from "./domain/diagnostic.ts";
-export { diagnostics } from "./domain/diagnostics.ts";
-export type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
-export { documentSymbols } from "./domain/document-symbols.ts";
-export { findReferences } from "./domain/find-references.ts";
-export { goToDefinition } from "./domain/go-to-definition.ts";
-export { goToImplementation } from "./domain/go-to-implementation.ts";
-export type { Hover } from "./domain/hover.ts";
-export { hoverAt } from "./domain/hover-at.ts";
-export type {
-	IntelligenceFidelity,
-	IntelligenceProvenance,
-	IntelligenceSourceOutcome,
-	ProvenancedResult,
-	SymbolSearchBounds,
-} from "./domain/intelligence-provenance.ts";
-export {
-	descriptorForExtension,
-	LANGUAGE_SERVER_DESCRIPTORS,
-	type LanguageServerDescriptor,
-	PYTHON_DESCRIPTOR,
-	TYPESCRIPT_DESCRIPTOR,
-} from "./domain/language-server-descriptor.ts";
-export type { SymbolDeclarationSnapshot } from "./domain/symbol-declaration-snapshot.ts";
-export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./domain/symbol-query.ts";
 export type {
 	ExternalSearchBounds,
 	GithubRepoCandidate,
@@ -189,8 +196,6 @@ export { queryPackageSourceIndex } from "./package-source/package-source-index.t
 export { InvalidPackageSourceContract, resolvePackageSource } from "./package-source/resolve-package-source.ts";
 export type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 export { assertSafePathSegment, UnsafePathSegment } from "./path-safety/assert-safe-path-segment.ts";
-export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
-export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export { applyReferenceBasedRename, type ReferenceBasedRenameOutcome } from "./reference-based-rename/apply-reference-based-rename.ts";
 export {
 	type FileMove,

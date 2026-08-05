@@ -96,24 +96,4 @@ export default tseslint.config(
 			"@typescript-eslint/no-unsafe-type-assertion": "off",
 		},
 	},
-
-	// Ports-and-adapters dependency direction: domain and ports define the core's own
-	// language and must stay adapter-agnostic; only adapters/service/daemon/cli/client may
-	// depend inward on a concrete adapter.
-	{
-		files: ["packages/lector/src/domain/**/*.ts", "packages/lector/src/ports/**/*.ts"],
-		rules: {
-			"no-restricted-imports": [
-				"error",
-				{
-					patterns: [
-						{
-							group: ["**/adapters/*", "**/adapters/**"],
-							message: "domain/ports must not import adapters -- the dependency direction runs the other way in a hexagonal core.",
-						},
-					],
-				},
-			],
-		},
-	},
 );

@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
+import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
 import { createLectorService, type LectorService, UnsupportedLanguage } from "../src/service.ts";
 import { SqliteSymbolGraph } from "../src/symbol-graph/sqlite-symbol-graph.ts";
 

@@ -7,7 +7,7 @@
  * consults DynamicCapabilityRegistry, not just the static initialize response, before falling
  * back to the push-wait path.
  */
-import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/adapters/lsp/json-rpc-stream.ts";
+import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/code-intelligence/lsp/json-rpc-stream.ts";
 
 const decoder = new JsonRpcStreamDecoder();
 let nextId = 1;

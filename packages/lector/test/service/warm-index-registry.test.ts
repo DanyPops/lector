@@ -2,9 +2,9 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { LanguageServerDescriptor } from "../../src/domain/language-server-descriptor.ts";
+import type { LanguageServerDescriptor } from "../../src/code-intelligence/language-server-descriptor.ts";
+import type { CodeIntelligencePort } from "../../src/code-intelligence/port.ts";
 import type { FileChangeEvent } from "../../src/file-watcher/file-change-event.ts";
-import type { CodeIntelligencePort } from "../../src/ports/code-intelligence-port.ts";
 import { type ClosableSymbolIndex, WarmIndexRegistry } from "../../src/service/warm-index-registry.ts";
 
 const TYPESCRIPT: LanguageServerDescriptor = {

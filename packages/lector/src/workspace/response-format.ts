@@ -1,4 +1,4 @@
-import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
+import type { IntelligenceProvenance } from "../code-intelligence/intelligence-provenance.ts";
 import type { SymbolSearchResult } from "./workspace-symbol.ts";
 
 /** "detailed" (default) preserves every existing caller's current behavior unchanged. "concise" strips whatever is safely droppable without losing the ability to act on the result. */
