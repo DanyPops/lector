@@ -1,9 +1,9 @@
 import type { Logger } from "@danypops/vehicle-server/logging";
-import type { OutgoingCall } from "../domain/call-hierarchy.ts";
 import type { DocumentSymbolEntry } from "../domain/document-symbol.ts";
 import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
 import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../ports/code-intelligence-port.ts";
+import type { OutgoingCall } from "./call-hierarchy.ts";
 import type { SymbolGraphPort, SymbolNode } from "./port.ts";
 import { deriveSymbolNodeId } from "./symbol-node-id.ts";
 

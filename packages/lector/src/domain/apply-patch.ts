@@ -1,5 +1,5 @@
+import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
 import type { WorkspacePort } from "../ports/workspace-port.ts";
-import { type ContentHash, contentHashOf } from "./content-hash.ts";
 import type { EditOutcome } from "./exact-edit.ts";
 import { StaleExpectedHash } from "./exact-edit.ts";
 import { WorkspaceEntryNotFound } from "./raw-read.ts";

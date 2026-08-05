@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { contentHashOf } from "../../src/domain/content-hash.ts";
-import { planReferenceBasedRename } from "../../src/domain/reference-based-rename.ts";
+import { contentHashOf } from "../../src/content-identity/content-hash.ts";
+import { planReferenceBasedRename } from "../../src/reference-based-rename/reference-based-rename.ts";
 
 function occurrence(content: string, specifier: string) {
 	const quoted = content.indexOf(specifier);

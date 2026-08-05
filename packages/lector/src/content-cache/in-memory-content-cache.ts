@@ -1,4 +1,4 @@
-import type { ContentHash } from "../domain/content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./port.ts";
 
 /** In-process ContentCachePort -- no persistence, cleared on process exit. The default when no durable cache is configured. */

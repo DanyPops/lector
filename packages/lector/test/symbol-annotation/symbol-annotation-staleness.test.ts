@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { contentHashOf } from "../../src/domain/content-hash.ts";
+import { contentHashOf } from "../../src/content-identity/content-hash.ts";
 import type { SymbolAnnotationAnchor } from "../../src/symbol-annotation/symbol-annotation.ts";
 import { isAnnotationStale } from "../../src/symbol-annotation/symbol-annotation-staleness.ts";
 import { deriveSymbolNodeId, type SymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";

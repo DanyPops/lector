@@ -1,4 +1,4 @@
-import type { ContentHash } from "../domain/content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { SymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 
 export type AnnotationId = string;

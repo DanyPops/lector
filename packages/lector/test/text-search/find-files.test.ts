@@ -6,7 +6,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { UnsafeGlobPattern } from "../../src/domain/assert-safe-glob-pattern.ts";
+import { UnsafeGlobPattern } from "../../src/text-search/assert-safe-glob-pattern.ts";
 import { findFiles } from "../../src/text-search/find-files.ts";
 import { RipgrepTextSearch } from "../../src/text-search/ripgrep-text-search.ts";
 

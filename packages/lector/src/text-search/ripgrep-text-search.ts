@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { assertSafeGlobPattern } from "../domain/assert-safe-glob-pattern.ts";
-import { assertSafeSearchQuery } from "../domain/assert-safe-search-query.ts";
+import { assertSafeGlobPattern } from "./assert-safe-glob-pattern.ts";
+import { assertSafeSearchQuery } from "./assert-safe-search-query.ts";
 import type { FindFilesResult } from "./find-files-result.ts";
 import type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "./port.ts";
 import { SKIP_DIRECTORY_NAMES } from "./skip-directories.ts";

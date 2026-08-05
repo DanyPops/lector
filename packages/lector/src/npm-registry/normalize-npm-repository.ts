@@ -1,6 +1,6 @@
 import { posix } from "node:path";
-import type { NpmRepositoryMetadata } from "../domain/npm-package-metadata.ts";
 import type { RepoReference } from "../repo-fetcher/repo-reference.ts";
+import type { NpmRepositoryMetadata } from "./npm-package-metadata.ts";
 
 export interface NormalizedNpmRepository {
 	readonly url: string;

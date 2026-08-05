@@ -21,22 +21,6 @@ export {
 	remoteErrorIs,
 	resolveLectorDaemonConnection,
 } from "./client.ts";
-export { resolveLectorPaths } from "./constants.ts";
-export { InMemoryContentCache } from "./content-cache/in-memory-content-cache.ts";
-export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./content-cache/port.ts";
-export { SqliteContentCache } from "./content-cache/sqlite-content-cache.ts";
-export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
-export {
-	type ApplyPatchRequest,
-	applyPatch,
-	PatchRejected,
-} from "./domain/apply-patch.ts";
-export { applyReferenceBasedRename, type ReferenceBasedRenameOutcome } from "./domain/apply-reference-based-rename.ts";
-export { assertSafeGitArgument, UnsafeGitArgument } from "./domain/assert-safe-git-argument.ts";
-export { assertSafeGlobPattern, UnsafeGlobPattern } from "./domain/assert-safe-glob-pattern.ts";
-export { assertSafePathSegment, UnsafePathSegment } from "./domain/assert-safe-path-segment.ts";
-export { assertSafeRepoReference } from "./domain/assert-safe-repo-reference.ts";
-export { assertSafeSearchQuery, UnsafeSearchQuery } from "./domain/assert-safe-search-query.ts";
 export {
 	BoundedJobExecutor,
 	type BoundedJobExecutorOptions,
@@ -45,11 +29,22 @@ export {
 	JobNotFound,
 	type JobPriority,
 	type JobSnapshot,
-} from "./domain/bounded-job-executor.ts";
-export type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./domain/call-hierarchy.ts";
+} from "./concurrency/bounded-job-executor.ts";
+export { resolveLectorPaths } from "./constants.ts";
+export { InMemoryContentCache } from "./content-cache/in-memory-content-cache.ts";
+export type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "./content-cache/port.ts";
+export { SqliteContentCache } from "./content-cache/sqlite-content-cache.ts";
+export { type ContentHash, contentHashOf } from "./content-identity/content-hash.ts";
+export type { LineHash } from "./content-identity/line-hash.ts";
+export { lineHashOf } from "./content-identity/line-hash.ts";
+export { buildLectorApp, type LectorDaemonOptions, serveMain, startLectorDaemon } from "./daemon.ts";
+export {
+	type ApplyPatchRequest,
+	applyPatch,
+	PatchRejected,
+} from "./domain/apply-patch.ts";
 export type { CodeRange } from "./domain/code-range.ts";
 export type { SymbolComparisonStatus, SymbolDeclarationComparison } from "./domain/compare-symbol-declarations.ts";
-export { type ContentHash, contentHashOf } from "./domain/content-hash.ts";
 export type { Diagnostic, DiagnosticSeverity } from "./domain/diagnostic.ts";
 export { diagnostics } from "./domain/diagnostics.ts";
 export type { DocumentSymbolEntry } from "./domain/document-symbol.ts";
@@ -60,23 +55,12 @@ export {
 	exactEdit,
 	StaleExpectedHash,
 } from "./domain/exact-edit.ts";
-export type {
-	ExternalSearchBounds,
-	GithubRepoCandidate,
-	GithubRepoSearchResult,
-	NpmPackageCandidate,
-	SourcegraphCodeCandidate,
-	SourcegraphLineMatch,
-} from "./domain/external-search-result.ts";
-export { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS, splitSourcegraphRepository } from "./domain/external-search-result.ts";
 export { findReferences } from "./domain/find-references.ts";
 export { findWorkspaceSymbols } from "./domain/find-workspace-symbols.ts";
 export { goToDefinition } from "./domain/go-to-definition.ts";
 export { goToImplementation } from "./domain/go-to-implementation.ts";
 export type { Hover } from "./domain/hover.ts";
 export { hoverAt } from "./domain/hover-at.ts";
-export { incomingCalls } from "./domain/incoming-calls.ts";
-export { type InstallReceipt, parseInstallReceipt, receiptPurl, serializeInstallReceipt } from "./domain/install-receipt.ts";
 export type {
 	IntelligenceFidelity,
 	IntelligenceProvenance,
@@ -91,12 +75,6 @@ export {
 	PYTHON_DESCRIPTOR,
 	TYPESCRIPT_DESCRIPTOR,
 } from "./domain/language-server-descriptor.ts";
-export type {
-	GithubReleaseLanguageServerSource,
-	LanguageServerPackageSpec,
-	LanguageServerSource,
-	NpmLanguageServerSource,
-} from "./domain/language-server-package-spec.ts";
 export {
 	type LineEdit,
 	type LineEditFailure,
@@ -110,27 +88,10 @@ export {
 	type LineEditRequest,
 	lineEdit,
 } from "./domain/line-edit.ts";
-export type { LineHash } from "./domain/line-hash.ts";
-export { lineHashOf } from "./domain/line-hash.ts";
 export type { DirectoryListing } from "./domain/list-directory.ts";
 export { listDirectory } from "./domain/list-directory.ts";
-export type { LibcVariant, LspArchitecture, LspOperatingSystem, LspPlatform } from "./domain/lsp-platform.ts";
-export { resolveLspPlatform, UnsupportedLspPlatform } from "./domain/lsp-platform.ts";
-export type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "./domain/npm-package-metadata.ts";
-export { outgoingCalls } from "./domain/outgoing-calls.ts";
-export { prepareCallHierarchy } from "./domain/prepare-call-hierarchy.ts";
-export type { ProvisionOutcome } from "./domain/provision-outcome.ts";
 export { raceWorkspaceQuery } from "./domain/race-workspace-query.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./domain/raw-read.ts";
-export {
-	type FileMove,
-	type ImportSpecifierOccurrence,
-	type ImportSpecifierRewrite,
-	planReferenceBasedRename,
-	type ReferenceBasedRenameInput,
-	type ReferenceBasedRenamePlan,
-	type ReferencingFileInput,
-} from "./domain/reference-based-rename.ts";
 export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./domain/response-format.ts";
 export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./domain/response-format.ts";
 export type { SymbolDeclarationSnapshot } from "./domain/symbol-declaration-snapshot.ts";
@@ -144,6 +105,15 @@ export type { WorkspaceMapEntry, WorkspaceMapOptions, WorkspaceMapResult } from 
 export { computeWorkspaceMap } from "./domain/workspace-map.ts";
 export type { WorkspaceQueryOutcome, WorkspaceQueryStatus } from "./domain/workspace-query-outcome.ts";
 export type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "./domain/workspace-symbol.ts";
+export type {
+	ExternalSearchBounds,
+	GithubRepoCandidate,
+	GithubRepoSearchResult,
+	NpmPackageCandidate,
+	SourcegraphCodeCandidate,
+	SourcegraphLineMatch,
+} from "./external-search/external-search-result.ts";
+export { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS, splitSourcegraphRepository } from "./external-search/external-search-result.ts";
 export { deriveExternalSearchCacheKey, type ExternalSearchCacheKey, type ExternalSearchSource } from "./external-search-cache/external-search-cache-key.ts";
 export { InMemoryExternalSearchCache, type InMemoryExternalSearchCacheOptions } from "./external-search-cache/in-memory-external-search-cache.ts";
 export type { ExternalSearchCachePort } from "./external-search-cache/port.ts";
@@ -151,6 +121,7 @@ export type { FileChangeEvent } from "./file-watcher/file-change-event.ts";
 export { NodeFsFileWatcher } from "./file-watcher/node-fs-file-watcher.ts";
 export type { FileWatcherPort } from "./file-watcher/port.ts";
 export { WatchLimitExceeded, type WatchRegistration, WatchRegistry } from "./file-watcher/watch-registry.ts";
+export { assertSafeGitArgument, UnsafeGitArgument } from "./git/assert-safe-git-argument.ts";
 export type { GitDiffResult } from "./git/diff-result.ts";
 export { LocalGit } from "./git/local-git.ts";
 export type { GitLogEntry } from "./git/log-entry.ts";
@@ -194,18 +165,29 @@ export {
 } from "./lsp-provisioning/github-release-installer.ts";
 export { InstallConcurrencyLimiter } from "./lsp-provisioning/install-concurrency-limiter.ts";
 export { InstallLocation } from "./lsp-provisioning/install-location.ts";
+export { type InstallReceipt, parseInstallReceipt, receiptPurl, serializeInstallReceipt } from "./lsp-provisioning/install-receipt.ts";
+export type {
+	GithubReleaseLanguageServerSource,
+	LanguageServerPackageSpec,
+	LanguageServerSource,
+	NpmLanguageServerSource,
+} from "./lsp-provisioning/language-server-package-spec.ts";
 export {
 	LanguageServerProvisioner,
 	type LanguageServerProvisionerOptions,
 } from "./lsp-provisioning/language-server-provisioner.ts";
+export type { LibcVariant, LspArchitecture, LspOperatingSystem, LspPlatform } from "./lsp-provisioning/lsp-platform.ts";
+export { resolveLspPlatform, UnsupportedLspPlatform } from "./lsp-provisioning/lsp-platform.ts";
 export { type NpmInstallerOptions, NpmInstallFailed, NpmInstallTimedOut, resolveNpmInstall } from "./lsp-provisioning/npm-installer.ts";
 export type { LanguageServerProvisionerPort } from "./lsp-provisioning/port.ts";
+export type { ProvisionOutcome } from "./lsp-provisioning/provision-outcome.ts";
 export { tryReadReceipt, writeReceipt } from "./lsp-provisioning/receipt-store.ts";
 export { resolveLspProvisioningRoot } from "./lsp-provisioning/resolve-lsp-provisioning-root.ts";
 export type { ResolvedInstall } from "./lsp-provisioning/resolved-install.ts";
 export { runStagedInstall, type StagedInstallInput, type StagedInstallResult } from "./lsp-provisioning/staged-install.ts";
 export { type CanRevertMutationInputs, canRevertMutation, type MutationHistoryEntry, type MutationOperation } from "./mutation-history/mutation-history.ts";
 export type { MutationHistoryPort, RecordMutationInput } from "./mutation-history/port.ts";
+export type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest, NpmRepositoryMetadata } from "./npm-registry/npm-package-metadata.ts";
 export { NpmPackageSourceResolver, type NpmPackageSourceResolverOptions } from "./npm-registry/npm-package-source-resolver.ts";
 export {
 	DEFAULT_NPM_REGISTRY,
@@ -251,11 +233,23 @@ export type {
 export { queryPackageSourceIndex } from "./package-source/package-source-index.ts";
 export { InvalidPackageSourceContract, resolvePackageSource } from "./package-source/resolve-package-source.ts";
 export type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
+export { assertSafePathSegment, UnsafePathSegment } from "./path-safety/assert-safe-path-segment.ts";
 export type { CodeIntelligencePort } from "./ports/code-intelligence-port.ts";
 export type { FileTreeEntry, FileTreeEntryKind, FileTreePort } from "./ports/file-tree-port.ts";
 export { WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "./ports/file-tree-port.ts";
 export type { SymbolIndexPort } from "./ports/symbol-index-port.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./ports/workspace-port.ts";
+export { applyReferenceBasedRename, type ReferenceBasedRenameOutcome } from "./reference-based-rename/apply-reference-based-rename.ts";
+export {
+	type FileMove,
+	type ImportSpecifierOccurrence,
+	type ImportSpecifierRewrite,
+	planReferenceBasedRename,
+	type ReferenceBasedRenameInput,
+	type ReferenceBasedRenamePlan,
+	type ReferencingFileInput,
+} from "./reference-based-rename/reference-based-rename.ts";
+export { assertSafeRepoReference } from "./repo-fetcher/assert-safe-repo-reference.ts";
 export type { CachedRepositoryEntry, CachedRepositoryPage, CachedRepositoryQuery, RepoCacheListEntry } from "./repo-fetcher/cached-repository-entry.ts";
 export { GitRepoFetcher, type GitRepoFetcherOptions } from "./repo-fetcher/git-repo-fetcher.ts";
 export type { RepoFetcherPort } from "./repo-fetcher/port.ts";
@@ -324,15 +318,21 @@ export type {
 	SymbolAnnotationAnchor,
 } from "./symbol-annotation/symbol-annotation.ts";
 export { type AnchorReality, isAnnotationStale } from "./symbol-annotation/symbol-annotation-staleness.ts";
+export type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./symbol-graph/call-hierarchy.ts";
 export { InMemorySymbolGraph } from "./symbol-graph/in-memory-symbol-graph.ts";
+export { incomingCalls } from "./symbol-graph/incoming-calls.ts";
+export { outgoingCalls } from "./symbol-graph/outgoing-calls.ts";
 export { type PopulateSymbolGraphResult, populateSymbolGraph, type SymbolGraphPopulationFailure } from "./symbol-graph/populate-symbol-graph.ts";
 export type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./symbol-graph/port.ts";
+export { prepareCallHierarchy } from "./symbol-graph/prepare-call-hierarchy.ts";
 export { reachableSymbolsFrom } from "./symbol-graph/reachable-symbols-from.ts";
 export { SqliteSymbolGraph } from "./symbol-graph/sqlite-symbol-graph.ts";
 export { symbolEdgesFrom } from "./symbol-graph/symbol-edges-from.ts";
 export { symbolEdgesTo } from "./symbol-graph/symbol-edges-to.ts";
 export type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./symbol-graph/symbol-graph-generation.ts";
 export { deriveSymbolNodeId, type SymbolNodeId } from "./symbol-graph/symbol-node-id.ts";
+export { assertSafeGlobPattern, UnsafeGlobPattern } from "./text-search/assert-safe-glob-pattern.ts";
+export { assertSafeSearchQuery, UnsafeSearchQuery } from "./text-search/assert-safe-search-query.ts";
 export { findFiles } from "./text-search/find-files.ts";
 export type { FindFilesResult } from "./text-search/find-files-result.ts";
 export type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "./text-search/port.ts";

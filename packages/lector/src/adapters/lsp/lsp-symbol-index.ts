@@ -3,14 +3,7 @@ import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import picomatch from "picomatch";
-import { InMemoryContentCache } from "../../content-cache/in-memory-content-cache.ts";
-import type { ContentCachePort } from "../../content-cache/port.ts";
-import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../domain/call-hierarchy.ts";
-import type { CodeRange } from "../../domain/code-range.ts";
-import { contentHashOf } from "../../domain/content-hash.ts";
-import { type Diagnostic, type DiagnosticSeverity, mergeDiagnostics } from "../../domain/diagnostic.ts";
-import type { DocumentSymbolEntry } from "../../domain/document-symbol.ts";
-import type { DiagnosticRegistration, FileSystemWatcherPattern } from "../../domain/dynamic-capability-registry.ts";
+import type { DiagnosticRegistration, FileSystemWatcherPattern } from "../../concurrency/dynamic-capability-registry.ts";
 import {
 	DynamicCapabilityRegistry,
 	parseConfigurationItemCount,
@@ -18,19 +11,26 @@ import {
 	parseProgressNotification,
 	parseRegistrationRequest,
 	parseUnregistrationRequest,
-} from "../../domain/dynamic-capability-registry.ts";
+} from "../../concurrency/dynamic-capability-registry.ts";
+import { SerialExecutionQueue } from "../../concurrency/serial-execution-queue.ts";
+import { InMemoryContentCache } from "../../content-cache/in-memory-content-cache.ts";
+import type { ContentCachePort } from "../../content-cache/port.ts";
+import { contentHashOf } from "../../content-identity/content-hash.ts";
+import type { CodeRange } from "../../domain/code-range.ts";
+import { type Diagnostic, type DiagnosticSeverity, mergeDiagnostics } from "../../domain/diagnostic.ts";
+import type { DocumentSymbolEntry } from "../../domain/document-symbol.ts";
 import type { Hover } from "../../domain/hover.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../../domain/intelligence-provenance.ts";
 import { DEFAULT_SETTLE_MS, type LanguageServerDescriptor } from "../../domain/language-server-descriptor.ts";
 import { toLspFileChangeType } from "../../domain/lsp-file-change-type.ts";
 import { type ParsedServerCapabilities, parseServerCapabilities, shouldSyncDocuments } from "../../domain/lsp-server-capabilities.ts";
-import { SerialExecutionQueue } from "../../domain/serial-execution-queue.ts";
 import { type ParsedWorkspaceEdit, parsePrepareRenameResult, parseWorkspaceEdit, type RenameRange } from "../../domain/workspace-edit.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../domain/workspace-symbol.ts";
 import type { FileChangeEvent } from "../../file-watcher/file-change-event.ts";
 import type { LanguageServerProvisionerPort } from "../../lsp-provisioning/port.ts";
 import type { CodeIntelligencePort } from "../../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../../ports/symbol-index-port.ts";
+import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../symbol-graph/call-hierarchy.ts";
 import { TypeScriptCompilerSymbolIndex } from "../typescript-compiler-symbol-index.ts";
 import { resolveSeedFile } from "./discover-seed-file.ts";
 import { LanguageServerProcess } from "./language-server-process.ts";

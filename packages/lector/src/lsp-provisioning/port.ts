@@ -1,5 +1,5 @@
-import type { LanguageServerPackageSpec } from "../domain/language-server-package-spec.ts";
-import type { ProvisionOutcome } from "../domain/provision-outcome.ts";
+import type { LanguageServerPackageSpec } from "./language-server-package-spec.ts";
+import type { ProvisionOutcome } from "./provision-outcome.ts";
 
 /**
  * Resolves a missing language server binary on demand -- mason.nvim-shaped (pluggable version

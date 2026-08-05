@@ -1,4 +1,4 @@
-import { assertAbsolutePath } from "../domain/assert-absolute-path.ts";
+import { assertAbsolutePath } from "../path-safety/assert-absolute-path.ts";
 import {
 	type AmbiguousPackageSource,
 	type MismatchedPackageSource,

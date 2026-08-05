@@ -1,4 +1,4 @@
-import { type ContentHash, contentHashOf } from "../domain/content-hash.ts";
+import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
 import { StaleExpectedHash } from "../domain/exact-edit.ts";
 import { type FileTreeEntry, type FileTreePort, WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "../ports/file-tree-port.ts";
 import type { WorkspaceEntry, WorkspacePort } from "../ports/workspace-port.ts";

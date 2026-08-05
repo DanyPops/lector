@@ -8,7 +8,7 @@
  * here.
  */
 
-import type { LanguageServerSource } from "./language-server-package-spec.ts";
+import type { LanguageServerSource } from "../lsp-provisioning/language-server-package-spec.ts";
 
 /** An npm-module server resolves its JS entry via import.meta.resolve and runs under bun; a system-binary server (gopls, rust-analyzer, clangd) resolves by bare name against PATH. */
 export type LanguageServerLaunch = { readonly kind: "npm-module"; readonly entryModule: string } | { readonly kind: "system-binary"; readonly command: string };

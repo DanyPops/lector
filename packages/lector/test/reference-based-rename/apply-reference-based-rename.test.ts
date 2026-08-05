@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { InMemoryWorkspace } from "../../src/adapters/in-memory-workspace.ts";
-import { applyReferenceBasedRename } from "../../src/domain/apply-reference-based-rename.ts";
-import { contentHashOf } from "../../src/domain/content-hash.ts";
+import { contentHashOf } from "../../src/content-identity/content-hash.ts";
 import { exactEdit, StaleExpectedHash } from "../../src/domain/exact-edit.ts";
-import type { ReferenceBasedRenamePlan } from "../../src/domain/reference-based-rename.ts";
+import { applyReferenceBasedRename } from "../../src/reference-based-rename/apply-reference-based-rename.ts";
+import type { ReferenceBasedRenamePlan } from "../../src/reference-based-rename/reference-based-rename.ts";
 
 describe("applyReferenceBasedRename", () => {
 	it("moves the file and rewrites every referencing file, atomically", async () => {

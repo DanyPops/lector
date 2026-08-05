@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { NpmLanguageServerSource } from "../domain/language-server-package-spec.ts";
 import { DEFAULT_NPM_REGISTRY, NpmRegistryClient } from "../npm-registry/npm-registry-client.ts";
 import type { NpmRegistryPort } from "../npm-registry/port.ts";
 import { runBoundedSubprocess } from "./bounded-subprocess.ts";
+import type { NpmLanguageServerSource } from "./language-server-package-spec.ts";
 import type { ResolvedInstall } from "./resolved-install.ts";
 
 const VERSION_RESOLUTION_BOUNDS = { maxResponseBytes: 4 * 1024 * 1024, maxRedirects: 5, maxRetries: 2, timeoutMs: 10_000 };

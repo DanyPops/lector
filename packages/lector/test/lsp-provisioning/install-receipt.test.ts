@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { InstallReceipt } from "../../src/domain/install-receipt.ts";
-import { parseInstallReceipt, receiptPurl, serializeInstallReceipt } from "../../src/domain/install-receipt.ts";
+import type { InstallReceipt } from "../../src/lsp-provisioning/install-receipt.ts";
+import { parseInstallReceipt, receiptPurl, serializeInstallReceipt } from "../../src/lsp-provisioning/install-receipt.ts";
 
 const NPM_RECEIPT: InstallReceipt = {
 	packageId: "typescript-language-server",

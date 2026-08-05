@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import type { InstallReceipt } from "../domain/install-receipt.ts";
-import { parseInstallReceipt, serializeInstallReceipt } from "../domain/install-receipt.ts";
 import type { InstallLocation } from "./install-location.ts";
+import type { InstallReceipt } from "./install-receipt.ts";
+import { parseInstallReceipt, serializeInstallReceipt } from "./install-receipt.ts";
 
 /** Reads a package's receipt if one exists and is well-formed; undefined for "never installed" or a corrupted/foreign file -- either way, provisioning treats it as needing a fresh install rather than crashing. */
 export function tryReadReceipt(location: InstallLocation, packageId: string): InstallReceipt | undefined {

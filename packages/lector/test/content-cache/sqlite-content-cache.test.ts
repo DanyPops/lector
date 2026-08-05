@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteContentCache } from "../../src/content-cache/sqlite-content-cache.ts";
-import { contentHashOf } from "../../src/domain/content-hash.ts";
+import { contentHashOf } from "../../src/content-identity/content-hash.ts";
 import { runContentCachePortConformanceSuite } from "../support/content-cache-port-conformance.ts";
 
 runContentCachePortConformanceSuite("SqliteContentCache", {

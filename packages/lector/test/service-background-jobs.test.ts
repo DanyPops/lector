@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BoundedJobExecutor } from "../src/domain/bounded-job-executor.ts";
+import { BoundedJobExecutor } from "../src/concurrency/bounded-job-executor.ts";
 import type { DocumentSymbolEntry } from "../src/domain/document-symbol.ts";
 import type { WorkspaceLocation } from "../src/domain/workspace-symbol.ts";
 import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";

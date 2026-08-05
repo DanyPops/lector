@@ -6,7 +6,12 @@
  * test/npm-registry/npm-registry-client.test.ts's own search() tests.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import type { ExternalSearchBounds, GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../src/domain/external-search-result.ts";
+import type {
+	ExternalSearchBounds,
+	GithubRepoSearchResult,
+	NpmPackageCandidate,
+	SourcegraphCodeCandidate,
+} from "../src/external-search/external-search-result.ts";
 import type { GithubSearchPort } from "../src/github-search/port.ts";
 import type { NpmRegistryPort } from "../src/npm-registry/port.ts";
 import { createLectorService, type LectorService } from "../src/service.ts";

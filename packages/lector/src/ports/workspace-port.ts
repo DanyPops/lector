@@ -1,4 +1,4 @@
-import type { ContentHash } from "../domain/content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 
 /** A workspace entry that does not (yet) exist. Distinguished from empty content. */
 export interface MissingWorkspaceEntry {

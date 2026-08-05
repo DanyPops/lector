@@ -1,6 +1,6 @@
+import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
+import { type LineHash, lineHashOf } from "../content-identity/line-hash.ts";
 import type { WorkspacePort } from "../ports/workspace-port.ts";
-import { type ContentHash, contentHashOf } from "./content-hash.ts";
-import { type LineHash, lineHashOf } from "./line-hash.ts";
 import { WorkspaceEntryNotFound } from "./raw-read.ts";
 
 /** Replaces the inclusive line range [startLine, endLine] with `lines` -- an empty `lines` array deletes the range. */

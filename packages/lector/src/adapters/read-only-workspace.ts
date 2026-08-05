@@ -1,4 +1,4 @@
-import type { ContentHash } from "../domain/content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { WorkspaceEntry, WorkspacePort } from "../ports/workspace-port.ts";
 
 /** Raised when a write targets a workspace the caller doesn't own, like a RepoFetcherPort checkout. */

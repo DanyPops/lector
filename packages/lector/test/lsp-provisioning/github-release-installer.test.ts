@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { LspPlatform } from "../../src/domain/lsp-platform.ts";
 import { GithubReleaseAssetUnavailable, GithubReleaseNotFound, resolveGithubReleaseInstall } from "../../src/lsp-provisioning/github-release-installer.ts";
+import type { LspPlatform } from "../../src/lsp-provisioning/lsp-platform.ts";
 import type { GithubReleaseFixture } from "../support/github-release-fixture.ts";
 import { startGithubReleaseFixture } from "../support/github-release-fixture.ts";
 

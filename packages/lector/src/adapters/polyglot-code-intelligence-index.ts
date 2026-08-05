@@ -1,5 +1,4 @@
 import { extname } from "node:path";
-import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../domain/call-hierarchy.ts";
 import type { Diagnostic } from "../domain/diagnostic.ts";
 import type { DocumentSymbolEntry } from "../domain/document-symbol.ts";
 import type { Hover } from "../domain/hover.ts";
@@ -9,6 +8,7 @@ import type { ParsedWorkspaceEdit, RenameRange } from "../domain/workspace-edit.
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../domain/workspace-symbol.ts";
 import type { CodeIntelligencePort } from "../ports/code-intelligence-port.ts";
 import type { SymbolIndexPort } from "../ports/symbol-index-port.ts";
+import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../symbol-graph/call-hierarchy.ts";
 
 const MAX_SOURCE_ERROR_LENGTH = 500;
 const MAX_LANGUAGE_INDEXES = 16;

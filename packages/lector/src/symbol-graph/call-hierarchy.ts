@@ -1,5 +1,5 @@
-import type { CodeRange } from "./code-range.ts";
-import type { WorkspaceLocation } from "./workspace-symbol.ts";
+import type { CodeRange } from "../domain/code-range.ts";
+import type { WorkspaceLocation } from "../domain/workspace-symbol.ts";
 
 /** One node in a call hierarchy: a function/method the server resolved a position to. */
 export interface CallHierarchyEntry {

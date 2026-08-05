@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { BoundedJobExecutor, JobCapacityExceeded, JobNotFound } from "../../src/domain/bounded-job-executor.ts";
+import { BoundedJobExecutor, JobCapacityExceeded, JobNotFound } from "../../src/concurrency/bounded-job-executor.ts";
 import { recordingLogger } from "../support/recording-logger.ts";
 
 function deferred<T>() {

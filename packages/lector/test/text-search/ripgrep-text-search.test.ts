@@ -6,8 +6,8 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { UnsafeGlobPattern } from "../../src/domain/assert-safe-glob-pattern.ts";
-import { UnsafeSearchQuery } from "../../src/domain/assert-safe-search-query.ts";
+import { UnsafeGlobPattern } from "../../src/text-search/assert-safe-glob-pattern.ts";
+import { UnsafeSearchQuery } from "../../src/text-search/assert-safe-search-query.ts";
 import { RipgrepTextSearch } from "../../src/text-search/ripgrep-text-search.ts";
 
 function buildFixture(): string {

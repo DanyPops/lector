@@ -1,4 +1,4 @@
-import type { ContentHash } from "../domain/content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { MutationHistoryEntry, MutationOperation } from "./mutation-history.ts";
 
 export interface RecordMutationInput {

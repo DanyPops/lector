@@ -4,7 +4,7 @@
  * covered directly in test/domain/apply-patch.test.ts.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { contentHashOf } from "../src/domain/content-hash.ts";
+import { contentHashOf } from "../src/content-identity/content-hash.ts";
 import { createLectorService, type LectorService, UnknownWorkspace } from "../src/service.ts";
 
 let service: LectorService | undefined;

@@ -1,5 +1,5 @@
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { DebouncedScheduler } from "../domain/debounced-scheduler.ts";
+import { DebouncedScheduler } from "../concurrency/debounced-scheduler.ts";
 import type { SymbolGraphPort } from "../symbol-graph/port.ts";
 
 interface RefreshScheduler {

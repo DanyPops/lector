@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { splitSourcegraphRepository } from "../../src/domain/external-search-result.ts";
+import { splitSourcegraphRepository } from "../../src/external-search/external-search-result.ts";
 
 describe("splitSourcegraphRepository", () => {
 	it("splits a well-formed host/owner/repo path", () => {

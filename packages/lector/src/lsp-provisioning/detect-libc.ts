@@ -1,5 +1,5 @@
-import type { LibcVariant } from "../domain/lsp-platform.ts";
 import { type BoundedSubprocessResult, runBoundedSubprocess } from "./bounded-subprocess.ts";
+import type { LibcVariant } from "./lsp-platform.ts";
 
 const DETECT_TIMEOUT_MS = 2000;
 

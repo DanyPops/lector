@@ -1,5 +1,5 @@
 import simpleGit from "simple-git";
-import { assertSafeGitArgument } from "../domain/assert-safe-git-argument.ts";
+import { assertSafeGitArgument } from "./assert-safe-git-argument.ts";
 import type { GitDiffResult } from "./diff-result.ts";
 import type { GitLogEntry } from "./log-entry.ts";
 import type { GitPort } from "./port.ts";

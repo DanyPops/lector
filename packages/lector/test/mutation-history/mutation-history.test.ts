@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { contentHashOf } from "../../src/domain/content-hash.ts";
+import { contentHashOf } from "../../src/content-identity/content-hash.ts";
 import type { MutationHistoryEntry } from "../../src/mutation-history/mutation-history.ts";
 import { canRevertMutation } from "../../src/mutation-history/mutation-history.ts";
 

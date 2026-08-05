@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { BASH_DESCRIPTOR, CPP_DESCRIPTOR, GO_DESCRIPTOR, RUST_DESCRIPTOR } from "../../src/domain/language-server-descriptor.ts";
-import type { LspPlatform } from "../../src/domain/lsp-platform.ts";
+import type { LspPlatform } from "../../src/lsp-provisioning/lsp-platform.ts";
 
 const platform = (os: LspPlatform["os"], arch: LspPlatform["arch"], libc?: LspPlatform["libc"]): LspPlatform => ({ os, arch, libc });
 

@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
-import { contentHashOf } from "../src/domain/content-hash.ts";
+import { contentHashOf } from "../src/content-identity/content-hash.ts";
 import { createLectorService, StaleExpectedHash } from "../src/service.ts";
 
 describe("concurrent operations differing in a result-affecting field are never coalesced", () => {

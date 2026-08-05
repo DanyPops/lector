@@ -4,7 +4,7 @@
  * one) must pass this unmodified.
  */
 import { describe, expect, it } from "bun:test";
-import { contentHashOf } from "../../src/domain/content-hash.ts";
+import { contentHashOf } from "../../src/content-identity/content-hash.ts";
 import { exactEdit, StaleExpectedHash } from "../../src/domain/exact-edit.ts";
 import { rawRead, WorkspaceEntryNotFound } from "../../src/domain/raw-read.ts";
 import type { WorkspacePort } from "../../src/ports/workspace-port.ts";

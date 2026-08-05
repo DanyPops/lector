@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
+import { contentHashOf } from "../src/content-identity/content-hash.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
-import { contentHashOf } from "../src/domain/content-hash.ts";
 import type { MutationHistoryEntry } from "../src/index.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 

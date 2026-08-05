@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { assertAbsolutePath, RelativeWorkspacePath } from "../../src/domain/assert-absolute-path.ts";
+import { assertAbsolutePath, RelativeWorkspacePath } from "../../src/path-safety/assert-absolute-path.ts";
 
 describe("assertAbsolutePath", () => {
 	it("accepts a real absolute path without throwing", () => {

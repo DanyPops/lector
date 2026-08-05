@@ -2,9 +2,9 @@ import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import fetchBuilder, { type RequestInitWithRetry } from "fetch-retry";
 import { discardResponseBody, readBoundedJson } from "../adapters/bounded-response-reader.ts";
-import type { GithubReleaseLanguageServerSource } from "../domain/language-server-package-spec.ts";
-import type { LspPlatform } from "../domain/lsp-platform.ts";
 import { runBoundedSubprocess } from "./bounded-subprocess.ts";
+import type { GithubReleaseLanguageServerSource } from "./language-server-package-spec.ts";
+import type { LspPlatform } from "./lsp-platform.ts";
 import type { ResolvedInstall } from "./resolved-install.ts";
 
 export const DEFAULT_GITHUB_API_BASE_URL = "https://api.github.com";

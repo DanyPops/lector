@@ -7,7 +7,7 @@ import {
 	parseProgressNotification,
 	parseRegistrationRequest,
 	parseUnregistrationRequest,
-} from "../../src/domain/dynamic-capability-registry.ts";
+} from "../../src/concurrency/dynamic-capability-registry.ts";
 
 describe("DynamicCapabilityRegistry", () => {
 	it("tracks a registration and exposes zero watched-file patterns for an unrelated method", () => {

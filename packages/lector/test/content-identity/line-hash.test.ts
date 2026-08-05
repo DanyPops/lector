@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { lineHashOf } from "../../src/domain/line-hash.ts";
+import { lineHashOf } from "../../src/content-identity/line-hash.ts";
 
 describe("lineHashOf", () => {
 	it("is deterministic for identical content", () => {

@@ -12,7 +12,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "../src/adapters/local-filesystem-workspace.ts";
-import { contentHashOf } from "../src/domain/content-hash.ts";
+import { contentHashOf } from "../src/content-identity/content-hash.ts";
 import { exactEdit } from "../src/domain/exact-edit.ts";
 import { rawRead } from "../src/domain/raw-read.ts";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { ContentHash } from "../../src/domain/content-hash.ts";
+import type { ContentHash } from "../../src/content-identity/content-hash.ts";
 import { computeUpdatedFileContentHashes } from "../../src/symbol-graph/compute-updated-file-content-hashes.ts";
 
 function hash(label: string): ContentHash {

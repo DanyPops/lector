@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { type Migration, openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
-import type { ContentHash } from "../domain/content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { SymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "./port.ts";
 import type { AnnotationId, AnnotationStatus, CreateSymbolAnnotationInput, SymbolAnnotation, SymbolAnnotationAnchor } from "./symbol-annotation.ts";

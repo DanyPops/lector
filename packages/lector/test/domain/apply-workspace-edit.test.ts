@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { InMemoryWorkspace } from "../../src/adapters/in-memory-workspace.ts";
+import { type ContentHash, contentHashOf } from "../../src/content-identity/content-hash.ts";
 import { applyWorkspaceEdit, collectTouchedPaths } from "../../src/domain/apply-workspace-edit.ts";
-import { type ContentHash, contentHashOf } from "../../src/domain/content-hash.ts";
 import { exactEdit } from "../../src/domain/exact-edit.ts";
 import type { ParsedWorkspaceEdit } from "../../src/domain/workspace-edit.ts";
 

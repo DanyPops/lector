@@ -4,7 +4,7 @@
  * future one) must pass this unmodified.
  */
 import { describe, expect, it } from "bun:test";
-import { contentHashOf } from "../../src/domain/content-hash.ts";
+import { contentHashOf } from "../../src/content-identity/content-hash.ts";
 import type { SymbolAnnotationPort } from "../../src/symbol-annotation/port.ts";
 import type { CreateSymbolAnnotationInput, SymbolAnnotationAnchor } from "../../src/symbol-annotation/symbol-annotation.ts";
 import { deriveSymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";

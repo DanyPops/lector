@@ -1,4 +1,4 @@
-import { assertSafeGlobPattern } from "../domain/assert-safe-glob-pattern.ts";
+import { assertSafeGlobPattern } from "./assert-safe-glob-pattern.ts";
 import type { FindFilesResult } from "./find-files-result.ts";
 import type { FindFilesOptions, TextSearchPort } from "./port.ts";
 

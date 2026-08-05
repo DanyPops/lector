@@ -12,7 +12,7 @@ import { goToDefinition } from "../../src/domain/go-to-definition.ts";
 import { goToImplementation } from "../../src/domain/go-to-implementation.ts";
 import { hoverAt } from "../../src/domain/hover-at.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../src/domain/language-server-descriptor.ts";
-import { outgoingCalls } from "../../src/domain/outgoing-calls.ts";
+import { outgoingCalls } from "../../src/symbol-graph/outgoing-calls.ts";
 import { findPositionOf } from "../support/find-position.ts";
 import {
 	materializeTypeScriptReferenceFixture,

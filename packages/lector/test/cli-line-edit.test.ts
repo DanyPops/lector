@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
+import { lineHashOf } from "../src/content-identity/line-hash.ts";
 import { startLectorDaemon } from "../src/daemon.ts";
-import { lineHashOf } from "../src/domain/line-hash.ts";
 import type { LineEditOutcome } from "../src/index.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { DebounceCapacityExceeded, DebouncedScheduler } from "../../src/domain/debounced-scheduler.ts";
+import { DebounceCapacityExceeded, DebouncedScheduler } from "../../src/concurrency/debounced-scheduler.ts";
 import { recordingLogger } from "../support/recording-logger.ts";
 
 function wait(ms: number): Promise<void> {

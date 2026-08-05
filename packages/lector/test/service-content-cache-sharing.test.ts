@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
 import { InMemoryContentCache } from "../src/content-cache/in-memory-content-cache.ts";
-import { contentHashOf } from "../src/domain/content-hash.ts";
+import { contentHashOf } from "../src/content-identity/content-hash.ts";
 import type { LanguageServerProvisionerPort } from "../src/lsp-provisioning/port.ts";
 import { createLectorService, type LectorService } from "../src/service.ts";
 

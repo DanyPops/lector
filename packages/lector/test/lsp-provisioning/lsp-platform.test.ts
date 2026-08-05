@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { resolveLspPlatform, UnsupportedLspPlatform } from "../../src/domain/lsp-platform.ts";
+import { resolveLspPlatform, UnsupportedLspPlatform } from "../../src/lsp-provisioning/lsp-platform.ts";
 
 describe("resolveLspPlatform", () => {
 	it("normalizes node's own platform/arch strings to the mason-shaped signature", () => {

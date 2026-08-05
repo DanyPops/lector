@@ -1,4 +1,4 @@
-import { type ContentHash, contentHashOf } from "../domain/content-hash.ts";
+import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
 import type { WorkspacePort } from "../ports/workspace-port.ts";
 import {
 	AnnotationContainmentCycle,

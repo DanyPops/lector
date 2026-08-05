@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { LRUCache } from "lru-cache";
 import simpleGit from "simple-git";
 import { measureDirectorySizeBytes } from "../adapters/directory-size.ts";
-import { assertSafeRepoReference } from "../domain/assert-safe-repo-reference.ts";
+import { assertSafeRepoReference } from "./assert-safe-repo-reference.ts";
 import type { RepoCacheListEntry } from "./cached-repository-entry.ts";
 import type { RepoFetcherPort } from "./port.ts";
 import { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded, type RepoFetchPolicy, type RepoFetchResult } from "./repo-fetch-result.ts";

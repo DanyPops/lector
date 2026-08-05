@@ -11,12 +11,12 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { OutgoingCall } from "../src/domain/call-hierarchy.ts";
 import type { DocumentSymbolEntry } from "../src/domain/document-symbol.ts";
 import type { IntelligenceProvenance } from "../src/domain/intelligence-provenance.ts";
 import type { CodeIntelligencePort } from "../src/ports/code-intelligence-port.ts";
 import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";
 import { createLectorService } from "../src/service.ts";
+import type { OutgoingCall } from "../src/symbol-graph/call-hierarchy.ts";
 import { InMemorySymbolGraph } from "../src/symbol-graph/in-memory-symbol-graph.ts";
 import { deriveSymbolNodeId } from "../src/symbol-graph/symbol-node-id.ts";
 

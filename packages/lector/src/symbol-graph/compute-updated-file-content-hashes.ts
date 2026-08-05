@@ -1,4 +1,4 @@
-import type { ContentHash } from "../domain/content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { SymbolGraphPopulationFailure } from "./populate-symbol-graph.ts";
 
 /**

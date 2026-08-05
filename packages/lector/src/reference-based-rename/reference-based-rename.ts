@@ -1,5 +1,5 @@
 import { posix } from "node:path";
-import type { ContentHash } from "./content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 
 /** A single relative import/export specifier's exact text position, byte-offset into its file's own content -- no quotes, e.g. "./math" not "\"./math\"". */
 export interface ImportSpecifierOccurrence {

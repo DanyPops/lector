@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Dirent } from "node:fs";
 import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { type ContentHash, contentHashOf } from "../domain/content-hash.ts";
+import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
 import { StaleExpectedHash } from "../domain/exact-edit.ts";
 import { type FileTreeEntry, type FileTreePort, WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "../ports/file-tree-port.ts";
 import type { WorkspaceEntry, WorkspacePort } from "../ports/workspace-port.ts";

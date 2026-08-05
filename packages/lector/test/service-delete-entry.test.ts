@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { contentHashOf } from "../src/domain/content-hash.ts";
+import { contentHashOf } from "../src/content-identity/content-hash.ts";
 import { StaleExpectedHash } from "../src/domain/exact-edit.ts";
 import { createLectorService, type LectorService } from "../src/service.ts";
 

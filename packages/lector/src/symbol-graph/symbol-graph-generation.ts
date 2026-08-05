@@ -1,4 +1,4 @@
-import type { ContentHash } from "../domain/content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
 import type { RepoReference } from "../repo-fetcher/repo-reference.ts";
 import type { PopulateSymbolGraphResult } from "./populate-symbol-graph.ts";

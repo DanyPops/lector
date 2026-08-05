@@ -1,4 +1,4 @@
-import type { ContentHash } from "../domain/content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 
 /**
  * A symbol as derivable purely from content -- deliberately NOT WorkspaceSymbol:

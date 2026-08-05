@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { InMemoryWorkspace } from "../../src/adapters/in-memory-workspace.ts";
+import { contentHashOf } from "../../src/content-identity/content-hash.ts";
 import { applyPatch, PatchRejected } from "../../src/domain/apply-patch.ts";
-import { contentHashOf } from "../../src/domain/content-hash.ts";
 import { exactEdit, StaleExpectedHash } from "../../src/domain/exact-edit.ts";
 
 async function seed(content: string): Promise<InMemoryWorkspace> {

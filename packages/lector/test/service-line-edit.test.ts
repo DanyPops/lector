@@ -4,7 +4,7 @@
  * directly in test/domain/line-edit.test.ts.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { lineHashOf } from "../src/domain/line-hash.ts";
+import { lineHashOf } from "../src/content-identity/line-hash.ts";
 import { createLectorService, type LectorService, UnknownWorkspace } from "../src/service.ts";
 
 let service: LectorService | undefined;

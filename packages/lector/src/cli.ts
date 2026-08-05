@@ -8,13 +8,13 @@ import { createNodeServiceInstallDeps, installUserService, type ServiceSpec } fr
 import { InMemoryWorkspace } from "./adapters/in-memory-workspace.ts";
 import { LocalFilesystemWorkspace } from "./adapters/local-filesystem-workspace.ts";
 import { connectLectorClient, resolveLectorDaemonConnection } from "./client.ts";
+import type { JobSnapshot } from "./concurrency/bounded-job-executor.ts";
 import { LECTOR_PATH_NAMES, resolveLectorPaths } from "./constants.ts";
+import type { ContentHash } from "./content-identity/content-hash.ts";
 import { serveMain } from "./daemon.ts";
-import type { JobSnapshot } from "./domain/bounded-job-executor.ts";
-import type { ContentHash } from "./domain/content-hash.ts";
-import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS } from "./domain/external-search-result.ts";
 import type { ResponseFormat } from "./domain/response-format.ts";
 import type { SymbolSearchResult } from "./domain/workspace-symbol.ts";
+import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS } from "./external-search/external-search-result.ts";
 import {
 	DEFAULT_PACKAGE_SOURCE_BOUNDS,
 	PACKAGE_ECOSYSTEMS,

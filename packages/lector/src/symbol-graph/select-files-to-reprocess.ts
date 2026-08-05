@@ -1,4 +1,4 @@
-import type { ContentHash } from "../domain/content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 
 export interface FileReprocessSelection {
 	/** Files whose content actually changed (or is new/never successfully processed). */

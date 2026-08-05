@@ -1,4 +1,4 @@
-import { type ContentHash, contentHashOf } from "../domain/content-hash.ts";
+import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
 import { InMemoryMutationHistory } from "../mutation-history/in-memory-mutation-history.ts";
 import type { MutationOperation } from "../mutation-history/mutation-history.ts";
 import { canRevertMutation } from "../mutation-history/mutation-history.ts";

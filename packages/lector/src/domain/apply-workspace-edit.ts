@@ -1,5 +1,5 @@
+import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { WorkspacePort } from "../ports/workspace-port.ts";
-import type { ContentHash } from "./content-hash.ts";
 import type { ParsedWorkspaceEdit, TextEditOperation, WorkspaceEditOperation } from "./workspace-edit.ts";
 
 export class OverlappingWorkspaceEdits extends Error {

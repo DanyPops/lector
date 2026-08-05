@@ -6,8 +6,8 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { InMemoryWorkspace } from "../src/adapters/in-memory-workspace.ts";
-import { contentHashOf } from "../src/domain/content-hash.ts";
-import { lineHashOf } from "../src/domain/line-hash.ts";
+import { contentHashOf } from "../src/content-identity/content-hash.ts";
+import { lineHashOf } from "../src/content-identity/line-hash.ts";
 import { createLectorService, type LectorService, MutationEntryNotFound, MutationRevertStale } from "../src/service.ts";
 
 let service: LectorService | undefined;

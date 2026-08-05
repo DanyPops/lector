@@ -1,6 +1,6 @@
 /** Shared conformance suite for any MutationHistoryPort implementation. */
 import { describe, expect, it } from "bun:test";
-import { contentHashOf } from "../../src/domain/content-hash.ts";
+import { contentHashOf } from "../../src/content-identity/content-hash.ts";
 import type { MutationHistoryPort } from "../../src/mutation-history/port.ts";
 
 export interface MutationHistoryConformanceHarness {

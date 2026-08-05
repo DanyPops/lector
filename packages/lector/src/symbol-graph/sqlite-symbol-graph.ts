@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { type Migration, openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
-import type { ContentHash } from "../domain/content-hash.ts";
+import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { IntelligenceProvenance } from "../domain/intelligence-provenance.ts";
 import type { PopulateSymbolGraphResult, SymbolGraphPopulationFailure } from "./populate-symbol-graph.ts";
 import type { SymbolEdgeKind, SymbolEdgeRecord, SymbolGraphPort, SymbolNode } from "./port.ts";

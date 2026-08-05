@@ -1,5 +1,5 @@
-import type { ExternalSearchBounds, NpmPackageCandidate } from "../domain/external-search-result.ts";
-import type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest } from "../domain/npm-package-metadata.ts";
+import type { ExternalSearchBounds, NpmPackageCandidate } from "../external-search/external-search-result.ts";
+import type { NpmPackageVersionMetadata, NpmRegistryBounds, NpmRegistryVersionRequest } from "./npm-package-metadata.ts";
 
 export interface NpmRegistryPort {
 	fetchVersion(request: NpmRegistryVersionRequest, bounds: NpmRegistryBounds): Promise<NpmPackageVersionMetadata>;

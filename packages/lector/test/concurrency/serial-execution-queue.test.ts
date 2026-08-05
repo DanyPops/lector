@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { SerialExecutionQueue, SerialQueueCapacityExceeded } from "../../src/domain/serial-execution-queue.ts";
+import { SerialExecutionQueue, SerialQueueCapacityExceeded } from "../../src/concurrency/serial-execution-queue.ts";
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 	let resolve!: (value: T) => void;

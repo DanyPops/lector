@@ -11,7 +11,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ContentHash } from "../../src/domain/content-hash.ts";
+import type { ContentHash } from "../../src/content-identity/content-hash.ts";
 import { SqliteSymbolGraph } from "../../src/symbol-graph/sqlite-symbol-graph.ts";
 import { deriveSymbolNodeId, type SymbolNodeId } from "../../src/symbol-graph/symbol-node-id.ts";
 import { runSymbolGraphPortConformanceSuite } from "../support/symbol-graph-port-conformance.ts";

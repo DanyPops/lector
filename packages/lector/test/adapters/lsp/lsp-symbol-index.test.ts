@@ -11,7 +11,7 @@ import { join } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { LanguageFileOutsideWorkspace, LanguageServerProvisioningUnavailable, LspSymbolIndex } from "../../../src/adapters/lsp/lsp-symbol-index.ts";
 import { InMemoryContentCache } from "../../../src/content-cache/in-memory-content-cache.ts";
-import { contentHashOf } from "../../../src/domain/content-hash.ts";
+import { contentHashOf } from "../../../src/content-identity/content-hash.ts";
 import { diagnostics } from "../../../src/domain/diagnostics.ts";
 import { documentSymbols } from "../../../src/domain/document-symbols.ts";
 import { findReferences } from "../../../src/domain/find-references.ts";
@@ -19,13 +19,13 @@ import { findWorkspaceSymbols } from "../../../src/domain/find-workspace-symbols
 import { goToDefinition } from "../../../src/domain/go-to-definition.ts";
 import { goToImplementation } from "../../../src/domain/go-to-implementation.ts";
 import { hoverAt } from "../../../src/domain/hover-at.ts";
-import { incomingCalls } from "../../../src/domain/incoming-calls.ts";
 import { type LanguageServerDescriptor, TYPESCRIPT_DESCRIPTOR } from "../../../src/domain/language-server-descriptor.ts";
-import { outgoingCalls } from "../../../src/domain/outgoing-calls.ts";
-import { prepareCallHierarchy } from "../../../src/domain/prepare-call-hierarchy.ts";
 import { InstallLocation } from "../../../src/lsp-provisioning/install-location.ts";
 import { LanguageServerProvisioner } from "../../../src/lsp-provisioning/language-server-provisioner.ts";
 import type { LanguageServerProvisionerPort } from "../../../src/lsp-provisioning/port.ts";
+import { incomingCalls } from "../../../src/symbol-graph/incoming-calls.ts";
+import { outgoingCalls } from "../../../src/symbol-graph/outgoing-calls.ts";
+import { prepareCallHierarchy } from "../../../src/symbol-graph/prepare-call-hierarchy.ts";
 import { findPositionOf } from "../../support/find-position.ts";
 import { startGithubReleaseFixture } from "../../support/github-release-fixture.ts";
 
