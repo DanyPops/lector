@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { contentHashOf } from "../../src/content-identity/content-hash.ts";
+import { GuardedLiveBuffer } from "../../src/live-buffer/guarded-live-buffer.ts";
 import { LiveBuffer } from "../../src/live-buffer/live-buffer.ts";
 
 describe("LiveBuffer", () => {
@@ -94,5 +96,35 @@ describe("LiveBuffer", () => {
 		expect(buffer.text).toBe("ab");
 		buffer.undo();
 		expect(buffer.text).toBe("a");
+	});
+});
+
+describe("GuardedLiveBuffer", () => {
+	it("owns explicit identity, dirty state, and the refreshed save guard", () => {
+		const editor = new GuardedLiveBuffer({ workspaceId: "ws", path: "a.ts" }, "one", contentHashOf("one"));
+		expect(editor.dirty).toBe(false);
+		editor.buffer.replace(0, editor.buffer.length, "two");
+		expect(editor.dirty).toBe(true);
+		editor.markSaved("two", contentHashOf("two"));
+		expect(editor.expectedHash).toBe(contentHashOf("two"));
+		expect(editor.dirty).toBe(false);
+	});
+
+	it("rejects mismatched hashes without advancing the save guard", () => {
+		expect(() => new GuardedLiveBuffer({ workspaceId: "ws", path: "a.ts" }, "one", contentHashOf("other"))).toThrow("Content/hash mismatch");
+		const editor = new GuardedLiveBuffer({ workspaceId: "ws", path: "a.ts" }, "one", contentHashOf("one"));
+		editor.buffer.replace(0, editor.buffer.length, "two");
+		expect(() => editor.markSaved("two", contentHashOf("other"))).toThrow("Content/hash mismatch");
+		expect(editor.expectedHash).toBe(contentHashOf("one"));
+		expect(editor.dirty).toBe(true);
+	});
+
+	it("keeps the local buffer and original guard when marked stale", () => {
+		const editor = new GuardedLiveBuffer({ workspaceId: "ws", path: "a.ts" }, "one", contentHashOf("one"));
+		editor.buffer.replace(0, editor.buffer.length, "local");
+		editor.markStale(contentHashOf("external"));
+		expect(editor.buffer.text).toBe("local");
+		expect(editor.expectedHash).toBe(contentHashOf("one"));
+		expect(editor.stale).toEqual({ expectedHash: contentHashOf("one"), actualHash: contentHashOf("external") });
 	});
 });

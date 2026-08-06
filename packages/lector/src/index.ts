@@ -115,6 +115,7 @@ export type {
 } from "./installed-package-version-resolver/installed-package-version.ts";
 export { InvalidInstalledPackageVersionRequest, NpmLockfileVersionResolver } from "./installed-package-version-resolver/npm-lockfile-version-resolver.ts";
 export type { InstalledPackageVersionResolverPort } from "./installed-package-version-resolver/port.ts";
+export { GuardedLiveBuffer, type LiveBufferIdentity, type StaleBufferState } from "./live-buffer/guarded-live-buffer.ts";
 export { type BufferPosition, LiveBuffer } from "./live-buffer/live-buffer.ts";
 export { type HighlightSpan, highlightSpans } from "./live-buffer/syntax-highlight.ts";
 export { detectLibc } from "./lsp-provisioning/detect-libc.ts";

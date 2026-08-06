@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { ContributionCommand, ContributionResourceProvider } from "@alignment/surface-protocol";
+import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@alignment/surface-protocol";
+import { contentHashOf, GuardedLiveBuffer } from "@danypops/lector";
 import { createLectorAlignmentContribution, type LectorOperations } from "../src/index.js";
 
 function host() {
@@ -27,6 +28,11 @@ function requireCommand(commands: ReadonlyMap<string, ContributionCommand>, id: 
 	return command;
 }
 
+function resourceValue(outcome: Awaited<ReturnType<ContributionCommand["execute"]>>): ContributionResourceReference {
+	if (!outcome.ok) throw new Error(`${outcome.code}: ${outcome.message}`);
+	return outcome.value;
+}
+
 describe("Lector Alignment contribution contract", () => {
 	it("describes, activates, and disposes the narrow command/resource surface", async () => {
 		const operations: LectorOperations = {
@@ -41,12 +47,13 @@ describe("Lector Alignment contribution contract", () => {
 			commands: [
 				{ id: "lector.workspace.open", title: "Open Workspace" },
 				{ id: "lector.file.open", title: "Open File" },
+				{ id: "lector.file.save", title: "Save File" },
 			],
 			resourceSchemes: ["lector"],
 		});
 		const registered = host();
 		await contribution.activate(registered.api);
-		expect([...registered.commands.keys()]).toEqual(["lector.workspace.open", "lector.file.open"]);
+		expect([...registered.commands.keys()]).toEqual(["lector.workspace.open", "lector.file.open", "lector.file.save"]);
 		expect([...registered.providers.keys()]).toEqual(["lector"]);
 		await contribution.dispose();
 		expect(registered.commands.size).toBe(0);
@@ -59,7 +66,7 @@ describe("Lector Alignment contribution contract", () => {
 			call: async (operation, input) => {
 				calls.push({ operation, input });
 				if (operation === "workspace.registerPath") return { workspaceId: "ws-1", created: true };
-				if (operation === "workspace.rawRead") return { path: "src/a.ts", content: "export const a = 1;", hash: "a".repeat(64) };
+				if (operation === "workspace.rawRead") return { path: "src/a.ts", content: "export const a = 1;", hash: contentHashOf("export const a = 1;") };
 				throw new Error(`unexpected ${operation}`);
 			},
 		};
@@ -77,6 +84,42 @@ describe("Lector Alignment contribution contract", () => {
 		expect(calls).toEqual([
 			{ operation: "workspace.registerPath", input: { path: "/tmp/project" } },
 			{ operation: "workspace.rawRead", input: { workspaceId: "ws-1", path: "src/a.ts" } },
+		]);
+	});
+
+	it("projects a Lector-owned dirty buffer and refreshes its guard after each save", async () => {
+		const exactEdits: unknown[] = [];
+		const operations: LectorOperations = {
+			call: async (operation, input) => {
+				if (operation === "workspace.rawRead") return { path: "a.txt", content: "one", hash: contentHashOf("one") };
+				if (operation === "workspace.exactEdit") {
+					exactEdits.push(input);
+					if (typeof input !== "object" || input === null || !("content" in input) || typeof input.content !== "string") throw new Error("invalid edit input");
+					return { path: "a.txt", previousHash: "unused", newHash: contentHashOf(input.content) };
+				}
+				throw new Error(`unexpected ${operation}`);
+			},
+		};
+		const registered = host();
+		const contribution = createLectorAlignmentContribution({ operations });
+		await contribution.activate(registered.api);
+		const file = resourceValue(await requireCommand(registered.commands, "lector.file.open").execute({ workspaceId: "ws", path: "a.txt" }));
+		const provider = registered.providers.get("lector");
+		if (!provider) throw new Error("Missing provider");
+		const projected = await provider.read(file, { maxBytes: 100, maxEntries: 10 });
+		if (!projected.ok || typeof projected.value !== "object" || projected.value === null || !("editor" in projected.value)) throw new Error("Missing editor");
+		const editor = projected.value.editor;
+		if (!(editor instanceof GuardedLiveBuffer)) throw new Error("Invalid editor");
+		editor.buffer.replace(0, editor.buffer.length, "two");
+		expect(editor.dirty).toBe(true);
+		expect(await requireCommand(registered.commands, "lector.file.save").execute({ resource: file })).toEqual({ ok: true, value: file });
+		expect(editor.dirty).toBe(false);
+		editor.buffer.replace(0, editor.buffer.length, "three");
+		expect(await requireCommand(registered.commands, "lector.file.save").execute({ resource: file })).toEqual({ ok: true, value: file });
+		expect(await requireCommand(registered.commands, "lector.file.save").execute({ resource: file })).toEqual({ ok: true, value: file });
+		expect(exactEdits).toEqual([
+			{ workspaceId: "ws", path: "a.txt", expectedHash: contentHashOf("one"), content: "two" },
+			{ workspaceId: "ws", path: "a.txt", expectedHash: contentHashOf("two"), content: "three" },
 		]);
 	});
 

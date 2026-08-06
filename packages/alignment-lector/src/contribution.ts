@@ -8,11 +8,13 @@ import {
 	type ContributionResourceReference,
 	ContributionResourceReferenceSchema,
 } from "@alignment/surface-protocol";
+import { GuardedLiveBuffer, remoteErrorIs } from "@danypops/lector";
 import { authenticatedLectorOperations, type LectorOperations } from "./lector-operations.js";
 
 const COMMANDS = [
 	{ id: "lector.workspace.open", title: "Open Workspace" },
 	{ id: "lector.file.open", title: "Open File" },
+	{ id: "lector.file.save", title: "Save File" },
 ] as const;
 
 interface RegisterOutput {
@@ -30,6 +32,10 @@ interface FileTreeEntryOutput {
 interface DirectoryOutput {
 	path: string;
 	entries: readonly FileTreeEntryOutput[];
+}
+interface ExactEditOutput {
+	path: string;
+	newHash: string;
 }
 
 function failure(code: string, message: string): ContributionOutcome<never> {
@@ -51,6 +57,11 @@ function rawReadOutput(value: unknown): RawReadOutput | undefined {
 	return parsed && typeof parsed.path === "string" && typeof parsed.content === "string" && typeof parsed.hash === "string"
 		? { path: parsed.path, content: parsed.content, hash: parsed.hash }
 		: undefined;
+}
+
+function exactEditOutput(value: unknown): ExactEditOutput | undefined {
+	const parsed = record(value);
+	return parsed && typeof parsed.path === "string" && typeof parsed.newHash === "string" ? { path: parsed.path, newHash: parsed.newHash } : undefined;
 }
 
 function directoryOutput(value: unknown): DirectoryOutput | undefined {
@@ -94,8 +105,15 @@ function validFileInput(input: unknown): input is { workspaceId: string; path: s
 	);
 }
 
+function saveResourceInput(input: unknown): ContributionResourceReference | undefined {
+	const value = record(input);
+	const parsed = ContributionResourceReferenceSchema.safeParse(value?.resource);
+	return parsed.success && parsed.data.kind === "text" ? parsed.data : undefined;
+}
+
 export function createLectorAlignmentContribution(options: { operations?: LectorOperations } = {}): AlignmentContribution {
 	const operations = options.operations ?? authenticatedLectorOperations();
+	const editors = new Map<string, GuardedLiveBuffer>();
 	let unregister: Array<() => void> = [];
 
 	async function openWorkspace(input: unknown): Promise<ContributionOutcome<ContributionResourceReference>> {
@@ -114,9 +132,47 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 		try {
 			const output = rawReadOutput(await operations.call("workspace.rawRead", { workspaceId: input.workspaceId, path: input.path }));
 			if (!output) return failure("invalid-response", "Lector returned an invalid file read");
-			return { ok: true, value: reference("text", input.workspaceId, output.path, basename(output.path)) };
+			const resource = reference("text", input.workspaceId, output.path, basename(output.path));
+			if (!editors.has(resource.uri))
+				editors.set(resource.uri, new GuardedLiveBuffer({ workspaceId: input.workspaceId, path: output.path }, output.content, output.hash));
+			return { ok: true, value: resource };
 		} catch (error) {
 			return failure("lector-error", error instanceof Error ? error.message : "Lector file open failed");
+		}
+	}
+
+	async function saveFile(input: unknown): Promise<ContributionOutcome<ContributionResourceReference>> {
+		const resource = saveResourceInput(input);
+		if (!resource) return failure("invalid-input", "File save requires a valid text resource");
+		const parsed = parseReference(resource);
+		if (!parsed.ok) return parsed;
+		const editor = editors.get(resource.uri);
+		if (!editor) return failure("editor-not-open", "File must be opened as an editor resource before saving");
+		if (!editor.dirty) return { ok: true, value: resource };
+		const content = editor.buffer.text;
+		try {
+			const output = exactEditOutput(
+				await operations.call("workspace.exactEdit", {
+					workspaceId: parsed.value.workspaceId,
+					path: parsed.value.path,
+					expectedHash: editor.expectedHash,
+					content,
+				}),
+			);
+			if (!output || output.path !== parsed.value.path) return failure("invalid-response", "Lector returned an invalid exact-edit outcome");
+			editor.markSaved(content, output.newHash);
+			return { ok: true, value: resource };
+		} catch (error) {
+			if (remoteErrorIs(error, "StaleExpectedHash")) {
+				try {
+					const actual = rawReadOutput(await operations.call("workspace.rawRead", { workspaceId: parsed.value.workspaceId, path: parsed.value.path }));
+					editor.markStale(actual?.hash ?? null);
+				} catch {
+					editor.markStale(null);
+				}
+				return failure("stale-write", "File changed outside this editor; local edits were preserved");
+			}
+			return failure("lector-error", error instanceof Error ? error.message : "Lector file save failed");
 		}
 	}
 
@@ -139,11 +195,30 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 				return { ok: true, value: { kind: "tree", workspaceId: parsed.value.workspaceId, path: output.path, entries, readOnly: true } };
 			}
 			if (resource.kind === "text") {
-				const output = rawReadOutput(await operations.call("workspace.rawRead", { workspaceId: parsed.value.workspaceId, path: parsed.value.path }));
-				if (!output) return failure("invalid-response", "Lector returned an invalid file read");
-				const bytes = Buffer.byteLength(output.content, "utf8");
+				let editor = editors.get(resource.uri);
+				if (!editor) {
+					const output = rawReadOutput(await operations.call("workspace.rawRead", { workspaceId: parsed.value.workspaceId, path: parsed.value.path }));
+					if (!output) return failure("invalid-response", "Lector returned an invalid file read");
+					editor = new GuardedLiveBuffer({ workspaceId: parsed.value.workspaceId, path: output.path }, output.content, output.hash);
+					editors.set(resource.uri, editor);
+				}
+				const content = editor.buffer.text;
+				const bytes = Buffer.byteLength(content, "utf8");
 				if (bytes > bounded.data.maxBytes) return failure("resource-bound-exceeded", `File is ${bytes} bytes; cap is ${bounded.data.maxBytes}`);
-				return { ok: true, value: { kind: "text", workspaceId: parsed.value.workspaceId, ...output, bytes, readOnly: true } };
+				return {
+					ok: true,
+					value: {
+						kind: "text",
+						workspaceId: parsed.value.workspaceId,
+						path: parsed.value.path,
+						content,
+						hash: editor.expectedHash,
+						bytes,
+						dirty: editor.dirty,
+						editor,
+						readOnly: true,
+					},
+				};
 			}
 			return failure("unsupported-resource", `Unsupported Lector resource kind: ${resource.kind}`);
 		} catch (error) {
@@ -158,11 +233,13 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 			unregister = [
 				host.registerCommand({ ...COMMANDS[0], execute: openWorkspace }),
 				host.registerCommand({ ...COMMANDS[1], execute: openFile }),
+				host.registerCommand({ ...COMMANDS[2], execute: saveFile }),
 				host.registerResourceProvider({ scheme: "lector", read: readResource }),
 			];
 		},
 		dispose() {
 			for (const remove of unregister.splice(0).reverse()) remove();
+			editors.clear();
 		},
 	};
 }

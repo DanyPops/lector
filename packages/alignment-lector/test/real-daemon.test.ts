@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@alignment/surface-protocol";
-import { createLectorAlignmentContribution, lectorOperationsFromClient } from "../src/index.js";
+import { createLectorAlignmentContribution, GuardedLiveBuffer, lectorOperationsFromClient } from "../src/index.js";
 import { startIsolatedDaemon } from "./support/isolated-daemon.js";
 
 function capturingHost() {
@@ -87,11 +87,50 @@ describe("Lector Alignment contribution against a real daemon", () => {
 		const file = resourceValue(await requireCommand(host.commands, "lector.file.open").execute({ workspaceId, path: "src/a.ts" }));
 		expect(file).toMatchObject({ kind: "text", readOnly: true });
 		expect(await provider.read(file, { maxBytes: 4, maxEntries: 10 })).toMatchObject({ ok: false, code: "resource-bound-exceeded" });
-		expect(await provider.read(file, { maxBytes: 5, maxEntries: 10 })).toEqual({
+		expect(await provider.read(file, { maxBytes: 5, maxEntries: 10 })).toMatchObject({
 			ok: true,
-			value: { kind: "text", workspaceId, path: "src/a.ts", content: "hello", hash: expect.stringMatching(/^[0-9a-f]{64}$/), bytes: 5, readOnly: true },
+			value: {
+				kind: "text",
+				workspaceId,
+				path: "src/a.ts",
+				content: "hello",
+				hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+				bytes: 5,
+				dirty: false,
+				editor: expect.any(GuardedLiveBuffer),
+				readOnly: true,
+			},
 		});
 		expect([...host.commands.keys()]).not.toContain("lector.file.write");
+	});
+
+	it("preserves local edits when a real external write makes guarded save stale", async () => {
+		const daemon = await startIsolatedDaemon();
+		stop = daemon.stop;
+		workspaceRoot = mkdtempSync(join(tmpdir(), "alignment-lector-stale-"));
+		writeFileSync(join(workspaceRoot, "note.txt"), "original");
+
+		const host = capturingHost();
+		const contribution = createLectorAlignmentContribution({ operations: lectorOperationsFromClient(daemon.client) });
+		await contribution.activate(host.api);
+		const workspace = resourceValue(await requireCommand(host.commands, "lector.workspace.open").execute({ path: workspaceRoot }));
+		const workspaceId = decodeURIComponent(new URL(workspace.uri).pathname.slice(1));
+		const file = resourceValue(await requireCommand(host.commands, "lector.file.open").execute({ workspaceId, path: "note.txt" }));
+		const projection = await requireProvider(host.provider()).read(file, { maxBytes: 100, maxEntries: 10 });
+		if (!projection.ok || typeof projection.value !== "object" || projection.value === null || !("editor" in projection.value))
+			throw new Error("Missing editor projection");
+		const editor = projection.value.editor;
+		expect(editor).toBeInstanceOf(GuardedLiveBuffer);
+		if (!(editor instanceof GuardedLiveBuffer)) throw new Error("Invalid editor projection");
+		editor.buffer.replace(0, editor.buffer.length, "local edit");
+		expect(editor.dirty).toBe(true);
+		writeFileSync(join(workspaceRoot, "note.txt"), "external edit");
+
+		expect(await requireCommand(host.commands, "lector.file.save").execute({ resource: file })).toMatchObject({ ok: false, code: "stale-write" });
+		expect(editor.stale?.actualHash).toMatch(/^[0-9a-f]{64}$/);
+		expect(readFileSync(join(workspaceRoot, "note.txt"), "utf8")).toBe("external edit");
+		expect(editor.buffer.text).toBe("local edit");
+		expect(editor.dirty).toBe(true);
 	});
 
 	it("preserves explicit workspace identity instead of guessing another root", async () => {
