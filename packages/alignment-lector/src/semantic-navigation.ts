@@ -109,6 +109,7 @@ function signalFrom(input: Record<string, unknown>): AbortSignal | undefined {
 
 async function callWithCancellation(operations: LectorOperations, operation: string, input: unknown, signal?: AbortSignal): Promise<unknown> {
 	if (!signal) return await operations.call(operation, input);
+	// Vehicle RPC has no AbortSignal channel yet; stop the host wait and discard the bounded late result rather than caching it as if still requested.
 	if (signal.aborted) throw new DOMException("Semantic request canceled", "AbortError");
 	return await new Promise((resolve, reject) => {
 		const canceled = () => reject(new DOMException("Semantic request canceled", "AbortError"));
