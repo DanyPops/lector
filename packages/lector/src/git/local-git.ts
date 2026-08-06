@@ -1,9 +1,12 @@
 import simpleGit from "simple-git";
+import { truncateUtf8 } from "../bounds/truncate-utf8.ts";
 import { assertSafeGitArgument } from "./assert-safe-git-argument.ts";
 import type { GitDiffResult } from "./diff-result.ts";
 import type { GitLogEntry } from "./log-entry.ts";
 import type { GitPort } from "./port.ts";
+import { GitRevisionNotFound, gitErrorIsMissingRevision } from "./revision-not-found.ts";
 import type { GitStatusSummary } from "./status.ts";
+import { parseUnifiedGitDiff } from "./unified-diff.ts";
 
 /**
  * GitPort backed by simple-git rather than a hand-rolled execFile wrapper --
@@ -57,7 +60,7 @@ export class LocalGit implements GitPort {
 	}
 
 	async diff(ref: string | undefined, maxBytes: number): Promise<GitDiffResult> {
-		const args: string[] = [];
+		const args: string[] = ["--relative"];
 		if (ref !== undefined) {
 			assertSafeGitArgument(ref);
 			args.push(ref);
@@ -66,9 +69,14 @@ export class LocalGit implements GitPort {
 		// git itself past this point -- defense in depth beyond assertSafeGitArgument and simple-git's
 		// own blockUnsafeOperationsPlugin.
 		args.push("--");
-		const raw = await this.git.diff(args);
-		const truncated = raw.length > maxBytes;
-		return { diff: truncated ? raw.slice(0, maxBytes) : raw, truncated };
+		try {
+			const raw = await this.git.diff(args);
+			const bounded = truncateUtf8(raw, maxBytes);
+			return { diff: bounded.value, files: parseUnifiedGitDiff(bounded.value), truncated: bounded.truncated };
+		} catch (error) {
+			if (ref !== undefined && gitErrorIsMissingRevision(error)) throw new GitRevisionNotFound(ref);
+			throw error;
+		}
 	}
 
 	async showFile(ref: string, path: string): Promise<string | undefined> {
@@ -81,8 +89,9 @@ export class LocalGit implements GitPort {
 			return await this.git.show([`${ref}:./${path}`]);
 		} catch (error) {
 			// git's own stable wording for "the ref resolved fine, but this path isn't in that tree" --
-			// distinct from a bad ref ("invalid object name"), which must still propagate as a real error.
+			// distinct from a bad ref, which is translated into a stable domain error.
 			if (error instanceof Error && error.message.includes("does not exist in")) return undefined;
+			if (gitErrorIsMissingRevision(error)) throw new GitRevisionNotFound(ref);
 			throw error;
 		}
 	}

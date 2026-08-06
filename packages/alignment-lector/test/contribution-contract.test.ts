@@ -58,6 +58,10 @@ describe("Lector Alignment contribution contract", () => {
 				{ id: "lector.call-graph.incoming", title: "Show Callers" },
 				{ id: "lector.call-graph.outgoing", title: "Show Callees" },
 				{ id: "lector.call-graph.reachable", title: "Show Reachable Calls" },
+				{ id: "lector.git.status", title: "Show Git Status" },
+				{ id: "lector.git.log", title: "Show Git Log" },
+				{ id: "lector.git.diff", title: "Show Git Diff" },
+				{ id: "lector.git.compare-symbol", title: "Compare Symbol Across Revisions" },
 			],
 			resourceSchemes: ["lector"],
 		});
@@ -77,6 +81,10 @@ describe("Lector Alignment contribution contract", () => {
 			"lector.call-graph.incoming",
 			"lector.call-graph.outgoing",
 			"lector.call-graph.reachable",
+			"lector.git.status",
+			"lector.git.log",
+			"lector.git.diff",
+			"lector.git.compare-symbol",
 		]);
 		expect([...registered.providers.keys()]).toEqual(["lector"]);
 		await contribution.dispose();

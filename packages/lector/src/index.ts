@@ -90,7 +90,10 @@ export type { GitDiffResult } from "./git/diff-result.ts";
 export { LocalGit } from "./git/local-git.ts";
 export type { GitLogEntry } from "./git/log-entry.ts";
 export type { GitPort } from "./git/port.ts";
+export { GitRevisionNotFound } from "./git/revision-not-found.ts";
 export type { GitStatusEntry, GitStatusSummary } from "./git/status.ts";
+export type { GitDiffFile, GitDiffFileStatus, GitDiffHunk } from "./git/unified-diff.ts";
+export { parseUnifiedGitDiff } from "./git/unified-diff.ts";
 export {
 	DEFAULT_GITHUB_API_BASE_URL,
 	GithubSearchClient,

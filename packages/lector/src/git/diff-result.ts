@@ -1,5 +1,8 @@
-/** Unified diff text, bounded per "Bound resources and outputs explicitly" -- a huge diff is truncated, never silently unbounded. */
+import type { GitDiffFile } from "./unified-diff.ts";
+
+/** Unified diff text plus its parsed file/hunk structure, bounded per "Bound resources and outputs explicitly". */
 export interface GitDiffResult {
 	readonly diff: string;
+	readonly files: readonly GitDiffFile[];
 	readonly truncated: boolean;
 }

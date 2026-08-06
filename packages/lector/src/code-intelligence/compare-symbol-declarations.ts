@@ -1,4 +1,5 @@
 import { createTwoFilesPatch } from "diff";
+import { truncateUtf8 } from "../bounds/truncate-utf8.ts";
 import type { SymbolDeclarationSnapshot } from "./symbol-declaration-snapshot.ts";
 
 export type SymbolComparisonStatus = "unchanged" | "changed" | "added" | "removed" | "both-missing";
@@ -32,6 +33,6 @@ export function compareSymbolDeclarations(
 	const status: SymbolComparisonStatus = from.found && to.found ? "changed" : from.found ? "removed" : "added";
 	const label = `${path} (${symbolName})`;
 	const raw = createTwoFilesPatch(`${label} @ ${fromLabel}`, `${label} @ ${toLabel}`, from.text ?? "", to.text ?? "");
-	const truncated = raw.length > maxBytes;
-	return { status, diff: truncated ? raw.slice(0, maxBytes) : raw, truncated };
+	const bounded = truncateUtf8(raw, maxBytes);
+	return { status, diff: bounded.value, truncated: bounded.truncated };
 }

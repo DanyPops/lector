@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UnsafeGitArgument } from "../../src/git/assert-safe-git-argument.ts";
 import { LocalGit } from "../../src/git/local-git.ts";
+import { GitRevisionNotFound } from "../../src/git/revision-not-found.ts";
 
 let repoRoot: string | undefined;
 
@@ -97,6 +98,29 @@ describe("LocalGit", () => {
 		expect(result.truncated).toBe(false);
 		expect(result.diff).toContain("-hello");
 		expect(result.diff).toContain("+changed content");
+		expect(result.files).toEqual([
+			expect.objectContaining({
+				path: "a.txt",
+				status: "modified",
+				binary: false,
+				hunks: [expect.objectContaining({ oldStart: 1, newStart: 1 })],
+			}),
+		]);
+	});
+
+	it("diff paths stay relative to a workspace rooted below the repository root", async () => {
+		repoRoot = buildRepo();
+		const { mkdirSync } = await import("node:fs");
+		mkdirSync(join(repoRoot, "sub"));
+		writeFileSync(join(repoRoot, "sub/b.txt"), "before\n");
+		git(repoRoot, "add", "sub/b.txt");
+		git(repoRoot, "commit", "-q", "-m", "add nested file");
+		writeFileSync(join(repoRoot, "sub/b.txt"), "after\n");
+
+		const result = await new LocalGit(join(repoRoot, "sub")).diff(undefined, 10_000);
+
+		expect(result.files[0]?.path).toBe("b.txt");
+		expect(result.diff).not.toContain("a/sub/b.txt");
 	});
 
 	it("diff truncates past maxBytes rather than returning an unbounded string", async () => {
@@ -112,6 +136,11 @@ describe("LocalGit", () => {
 	it("rejects a ref that looks like a flag, rather than letting it reach git's own argv parser", async () => {
 		repoRoot = buildRepo();
 		await expect(new LocalGit(repoRoot).diff("--upload-pack=evil", 1000)).rejects.toBeInstanceOf(UnsafeGitArgument);
+	});
+
+	it("translates an unresolved diff revision into a stable domain error", async () => {
+		repoRoot = buildRepo();
+		await expect(new LocalGit(repoRoot).diff("not-a-real-ref", 1000)).rejects.toBeInstanceOf(GitRevisionNotFound);
 	});
 
 	it("showFile returns a path's exact blob content at a real ref", async () => {
@@ -140,7 +169,7 @@ describe("LocalGit", () => {
 
 	it("showFile still throws for a genuinely invalid ref, distinct from a missing path", async () => {
 		repoRoot = buildRepo();
-		await expect(new LocalGit(repoRoot).showFile("no-such-ref", "a.txt")).rejects.toThrow();
+		await expect(new LocalGit(repoRoot).showFile("no-such-ref", "a.txt")).rejects.toBeInstanceOf(GitRevisionNotFound);
 	});
 
 	it("showFile rejects a ref that looks like a flag", async () => {

@@ -110,7 +110,7 @@ describe("mock: the automatic watcher's own git-repository gate, via a fake GitP
 			isGitRepository: async () => false,
 			status: async () => ({ current: null, files: [], ahead: 0, behind: 0, tracking: null }),
 			log: async () => [],
-			diff: async () => ({ diff: "", truncated: false }),
+			diff: async () => ({ diff: "", files: [], truncated: false }),
 			showFile: async () => undefined,
 		};
 		service = createLectorService(new Map(), {
@@ -140,7 +140,7 @@ describe("mock: the automatic watcher's own git-repository gate, via a fake GitP
 			isGitRepository: async () => true,
 			status: async () => ({ current: "main", files: [], ahead: 0, behind: 0, tracking: null }),
 			log: async () => [],
-			diff: async () => ({ diff: "", truncated: false }),
+			diff: async () => ({ diff: "", files: [], truncated: false }),
 			showFile: async () => undefined,
 		};
 		service = createLectorService(new Map(), {
@@ -172,7 +172,7 @@ describe("mock: a remote-origin (repo.fetch) workspace is always treated as git-
 			isGitRepository: async () => false, // deliberately wrong -- proves the remote-origin shortcut never calls this at all
 			status: async () => ({ current: null, files: [], ahead: 0, behind: 0, tracking: null }),
 			log: async () => [],
-			diff: async () => ({ diff: "", truncated: false }),
+			diff: async () => ({ diff: "", files: [], truncated: false }),
 			showFile: async () => undefined,
 		};
 		const fakeFetcher: RepoFetcherPort = {

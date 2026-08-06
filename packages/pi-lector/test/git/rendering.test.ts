@@ -86,8 +86,8 @@ describe("formatGitResult -- log", () => {
 });
 
 describe("formatGitResult -- diff", () => {
-	function diff(result: GitDiffResult): GitToolDetails {
-		return { action: "diff", result };
+	function diff(result: Omit<GitDiffResult, "files">): GitToolDetails {
+		return { action: "diff", result: { ...result, files: [] } };
 	}
 
 	const REAL_DIFF = ["@@ -1,3 +1,3 @@", " line 1", "-line 2", "+line 2 patched", " line 3"].join("\n");
