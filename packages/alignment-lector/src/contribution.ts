@@ -9,6 +9,7 @@ import {
 	ContributionResourceReferenceSchema,
 } from "@alignment/surface-protocol";
 import { GuardedLiveBuffer, remoteErrorIs } from "@danypops/lector";
+import { CALL_GRAPH_COMMANDS, createCallGraphContribution } from "./call-graph.js";
 import { authenticatedLectorOperations, type LectorOperations } from "./lector-operations.js";
 import { createSemanticNavigationContribution, SEMANTIC_COMMANDS } from "./semantic-navigation.js";
 
@@ -115,6 +116,7 @@ function saveResourceInput(input: unknown): ContributionResourceReference | unde
 export function createLectorAlignmentContribution(options: { operations?: LectorOperations } = {}): AlignmentContribution {
 	const operations = options.operations ?? authenticatedLectorOperations();
 	const semanticNavigation = createSemanticNavigationContribution(operations);
+	const callGraph = createCallGraphContribution(operations);
 	const editors = new Map<string, GuardedLiveBuffer>();
 	let unregister: Array<() => void> = [];
 
@@ -124,6 +126,7 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 			const output = registerOutput(await operations.call("workspace.registerPath", { path: input.path }));
 			if (!output) return failure("invalid-response", "Lector returned an invalid workspace registration");
 			semanticNavigation.registerWorkspace(output.workspaceId, input.path);
+			callGraph.registerWorkspace(output.workspaceId, input.path);
 			return { ok: true, value: reference("workspace", output.workspaceId, "", basename(input.path) || input.path) };
 		} catch (error) {
 			return failure("lector-error", error instanceof Error ? error.message : "Lector workspace open failed");
@@ -184,6 +187,8 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 		if (!bounded.success) return failure("invalid-bounds", "Resource read bounds are invalid");
 		const semantic = semanticNavigation.read(resource, bounded.data);
 		if (semantic) return semantic;
+		const graph = callGraph.read(resource, bounded.data);
+		if (graph) return graph;
 		const parsed = parseReference(resource);
 		if (!parsed.ok) return parsed;
 		try {
@@ -232,7 +237,7 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 	}
 
 	return {
-		describe: () => ({ id: "lector", title: "Lector", commands: [...COMMANDS, ...SEMANTIC_COMMANDS], resourceSchemes: ["lector"] }),
+		describe: () => ({ id: "lector", title: "Lector", commands: [...COMMANDS, ...SEMANTIC_COMMANDS, ...CALL_GRAPH_COMMANDS], resourceSchemes: ["lector"] }),
 		activate(host: ContributionHost) {
 			if (unregister.length > 0) throw new Error("Lector contribution is already active");
 			unregister = [
@@ -240,6 +245,7 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 				host.registerCommand({ ...COMMANDS[1], execute: openFile }),
 				host.registerCommand({ ...COMMANDS[2], execute: saveFile }),
 				...semanticNavigation.commands.map((command) => host.registerCommand(command)),
+				...callGraph.commands.map((command) => host.registerCommand(command)),
 				host.registerResourceProvider({ scheme: "lector", read: readResource }),
 			];
 		},
@@ -247,6 +253,7 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 			for (const remove of unregister.splice(0).reverse()) remove();
 			editors.clear();
 			semanticNavigation.clear();
+			callGraph.clear();
 		},
 	};
 }
