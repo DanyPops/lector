@@ -23,9 +23,21 @@
         "typescript": "^5.9.3",
       },
     },
+    "packages/alignment-lector": {
+      "name": "@danypops/alignment-lector",
+      "version": "0.0.1",
+      "dependencies": {
+        "@alignment/surface-protocol": "file:vendor/alignment-surface-protocol-0.0.1.tgz",
+        "@danypops/lector": "workspace:*",
+      },
+      "devDependencies": {
+        "bun-types": "latest",
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.17.0",
+      "version": "0.18.1",
       "bin": {
         "lector": "src/cli.ts",
       },
@@ -59,7 +71,7 @@
     },
     "packages/pi-lector": {
       "name": "@danypops/pi-lector",
-      "version": "0.12.2",
+      "version": "0.12.3",
       "dependencies": {
         "@danypops/lector": "^0.17.0",
         "@danypops/vehicle-client": "^0.2.0",
@@ -85,6 +97,8 @@
     },
   },
   "packages": {
+    "@alignment/surface-protocol": ["@alignment/surface-protocol@vendor/alignment-surface-protocol-0.0.1.tgz", { "dependencies": { "zod": "^4.4.3" } }, "sha512-RdbPDrgnDPT03s2bl+kmZl8uN2gbyZce2F4saVs0B1McgDK+yuEaIKraVwzD6gR7yYEcrU7wubOpcI3X+UlmVQ=="],
+
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.91.1", "", { "dependencies": { "json-schema-to-ts": "^3.1.1" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw=="],
 
     "@aws-crypto/sha256-browser": ["@aws-crypto/sha256-browser@5.2.0", "", { "dependencies": { "@aws-crypto/sha256-js": "^5.2.0", "@aws-crypto/supports-web-crypto": "^5.2.0", "@aws-crypto/util": "^5.2.0", "@aws-sdk/types": "^3.222.0", "@aws-sdk/util-locate-window": "^3.0.0", "@smithy/util-utf8": "^2.0.0", "tslib": "^2.6.2" } }, "sha512-AXfN/lGotSQwu6HNcEsIASo7kWXZ5HYWvfOmSNKDsEqC4OashTp8alTmaz+F7TC2L083SFv5RdB+qU3Vs1kZqw=="],
@@ -158,6 +172,8 @@
     "@codemirror/state": ["@codemirror/state@6.7.1", "", { "dependencies": { "@marijn/find-cluster-break": "^1.0.0" } }, "sha512-9QzNDgE4EYDnAHfrTlR2lwiPciiOymLtwKK+8yHQzCc7GXhAP9xdEbEJFy2IWB1j9UGUl9BsgMmTo/ImA02T7A=="],
 
     "@danypops/alef-lector": ["@danypops/alef-lector@workspace:packages/alef-lector"],
+
+    "@danypops/alignment-lector": ["@danypops/alignment-lector@workspace:packages/alignment-lector"],
 
     "@danypops/daemon-kit": ["@danypops/daemon-kit@0.14.0", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typescript": "^5" }, "optionalPeers": ["@earendil-works/pi-coding-agent"] }, "sha512-UuEn1by8wEQUnq75dqIqLqie7GQY3NvfQAhN4Uy585VmDnNgWicSlENYG5ZvRHLFUd83bCifx5tGHLZL70V9Iw=="],
 

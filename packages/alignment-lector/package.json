@@ -1,0 +1,19 @@
+{
+  "name": "@danypops/alignment-lector",
+  "version": "0.0.1",
+  "description": "Package-owned Lector contribution for Alignment workspace resources",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "files": ["src", "vendor", "README.md", "LICENSE"],
+  "scripts": { "test": "bun test", "typecheck": "tsc --noEmit" },
+  "dependencies": {
+    "@alignment/surface-protocol": "file:vendor/alignment-surface-protocol-0.0.1.tgz",
+    "@danypops/lector": "workspace:*"
+  },
+  "devDependencies": { "bun-types": "latest", "typescript": "^5.9.3" },
+  "repository": { "type": "git", "url": "git+https://github.com/DanyPops/lector.git", "directory": "packages/alignment-lector" },
+  "publishConfig": { "access": "public" }
+}
