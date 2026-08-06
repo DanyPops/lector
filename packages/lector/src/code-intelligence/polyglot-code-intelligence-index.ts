@@ -169,4 +169,24 @@ export class PolyglotCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 		if (!first) return;
 		this.indexForPath(first.fromPath).notifyFilesDidRename?.(pairs);
 	}
+
+	notifyFilesWillCreate(paths: readonly string[]): Promise<void> {
+		const first = paths[0];
+		return first ? (this.indexForPath(first).notifyFilesWillCreate?.(paths) ?? Promise.resolve()) : Promise.resolve();
+	}
+
+	notifyFilesDidCreate(paths: readonly string[]): void {
+		const first = paths[0];
+		if (first) this.indexForPath(first).notifyFilesDidCreate?.(paths);
+	}
+
+	notifyFilesWillDelete(paths: readonly string[]): Promise<void> {
+		const first = paths[0];
+		return first ? (this.indexForPath(first).notifyFilesWillDelete?.(paths) ?? Promise.resolve()) : Promise.resolve();
+	}
+
+	notifyFilesDidDelete(paths: readonly string[]): void {
+		const first = paths[0];
+		if (first) this.indexForPath(first).notifyFilesDidDelete?.(paths);
+	}
 }

@@ -331,6 +331,10 @@ function toWorkspaceLocation(uri: string, position: LspPosition): WorkspaceLocat
 	return { path: fileURLToPath(uri), line, character };
 }
 
+function toFileOperationParams(paths: readonly string[]): { files: Array<{ uri: string }> } {
+	return { files: paths.map((path) => ({ uri: pathToFileURL(path).href })) };
+}
+
 function toCodeRange(path: string, range: LspRange): CodeRange {
 	return { path, start: fromLspPosition(range.start), end: fromLspPosition(range.end) };
 }
@@ -521,7 +525,18 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				},
 				general: { positionEncodings: ["utf-16"] },
 				window: { workDoneProgress: true },
-				workspace: { didChangeWatchedFiles: { dynamicRegistration: true } },
+				workspace: {
+					didChangeWatchedFiles: { dynamicRegistration: true },
+					fileOperations: {
+						dynamicRegistration: false,
+						willCreate: true,
+						didCreate: true,
+						willRename: true,
+						didRename: true,
+						willDelete: true,
+						didDelete: true,
+					},
+				},
 			},
 			initializationOptions: {},
 		});
@@ -1050,6 +1065,28 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		this.process.notify("workspace/didRenameFiles", {
 			files: pairs.map((pair) => ({ oldUri: pathToFileURL(pair.fromPath).href, newUri: pathToFileURL(pair.toPath).href })),
 		});
+	}
+
+	async notifyFilesWillCreate(paths: readonly string[]): Promise<void> {
+		if (!this.negotiatedCapabilities?.workspaceFileOperations.willCreate || paths.length === 0) return;
+		const proc = await this.ensureInitialized();
+		await proc.request("workspace/willCreateFiles", toFileOperationParams(paths));
+	}
+
+	notifyFilesDidCreate(paths: readonly string[]): void {
+		if (!this.negotiatedCapabilities?.workspaceFileOperations.didCreate || paths.length === 0 || !this.process) return;
+		this.process.notify("workspace/didCreateFiles", toFileOperationParams(paths));
+	}
+
+	async notifyFilesWillDelete(paths: readonly string[]): Promise<void> {
+		if (!this.negotiatedCapabilities?.workspaceFileOperations.willDelete || paths.length === 0) return;
+		const proc = await this.ensureInitialized();
+		await proc.request("workspace/willDeleteFiles", toFileOperationParams(paths));
+	}
+
+	notifyFilesDidDelete(paths: readonly string[]): void {
+		if (!this.negotiatedCapabilities?.workspaceFileOperations.didDelete || paths.length === 0 || !this.process) return;
+		this.process.notify("workspace/didDeleteFiles", toFileOperationParams(paths));
 	}
 
 	async incomingCalls(at: WorkspaceLocation): Promise<IncomingCall[]> {

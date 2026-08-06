@@ -123,10 +123,32 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		return false;
 	}
 
-	notifyFileChanged(workspaceId: WorkspaceKey, event: FileChangeEvent): void {
+	private codeIntelligenceIndexes(workspaceId: WorkspaceKey): Array<ClosableSymbolIndex & CodeIntelligencePort> {
+		const indexes: Array<ClosableSymbolIndex & CodeIntelligencePort> = [];
 		for (const entry of this.entries.values()) {
-			if (entry.workspaceId === workspaceId && supportsCodeIntelligence(entry.index)) entry.index.notifyFileChanged?.(event);
+			if (entry.workspaceId === workspaceId && supportsCodeIntelligence(entry.index)) indexes.push(entry.index);
 		}
+		return indexes;
+	}
+
+	notifyFileChanged(workspaceId: WorkspaceKey, event: FileChangeEvent): void {
+		for (const index of this.codeIntelligenceIndexes(workspaceId)) index.notifyFileChanged?.(event);
+	}
+
+	async notifyFilesWillCreate(workspaceId: WorkspaceKey, paths: readonly string[]): Promise<void> {
+		await Promise.all(this.codeIntelligenceIndexes(workspaceId).map((index) => index.notifyFilesWillCreate?.(paths) ?? Promise.resolve()));
+	}
+
+	notifyFilesDidCreate(workspaceId: WorkspaceKey, paths: readonly string[]): void {
+		for (const index of this.codeIntelligenceIndexes(workspaceId)) index.notifyFilesDidCreate?.(paths);
+	}
+
+	async notifyFilesWillDelete(workspaceId: WorkspaceKey, paths: readonly string[]): Promise<void> {
+		await Promise.all(this.codeIntelligenceIndexes(workspaceId).map((index) => index.notifyFilesWillDelete?.(paths) ?? Promise.resolve()));
+	}
+
+	notifyFilesDidDelete(workspaceId: WorkspaceKey, paths: readonly string[]): void {
+		for (const index of this.codeIntelligenceIndexes(workspaceId)) index.notifyFilesDidDelete?.(paths);
 	}
 
 	async closeWorkspace(workspaceId: WorkspaceKey): Promise<void> {

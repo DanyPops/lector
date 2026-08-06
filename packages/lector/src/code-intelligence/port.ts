@@ -77,4 +77,8 @@ export interface CodeIntelligencePort {
 	notifyFilesWillRename?(pairs: readonly { readonly fromPath: string; readonly toPath: string }[]): Promise<void>;
 	/** Optional: workspace/didRenameFiles participation, sent only after the rename has committed. A no-op when the negotiated server doesn't support it. */
 	notifyFilesDidRename?(pairs: readonly { readonly fromPath: string; readonly toPath: string }[]): void;
+	notifyFilesWillCreate?(paths: readonly string[]): Promise<void>;
+	notifyFilesDidCreate?(paths: readonly string[]): void;
+	notifyFilesWillDelete?(paths: readonly string[]): Promise<void>;
+	notifyFilesDidDelete?(paths: readonly string[]): void;
 }

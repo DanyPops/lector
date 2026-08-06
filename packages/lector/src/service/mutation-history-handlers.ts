@@ -14,9 +14,17 @@ import {
 	type WorkspaceId,
 } from "../service.ts";
 
+export interface WorkspaceFileOperationObserver {
+	notifyFilesWillCreate(workspaceId: WorkspaceId, paths: readonly string[]): Promise<void>;
+	notifyFilesDidCreate(workspaceId: WorkspaceId, paths: readonly string[]): void;
+	notifyFilesWillDelete(workspaceId: WorkspaceId, paths: readonly string[]): Promise<void>;
+	notifyFilesDidDelete(workspaceId: WorkspaceId, paths: readonly string[]): void;
+}
+
 export interface MutationHistoryHandlerDeps {
 	readonly registry: MutableRegistry;
 	readonly createStore?: (workspaceId: WorkspaceId) => MutationHistoryPort;
+	readonly fileOperations?: WorkspaceFileOperationObserver;
 }
 
 export interface MutationHistoryHandlers {
@@ -78,6 +86,11 @@ export class MutationHistoryCoordinator {
 		const current = await workspace.readEntry(target.path);
 		const currentHash = current.exists ? contentHashOf(current.content) : null;
 		if (!canRevertMutation({ entry: target, currentHash })) throw new MutationRevertStale(input.entryId, target.path);
+		const resolvedPath = workspace.resolvePath(target.path);
+		const createsFile = target.beforeContent !== null && currentHash === null;
+		const deletesFile = target.beforeContent === null;
+		if (createsFile) await this.deps.fileOperations?.notifyFilesWillCreate(input.workspaceId, [resolvedPath]);
+		if (deletesFile) await this.deps.fileOperations?.notifyFilesWillDelete(input.workspaceId, [resolvedPath]);
 		const outcome = await this.record(input.workspaceId, target.path, "revert", async () => {
 			if (target.beforeContent === null) {
 				if (currentHash === null) throw new MutationRevertStale(input.entryId, target.path);
@@ -87,6 +100,8 @@ export class MutationHistoryCoordinator {
 			const written = await workspace.writeEntry(target.path, currentHash, target.beforeContent);
 			return { newHash: written.newHash };
 		});
+		if (createsFile) this.deps.fileOperations?.notifyFilesDidCreate(input.workspaceId, [resolvedPath]);
+		if (deletesFile) this.deps.fileOperations?.notifyFilesDidDelete(input.workspaceId, [resolvedPath]);
 		return { path: target.path, newHash: outcome.newHash };
 	}
 }

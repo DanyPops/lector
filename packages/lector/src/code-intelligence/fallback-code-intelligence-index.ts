@@ -87,6 +87,18 @@ export class FallbackCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 	notifyFilesDidRename(pairs: readonly { readonly fromPath: string; readonly toPath: string }[]): void {
 		this.primary.notifyFilesDidRename?.(pairs);
 	}
+	notifyFilesWillCreate(paths: readonly string[]): Promise<void> {
+		return this.primary.notifyFilesWillCreate?.(paths) ?? Promise.resolve();
+	}
+	notifyFilesDidCreate(paths: readonly string[]): void {
+		this.primary.notifyFilesDidCreate?.(paths);
+	}
+	notifyFilesWillDelete(paths: readonly string[]): Promise<void> {
+		return this.primary.notifyFilesWillDelete?.(paths) ?? Promise.resolve();
+	}
+	notifyFilesDidDelete(paths: readonly string[]): void {
+		this.primary.notifyFilesDidDelete?.(paths);
+	}
 
 	async close(): Promise<void> {
 		await Promise.allSettled([this.primary.close(), ...this.fallbacks.map((fallback) => fallback.close())]);

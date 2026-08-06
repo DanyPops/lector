@@ -923,7 +923,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const ensureSymbolGraph = (workspaceId: WorkspaceId): SymbolGraphPort => graphRefresh.graph(workspaceId);
 
 	const annotationHandlers = new AnnotationHandlers({ registry, graph: ensureSymbolGraph, createStore: options.createSymbolAnnotations });
-	const mutationHistory = new MutationHistoryCoordinator({ registry, createStore: options.createMutationHistory });
+	const mutationHistory = new MutationHistoryCoordinator({ registry, createStore: options.createMutationHistory, fileOperations: warmIndexes });
 
 	const createGitPort = options.createGitPort ?? ((rootPath: string) => new LocalGit(rootPath));
 	// Constructed once, not per-call -- reconstructing would rehydrate the same on-disk index
@@ -1462,6 +1462,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		return renameMutationBarrier.run(input.workspaceId, async () => {
 			const edit: ParsedWorkspaceEdit = await rename({ path: input.path, line: input.line, character: input.character }, input.newName);
 			const renamePairs = edit.operations.filter((op) => op.kind === "rename").map((op) => ({ fromPath: op.fromPath, toPath: op.toPath }));
+			const createPaths = edit.operations.filter((op) => op.kind === "create").map((op) => op.path);
+			const deletePaths = edit.operations.filter((op) => op.kind === "delete").map((op) => op.path);
 
 			// The caller's own snapshot of every touched path's current hash -- taken immediately
 			// before applying, as close as Lector can get to "what the server actually saw" without
@@ -1475,8 +1477,12 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			}
 
 			await index.notifyFilesWillRename?.(renamePairs);
+			await index.notifyFilesWillCreate?.(createPaths);
+			await index.notifyFilesWillDelete?.(deletePaths);
 			const outcome = await applyWorkspaceEdit(entry.port, edit, expectedHashes);
 			index.notifyFilesDidRename?.(renamePairs);
+			index.notifyFilesDidCreate?.(createPaths);
+			index.notifyFilesDidDelete?.(deletePaths);
 
 			return { touchedPaths: outcome.touchedPaths, provenance: index.provenance };
 		});
@@ -1607,15 +1613,23 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		},
 		"workspace.exactEdit": async (registry, input) => {
 			const { workspaceId, ...edit } = input;
-			const outcome = await mutationHistory.record(workspaceId, edit.path, "exactEdit", () => exactEdit(resolveWorkspace(registry, workspaceId), edit));
+			const workspace = resolveWorkspace(registry, workspaceId);
+			const resolvedPath = workspace.resolvePath(edit.path);
+			if (edit.expectedHash === null) await warmIndexes.notifyFilesWillCreate(workspaceId, [resolvedPath]);
+			const outcome = await mutationHistory.record(workspaceId, edit.path, "exactEdit", () => exactEdit(workspace, edit));
+			if (edit.expectedHash === null) warmIndexes.notifyFilesDidCreate(workspaceId, [resolvedPath]);
 			await contentCache.putRawContent(outcome.newHash, edit.content);
 			return outcome;
 		},
 		"workspace.deleteEntry": async (registry, input) => {
+			const workspace = resolveWorkspace(registry, input.workspaceId);
+			const resolvedPath = workspace.resolvePath(input.path);
+			await warmIndexes.notifyFilesWillDelete(input.workspaceId, [resolvedPath]);
 			const outcome = await mutationHistory.record(input.workspaceId, input.path, "delete", async () => {
-				const result = await resolveWorkspace(registry, input.workspaceId).deleteEntry(input.path, input.expectedHash);
+				const result = await workspace.deleteEntry(input.path, input.expectedHash);
 				return { newHash: null, previousHash: result.previousHash };
 			});
+			warmIndexes.notifyFilesDidDelete(input.workspaceId, [resolvedPath]);
 			return { path: input.path, previousHash: outcome.previousHash };
 		},
 		"workspace.lineEdit": (registry, input) => {
