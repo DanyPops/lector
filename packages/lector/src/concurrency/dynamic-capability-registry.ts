@@ -40,6 +40,9 @@ export class DynamicCapabilityRegistry {
 	private readonly registrations = new Map<string, DynamicRegistration>();
 	private readonly progressTokens = new Set<string | number>();
 	private readonly latestProgress = new Map<string | number, unknown>();
+	private readonly activeWorkDoneTokens = new Set<string | number>();
+	private readonly progressIdleWaiters = new Set<() => void>();
+	private trackingSaturated = false;
 	private readonly maxRegistrations: number;
 	private readonly maxProgressTokens: number;
 
@@ -74,13 +77,56 @@ export class DynamicCapabilityRegistry {
 	 * an uncaught exception inside the notification-dispatch path killing the whole connection.
 	 */
 	recordProgress(token: string | number, value: unknown): void {
-		if (!this.latestProgress.has(token) && this.latestProgress.size >= this.maxProgressTokens) return;
-		this.latestProgress.set(token, value);
+		if (this.latestProgress.has(token) || this.latestProgress.size < this.maxProgressTokens) this.latestProgress.set(token, value);
+		const kind = workDoneProgressKind(value);
+		if (kind === "begin") {
+			if (!this.activeWorkDoneTokens.has(token) && this.activeWorkDoneTokens.size >= this.maxProgressTokens) {
+				// Readiness cannot be proven once an active token was dropped. Keep waits fail-closed
+				// until this per-process registry is replaced rather than returning incomplete results.
+				this.trackingSaturated = true;
+				return;
+			}
+			this.activeWorkDoneTokens.add(token);
+			return;
+		}
+		if (kind !== "end") return;
+		this.activeWorkDoneTokens.delete(token);
+		if (this.activeWorkDoneTokens.size === 0 && !this.trackingSaturated) {
+			for (const resolve of this.progressIdleWaiters) resolve();
+			this.progressIdleWaiters.clear();
+		}
+	}
+
+	/** Resolves true when every observed work-done token ended, or false at the caller's explicit bound. */
+	waitForProgressIdle(timeoutMs: number): Promise<boolean> {
+		if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) throw new TypeError("timeoutMs must be a non-negative safe integer");
+		if (this.activeWorkDoneTokens.size === 0 && !this.trackingSaturated) return Promise.resolve(true);
+		return new Promise((resolve) => {
+			let settled = false;
+			const finish = (ready: boolean): void => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timer);
+				this.progressIdleWaiters.delete(onIdle);
+				resolve(ready);
+			};
+			const onIdle = (): void => finish(true);
+			const timer = setTimeout(() => finish(false), timeoutMs);
+			this.progressIdleWaiters.add(onIdle);
+		});
 	}
 
 	/** The latest $/progress value seen for every token reported so far (bounded; oldest silently dropped once full). */
 	get progressByToken(): ReadonlyMap<string | number, unknown> {
 		return this.latestProgress;
+	}
+
+	get activeProgressCount(): number {
+		return this.activeWorkDoneTokens.size;
+	}
+
+	get progressTrackingSaturated(): boolean {
+		return this.trackingSaturated;
 	}
 
 	get registrationCount(): number {
@@ -120,6 +166,11 @@ export class DynamicCapabilityRegistry {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
+}
+
+function workDoneProgressKind(value: unknown): "begin" | "report" | "end" | undefined {
+	if (!isRecord(value)) return undefined;
+	return value.kind === "begin" || value.kind === "report" || value.kind === "end" ? value.kind : undefined;
 }
 
 function extractGlobPattern(value: unknown): string | undefined {

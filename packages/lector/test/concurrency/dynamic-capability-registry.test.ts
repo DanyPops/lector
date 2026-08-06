@@ -107,6 +107,35 @@ describe("DynamicCapabilityRegistry", () => {
 		expect(registry.progressByToken.has("token-2")).toBe(false);
 		expect(registry.progressByToken.get("token-1")).toEqual({ kind: "begin" });
 	});
+
+	it("keeps readiness pending until every active work-done token ends", async () => {
+		const registry = new DynamicCapabilityRegistry();
+		registry.recordProgress("token-1", { kind: "begin", title: "one" });
+		registry.recordProgress("token-2", { kind: "begin", title: "two" });
+		const idle = registry.waitForProgressIdle(1000);
+		registry.recordProgress("token-1", { kind: "end" });
+		expect(registry.activeProgressCount).toBe(1);
+		registry.recordProgress("token-2", { kind: "end" });
+		await expect(idle).resolves.toBe(true);
+	});
+
+	it("returns false at the explicit readiness bound when work remains active", async () => {
+		const registry = new DynamicCapabilityRegistry();
+		registry.recordProgress("token-1", { kind: "begin" });
+
+		await expect(registry.waitForProgressIdle(10)).resolves.toBe(false);
+		expect(registry.activeProgressCount).toBe(1);
+	});
+
+	it("fails readiness closed after active progress exceeds the bounded token count", async () => {
+		const registry = new DynamicCapabilityRegistry({ maxProgressTokens: 1 });
+		registry.recordProgress("token-1", { kind: "begin" });
+		registry.recordProgress("token-2", { kind: "begin" });
+		registry.recordProgress("token-1", { kind: "end" });
+
+		expect(registry.progressTrackingSaturated).toBe(true);
+		await expect(registry.waitForProgressIdle(10)).resolves.toBe(false);
+	});
 });
 
 describe("server-initiated request parameter parsing", () => {

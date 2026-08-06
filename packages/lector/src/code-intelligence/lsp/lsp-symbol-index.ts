@@ -38,6 +38,8 @@ import { LanguageServerProcess } from "./language-server-process.ts";
 const DEFAULT_MAX_SYMBOL_RESULTS = 1_000;
 const DEFAULT_MAX_OPEN_FILES = 256;
 const DEFAULT_MAX_FILE_BYTES = 4 * 1024 * 1024;
+const DEFAULT_WORKSPACE_READY_TIMEOUT_MS = 30_000;
+const MAX_WORKSPACE_READY_TIMEOUT_MS = 300_000;
 const MAX_SETTLE_MS = 30_000;
 
 const NOOP_LOGGER: Logger = { debug() {}, info() {}, warn() {}, error() {} };
@@ -49,6 +51,8 @@ export interface LspSymbolIndexOptions {
 	readonly maxFileBytes?: number;
 	readonly maxRefreshBytes?: number;
 	readonly maxFallbackSeedFiles?: number;
+	/** Maximum time a workspace-wide query waits for active work-done progress to end. */
+	readonly workspaceReadyTimeoutMs?: number;
 	/**
 	 * Shared with rawRead/exactEdit and TreeSitterSymbolIndex when the service supplies one
 	 * common instance -- the same physical file read by any of them warms the same
@@ -78,6 +82,19 @@ export class LanguageServerProvisioningUnavailable extends Error {
 	) {
 		super(`language server ${backendId} is unavailable and managed provisioning failed: ${reason}`);
 		this.name = "LanguageServerProvisioningUnavailable";
+	}
+}
+
+export class LanguageServerWorkspaceNotReady extends Error {
+	constructor(
+		readonly backendId: string,
+		readonly timeoutMs: number,
+		readonly activeProgressCount: number,
+		readonly progressTrackingSaturated: boolean,
+	) {
+		const state = progressTrackingSaturated ? "progress tracking capacity was exceeded" : `${activeProgressCount} progress tokens remain active`;
+		super(`language server ${backendId} workspace indexing did not finish within ${timeoutMs}ms (${state})`);
+		this.name = "LanguageServerWorkspaceNotReady";
 	}
 }
 
@@ -396,6 +413,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private readonly maxFileBytes: number;
 	private readonly maxRefreshBytes: number;
 	private readonly maxFallbackSeedFiles: number;
+	private readonly workspaceReadyTimeoutMs: number;
 	private readonly openedFiles = new Map<string, { version: number; content: string }>();
 	private readonly latestDiagnostics = new Map<string, Diagnostic[]>();
 	private readonly diagnosticsWaiters = new Map<string, Array<() => void>>();
@@ -421,6 +439,10 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		this.maxFileBytes = positiveLimit(options.maxFileBytes, DEFAULT_MAX_FILE_BYTES, "maxFileBytes");
 		this.maxRefreshBytes = positiveLimit(options.maxRefreshBytes, 50 * 1024 * 1024, "maxRefreshBytes");
 		this.maxFallbackSeedFiles = positiveLimit(options.maxFallbackSeedFiles, 8, "maxFallbackSeedFiles");
+		this.workspaceReadyTimeoutMs = positiveLimit(options.workspaceReadyTimeoutMs, DEFAULT_WORKSPACE_READY_TIMEOUT_MS, "workspaceReadyTimeoutMs");
+		if (this.workspaceReadyTimeoutMs > MAX_WORKSPACE_READY_TIMEOUT_MS) {
+			throw new TypeError(`workspaceReadyTimeoutMs must not exceed ${MAX_WORKSPACE_READY_TIMEOUT_MS}`);
+		}
 		const settleMs = descriptor.settleMs ?? DEFAULT_SETTLE_MS;
 		if (!Number.isSafeInteger(settleMs) || settleMs < 0 || settleMs > MAX_SETTLE_MS)
 			throw new TypeError(`settleMs must be an integer from 0 through ${MAX_SETTLE_MS}`);
@@ -777,6 +799,23 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		});
 	}
 
+	private async waitForWorkspaceReady(): Promise<void> {
+		const ready = await this.dynamicCapabilities.waitForProgressIdle(this.workspaceReadyTimeoutMs);
+		if (!ready) {
+			const activeProgressCount = this.dynamicCapabilities.activeProgressCount;
+			const progressTrackingSaturated = this.dynamicCapabilities.progressTrackingSaturated;
+			this.logger.warn("workspace readiness timed out", {
+				module: "lsp-symbol-index",
+				operation: "wait-for-workspace-ready",
+				backendId: this.descriptor.backendId,
+				timeoutMs: this.workspaceReadyTimeoutMs,
+				activeProgressCount,
+				progressTrackingSaturated,
+			});
+			throw new LanguageServerWorkspaceNotReady(this.descriptor.backendId, this.workspaceReadyTimeoutMs, activeProgressCount, progressTrackingSaturated);
+		}
+	}
+
 	private async restartForSeed(seedFile: string): Promise<LanguageServerProcess> {
 		await this.process?.stop();
 		this.process = undefined;
@@ -797,6 +836,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			refreshedBytes += Buffer.byteLength(this.openedFiles.get(path)?.content ?? "", "utf-8");
 			if (refreshedBytes > this.maxRefreshBytes) throw new LanguageFileLimitExceeded("refresh-bytes", this.maxRefreshBytes, refreshedBytes);
 		}
+		await this.waitForWorkspaceReady();
 		let results = (await proc.request<LspSymbolInformation[] | null>("workspace/symbol", { query })) ?? [];
 		if (results.length === 0 && this.descriptor.languageId === "typescript") {
 			const candidates = await new TypeScriptCompilerSymbolIndex(this.cwd, { maxResults: this.maxFallbackSeedFiles }).findSymbols(query, {
@@ -805,6 +845,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			const candidate = candidates.symbols[0];
 			if (candidate) {
 				proc = await this.restartForSeed(candidate.location.path);
+				await this.waitForWorkspaceReady();
 				results = (await proc.request<LspSymbolInformation[] | null>("workspace/symbol", { query })) ?? [];
 			}
 		}
@@ -845,6 +886,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	async findReferences(at: WorkspaceLocation, includeDeclaration: boolean): Promise<WorkspaceLocation[]> {
 		const proc = await this.ensureInitialized(at.path);
 		await this.ensureFileOpen(proc, at.path);
+		await this.waitForWorkspaceReady();
 		const results =
 			(await proc.request<LspLocation[] | null>("textDocument/references", {
 				textDocument: { uri: pathToFileURL(at.path).href },

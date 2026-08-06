@@ -40,6 +40,7 @@ export {
 export {
 	LanguageFileLimitExceeded,
 	LanguageFileOutsideWorkspace,
+	LanguageServerWorkspaceNotReady,
 	LspSymbolIndex,
 	type LspSymbolIndexOptions,
 } from "./code-intelligence/lsp/lsp-symbol-index.ts";
