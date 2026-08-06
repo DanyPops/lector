@@ -6,7 +6,8 @@ import {
 	type ContributionResourceReference,
 	ContributionResourceReferenceSchema,
 } from "@alignment/surface-protocol";
-import { remoteErrorIs } from "@danypops/lector";
+// Deep import, not the "@danypops/lector" barrel -- see index.ts's own doc comment on why.
+import { remoteErrorIs } from "@danypops/lector/src/client.ts";
 import type { LectorOperations } from "./lector-operations.js";
 
 const MAX_CACHED_RESOURCES = 128;

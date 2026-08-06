@@ -8,7 +8,9 @@ import {
 	type ContributionResourceReference,
 	ContributionResourceReferenceSchema,
 } from "@alignment/surface-protocol";
-import { GuardedLiveBuffer, remoteErrorIs } from "@danypops/lector";
+// Deep imports, not the "@danypops/lector" barrel -- see index.ts's own doc comment on why.
+import { remoteErrorIs } from "@danypops/lector/src/client.ts";
+import { GuardedLiveBuffer } from "@danypops/lector/src/live-buffer/guarded-live-buffer.ts";
 import { CALL_GRAPH_COMMANDS, createCallGraphContribution } from "./call-graph.js";
 import { createGitContribution, GIT_COMMANDS } from "./git-contribution.js";
 import { authenticatedLectorOperations, type LectorOperations } from "./lector-operations.js";
