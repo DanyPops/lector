@@ -40,6 +40,7 @@ export {
 export {
 	LanguageFileLimitExceeded,
 	LanguageFileOutsideWorkspace,
+	LanguageServerPositionEncodingUnsupported,
 	LanguageServerWorkspaceNotReady,
 	LspSymbolIndex,
 	type LspSymbolIndexOptions,

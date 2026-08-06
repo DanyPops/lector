@@ -85,6 +85,16 @@ export class LanguageServerProvisioningUnavailable extends Error {
 	}
 }
 
+export class LanguageServerPositionEncodingUnsupported extends Error {
+	constructor(
+		readonly backendId: string,
+		readonly positionEncoding: string,
+	) {
+		super(`language server ${backendId} selected unsupported position encoding ${positionEncoding}; Lector advertised utf-16 only`);
+		this.name = "LanguageServerPositionEncodingUnsupported";
+	}
+}
+
 export class LanguageServerWorkspaceNotReady extends Error {
 	constructor(
 		readonly backendId: string,
@@ -509,6 +519,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 					diagnostic: { dynamicRegistration: true },
 					...this.descriptor.extraCapabilities,
 				},
+				general: { positionEncodings: ["utf-16"] },
 				window: { workDoneProgress: true },
 				workspace: { didChangeWatchedFiles: { dynamicRegistration: true } },
 			},
@@ -569,6 +580,15 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 					initializeResult = await this.requestInitialize(proc);
 				}
 				this.negotiatedCapabilities = parseServerCapabilities(initializeResult.capabilities);
+				if (this.negotiatedCapabilities.positionEncoding !== "utf-16") {
+					this.logger.warn("language server selected unsupported position encoding", {
+						module: "lsp-symbol-index",
+						operation: "initialize",
+						backendId: this.descriptor.backendId,
+						positionEncoding: this.negotiatedCapabilities.positionEncoding,
+					});
+					throw new LanguageServerPositionEncodingUnsupported(this.descriptor.backendId, this.negotiatedCapabilities.positionEncoding);
+				}
 				proc.notify("initialized", {});
 
 				const configuredSeedFile = this.fallbackSeedFile ?? this.explicitSeedFile;

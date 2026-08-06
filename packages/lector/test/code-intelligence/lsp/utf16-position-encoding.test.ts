@@ -61,6 +61,7 @@ describe("UTF-16 position encoding against a real running language server", () =
 		expect(usage.character - 1).toBe(COMMENT_PREFIX.length); // real ground truth: UTF-16 code units
 
 		const definitions = await goToDefinition(index, { path: targetPath, line: usage.line, character: usage.character });
+		expect(index.capabilities?.positionEncoding).toBe("utf-16");
 		expect(definitions).toHaveLength(1);
 		expect(definitions[0]?.path).toBe(targetPath);
 		expect(definitions[0]?.line).toBe(1);
