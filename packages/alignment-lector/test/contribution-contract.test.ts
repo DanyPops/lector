@@ -48,12 +48,28 @@ describe("Lector Alignment contribution contract", () => {
 				{ id: "lector.workspace.open", title: "Open Workspace" },
 				{ id: "lector.file.open", title: "Open File" },
 				{ id: "lector.file.save", title: "Save File" },
+				{ id: "lector.search.text", title: "Search Text" },
+				{ id: "lector.search.files", title: "Find Files" },
+				{ id: "lector.symbol.hover", title: "Show Hover" },
+				{ id: "lector.symbol.definition", title: "Go to Definition" },
+				{ id: "lector.symbol.references", title: "Find References" },
+				{ id: "lector.diagnostics.show", title: "Show Diagnostics" },
 			],
 			resourceSchemes: ["lector"],
 		});
 		const registered = host();
 		await contribution.activate(registered.api);
-		expect([...registered.commands.keys()]).toEqual(["lector.workspace.open", "lector.file.open", "lector.file.save"]);
+		expect([...registered.commands.keys()]).toEqual([
+			"lector.workspace.open",
+			"lector.file.open",
+			"lector.file.save",
+			"lector.search.text",
+			"lector.search.files",
+			"lector.symbol.hover",
+			"lector.symbol.definition",
+			"lector.symbol.references",
+			"lector.diagnostics.show",
+		]);
 		expect([...registered.providers.keys()]).toEqual(["lector"]);
 		await contribution.dispose();
 		expect(registered.commands.size).toBe(0);
