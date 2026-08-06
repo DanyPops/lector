@@ -69,6 +69,37 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 		await expect(service.dispatch("workspace.outgoingCalls", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 	}, 20_000);
 
+	it("waits for real pushed diagnostics after each edit through the error-and-clear loop", async () => {
+		fixtureRoot = buildFixture();
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolIndex: (rootPath, descriptor, seedFile) => new LspSymbolIndex(rootPath, { ...descriptor, settleMs: 0 }, seedFile),
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		const path = join(fixtureRoot, "src/math.ts");
+		const initial = await service.dispatch("workspace.rawRead", { workspaceId, path });
+		const clean = await service.dispatch("workspace.diagnostics", { workspaceId, path });
+		expect(clean.diagnostics).toEqual([]);
+
+		const broken = await service.dispatch("workspace.exactEdit", {
+			workspaceId,
+			path,
+			expectedHash: initial.hash,
+			content: 'export const total: number = "not a number";\n',
+		});
+		const withError = await service.dispatch("workspace.diagnostics", { workspaceId, path });
+		expect(withError.diagnostics.some((diagnostic) => diagnostic.message.includes("not assignable"))).toBe(true);
+
+		await service.dispatch("workspace.exactEdit", {
+			workspaceId,
+			path,
+			expectedHash: broken.newHash,
+			content: "export const total: number = 1 + 1;\n",
+		});
+		const fixed = await service.dispatch("workspace.diagnostics", { workspaceId, path });
+		expect(fixed.diagnostics).toEqual([]);
+	}, 20_000);
+
 	it("routes a real query through the default LSP backend end to end, and reuses the same warm index findSymbols already keeps alive", async () => {
 		fixtureRoot = buildFixture();
 		let spawnCount = 0;
