@@ -633,6 +633,9 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			applied: false,
 			failureReason: "Lector does not yet support a server-initiated workspace edit",
 		}));
+		// A headless client cannot ask the user which action to take. Null is the protocol's
+		// explicit cancellation response; selecting an action would invent user consent.
+		proc.onRequest("window/showMessageRequest", () => null);
 		proc.onRequest("window/workDoneProgress/create", (params) => {
 			const token = parseProgressCreateToken(params);
 			if (token !== undefined) this.dynamicCapabilities.createProgressToken(token);
