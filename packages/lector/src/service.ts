@@ -67,6 +67,7 @@ import { MutationHistoryCoordinator } from "./service/mutation-history-handlers.
 import { createPackageSourceHandlers } from "./service/package-source-handlers.ts";
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { type ClosableSymbolIndex, supportsCodeIntelligence, WarmIndexRegistry } from "./service/warm-index-registry.ts";
+import { createWorkspaceFileHandlers } from "./service/workspace-file-handlers.ts";
 import { createWorkspaceMapHandler } from "./service/workspace-map-handler.ts";
 import { WorkspaceWatchHandlers } from "./service/workspace-watch-handlers.ts";
 import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
@@ -87,21 +88,19 @@ import { symbolEdgesFrom } from "./symbol-graph/symbol-edges-from.ts";
 import { symbolEdgesTo } from "./symbol-graph/symbol-edges-to.ts";
 import type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./symbol-graph/symbol-graph-generation.ts";
 import { deriveSymbolNodeId } from "./symbol-graph/symbol-node-id.ts";
-import { findFiles as findFilesQuery } from "./text-search/find-files.ts";
 import type { FindFilesResult } from "./text-search/find-files-result.ts";
 import type { TextSearchPort } from "./text-search/port.ts";
 import { RipgrepTextSearch } from "./text-search/ripgrep-text-search.ts";
-import { searchText as searchTextQuery } from "./text-search/search-text.ts";
 import type { TextSearchResult } from "./text-search/text-search-result.ts";
-import { applyPatch, PatchRejected } from "./workspace/apply-patch.ts";
+import { PatchRejected } from "./workspace/apply-patch.ts";
 import { applyWorkspaceEdit, collectTouchedPaths } from "./workspace/apply-workspace-edit.ts";
-import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash } from "./workspace/exact-edit.ts";
+import { type EditOutcome, type ExpectedHashEdit, StaleExpectedHash } from "./workspace/exact-edit.ts";
 import type { FileTreePort } from "./workspace/file-tree-port.ts";
-import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, lineEdit } from "./workspace/line-edit.ts";
-import { type DirectoryListing, listDirectory } from "./workspace/list-directory.ts";
+import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected } from "./workspace/line-edit.ts";
+import type { DirectoryListing } from "./workspace/list-directory.ts";
 import { LocalFilesystemWorkspace } from "./workspace/local-filesystem-workspace.ts";
 import type { WorkspacePort } from "./workspace/port.ts";
-import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./workspace/raw-read.ts";
+import { type RawRead, WorkspaceEntryNotFound } from "./workspace/raw-read.ts";
 import type { ResponseFormat } from "./workspace/response-format.ts";
 import { deriveSourceManifest } from "./workspace/source-manifest.ts";
 import type { ParsedWorkspaceEdit, RenameRange } from "./workspace/workspace-edit.ts";
@@ -794,7 +793,7 @@ export class WorkspaceDoesNotSupportFileTree extends Error {
 	}
 }
 
-function resolveFileTree(registry: MutableRegistry, workspaceId: WorkspaceId): FileTreePort {
+export function resolveFileTree(registry: MutableRegistry, workspaceId: WorkspaceId): FileTreePort {
 	const port = resolveWorkspace(registry, workspaceId);
 	if (!supportsFileTree(port)) throw new WorkspaceDoesNotSupportFileTree(workspaceId);
 	return port;
@@ -1002,28 +1001,12 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		sourcegraphSearchCache,
 	});
 	const codeIntelligenceHandlers = createCodeIntelligenceHandlers({ warmIndexes });
+	const workspaceFileHandlers = createWorkspaceFileHandlers({ contentCache, mutationHistory, warmIndexes, textSearch, searchCache });
 	const crossWorkspaceHandlers = createCrossWorkspaceHandlers({
 		registry,
 		findSymbols: (input) => codeIntelligenceHandlers["workspace.findSymbols"](registry, input),
-		searchText: (input) => searchTextHandler(registry, input),
+		searchText: (input) => workspaceFileHandlers["workspace.searchText"](registry, input),
 	});
-
-	async function searchTextHandler(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.searchText"],
-	): Promise<OperationOutputs["workspace.searchText"]> {
-		const entry = registry.get(input.workspaceId);
-		if (!entry) throw new UnknownWorkspace(input.workspaceId);
-		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
-		return searchTextQuery(textSearch, searchCache, entry.rootPath, input.workspaceId, input.query, { maxMatches: input.maxMatches, maxBytes: input.maxBytes });
-	}
-
-	async function findFilesHandler(registry: MutableRegistry, input: OperationInputs["workspace.findFiles"]): Promise<OperationOutputs["workspace.findFiles"]> {
-		const entry = registry.get(input.workspaceId);
-		if (!entry) throw new UnknownWorkspace(input.workspaceId);
-		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
-		return findFilesQuery(textSearch, entry.rootPath, input.patterns, { maxResults: input.maxResults, maxBytes: input.maxBytes });
-	}
 
 	/**
 	 * The git HEAD sha to record with a fresh generation, or undefined when the workspace isn't
@@ -1468,55 +1451,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const workspaceMapHandler = createWorkspaceMapHandler(ensureSymbolGraph);
 
 	const handlers: OperationHandlers = {
-		"workspace.listDirectory": (registry, input) => listDirectory(resolveFileTree(registry, input.workspaceId), input.path),
-		"workspace.createDirectory": async (registry, input) => {
-			await resolveFileTree(registry, input.workspaceId).createDirectory(input.path);
-			return { path: input.path };
-		},
-		"workspace.renamePath": async (registry, input) => {
-			await resolveFileTree(registry, input.workspaceId).renamePath(input.oldPath, input.newPath);
-			return { oldPath: input.oldPath, newPath: input.newPath };
-		},
-		"workspace.deleteDirectory": async (registry, input) => {
-			await resolveFileTree(registry, input.workspaceId).deleteDirectory(input.path);
-			return { path: input.path };
-		},
-		"workspace.rawRead": async (registry, input) => {
-			const read = await rawRead(resolveWorkspace(registry, input.workspaceId), input.path);
-			await contentCache.putRawContent(read.hash, read.content);
-			return read;
-		},
-		"workspace.exactEdit": async (registry, input) => {
-			const { workspaceId, ...edit } = input;
-			const workspace = resolveWorkspace(registry, workspaceId);
-			const resolvedPath = workspace.resolvePath(edit.path);
-			if (edit.expectedHash === null) await warmIndexes.notifyFilesWillCreate(workspaceId, [resolvedPath]);
-			const outcome = await mutationHistory.record(workspaceId, edit.path, "exactEdit", () => exactEdit(workspace, edit));
-			if (edit.expectedHash === null) warmIndexes.notifyFilesDidCreate(workspaceId, [resolvedPath]);
-			await contentCache.putRawContent(outcome.newHash, edit.content);
-			return outcome;
-		},
-		"workspace.deleteEntry": async (registry, input) => {
-			const workspace = resolveWorkspace(registry, input.workspaceId);
-			const resolvedPath = workspace.resolvePath(input.path);
-			await warmIndexes.notifyFilesWillDelete(input.workspaceId, [resolvedPath]);
-			const outcome = await mutationHistory.record(input.workspaceId, input.path, "delete", async () => {
-				const result = await workspace.deleteEntry(input.path, input.expectedHash);
-				return { newHash: null, previousHash: result.previousHash };
-			});
-			warmIndexes.notifyFilesDidDelete(input.workspaceId, [resolvedPath]);
-			return { path: input.path, previousHash: outcome.previousHash };
-		},
-		"workspace.lineEdit": (registry, input) => {
-			return mutationHistory.record(input.workspaceId, input.path, "lineEdit", () =>
-				lineEdit(resolveWorkspace(registry, input.workspaceId), { path: input.path, edits: input.edits }),
-			);
-		},
-		"workspace.applyPatch": (registry, input) => {
-			return mutationHistory.record(input.workspaceId, input.path, "applyPatch", () =>
-				applyPatch(resolveWorkspace(registry, input.workspaceId), { path: input.path, expectedHash: input.expectedHash, patchText: input.patchText }),
-			);
-		},
+		...workspaceFileHandlers,
 		"workspace.registerPath": registerPath,
 		...codeIntelligenceHandlers,
 		"workspace.populateSymbolGraph": populateSymbolGraphHandler,
@@ -1534,8 +1469,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...annotationHandlers.handlers,
 		...externalSearchHandlers,
 		...crossWorkspaceHandlers,
-		"workspace.searchText": searchTextHandler,
-		"workspace.findFiles": findFilesHandler,
 		...workspaceWatchHandlers.handlers,
 		"job.submit": submitJobHandler,
 		"job.status": jobStatusHandler,

@@ -31,7 +31,9 @@ import { startGithubReleaseFixture } from "../../support/github-release-fixture.
 
 const LECTOR_ROOT = new URL("../../..", import.meta.url).pathname;
 const EXACT_EDIT_FILE = join(LECTOR_ROOT, "src/workspace/exact-edit.ts");
-const SERVICE_FILE = join(LECTOR_ROOT, "src/service.ts");
+// The real, current consumer of workspace/exact-edit.ts's exactEdit -- moved here from
+// service.ts by the createLectorService SRP extraction (service/workspace-file-handlers.ts).
+const WORKSPACE_FILE_HANDLERS_FILE = join(LECTOR_ROOT, "src/service/workspace-file-handlers.ts");
 const FIND_WORKSPACE_SYMBOLS_FILE = join(LECTOR_ROOT, "src/workspace/find-workspace-symbols.ts");
 const SYMBOL_INDEX_PORT_FILE = join(LECTOR_ROOT, "src/code-intelligence/symbol-index-port.ts");
 const SYMBOL_GRAPH_PORT_FILE = join(LECTOR_ROOT, "src/symbol-graph/port.ts");
@@ -262,19 +264,19 @@ describe("LspSymbolIndex configured for TypeScript", () => {
 
 	it("findReferences reliably includes a consumer file's usage once that file has itself been queried (opened)", async () => {
 		index = new LspSymbolIndex(LECTOR_ROOT, TYPESCRIPT_DESCRIPTOR, "src/index.ts");
-		// Querying documentSymbols against service.ts first makes tsserver track it immediately,
-		// rather than depending on how far its own background project loading has progressed --
-		// this is the deterministic, intended path: an agent that has already looked at a file
-		// is guaranteed that file's usages are included, rather than references being a matter
-		// of luck.
-		await documentSymbols(index, SERVICE_FILE);
+		// Querying documentSymbols against workspace-file-handlers.ts first makes tsserver track it
+		// immediately, rather than depending on how far its own background project loading has
+		// progressed -- this is the deterministic, intended path: an agent that has already looked
+		// at a file is guaranteed that file's usages are included, rather than references being a
+		// matter of luck.
+		await documentSymbols(index, WORKSPACE_FILE_HANDLERS_FILE);
 
 		const declaration = findPositionOf(EXACT_EDIT_FILE, "export async function exactEdit");
 		const at = { path: EXACT_EDIT_FILE, line: declaration.line, character: declaration.character + "export async function ".length };
 		const references = await findReferences(index, at, true);
 
 		const files = new Set(references.map((location) => location.path));
-		expect(files.has(SERVICE_FILE)).toBe(true);
+		expect(files.has(WORKSPACE_FILE_HANDLERS_FILE)).toBe(true);
 	}, 20_000);
 
 	it("hover returns real type/doc information for a known declaration, not an empty result", async () => {
