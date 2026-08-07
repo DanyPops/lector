@@ -4,22 +4,15 @@ import { extname, resolve } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import type { SymbolComparisonStatus } from "./code-intelligence/compare-symbol-declarations.ts";
 import type { Diagnostic } from "./code-intelligence/diagnostic.ts";
-import { diagnostics as diagnosticsQuery } from "./code-intelligence/diagnostics.ts";
 import type { DocumentSymbolEntry } from "./code-intelligence/document-symbol.ts";
 import { documentSymbols as documentSymbolsQuery } from "./code-intelligence/document-symbols.ts";
 import { FallbackCodeIntelligenceIndex } from "./code-intelligence/fallback-code-intelligence-index.ts";
 import { findReferences as findReferencesQuery } from "./code-intelligence/find-references.ts";
-import { goToDefinition as goToDefinitionQuery } from "./code-intelligence/go-to-definition.ts";
-import { goToImplementation as goToImplementationQuery } from "./code-intelligence/go-to-implementation.ts";
 import type { Hover } from "./code-intelligence/hover.ts";
-import { hoverAt } from "./code-intelligence/hover-at.ts";
 import type { IntelligenceProvenance } from "./code-intelligence/intelligence-provenance.ts";
 import { LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./code-intelligence/language-server-descriptor.ts";
 import { discoverWorkspaceDescriptors } from "./code-intelligence/lsp/discover-seed-file.ts";
 import { LspSymbolIndex } from "./code-intelligence/lsp/lsp-symbol-index.ts";
-import type { CodeIntelligencePort } from "./code-intelligence/port.ts";
-import type { SymbolIndexPort } from "./code-intelligence/symbol-index-port.ts";
-import { assertBoundedSymbolQuery } from "./code-intelligence/symbol-query.ts";
 import { findImportSpecifiers } from "./code-intelligence/tree-sitter/import-specifiers.ts";
 import { TreeSitterSymbolIndex } from "./code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "./code-intelligence/typescript-compiler-symbol-index.ts";
@@ -65,6 +58,7 @@ import type { RepoReference } from "./repo-fetcher/repo-reference.ts";
 import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
 import type { SearchCachePort } from "./search-cache/port.ts";
 import { AnnotationHandlers } from "./service/annotation-handlers.ts";
+import { createCodeIntelligenceHandlers, requireCodeIntelligence } from "./service/code-intelligence-handlers.ts";
 import { createCrossWorkspaceHandlers } from "./service/cross-workspace-handlers.ts";
 import { createExternalSearchHandlers } from "./service/external-search-handlers.ts";
 import { createGitHandlers } from "./service/git-handlers.ts";
@@ -83,12 +77,9 @@ import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "./symbol-gr
 import { computeUpdatedFileContentHashes } from "./symbol-graph/compute-updated-file-content-hashes.ts";
 import { findDependentFiles } from "./symbol-graph/find-dependent-files.ts";
 import { InMemorySymbolGraph } from "./symbol-graph/in-memory-symbol-graph.ts";
-import { incomingCalls as incomingCallsQuery } from "./symbol-graph/incoming-calls.ts";
 import { mergePopulationResult } from "./symbol-graph/merge-population-result.ts";
-import { outgoingCalls as outgoingCallsQuery } from "./symbol-graph/outgoing-calls.ts";
 import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "./symbol-graph/populate-symbol-graph.ts";
 import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "./symbol-graph/port.ts";
-import { prepareCallHierarchy as prepareCallHierarchyQuery } from "./symbol-graph/prepare-call-hierarchy.ts";
 import { purgeFilesNoLongerWalked } from "./symbol-graph/purge-stale-graph-entries.ts";
 import { reachableSymbolsFrom } from "./symbol-graph/reachable-symbols-from.ts";
 import { diffFileHashes } from "./symbol-graph/select-files-to-reprocess.ts";
@@ -106,13 +97,12 @@ import { applyPatch, PatchRejected } from "./workspace/apply-patch.ts";
 import { applyWorkspaceEdit, collectTouchedPaths } from "./workspace/apply-workspace-edit.ts";
 import { type EditOutcome, type ExpectedHashEdit, exactEdit, StaleExpectedHash } from "./workspace/exact-edit.ts";
 import type { FileTreePort } from "./workspace/file-tree-port.ts";
-import { findWorkspaceSymbols } from "./workspace/find-workspace-symbols.ts";
 import { type LineEdit, type LineEditOutcome, LineEditRace, LineEditRejected, lineEdit } from "./workspace/line-edit.ts";
 import { type DirectoryListing, listDirectory } from "./workspace/list-directory.ts";
 import { LocalFilesystemWorkspace } from "./workspace/local-filesystem-workspace.ts";
 import type { WorkspacePort } from "./workspace/port.ts";
 import { type RawRead, rawRead, WorkspaceEntryNotFound } from "./workspace/raw-read.ts";
-import { formatProvenanced, formatSymbolSearchResult, type ResponseFormat } from "./workspace/response-format.ts";
+import type { ResponseFormat } from "./workspace/response-format.ts";
 import { deriveSourceManifest } from "./workspace/source-manifest.ts";
 import type { ParsedWorkspaceEdit, RenameRange } from "./workspace/workspace-edit.ts";
 import type { WorkspaceMapResult } from "./workspace/workspace-map.ts";
@@ -846,7 +836,7 @@ async function registerPath(registry: MutableRegistry, input: OperationInputs["w
  * close), bounded so one slow workspace can't stall every other workspace's real results.
  */
 const MAX_INITIAL_JOB_WAIT_MS = 30_000;
-const MAX_SYMBOL_RESULTS = 5_000;
+export const MAX_SYMBOL_RESULTS = 5_000;
 const MAX_SOURCE_MANIFEST_BYTES = 50 * 1024 * 1024;
 /** Files populateSymbolGraph dispatches to the LSP concurrently -- cost is round-trip latency, not CPU (see populate-symbol-graph-concurrency.perf.test.ts). Well under LspSymbolIndex's default 256 open-file cap. */
 const POPULATION_CONCURRENCY = 8;
@@ -1011,9 +1001,10 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		npmSearchCache,
 		sourcegraphSearchCache,
 	});
+	const codeIntelligenceHandlers = createCodeIntelligenceHandlers({ warmIndexes });
 	const crossWorkspaceHandlers = createCrossWorkspaceHandlers({
 		registry,
-		findSymbols: (input) => findSymbols(registry, input),
+		findSymbols: (input) => codeIntelligenceHandlers["workspace.findSymbols"](registry, input),
 		searchText: (input) => searchTextHandler(registry, input),
 	});
 
@@ -1032,122 +1023,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
 		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 		return findFilesQuery(textSearch, entry.rootPath, input.patterns, { maxResults: input.maxResults, maxBytes: input.maxBytes });
-	}
-
-	/** Never spawns -- a caller deciding whether to enrich a result with LSP-backed info must not pay a cold-start cost just to check. With a path, checks that file's own language; without one, whether anything is warm for the workspace at all. */
-	async function hasWarmIndex(
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.hasWarmIndex"],
-	): Promise<OperationOutputs["workspace.hasWarmIndex"]> {
-		const entry = registry.get(input.workspaceId);
-		if (!entry) throw new UnknownWorkspace(input.workspaceId);
-		return { warm: warmIndexes.hasWarmIndex(input.workspaceId, input.path) };
-	}
-
-	async function findSymbols(_registry: MutableRegistry, input: OperationInputs["workspace.findSymbols"]): Promise<OperationOutputs["workspace.findSymbols"]> {
-		assertBoundedSymbolQuery(input.query);
-		const maxResults = input.maxResults ?? 1_000;
-		if (!Number.isSafeInteger(maxResults) || maxResults < 1 || maxResults > MAX_SYMBOL_RESULTS) {
-			throw new TypeError(`maxResults must be a positive safe integer no greater than ${MAX_SYMBOL_RESULTS}`);
-		}
-		const { index } = warmIndexes.ensureWorkspaceIndex(input.workspaceId, input.seedFile);
-		const result = await findWorkspaceSymbols(index, input.query, { maxResults });
-		// "concise" narrows the actual JSON payload per workspace/response-format.ts; the declared
-		// output type stays SymbolSearchResult (this operation's default, and every untouched
-		// caller's honest shape) -- a caller that opts into responseFormat:"concise" already knows
-		// to treat fields absent from the concise contract as absent, not to trust this type for it.
-		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- see comment above
-		return formatSymbolSearchResult(result, input.responseFormat ?? "detailed") as OperationOutputs["workspace.findSymbols"];
-	}
-
-	async function requireCodeIntelligence(input: {
-		workspaceId: WorkspaceId;
-		path?: string;
-		seedFile?: string;
-	}): Promise<{ index: SymbolIndexPort & CodeIntelligencePort; descriptor: LanguageServerDescriptor }> {
-		const { index, descriptor } = warmIndexes.ensureWarmIndex(input);
-		if (!supportsCodeIntelligence(index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
-		return { index, descriptor };
-	}
-
-	async function goToDefinition(
-		_registry: MutableRegistry,
-		input: OperationInputs["workspace.goToDefinition"],
-	): Promise<OperationOutputs["workspace.goToDefinition"]> {
-		const { index } = await requireCodeIntelligence(input);
-		const locations = await goToDefinitionQuery(index, { path: input.path, line: input.line, character: input.character });
-		return { locations, provenance: index.provenance };
-	}
-
-	async function goToImplementation(
-		_registry: MutableRegistry,
-		input: OperationInputs["workspace.goToImplementation"],
-	): Promise<OperationOutputs["workspace.goToImplementation"]> {
-		const { index } = await requireCodeIntelligence(input);
-		const locations = await goToImplementationQuery(index, { path: input.path, line: input.line, character: input.character });
-		return { locations, provenance: index.provenance };
-	}
-
-	async function findReferences(
-		_registry: MutableRegistry,
-		input: OperationInputs["workspace.findReferences"],
-	): Promise<OperationOutputs["workspace.findReferences"]> {
-		const { index } = await requireCodeIntelligence(input);
-		const locations = await findReferencesQuery(index, { path: input.path, line: input.line, character: input.character }, input.includeDeclaration);
-		// See findSymbols' identical note on the concise/detailed type-vs-runtime tradeoff.
-		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-		return formatProvenanced({ locations, provenance: index.provenance }, input.responseFormat ?? "detailed") as OperationOutputs["workspace.findReferences"];
-	}
-
-	async function hover(_registry: MutableRegistry, input: OperationInputs["workspace.hover"]): Promise<OperationOutputs["workspace.hover"]> {
-		const { index } = await requireCodeIntelligence(input);
-		const hover = await hoverAt(index, { path: input.path, line: input.line, character: input.character });
-		return { hover, provenance: index.provenance };
-	}
-
-	async function documentSymbolsHandler(
-		_registry: MutableRegistry,
-		input: OperationInputs["workspace.documentSymbols"],
-	): Promise<OperationOutputs["workspace.documentSymbols"]> {
-		const { index } = await requireCodeIntelligence(input);
-		const symbols = await documentSymbolsQuery(index, input.path);
-		return { symbols, provenance: index.provenance };
-	}
-
-	async function diagnosticsHandler(
-		_registry: MutableRegistry,
-		input: OperationInputs["workspace.diagnostics"],
-	): Promise<OperationOutputs["workspace.diagnostics"]> {
-		const { index } = await requireCodeIntelligence(input);
-		const diagnostics = await diagnosticsQuery(index, input.path);
-		return { diagnostics, provenance: index.provenance };
-	}
-
-	async function prepareCallHierarchyHandler(
-		_registry: MutableRegistry,
-		input: OperationInputs["workspace.prepareCallHierarchy"],
-	): Promise<OperationOutputs["workspace.prepareCallHierarchy"]> {
-		const { index } = await requireCodeIntelligence(input);
-		const items = await prepareCallHierarchyQuery(index, { path: input.path, line: input.line, character: input.character });
-		return { items, provenance: index.provenance };
-	}
-
-	async function incomingCallsHandler(
-		_registry: MutableRegistry,
-		input: OperationInputs["workspace.incomingCalls"],
-	): Promise<OperationOutputs["workspace.incomingCalls"]> {
-		const { index } = await requireCodeIntelligence(input);
-		const calls = await incomingCallsQuery(index, { path: input.path, line: input.line, character: input.character });
-		return { calls, provenance: index.provenance };
-	}
-
-	async function outgoingCallsHandler(
-		_registry: MutableRegistry,
-		input: OperationInputs["workspace.outgoingCalls"],
-	): Promise<OperationOutputs["workspace.outgoingCalls"]> {
-		const { index } = await requireCodeIntelligence(input);
-		const calls = await outgoingCallsQuery(index, { path: input.path, line: input.line, character: input.character });
-		return { calls, provenance: index.provenance };
 	}
 
 	/**
@@ -1406,7 +1281,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		const fromPath = entry.port.resolvePath(input.fromPath);
 		const toPath = entry.port.resolvePath(input.toPath);
 
-		const { index } = await requireCodeIntelligence({ workspaceId: input.workspaceId, path: fromPath });
+		const { index } = await requireCodeIntelligence(warmIndexes, { workspaceId: input.workspaceId, path: fromPath });
 		const topLevelSymbols = await documentSymbolsQuery(index, fromPath);
 		const positions = flattenTopLevelPositions(topLevelSymbols, fromPath);
 
@@ -1446,7 +1321,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.prepareRename"],
 	): Promise<OperationOutputs["workspace.prepareRename"]> {
-		const { index } = await requireCodeIntelligence(input);
+		const { index } = await requireCodeIntelligence(warmIndexes, input);
 		if (!index.prepareRename) throw new RenameNotSupported(input.workspaceId);
 		const range = await index.prepareRename({ path: input.path, line: input.line, character: input.character });
 		return { range, provenance: index.provenance };
@@ -1455,7 +1330,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	async function renameHandler(_registry: MutableRegistry, input: OperationInputs["workspace.rename"]): Promise<OperationOutputs["workspace.rename"]> {
 		const entry = registry.get(input.workspaceId);
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
-		const { index } = await requireCodeIntelligence(input);
+		const { index } = await requireCodeIntelligence(warmIndexes, input);
 		if (!index.rename) throw new RenameNotSupported(input.workspaceId);
 		const rename = index.rename.bind(index);
 
@@ -1643,21 +1518,11 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			);
 		},
 		"workspace.registerPath": registerPath,
-		"workspace.findSymbols": findSymbols,
-		"workspace.goToDefinition": goToDefinition,
-		"workspace.goToImplementation": goToImplementation,
-		"workspace.findReferences": findReferences,
-		"workspace.hover": hover,
-		"workspace.documentSymbols": documentSymbolsHandler,
-		"workspace.diagnostics": diagnosticsHandler,
-		"workspace.prepareCallHierarchy": prepareCallHierarchyHandler,
-		"workspace.incomingCalls": incomingCallsHandler,
-		"workspace.outgoingCalls": outgoingCallsHandler,
+		...codeIntelligenceHandlers,
 		"workspace.populateSymbolGraph": populateSymbolGraphHandler,
 		"workspace.reachableFrom": reachableFromHandler,
 		"workspace.symbolEdgesFrom": symbolEdgesFromHandler,
 		"workspace.symbolEdgesTo": symbolEdgesToHandler,
-		"workspace.hasWarmIndex": hasWarmIndex,
 		"workspace.cacheStatus": cacheStatusHandler,
 		"workspace.referenceBasedRename": referenceBasedRenameHandler,
 		"workspace.prepareRename": prepareRenameHandler,
