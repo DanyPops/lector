@@ -1,24 +1,14 @@
-import importX from "eslint-plugin-import-x";
 import tseslint from "typescript-eslint";
 
 const PRODUCTION_SOURCE = ["packages/*/src/**/*.ts", "packages/*/extension/src/**/*.ts"];
 
+// Import-cycle detection lives in biome.json (suspicious.noImportCycles) instead of here --
+// eslint-plugin-import-x's own no-cycle rule was confirmed non-functional against this repo's
+// resolver/version combination (verified via a minimal reproduction: silently reports zero
+// cycles even for a trivial 2-file cycle, matching a long-standing upstream bug,
+// import-js/eslint-plugin-import#2895), while Biome's native rule was verified working.
 export default tseslint.config(
 	{ ignores: ["**/node_modules/**", "**/dist/**", "**/*.d.ts"] },
-
-	// Import-cycle detection: a hexagonal core with domain/ports/adapters/service layers
-	// is exactly the shape that silently grows cycles if nothing catches them early.
-	// silently grows cycles if nothing catches them early.
-	{
-		files: PRODUCTION_SOURCE,
-		plugins: { "import-x": importX },
-		settings: {
-			"import-x/resolver": { typescript: true },
-		},
-		rules: {
-			"import-x/no-cycle": ["error", { ignoreExternal: true }],
-		},
-	},
 
 	// Type-aware safety rules, production source only -- test fixtures intentionally
 	// exercise loosely-typed payloads (e.g. raw JSON-RPC responses) that would fight
