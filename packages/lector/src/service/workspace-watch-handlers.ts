@@ -3,7 +3,9 @@ import picomatch from "picomatch";
 import type { FileChangeEvent } from "../file-watcher/file-change-event.ts";
 import type { FileWatcherPort } from "../file-watcher/port.ts";
 import { WatchRegistry } from "../file-watcher/watch-registry.ts";
-import { type MutableRegistry, type OperationInputs, type OperationOutputs, SymbolQueryUnavailable, UnknownWorkspace, type WorkspaceId } from "../service.ts";
+import { SymbolQueryUnavailable, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
+import type { OperationInputs, OperationOutputs } from "./operations.ts";
+import type { MutableRegistry } from "./workspace-registry.ts";
 
 export interface WorkspaceWatchHandlerDeps {
 	readonly registry: MutableRegistry;

@@ -8,21 +8,16 @@ import type { LanguageServerDescriptor } from "../code-intelligence/language-ser
 import type { CodeIntelligencePort } from "../code-intelligence/port.ts";
 import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts";
 import { assertBoundedSymbolQuery } from "../code-intelligence/symbol-query.ts";
-import {
-	CodeIntelligenceUnavailable,
-	MAX_SYMBOL_RESULTS,
-	type MutableRegistry,
-	type OperationInputs,
-	type OperationOutputs,
-	UnknownWorkspace,
-	type WorkspaceId,
-} from "../service.ts";
 import { incomingCalls as incomingCallsQuery } from "../symbol-graph/incoming-calls.ts";
 import { outgoingCalls as outgoingCallsQuery } from "../symbol-graph/outgoing-calls.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "../symbol-graph/prepare-call-hierarchy.ts";
 import { findWorkspaceSymbols } from "../workspace/find-workspace-symbols.ts";
 import { formatProvenanced, formatSymbolSearchResult } from "../workspace/response-format.ts";
+import { MAX_SYMBOL_RESULTS } from "./bounds.ts";
+import { CodeIntelligenceUnavailable, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
+import type { OperationInputs, OperationOutputs } from "./operations.ts";
 import { supportsCodeIntelligence, type WarmIndexRegistry } from "./warm-index-registry.ts";
+import type { MutableRegistry } from "./workspace-registry.ts";
 
 export interface CodeIntelligenceHandlerDeps {
 	readonly warmIndexes: WarmIndexRegistry<WorkspaceId>;

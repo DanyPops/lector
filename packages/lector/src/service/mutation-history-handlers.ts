@@ -3,16 +3,9 @@ import { InMemoryMutationHistory } from "../mutation-history/in-memory-mutation-
 import type { MutationOperation } from "../mutation-history/mutation-history.ts";
 import { canRevertMutation } from "../mutation-history/mutation-history.ts";
 import type { MutationHistoryPort } from "../mutation-history/port.ts";
-import {
-	type MutableRegistry,
-	MutationEntryNotFound,
-	MutationRevertStale,
-	type OperationInputs,
-	type OperationOutputs,
-	resolveWorkspace,
-	UnknownWorkspace,
-	type WorkspaceId,
-} from "../service.ts";
+import { MutationEntryNotFound, MutationRevertStale, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
+import type { OperationInputs, OperationOutputs } from "./operations.ts";
+import { type MutableRegistry, resolveWorkspace } from "./workspace-registry.ts";
 
 export interface WorkspaceFileOperationObserver {
 	notifyFilesWillCreate(workspaceId: WorkspaceId, paths: readonly string[]): Promise<void>;

@@ -1,15 +1,4 @@
 import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
-import {
-	AnnotationContainmentCycle,
-	AnnotationRequiresAnchors,
-	type MutableRegistry,
-	type OperationInputs,
-	type OperationOutputs,
-	resolveWorkspace,
-	UnknownAnnotationAnchor,
-	UnknownAnnotationForContainment,
-	type WorkspaceId,
-} from "../service.ts";
 import { annotationsContainedFrom, wouldCreateContainmentCycle } from "../symbol-annotation/annotation-containment.ts";
 import { checkAnnotationStaleness } from "../symbol-annotation/check-annotation-staleness.ts";
 import { InMemorySymbolAnnotations } from "../symbol-annotation/in-memory-symbol-annotations.ts";
@@ -18,6 +7,9 @@ import type { SymbolAnnotation, SymbolAnnotationAnchor } from "../symbol-annotat
 import type { SymbolGraphPort } from "../symbol-graph/port.ts";
 import { deriveSymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import type { WorkspacePort } from "../workspace/port.ts";
+import { AnnotationContainmentCycle, AnnotationRequiresAnchors, UnknownAnnotationAnchor, UnknownAnnotationForContainment, type WorkspaceId } from "./errors.ts";
+import type { OperationInputs, OperationOutputs } from "./operations.ts";
+import { type MutableRegistry, resolveWorkspace } from "./workspace-registry.ts";
 
 export interface AnnotationHandlerDeps {
 	readonly registry: MutableRegistry;

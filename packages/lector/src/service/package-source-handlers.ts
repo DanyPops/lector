@@ -7,17 +7,11 @@ import { type PackageSourceListEntry, queryPackageSourceIndex } from "../package
 import { InvalidPackageSourceContract, resolvePackageSource } from "../package-source/resolve-package-source.ts";
 import type { PackageSourceResolverPort } from "../package-source/resolver-port.ts";
 import type { RepoFetcherPort } from "../repo-fetcher/port.ts";
-import {
-	deriveWorkspaceId,
-	InvalidWorkspaceRoot,
-	type MutableRegistry,
-	type OperationInputs,
-	type OperationOutputs,
-	PackageSourceEntryInUse,
-	PackageSourceResolverNotConfigured,
-} from "../service.ts";
 import { LocalFilesystemWorkspace } from "../workspace/local-filesystem-workspace.ts";
 import { ReadOnlyWorkspace } from "../workspace/read-only-workspace.ts";
+import { deriveWorkspaceId, InvalidWorkspaceRoot, PackageSourceEntryInUse, PackageSourceResolverNotConfigured } from "./errors.ts";
+import type { OperationInputs, OperationOutputs } from "./operations.ts";
+import type { MutableRegistry } from "./workspace-registry.ts";
 
 export interface PackageSourceHandlerDeps {
 	readonly packageSourceResolver: PackageSourceResolverPort | undefined;

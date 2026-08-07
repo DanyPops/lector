@@ -1,15 +1,5 @@
 import type { ContentCachePort } from "../content-cache/port.ts";
 import type { SearchCachePort } from "../search-cache/port.ts";
-import {
-	type MutableRegistry,
-	type OperationInputs,
-	type OperationOutputs,
-	resolveFileTree,
-	resolveWorkspace,
-	SymbolQueryUnavailable,
-	UnknownWorkspace,
-	type WorkspaceId,
-} from "../service.ts";
 import { findFiles as findFilesQuery } from "../text-search/find-files.ts";
 import type { TextSearchPort } from "../text-search/port.ts";
 import { searchText as searchTextQuery } from "../text-search/search-text.ts";
@@ -18,8 +8,11 @@ import { exactEdit } from "../workspace/exact-edit.ts";
 import { lineEdit } from "../workspace/line-edit.ts";
 import { listDirectory } from "../workspace/list-directory.ts";
 import { rawRead } from "../workspace/raw-read.ts";
+import { SymbolQueryUnavailable, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
 import type { MutationHistoryCoordinator } from "./mutation-history-handlers.ts";
+import type { OperationInputs, OperationOutputs } from "./operations.ts";
 import type { WarmIndexRegistry } from "./warm-index-registry.ts";
+import { type MutableRegistry, resolveFileTree, resolveWorkspace } from "./workspace-registry.ts";
 
 export interface WorkspaceFileHandlerDeps {
 	readonly contentCache: ContentCachePort;

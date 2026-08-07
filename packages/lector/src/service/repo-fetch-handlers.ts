@@ -2,16 +2,11 @@ import { resolve } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { type CachedRepositoryEntry, queryCachedRepositories } from "../repo-fetcher/cached-repository-entry.ts";
 import type { RepoFetcherPort } from "../repo-fetcher/port.ts";
-import {
-	deriveWorkspaceId,
-	type MutableRegistry,
-	type OperationInputs,
-	type OperationOutputs,
-	RepoCacheEntryInUse,
-	RepoFetcherNotConfigured,
-} from "../service.ts";
 import { LocalFilesystemWorkspace } from "../workspace/local-filesystem-workspace.ts";
 import { ReadOnlyWorkspace } from "../workspace/read-only-workspace.ts";
+import { deriveWorkspaceId, RepoCacheEntryInUse, RepoFetcherNotConfigured } from "./errors.ts";
+import type { OperationInputs, OperationOutputs } from "./operations.ts";
+import type { MutableRegistry } from "./workspace-registry.ts";
 
 export interface RepoFetchHandlerDeps {
 	readonly repoFetcher: RepoFetcherPort | undefined;

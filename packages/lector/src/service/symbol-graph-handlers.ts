@@ -15,29 +15,6 @@ import { planReferenceBasedRename } from "../reference-based-rename/reference-ba
 import { isCacheFreshByGit } from "../repo-fetcher/git-cache-freshness.ts";
 import type { RepoFetcherPort } from "../repo-fetcher/port.ts";
 import { shouldRefetchFromRemote } from "../repo-fetcher/remote-cache-freshness.ts";
-import {
-	CodeIntelligenceUnavailable,
-	InvalidJobInput,
-	JobWaitTooLong,
-	jobTopicFor,
-	jobWatchIdFor,
-	MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP,
-	MAX_INITIAL_JOB_WAIT_MS,
-	MAX_SOURCE_MANIFEST_BYTES,
-	type MutableRegistry,
-	type OperationInputs,
-	type OperationOutputs,
-	POPULATION_CONCURRENCY,
-	ReferenceBasedRenameRequiresFreshGraph,
-	type RegisteredWorkspace,
-	RenameNotSupported,
-	SymbolQueryUnavailable,
-	UnknownWorkspace,
-	UnsupportedJobOperation,
-	WorkspaceChangedDuringPopulation,
-	WorkspaceEntryNotFound,
-	type WorkspaceId,
-} from "../service.ts";
 import { computeUpdatedFileContentHashes } from "../symbol-graph/compute-updated-file-content-hashes.ts";
 import { findDependentFiles } from "../symbol-graph/find-dependent-files.ts";
 import { mergePopulationResult } from "../symbol-graph/merge-population-result.ts";
@@ -50,11 +27,29 @@ import { symbolEdgesTo } from "../symbol-graph/symbol-edges-to.ts";
 import type { SymbolGraphGeneration } from "../symbol-graph/symbol-graph-generation.ts";
 import { deriveSymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import { applyWorkspaceEdit, collectTouchedPaths } from "../workspace/apply-workspace-edit.ts";
+import { WorkspaceEntryNotFound } from "../workspace/raw-read.ts";
 import { deriveSourceManifest } from "../workspace/source-manifest.ts";
 import type { ParsedWorkspaceEdit } from "../workspace/workspace-edit.ts";
+import { MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP, MAX_INITIAL_JOB_WAIT_MS, MAX_SOURCE_MANIFEST_BYTES, POPULATION_CONCURRENCY } from "./bounds.ts";
 import { requireCodeIntelligence } from "./code-intelligence-handlers.ts";
+import {
+	CodeIntelligenceUnavailable,
+	InvalidJobInput,
+	JobWaitTooLong,
+	jobTopicFor,
+	jobWatchIdFor,
+	ReferenceBasedRenameRequiresFreshGraph,
+	RenameNotSupported,
+	SymbolQueryUnavailable,
+	UnknownWorkspace,
+	UnsupportedJobOperation,
+	WorkspaceChangedDuringPopulation,
+	type WorkspaceId,
+} from "./errors.ts";
 import type { GraphRefreshCoordinator } from "./graph-refresh-coordinator.ts";
+import type { OperationInputs, OperationOutputs } from "./operations.ts";
 import { supportsCodeIntelligence, type WarmIndexRegistry } from "./warm-index-registry.ts";
+import type { MutableRegistry, RegisteredWorkspace } from "./workspace-registry.ts";
 
 export interface SymbolGraphHandlerDeps {
 	readonly registry: MutableRegistry;

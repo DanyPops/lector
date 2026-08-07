@@ -5,17 +5,9 @@ import type { SymbolDeclarationSnapshot } from "../code-intelligence/symbol-decl
 import { extractDeclarationSnapshot } from "../code-intelligence/tree-sitter/declaration-text.ts";
 import { wasmPathForExtension } from "../code-intelligence/tree-sitter/typescript-parser.ts";
 import type { GitPort } from "../git/port.ts";
-import {
-	type MutableRegistry,
-	NotAGitRepository,
-	type OperationInputs,
-	type OperationOutputs,
-	resolveWorkspace,
-	SymbolComparisonUnsupportedLanguage,
-	SymbolQueryUnavailable,
-	UnknownWorkspace,
-	type WorkspaceId,
-} from "../service.ts";
+import { NotAGitRepository, SymbolComparisonUnsupportedLanguage, SymbolQueryUnavailable, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
+import type { OperationInputs, OperationOutputs } from "./operations.ts";
+import { type MutableRegistry, resolveWorkspace } from "./workspace-registry.ts";
 
 export interface GitHandlerDeps {
 	readonly registry: MutableRegistry;
