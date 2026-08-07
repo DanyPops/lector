@@ -854,6 +854,19 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		}
 	}
 
+	/**
+	 * Every position/workspace query must wait for the server's own background progress
+	 * (e.g. loading a referenced project) to go idle before firing -- otherwise a query can
+	 * race a still-loading project graph and silently come back empty/incomplete instead of
+	 * correct (the real regression: cross-package goToDefinition losing a result under CI's
+	 * slower cold-start). The single seam every query request goes through, so a future query
+	 * method added to this class cannot forget the wait the way 9 of 11 once did.
+	 */
+	private async requestWhenReady<T>(proc: LanguageServerProcess, method: string, params: unknown): Promise<T> {
+		await this.waitForWorkspaceReady();
+		return proc.request<T>(method, params);
+	}
+
 	private async restartForSeed(seedFile: string): Promise<LanguageServerProcess> {
 		await this.process?.stop();
 		this.process = undefined;
@@ -874,8 +887,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			refreshedBytes += Buffer.byteLength(this.openedFiles.get(path)?.content ?? "", "utf-8");
 			if (refreshedBytes > this.maxRefreshBytes) throw new LanguageFileLimitExceeded("refresh-bytes", this.maxRefreshBytes, refreshedBytes);
 		}
-		await this.waitForWorkspaceReady();
-		let results = (await proc.request<LspSymbolInformation[] | null>("workspace/symbol", { query })) ?? [];
+		let results = (await this.requestWhenReady<LspSymbolInformation[] | null>(proc, "workspace/symbol", { query })) ?? [];
 		if (results.length === 0 && this.descriptor.languageId === "typescript") {
 			const candidates = await new TypeScriptCompilerSymbolIndex(this.cwd, { maxResults: this.maxFallbackSeedFiles }).findSymbols(query, {
 				maxResults: this.maxFallbackSeedFiles,
@@ -883,8 +895,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			const candidate = candidates.symbols[0];
 			if (candidate) {
 				proc = await this.restartForSeed(candidate.location.path);
-				await this.waitForWorkspaceReady();
-				results = (await proc.request<LspSymbolInformation[] | null>("workspace/symbol", { query })) ?? [];
+				results = (await this.requestWhenReady<LspSymbolInformation[] | null>(proc, "workspace/symbol", { query })) ?? [];
 			}
 		}
 		const truncated = results.length > bounds.maxResults;
@@ -904,7 +915,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	async goToDefinition(at: WorkspaceLocation): Promise<WorkspaceLocation[]> {
 		const proc = await this.ensureInitialized(at.path);
 		await this.ensureFileOpen(proc, at.path);
-		const result = await proc.request<LspLocation | LspLocation[] | LspLocationLink[] | null>("textDocument/definition", {
+		const result = await this.requestWhenReady<LspLocation | LspLocation[] | LspLocationLink[] | null>(proc, "textDocument/definition", {
 			textDocument: { uri: pathToFileURL(at.path).href },
 			position: toLspPosition(at.line, at.character),
 		});
@@ -914,7 +925,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	async goToImplementation(at: WorkspaceLocation): Promise<WorkspaceLocation[]> {
 		const proc = await this.ensureInitialized(at.path);
 		await this.ensureFileOpen(proc, at.path);
-		const result = await proc.request<LspLocation | LspLocation[] | LspLocationLink[] | null>("textDocument/implementation", {
+		const result = await this.requestWhenReady<LspLocation | LspLocation[] | LspLocationLink[] | null>(proc, "textDocument/implementation", {
 			textDocument: { uri: pathToFileURL(at.path).href },
 			position: toLspPosition(at.line, at.character),
 		});
@@ -924,9 +935,8 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	async findReferences(at: WorkspaceLocation, includeDeclaration: boolean): Promise<WorkspaceLocation[]> {
 		const proc = await this.ensureInitialized(at.path);
 		await this.ensureFileOpen(proc, at.path);
-		await this.waitForWorkspaceReady();
 		const results =
-			(await proc.request<LspLocation[] | null>("textDocument/references", {
+			(await this.requestWhenReady<LspLocation[] | null>(proc, "textDocument/references", {
 				textDocument: { uri: pathToFileURL(at.path).href },
 				position: toLspPosition(at.line, at.character),
 				context: { includeDeclaration },
@@ -937,7 +947,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	async hover(at: WorkspaceLocation): Promise<Hover | undefined> {
 		const proc = await this.ensureInitialized(at.path);
 		await this.ensureFileOpen(proc, at.path);
-		const result = await proc.request<LspHover | null>("textDocument/hover", {
+		const result = await this.requestWhenReady<LspHover | null>(proc, "textDocument/hover", {
 			textDocument: { uri: pathToFileURL(at.path).href },
 			position: toLspPosition(at.line, at.character),
 		});
@@ -949,7 +959,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		const proc = await this.ensureInitialized(path);
 		await this.ensureFileOpen(proc, path, options?.settleMs);
 		const results =
-			(await proc.request<(LspDocumentSymbol | LspSymbolInformation)[] | null>("textDocument/documentSymbol", {
+			(await this.requestWhenReady<(LspDocumentSymbol | LspSymbolInformation)[] | null>(proc, "textDocument/documentSymbol", {
 				textDocument: { uri: pathToFileURL(path).href },
 			})) ?? [];
 		return results.map((item) => normalizeDocumentSymbol(path, item));
@@ -1004,7 +1014,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	/** Raw LSP items, `data` intact -- callHierarchy/incomingCalls|outgoingCalls need the exact item prepareCallHierarchy returned, not a normalized copy. */
 	private async prepareCallHierarchyRaw(proc: LanguageServerProcess, at: WorkspaceLocation, settleMsOverride?: number): Promise<LspCallHierarchyItem[]> {
 		await this.ensureFileOpen(proc, at.path, settleMsOverride);
-		const result = await proc.request<LspCallHierarchyItem[] | null>("textDocument/prepareCallHierarchy", {
+		const result = await this.requestWhenReady<LspCallHierarchyItem[] | null>(proc, "textDocument/prepareCallHierarchy", {
 			textDocument: { uri: pathToFileURL(at.path).href },
 			position: toLspPosition(at.line, at.character),
 		});
@@ -1021,7 +1031,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		const proc = await this.ensureInitialized(at.path);
 		await this.ensureFileOpen(proc, at.path);
 		try {
-			const result = await proc.request<unknown>("textDocument/prepareRename", {
+			const result = await this.requestWhenReady<unknown>(proc, "textDocument/prepareRename", {
 				textDocument: { uri: pathToFileURL(at.path).href },
 				position: toLspPosition(at.line, at.character),
 			});
@@ -1036,7 +1046,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	async rename(at: WorkspaceLocation, newName: string): Promise<ParsedWorkspaceEdit> {
 		const proc = await this.ensureInitialized(at.path);
 		await this.ensureFileOpen(proc, at.path);
-		const result = await proc.request<unknown>("textDocument/rename", {
+		const result = await this.requestWhenReady<unknown>(proc, "textDocument/rename", {
 			textDocument: { uri: pathToFileURL(at.path).href },
 			position: toLspPosition(at.line, at.character),
 			newName,

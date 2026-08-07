@@ -52,6 +52,30 @@ describe("LspSymbolIndex workspace readiness", () => {
 		expect(index.latestProgress.get("initial-index")).toEqual({ kind: "end" });
 	}, 10_000);
 
+	it("waits for active work-done progress before goToDefinition -- the real regression: a cross-package definition resolved against a still-loading project silently comes back empty instead of waiting", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-progress-gated-"));
+		const seed = join(root, "seed.ts");
+		writeFileSync(seed, "export function readySymbol() {}\n");
+		index = new LspSymbolIndex(root, PROGRESS_GATED_DESCRIPTOR, "seed.ts");
+
+		const locations = await index.goToDefinition({ path: seed, line: 1, character: 17 });
+
+		expect(locations).toHaveLength(1);
+		expect(index.latestProgress.get("initial-index")).toEqual({ kind: "end" });
+	}, 10_000);
+
+	it("waits for active work-done progress before prepareCallHierarchy, and therefore before incomingCalls/outgoingCalls which share the same raw request", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-progress-gated-"));
+		const seed = join(root, "seed.ts");
+		writeFileSync(seed, "export function readySymbol() {}\n");
+		index = new LspSymbolIndex(root, PROGRESS_GATED_DESCRIPTOR, "seed.ts");
+
+		const items = await index.prepareCallHierarchy({ path: seed, line: 1, character: 17 });
+
+		expect(items).toHaveLength(1);
+		expect(index.latestProgress.get("initial-index")).toEqual({ kind: "end" });
+	}, 10_000);
+
 	it("fails closed at the explicit readiness bound instead of returning an incomplete result", async () => {
 		root = mkdtempSync(join(tmpdir(), "lector-progress-gated-"));
 		writeFileSync(join(root, "seed.ts"), "export function readySymbol() {}\n");

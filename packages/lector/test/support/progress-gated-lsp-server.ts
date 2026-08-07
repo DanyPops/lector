@@ -73,6 +73,35 @@ function handle(message: JsonRpcMessage): void {
 		);
 		return;
 	}
+	if (message.method === "textDocument/definition") {
+		respond(
+			message.id,
+			indexing
+				? null
+				: {
+						uri: pathToFileURL(join(process.cwd(), "seed.ts")).href,
+						range: { start: { line: 0, character: 16 }, end: { line: 0, character: 27 } },
+					},
+		);
+		return;
+	}
+	if (message.method === "textDocument/prepareCallHierarchy") {
+		respond(
+			message.id,
+			indexing
+				? null
+				: [
+						{
+							name: "readySymbol",
+							kind: 12,
+							uri: pathToFileURL(join(process.cwd(), "seed.ts")).href,
+							range: { start: { line: 0, character: 16 }, end: { line: 0, character: 27 } },
+							selectionRange: { start: { line: 0, character: 16 }, end: { line: 0, character: 27 } },
+						},
+					],
+		);
+		return;
+	}
 	if (message.method === "shutdown") {
 		respond(message.id, null);
 		return;
