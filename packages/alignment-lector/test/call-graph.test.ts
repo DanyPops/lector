@@ -74,6 +74,10 @@ describe("Lector Alignment call graph", () => {
 		stop = undefined;
 	});
 
+	// Explicit 30s timeout, matching lector's own precedent for real-tsserver-backed tests
+	// (typescript-reference-boundaries.test.ts) -- cold-starting a real TypeScript language
+	// server plus several sequential LSP round trips can legitimately exceed bun test's
+	// 5s default under a loaded CI runner; that is real subprocess I/O time, not a hang.
 	it("projects live callers/callees and persisted reachable nodes from a real TypeScript language server", async () => {
 		const daemon = await startIsolatedDaemon();
 		stop = daemon.stop;
@@ -197,7 +201,7 @@ describe("Lector Alignment call graph", () => {
 			]),
 			edges: expect.arrayContaining([expect.objectContaining({ kind: "calls" })]),
 		});
-	});
+	}, 30_000);
 
 	it("keeps cycles stable and makes graph bounds, partial caches, stale caches, deadlines, and resource caps explicit", async () => {
 		const root = hierarchy("a", "/tmp/project/a.ts", 1, 17);

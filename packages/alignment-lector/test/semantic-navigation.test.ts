@@ -55,6 +55,10 @@ describe("Lector Alignment semantic navigation", () => {
 		stop = undefined;
 	});
 
+	// Explicit 30s timeout, matching lector's own precedent for real-tsserver-backed tests
+	// (typescript-reference-boundaries.test.ts) -- cold-starting a real TypeScript language
+	// server plus several sequential LSP round trips can legitimately exceed bun test's
+	// 5s default under a loaded CI runner; that is real subprocess I/O time, not a hang.
 	it("projects search, hover, definition, references, and diagnostics from a real TypeScript language server", async () => {
 		const daemon = await startIsolatedDaemon();
 		stop = daemon.stop;
@@ -138,7 +142,7 @@ describe("Lector Alignment semantic navigation", () => {
 			items: [expect.objectContaining({ severity: "error", range: expect.objectContaining({ path: DIAGNOSTIC_PATH }) })],
 			provenance: { fidelity: "semantic" },
 		});
-	});
+	}, 30_000);
 
 	it("preserves degraded/stale provenance, caps result resources, and cancels without caching late work", async () => {
 		let finish: ((value: unknown) => void) | undefined;
