@@ -8,9 +8,13 @@ describe("extractDeclarationSnapshot", () => {
 	});
 
 	it("extracts the exact declaration source text for a matching top-level function", async () => {
+		// Fixture TypeScript source fed to the tree-sitter parser under test -- the embedded `${name}`
+		// is a real template literal in the parsed source, not a forgotten JS interpolation.
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: see comment above.
 		const content = "const x = 1;\nfunction greet(name: string): string {\n\treturn `hi ${name}`;\n}\n";
 		const result = await extractDeclarationSnapshot(content, ".ts", "greet");
 		expect(result.found).toBe(true);
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: same as above -- expected extracted source text.
 		expect(result.text).toBe("function greet(name: string): string {\n\treturn `hi ${name}`;\n}");
 		expect(result.startLine).toBe(2);
 		expect(result.endLine).toBe(4);

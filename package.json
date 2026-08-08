@@ -6,7 +6,7 @@
 	"scripts": {
 		"test": "bun test",
 		"typecheck": "bun run --filter '*' typecheck",
-		"lint": "biome check . && eslint packages/*/src packages/*/extension/src"
+		"lint": "biome check --error-on-warnings . && eslint --max-warnings 0 packages/*/src packages/*/extension/src"
 	},
 	"pi": {
 		"extensions": ["packages/pi-lector/extension/src/index.ts"]

@@ -38,6 +38,9 @@ describe("highlightSpans", () => {
 	});
 
 	it("captures string and template-string literals", async () => {
+		// Fixture TypeScript source fed to the tree-sitter highlighter under test -- `${a}` is a real
+		// template literal in the parsed source, not a forgotten JS interpolation.
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: see comment above.
 		const source = 'const a = "hello"; const b = `hi ${a}`;';
 		const spans = await highlightSpans(source, ".ts");
 		const strings = spans.filter((s) => s.capture === "string").map((s) => source.slice(s.startIndex, s.endIndex));
