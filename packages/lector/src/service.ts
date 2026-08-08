@@ -47,6 +47,7 @@ import { createPackageSourceHandlers } from "./service/package-source-handlers.t
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { createSymbolGraphHandlers } from "./service/symbol-graph-handlers.ts";
 import { GIT_READ_PERMISSIONS, registerGitVehicleOperations } from "./service/vehicle/git-operations.ts";
+import { REPO_LIST_CACHE_PERMISSIONS, REPO_WRITE_PERMISSIONS, registerRepoFetchVehicleOperations } from "./service/vehicle/repo-fetch-operations.ts";
 import { dispatchThroughVehicle } from "./service/vehicle/vehicle-dispatch.ts";
 import { type ClosableSymbolIndex, WarmIndexRegistry } from "./service/warm-index-registry.ts";
 import { createWorkspaceFileHandlers } from "./service/workspace-file-handlers.ts";
@@ -316,6 +317,12 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.gitDiff": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "workspace.gitDiff", 1, input, GIT_READ_PERMISSIONS),
 	};
 	const repoFetchHandlers = createRepoFetchHandlers({ repoFetcher, logger });
+	registerRepoFetchVehicleOperations(vehicleRegistry, registry, repoFetchHandlers);
+	const vehicleRepoFetchHandlers: Pick<OperationHandlers, "repo.fetch" | "repo.listCache" | "repo.evictCache"> = {
+		"repo.fetch": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "repo.fetch", 1, input, REPO_WRITE_PERMISSIONS),
+		"repo.listCache": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "repo.listCache", 1, input, REPO_LIST_CACHE_PERMISSIONS),
+		"repo.evictCache": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "repo.evictCache", 1, input, REPO_WRITE_PERMISSIONS),
+	};
 	const packageSourceHandlers = createPackageSourceHandlers({ packageSourceResolver, packageSourceIndex, repoFetcher, logger });
 	const externalSearchHandlers = createExternalSearchHandlers({
 		githubSearch,
@@ -343,6 +350,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...gitHandlers,
 		...vehicleGitHandlers,
 		...repoFetchHandlers,
+		...vehicleRepoFetchHandlers,
 		...packageSourceHandlers,
 		...mutationHistory.handlers,
 		...annotationHandlers.handlers,
