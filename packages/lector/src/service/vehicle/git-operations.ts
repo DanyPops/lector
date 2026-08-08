@@ -14,9 +14,10 @@
  */
 import { bindVehicleOperation, defineErrorMapping, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import { NotAGitRepository, SymbolQueryUnavailable, UnknownWorkspace } from "../errors.ts";
+import { NotAGitRepository, SymbolQueryUnavailable } from "../errors.ts";
 import type { GitHandlers } from "../git-handlers.ts";
 import type { MutableRegistry } from "../workspace-registry.ts";
+import { UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR, UNKNOWN_WORKSPACE_ERROR_MAPPING } from "./common-errors.ts";
 import { gitDiffInputSchema, gitLogInputSchema, gitStatusInputSchema } from "./git-schemas.ts";
 import { WORKSPACE_READ_PERMISSION } from "./permissions.ts";
 
@@ -29,14 +30,14 @@ const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes:
 
 /** Every failure requireGitRepository (shared by all 3 operations) can actually throw, declared once. */
 const GIT_REPOSITORY_ERRORS = [
-	{ code: "unknown-workspace", description: "workspaceId names no workspace registered via workspace.registerPath" },
+	UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR,
 	{ code: "symbol-query-unavailable", description: "the workspace has no known root path (not registered from a real filesystem location)" },
 	{ code: "not-a-git-repository", description: "the workspace's root is not inside a git repository" },
-] as const;
+];
 
 /** Maps requireGitRepository's 3 real domain errors onto properly coded/categorized VehicleErrors, preserving the original as `cause`. */
 const mapGitError = defineErrorMapping([
-	{ errorClass: UnknownWorkspace, category: "not_found", code: "unknown-workspace" },
+	UNKNOWN_WORKSPACE_ERROR_MAPPING,
 	{ errorClass: SymbolQueryUnavailable, category: "unavailable", code: "symbol-query-unavailable" },
 	{ errorClass: NotAGitRepository, category: "validation", code: "not-a-git-repository" },
 ]);

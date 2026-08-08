@@ -46,6 +46,7 @@ import { OPERATION_NAMES, type OperationInputs, type OperationName, type Operati
 import { createPackageSourceHandlers } from "./service/package-source-handlers.ts";
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { createSymbolGraphHandlers } from "./service/symbol-graph-handlers.ts";
+import { ANNOTATION_READ_PERMISSIONS, ANNOTATION_WRITE_PERMISSIONS, registerAnnotationVehicleOperations } from "./service/vehicle/annotation-operations.ts";
 import { GIT_READ_PERMISSIONS, registerGitVehicleOperations } from "./service/vehicle/git-operations.ts";
 import { REPO_LIST_CACHE_PERMISSIONS, REPO_WRITE_PERMISSIONS, registerRepoFetchVehicleOperations } from "./service/vehicle/repo-fetch-operations.ts";
 import { dispatchThroughVehicle } from "./service/vehicle/vehicle-dispatch.ts";
@@ -323,6 +324,33 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"repo.listCache": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "repo.listCache", 1, input, REPO_LIST_CACHE_PERMISSIONS),
 		"repo.evictCache": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "repo.evictCache", 1, input, REPO_WRITE_PERMISSIONS),
 	};
+	registerAnnotationVehicleOperations(vehicleRegistry, registry, annotationHandlers);
+	type AnnotationOperationName =
+		| "workspace.createAnnotation"
+		| "workspace.getAnnotation"
+		| "workspace.listAnnotations"
+		| "workspace.refreshAnnotation"
+		| "workspace.scrubAnnotation"
+		| "workspace.restoreAnnotation"
+		| "workspace.containAnnotation"
+		| "workspace.uncontainAnnotation"
+		| "workspace.annotationTree";
+	const dispatchAnnotationOperation = <Name extends AnnotationOperationName>(name: Name, permissions: readonly string[]) =>
+		((_registry: MutableRegistry, input: OperationInputs[Name]) => dispatchThroughVehicle(vehicleRegistry, name, 1, input, permissions)) satisfies (
+			registry: MutableRegistry,
+			input: OperationInputs[Name],
+		) => Promise<OperationOutputs[Name]>;
+	const vehicleAnnotationHandlers: Pick<OperationHandlers, AnnotationOperationName> = {
+		"workspace.createAnnotation": dispatchAnnotationOperation("workspace.createAnnotation", ANNOTATION_WRITE_PERMISSIONS),
+		"workspace.getAnnotation": dispatchAnnotationOperation("workspace.getAnnotation", ANNOTATION_READ_PERMISSIONS),
+		"workspace.listAnnotations": dispatchAnnotationOperation("workspace.listAnnotations", ANNOTATION_READ_PERMISSIONS),
+		"workspace.refreshAnnotation": dispatchAnnotationOperation("workspace.refreshAnnotation", ANNOTATION_WRITE_PERMISSIONS),
+		"workspace.scrubAnnotation": dispatchAnnotationOperation("workspace.scrubAnnotation", ANNOTATION_WRITE_PERMISSIONS),
+		"workspace.restoreAnnotation": dispatchAnnotationOperation("workspace.restoreAnnotation", ANNOTATION_WRITE_PERMISSIONS),
+		"workspace.containAnnotation": dispatchAnnotationOperation("workspace.containAnnotation", ANNOTATION_WRITE_PERMISSIONS),
+		"workspace.uncontainAnnotation": dispatchAnnotationOperation("workspace.uncontainAnnotation", ANNOTATION_WRITE_PERMISSIONS),
+		"workspace.annotationTree": dispatchAnnotationOperation("workspace.annotationTree", ANNOTATION_READ_PERMISSIONS),
+	};
 	const packageSourceHandlers = createPackageSourceHandlers({ packageSourceResolver, packageSourceIndex, repoFetcher, logger });
 	const externalSearchHandlers = createExternalSearchHandlers({
 		githubSearch,
@@ -354,6 +382,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...packageSourceHandlers,
 		...mutationHistory.handlers,
 		...annotationHandlers.handlers,
+		...vehicleAnnotationHandlers,
 		...externalSearchHandlers,
 		...crossWorkspaceHandlers,
 		...workspaceWatchHandlers.handlers,
