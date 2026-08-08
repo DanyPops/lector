@@ -1,5 +1,5 @@
 /**
- * Vehicle migration Phase 1 pilot proof: registerGitVehicleOperationsPilot's VehicleRegistry.invoke()
+ * Vehicle migration Phase 1 pilot proof: registerGitVehicleOperations's VehicleRegistry.invoke()
  * path must produce the exact same result as calling the underlying GitHandlers function directly,
  * for both the success path and the real NotAGitRepository error path -- proving the wrapper adds a
  * second entry point over identical business logic rather than forking it.
@@ -14,7 +14,7 @@ import { VehicleRegistry } from "@danypops/vehicle-server";
 import { LocalGit } from "../../../src/git/local-git.ts";
 import { NotAGitRepository } from "../../../src/service/errors.ts";
 import { createGitHandlers } from "../../../src/service/git-handlers.ts";
-import { registerGitVehicleOperationsPilot } from "../../../src/service/vehicle/git-operations.ts";
+import { registerGitVehicleOperations } from "../../../src/service/vehicle/git-operations.ts";
 import type { MutableRegistry } from "../../../src/service/workspace-registry.ts";
 import { LocalFilesystemWorkspace } from "../../../src/workspace/local-filesystem-workspace.ts";
 
@@ -35,7 +35,7 @@ function buildFixture(rootPath: string) {
 	const registry: MutableRegistry = new Map([["ws", { port: new LocalFilesystemWorkspace(rootPath), rootPath, origin: "local" as const }]]);
 	const handlers = createGitHandlers({ registry, createGitPort: (p) => new LocalGit(p), logger: { debug() {}, info() {}, warn() {}, error() {} } });
 	const vehicleRegistry = new VehicleRegistry({ name: "lector-git-pilot", version: "1.0.0", description: "pilot" });
-	registerGitVehicleOperationsPilot(vehicleRegistry, registry, handlers);
+	registerGitVehicleOperations(vehicleRegistry, registry, handlers);
 	return { registry, handlers, vehicleRegistry };
 }
 

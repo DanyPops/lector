@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import { VehicleRegistry } from "@danypops/vehicle-server";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { FallbackCodeIntelligenceIndex } from "./code-intelligence/fallback-code-intelligence-index.ts";
 import { LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./code-intelligence/language-server-descriptor.ts";
@@ -45,6 +46,8 @@ import { OPERATION_NAMES, type OperationInputs, type OperationName, type Operati
 import { createPackageSourceHandlers } from "./service/package-source-handlers.ts";
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { createSymbolGraphHandlers } from "./service/symbol-graph-handlers.ts";
+import { GIT_READ_PERMISSIONS, registerGitVehicleOperations } from "./service/vehicle/git-operations.ts";
+import { dispatchThroughVehicle } from "./service/vehicle/vehicle-dispatch.ts";
 import { type ClosableSymbolIndex, WarmIndexRegistry } from "./service/warm-index-registry.ts";
 import { createWorkspaceFileHandlers } from "./service/workspace-file-handlers.ts";
 import { createWorkspaceMapHandler } from "./service/workspace-map-handler.ts";
@@ -58,6 +61,7 @@ import type { PopulateSymbolGraphResult } from "./symbol-graph/populate-symbol-g
 import type { SymbolGraphPort } from "./symbol-graph/port.ts";
 import type { TextSearchPort } from "./text-search/port.ts";
 import { RipgrepTextSearch } from "./text-search/ripgrep-text-search.ts";
+import { lectorVersion } from "./version.ts";
 import { PatchRejected } from "./workspace/apply-patch.ts";
 import { StaleExpectedHash } from "./workspace/exact-edit.ts";
 import { LineEditRace, LineEditRejected } from "./workspace/line-edit.ts";
@@ -298,6 +302,20 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	});
 	ensureOsWatcher = (workspaceId, rootPath) => workspaceWatchHandlers.ensureOsWatcher(workspaceId, rootPath);
 	const gitHandlers = createGitHandlers({ registry, createGitPort, logger });
+	// Phase 2 of the Vehicle migration (epic 0419b039): gitStatus/gitLog/gitDiff route through a
+	// real VehicleRegistry instead of calling gitHandlers directly. Every other git operation
+	// (compareSymbolAcrossVersions included) still comes from gitHandlers below, unmigrated.
+	const vehicleRegistry = new VehicleRegistry({
+		name: "lector",
+		version: lectorVersion(),
+		description: "Lector's operation dispatch, migrated incrementally onto Vehicle.",
+	});
+	registerGitVehicleOperations(vehicleRegistry, registry, gitHandlers);
+	const vehicleGitHandlers: Pick<OperationHandlers, "workspace.gitStatus" | "workspace.gitLog" | "workspace.gitDiff"> = {
+		"workspace.gitStatus": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "workspace.gitStatus", 1, input, GIT_READ_PERMISSIONS),
+		"workspace.gitLog": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "workspace.gitLog", 1, input, GIT_READ_PERMISSIONS),
+		"workspace.gitDiff": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "workspace.gitDiff", 1, input, GIT_READ_PERMISSIONS),
+	};
 	const repoFetchHandlers = createRepoFetchHandlers({ repoFetcher, logger });
 	const packageSourceHandlers = createPackageSourceHandlers({ packageSourceResolver, packageSourceIndex, repoFetcher, logger });
 	const externalSearchHandlers = createExternalSearchHandlers({
@@ -324,6 +342,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...codeIntelligenceHandlers,
 		...symbolGraphHandlers.handlers,
 		...gitHandlers,
+		...vehicleGitHandlers,
 		...repoFetchHandlers,
 		...packageSourceHandlers,
 		...mutationHistory.handlers,
