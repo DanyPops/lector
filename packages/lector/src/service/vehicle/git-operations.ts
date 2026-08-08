@@ -1,63 +1,45 @@
 /**
- * Registers workspace.gitStatus/gitLog/gitDiff onto a real VehicleRegistry via
- * defineVehicleOperation/bindVehicleOperation, delegating to the exact same GitHandlers
- * functions -- Phase 2 wires this into createLectorService's actual dispatch table (see
- * dispatchThroughVehicle), promoting Phase 1's side-by-side pilot into the real path.
- * compareSymbolAcrossVersions and every other handler module stay unmigrated.
+ * Registers workspace.gitStatus/gitLog/gitDiff onto a VehicleRegistry, delegating to the same
+ * GitHandlers functions createLectorService's dispatch table uses (see dispatchThroughVehicle).
+ * compareSymbolAcrossVersions and every other handler module stay off this registry.
  *
- * Real friction found in Phase 1 and still true here (see the epic task for the full writeup):
- * - No schema exists yet for Lector's typed OperationInputs/OperationOutputs; defineLooseObjectSchema
- *   only validates flat scalar properties, so the caller-side extraction below (requireWorkspaceId
- *   etc.) does the narrowing defineLooseObjectSchema's own Record<string, unknown> output can't.
- * - VehicleRegistry.invoke() wraps any non-VehicleError thrown by a handler into a generic
- *   VehicleError("handler-failed", ...) -- the original typed error (NotAGitRepository,
- *   UnknownWorkspace, ...) is preserved only via the standard Error.cause chain, not as the
- *   thrown value's own type. Every one of Lector's 23+ domain error classes existing consumers
- *   check via `instanceof` would lose that identity at the Vehicle boundary unless mapped to a
- *   real VehicleFailureDescriptor -- a real Phase 3 design decision, not a mechanical port.
- *   dispatchThroughVehicle unwraps it back for exactly this reason.
+ * Each operation's own schema (git-schemas.ts) narrows its input, so a malformed value fails at
+ * VehicleRegistry.invoke()'s parseInput step with a structured VehicleError("invalid-input", ...,
+ * { details: { issues } }) before the handler runs.
+ *
+ * mapGitError (vehicle-core's defineErrorMapping) codes/categorizes the 3 domain errors
+ * requireGitRepository can throw and sets `cause` to the original, so dispatchThroughVehicle's
+ * unwrap keeps `instanceof NotAGitRepository` checks working for existing consumers while a
+ * direct VehicleClient (or manifest()'s `errors` metadata) sees the real code.
  */
-import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
+import { bindVehicleOperation, defineErrorMapping, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
+import { NotAGitRepository, SymbolQueryUnavailable, UnknownWorkspace } from "../errors.ts";
 import type { GitHandlers } from "../git-handlers.ts";
 import type { MutableRegistry } from "../workspace-registry.ts";
+import { gitDiffInputSchema, gitLogInputSchema, gitStatusInputSchema } from "./git-schemas.ts";
+import { WORKSPACE_READ_PERMISSION } from "./permissions.ts";
 
 const OWNER = "lector-git";
 
-/** Provisional -- Lector has no real permission taxonomy yet (Phase 3). Every git query is read-only. */
-export const GIT_READ_PERMISSIONS = ["workspace:read"];
+const READ_PERMISSIONS = [WORKSPACE_READ_PERMISSION];
 
-/** Provisional bounds, not yet tuned per-operation against real usage (Phase 3). */
+/** Provisional bounds, not yet tuned per-operation against real usage -- a later, risk-prioritized pass. */
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 8_192, maxResponseBytes: 8 * 1024 * 1024 };
 
-function requireWorkspaceId(input: Record<string, unknown>): string {
-	const { workspaceId } = input;
-	if (typeof workspaceId !== "string" || workspaceId.length === 0) throw new TypeError("workspaceId must be a non-empty string");
-	return workspaceId;
-}
+/** Every failure requireGitRepository (shared by all 3 operations) can actually throw, declared once. */
+const GIT_REPOSITORY_ERRORS = [
+	{ code: "unknown-workspace", description: "workspaceId names no workspace registered via workspace.registerPath" },
+	{ code: "symbol-query-unavailable", description: "the workspace has no known root path (not registered from a real filesystem location)" },
+	{ code: "not-a-git-repository", description: "the workspace's root is not inside a git repository" },
+] as const;
 
-function requireMaxCount(input: Record<string, unknown>): number {
-	const { maxCount } = input;
-	if (typeof maxCount !== "number" || !Number.isSafeInteger(maxCount) || maxCount < 1) {
-		throw new TypeError("maxCount must be a positive safe integer");
-	}
-	return maxCount;
-}
-
-function requireMaxBytes(input: Record<string, unknown>): number {
-	const { maxBytes } = input;
-	if (typeof maxBytes !== "number" || !Number.isSafeInteger(maxBytes) || maxBytes < 1) {
-		throw new TypeError("maxBytes must be a positive safe integer");
-	}
-	return maxBytes;
-}
-
-function optionalRef(input: Record<string, unknown>): string | undefined {
-	const { ref } = input;
-	if (ref === undefined) return undefined;
-	if (typeof ref !== "string") throw new TypeError("ref must be a string when given");
-	return ref;
-}
+/** Maps requireGitRepository's 3 real domain errors onto properly coded/categorized VehicleErrors, preserving the original as `cause`. */
+const mapGitError = defineErrorMapping([
+	{ errorClass: UnknownWorkspace, category: "not_found", code: "unknown-workspace" },
+	{ errorClass: SymbolQueryUnavailable, category: "unavailable", code: "symbol-query-unavailable" },
+	{ errorClass: NotAGitRepository, category: "validation", code: "not-a-git-repository" },
+]);
 
 /**
  * Registers workspace.gitStatus/gitLog/gitDiff onto `vehicleRegistry`, delegating to the exact
@@ -69,56 +51,52 @@ export function registerGitVehicleOperations(vehicleRegistry: VehicleRegistry, r
 		name: "workspace.gitStatus",
 		version: 1,
 		description: "Reports a git workspace's current status (staged/unstaged/untracked files).",
-		input: defineLooseObjectSchema({ workspaceId: { type: "string" } }, ["workspaceId"]),
+		input: gitStatusInputSchema,
 		output: passthroughVehicleSchema,
-		permissions: GIT_READ_PERMISSIONS,
+		permissions: READ_PERMISSIONS,
 		effect: "read",
 		idempotency: { mode: "safe" },
 		limits: LIMITS,
+		errors: GIT_REPOSITORY_ERRORS,
 	});
 	vehicleRegistry.register(
 		OWNER,
-		bindVehicleOperation(gitStatus, () => async (context) => {
-			const input = context.input;
-			return handlers["workspace.gitStatus"](registry, { workspaceId: requireWorkspaceId(input) });
-		}),
+		bindVehicleOperation(gitStatus, () => (context) => mapGitError(() => handlers["workspace.gitStatus"](registry, context.input))),
 	);
 
 	const gitLog = defineVehicleOperation({
 		name: "workspace.gitLog",
 		version: 1,
 		description: "Lists a git workspace's recent commits, most recent first, bounded by maxCount.",
-		input: defineLooseObjectSchema({ workspaceId: { type: "string" }, maxCount: { type: "number" } }, ["workspaceId", "maxCount"]),
+		input: gitLogInputSchema,
 		output: passthroughVehicleSchema,
-		permissions: GIT_READ_PERMISSIONS,
+		permissions: READ_PERMISSIONS,
 		effect: "read",
 		idempotency: { mode: "safe" },
 		limits: LIMITS,
+		errors: GIT_REPOSITORY_ERRORS,
 	});
 	vehicleRegistry.register(
 		OWNER,
-		bindVehicleOperation(gitLog, () => async (context) => {
-			const input = context.input;
-			return handlers["workspace.gitLog"](registry, { workspaceId: requireWorkspaceId(input), maxCount: requireMaxCount(input) });
-		}),
+		bindVehicleOperation(gitLog, () => (context) => mapGitError(() => handlers["workspace.gitLog"](registry, context.input))),
 	);
 
 	const gitDiff = defineVehicleOperation({
 		name: "workspace.gitDiff",
 		version: 1,
 		description: "Shows a git workspace's current diff (ref omitted means the working tree), bounded by maxBytes.",
-		input: defineLooseObjectSchema({ workspaceId: { type: "string" }, ref: { type: "string" }, maxBytes: { type: "number" } }, ["workspaceId", "maxBytes"]),
+		input: gitDiffInputSchema,
 		output: passthroughVehicleSchema,
-		permissions: GIT_READ_PERMISSIONS,
+		permissions: READ_PERMISSIONS,
 		effect: "read",
 		idempotency: { mode: "safe" },
 		limits: LIMITS,
+		errors: GIT_REPOSITORY_ERRORS,
 	});
 	vehicleRegistry.register(
 		OWNER,
-		bindVehicleOperation(gitDiff, () => async (context) => {
-			const input = context.input;
-			return handlers["workspace.gitDiff"](registry, { workspaceId: requireWorkspaceId(input), ref: optionalRef(input), maxBytes: requireMaxBytes(input) });
-		}),
+		bindVehicleOperation(gitDiff, () => (context) => mapGitError(() => handlers["workspace.gitDiff"](registry, context.input))),
 	);
 }
+
+export { READ_PERMISSIONS as GIT_READ_PERMISSIONS };

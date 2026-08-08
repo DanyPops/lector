@@ -302,9 +302,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	});
 	ensureOsWatcher = (workspaceId, rootPath) => workspaceWatchHandlers.ensureOsWatcher(workspaceId, rootPath);
 	const gitHandlers = createGitHandlers({ registry, createGitPort, logger });
-	// Phase 2 of the Vehicle migration (epic 0419b039): gitStatus/gitLog/gitDiff route through a
-	// real VehicleRegistry instead of calling gitHandlers directly. Every other git operation
-	// (compareSymbolAcrossVersions included) still comes from gitHandlers below, unmigrated.
+	// gitStatus/gitLog/gitDiff route through a VehicleRegistry; every other git operation
+	// (compareSymbolAcrossVersions included) still dispatches straight to gitHandlers below.
 	const vehicleRegistry = new VehicleRegistry({
 		name: "lector",
 		version: lectorVersion(),
