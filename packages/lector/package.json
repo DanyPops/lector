@@ -20,8 +20,9 @@
 	},
 	"dependencies": {
 		"@codemirror/state": "^6.7.1",
-		"@danypops/vehicle-client": "^0.2.0",
-		"@danypops/vehicle-server": "^0.3.2",
+		"@danypops/vehicle-client": "^0.6.2",
+		"@danypops/vehicle-core": "^0.12.5",
+		"@danypops/vehicle-server": "^0.18.2",
 		"@yarnpkg/parsers": "^3.0.3",
 		"diff": "^9.0.0",
 		"eventsource-parser": "^3.1.0",

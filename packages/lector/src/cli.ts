@@ -20,6 +20,7 @@ import {
 import type { WorkspaceId } from "./service.ts";
 import type { SymbolAnnotation } from "./symbol-annotation/symbol-annotation.ts";
 import type { PopulateSymbolGraphResult } from "./symbol-graph/populate-symbol-graph.ts";
+import { lectorVersion } from "./version.ts";
 import { InMemoryWorkspace } from "./workspace/in-memory-workspace.ts";
 import { LocalFilesystemWorkspace } from "./workspace/local-filesystem-workspace.ts";
 import type { WorkspacePort } from "./workspace/port.ts";
@@ -1520,9 +1521,13 @@ export function lectorServiceSpec(): ServiceSpec {
 	return {
 		name: "lector",
 		displayName: "Lector filesystem & code-intelligence service",
+		version: lectorVersion(),
 		binPath: process.execPath,
 		args: [fileURLToPath(import.meta.url), "serve", "--dynamic-workspaces"],
-		descriptorPath: resolveLectorPaths().serviceDescriptor,
+		// The real {host,port,pid} handle file Armada uses for bounded readiness checks --
+		// distinct from the old serviceDescriptor path (a systemd-unit-generation location,
+		// now obsolete: Armada generates/manages the platform descriptor itself).
+		handlePath: resolveLectorPaths().handle,
 		restartOnFailure: true,
 		restartSec: 2,
 	};
