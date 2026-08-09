@@ -1,7 +1,4 @@
-/**
- * Type-narrowing input schemas for the 9 annotation operations. First migrated module with a
- * nested array-of-objects field (anchors) and an enum-constrained optional field (status).
- */
+/** Runtime schemas narrow annotation anchors, filters, and traversal bounds before dispatch. */
 import { defineVehicleSchema, type VehicleSchemaCodec, type VehicleSchemaIssue } from "@danypops/vehicle-core";
 
 export interface AnnotationPosition {

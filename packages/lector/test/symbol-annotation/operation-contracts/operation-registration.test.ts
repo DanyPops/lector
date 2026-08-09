@@ -1,7 +1,4 @@
-/**
- * registerAnnotationVehicleOperations must not fork AnnotationHandlers's behavior: invoke() has to
- * return exactly what the direct handler call returns, and preserve failure identity via cause.
- */
+/** Registry and direct annotation entry points must preserve behavior and failure identity. */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,8 +7,8 @@ import { isVehicleError } from "@danypops/vehicle-core";
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import { AnnotationHandlers } from "../../../src/service/annotation-handlers.ts";
 import { UnknownWorkspace } from "../../../src/service/errors.ts";
-import { registerAnnotationVehicleOperations } from "../../../src/service/vehicle/annotation-operations.ts";
 import type { MutableRegistry } from "../../../src/service/workspace-registry.ts";
+import { registerAnnotationOperations } from "../../../src/symbol-annotation/operation-registration.ts";
 import { InMemorySymbolGraph } from "../../../src/symbol-graph/in-memory-symbol-graph.ts";
 import { deriveSymbolNodeId } from "../../../src/symbol-graph/symbol-node-id.ts";
 import { LocalFilesystemWorkspace } from "../../../src/workspace/local-filesystem-workspace.ts";
@@ -37,11 +34,11 @@ function buildFixture() {
 	graph.addNode({ id: deriveSymbolNodeId({ path, line: 1, character: 1 }), name: "add", kind: "function", location: { path, line: 1, character: 1 } });
 	const handlers = new AnnotationHandlers({ registry, graph: () => graph });
 	const vehicleRegistry = new VehicleRegistry({ name: "lector-annotation", version: "1.0.0", description: "test" });
-	registerAnnotationVehicleOperations(vehicleRegistry, registry, handlers);
+	registerAnnotationOperations(vehicleRegistry, registry, handlers);
 	return { registry, handlers, vehicleRegistry, path };
 }
 
-describe("registerAnnotationVehicleOperations", () => {
+describe("registerAnnotationOperations", () => {
 	it("invoke() matches the direct handler call for create/get/list/scrub/restore", async () => {
 		const { registry, handlers, vehicleRegistry, path } = buildFixture();
 

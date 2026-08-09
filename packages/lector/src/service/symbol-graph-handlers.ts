@@ -213,7 +213,8 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		// directory and does not survive having it swapped out from under it, and "before"
 		// further down must see the freshly-fetched content, not what was on disk previously.
 		await refreshRemoteWorkspaceIfMoved(input.workspaceId, entry, previousGeneration);
-		const workspaceIndex = warmIndexes.ensureWorkspaceIndex(input.workspaceId);
+		await using workspaceLease = await warmIndexes.leaseWorkspaceIndex(input.workspaceId);
+		const workspaceIndex = workspaceLease.value;
 		if (!supportsCodeIntelligence(workspaceIndex.index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
 		const extensions = warmIndexes.sourceExtensions(workspaceIndex.descriptors);
 		const before = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
@@ -379,7 +380,8 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		const fromPath = entry.port.resolvePath(input.fromPath);
 		const toPath = entry.port.resolvePath(input.toPath);
 
-		const { index } = await requireCodeIntelligence(warmIndexes, { workspaceId: input.workspaceId, path: fromPath });
+		await using indexLease = await requireCodeIntelligence(warmIndexes, { workspaceId: input.workspaceId, path: fromPath });
+		const { index } = indexLease.value;
 		const topLevelSymbols = await documentSymbolsQuery(index, fromPath);
 		const positions = flattenTopLevelPositions(topLevelSymbols, fromPath);
 
@@ -419,7 +421,8 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.prepareRename"],
 	): Promise<OperationOutputs["workspace.prepareRename"]> {
-		const { index } = await requireCodeIntelligence(warmIndexes, input);
+		await using indexLease = await requireCodeIntelligence(warmIndexes, input);
+		const { index } = indexLease.value;
 		if (!index.prepareRename) throw new RenameNotSupported(input.workspaceId);
 		const range = await index.prepareRename({ path: input.path, line: input.line, character: input.character });
 		return { range, provenance: index.provenance };
@@ -428,7 +431,8 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 	async function renameHandler(_registry: MutableRegistry, input: OperationInputs["workspace.rename"]): Promise<OperationOutputs["workspace.rename"]> {
 		const entry = registry.get(input.workspaceId);
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
-		const { index } = await requireCodeIntelligence(warmIndexes, input);
+		await using indexLease = await requireCodeIntelligence(warmIndexes, input);
+		const { index } = indexLease.value;
 		if (!index.rename) throw new RenameNotSupported(input.workspaceId);
 		const rename = index.rename.bind(index);
 

@@ -1,7 +1,4 @@
-/**
- * registerGitVehicleOperations must not fork GitHandlers's behavior: invoke() has to return
- * exactly what the direct handler call returns, and preserve failure identity via cause.
- */
+/** Registry and direct Git entry points must preserve behavior and failure identity. */
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -10,9 +7,9 @@ import { join } from "node:path";
 import { isVehicleError } from "@danypops/vehicle-core";
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import { LocalGit } from "../../../src/git/local-git.ts";
+import { registerGitOperations } from "../../../src/git/operation-registration.ts";
 import { NotAGitRepository } from "../../../src/service/errors.ts";
 import { createGitHandlers } from "../../../src/service/git-handlers.ts";
-import { registerGitVehicleOperations } from "../../../src/service/vehicle/git-operations.ts";
 import type { MutableRegistry } from "../../../src/service/workspace-registry.ts";
 import { LocalFilesystemWorkspace } from "../../../src/workspace/local-filesystem-workspace.ts";
 
@@ -33,11 +30,11 @@ function buildFixture(rootPath: string) {
 	const registry: MutableRegistry = new Map([["ws", { port: new LocalFilesystemWorkspace(rootPath), rootPath, origin: "local" as const }]]);
 	const handlers = createGitHandlers({ registry, createGitPort: (p) => new LocalGit(p), logger: { debug() {}, info() {}, warn() {}, error() {} } });
 	const vehicleRegistry = new VehicleRegistry({ name: "lector-git-pilot", version: "1.0.0", description: "pilot" });
-	registerGitVehicleOperations(vehicleRegistry, registry, handlers);
+	registerGitOperations(vehicleRegistry, registry, handlers);
 	return { registry, handlers, vehicleRegistry };
 }
 
-describe("registerGitVehicleOperations", () => {
+describe("registerGitOperations", () => {
 	it("invoke() matches the direct handler call for a real git repository", async () => {
 		root = mkdtempSync(join(tmpdir(), "lector-vehicle-git-pilot-"));
 		git(root, "init", "-q");

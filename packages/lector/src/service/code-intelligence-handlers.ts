@@ -16,7 +16,7 @@ import { formatProvenanced, formatSymbolSearchResult } from "../workspace/respon
 import { MAX_SYMBOL_RESULTS } from "./bounds.ts";
 import { CodeIntelligenceUnavailable, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
 import type { OperationInputs, OperationOutputs } from "./operations.ts";
-import { supportsCodeIntelligence, type WarmIndexRegistry } from "./warm-index-registry.ts";
+import { supportsCodeIntelligence, type WarmIndexLease, type WarmIndexRegistry } from "./warm-index-registry.ts";
 import type { MutableRegistry } from "./workspace-registry.ts";
 
 export interface CodeIntelligenceHandlerDeps {
@@ -78,10 +78,14 @@ export interface CodeIntelligenceHandlers {
 export async function requireCodeIntelligence(
 	warmIndexes: WarmIndexRegistry<WorkspaceId>,
 	input: { workspaceId: WorkspaceId; path?: string; seedFile?: string },
-): Promise<{ index: SymbolIndexPort & CodeIntelligencePort; descriptor: LanguageServerDescriptor }> {
-	const { index, descriptor } = warmIndexes.ensureWarmIndex(input);
-	if (!supportsCodeIntelligence(index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
-	return { index, descriptor };
+): Promise<WarmIndexLease<{ index: SymbolIndexPort & CodeIntelligencePort; descriptor: LanguageServerDescriptor }>> {
+	const lease = await warmIndexes.leaseWarmIndex(input);
+	const { index, descriptor } = lease.value;
+	if (!supportsCodeIntelligence(index)) {
+		await lease[Symbol.asyncDispose]();
+		throw new CodeIntelligenceUnavailable(input.workspaceId);
+	}
+	return { value: { index, descriptor }, [Symbol.asyncDispose]: () => lease[Symbol.asyncDispose]() };
 }
 
 export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps): CodeIntelligenceHandlers {
@@ -94,8 +98,8 @@ export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps
 			if (!Number.isSafeInteger(maxResults) || maxResults < 1 || maxResults > MAX_SYMBOL_RESULTS) {
 				throw new TypeError(`maxResults must be a positive safe integer no greater than ${MAX_SYMBOL_RESULTS}`);
 			}
-			const { index } = warmIndexes.ensureWorkspaceIndex(input.workspaceId, input.seedFile);
-			const result = await findWorkspaceSymbols(index, input.query, { maxResults });
+			await using lease = await warmIndexes.leaseWorkspaceIndex(input.workspaceId, input.seedFile);
+			const result = await findWorkspaceSymbols(lease.value.index, input.query, { maxResults });
 			// "concise" narrows the actual JSON payload per workspace/response-format.ts; the declared
 			// output type stays SymbolSearchResult (this operation's default, and every untouched
 			// caller's honest shape) -- a caller that opts into responseFormat:"concise" already knows
@@ -104,51 +108,58 @@ export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps
 			return formatSymbolSearchResult(result, input.responseFormat ?? "detailed") as OperationOutputs["workspace.findSymbols"];
 		},
 		async "workspace.goToDefinition"(_registry, input) {
-			const { index } = await requireCodeIntelligence(warmIndexes, input);
-			const locations = await goToDefinitionQuery(index, { path: input.path, line: input.line, character: input.character });
-			return { locations, provenance: index.provenance };
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const locations = await goToDefinitionQuery(lease.value.index, { path: input.path, line: input.line, character: input.character });
+			return { locations, provenance: lease.value.index.provenance };
 		},
 		async "workspace.goToImplementation"(_registry, input) {
-			const { index } = await requireCodeIntelligence(warmIndexes, input);
-			const locations = await goToImplementationQuery(index, { path: input.path, line: input.line, character: input.character });
-			return { locations, provenance: index.provenance };
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const locations = await goToImplementationQuery(lease.value.index, { path: input.path, line: input.line, character: input.character });
+			return { locations, provenance: lease.value.index.provenance };
 		},
 		async "workspace.findReferences"(_registry, input) {
-			const { index } = await requireCodeIntelligence(warmIndexes, input);
-			const locations = await findReferencesQuery(index, { path: input.path, line: input.line, character: input.character }, input.includeDeclaration);
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const locations = await findReferencesQuery(
+				lease.value.index,
+				{ path: input.path, line: input.line, character: input.character },
+				input.includeDeclaration,
+			);
 			// See workspace.findSymbols' identical note on the concise/detailed type-vs-runtime tradeoff.
 			// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-			return formatProvenanced({ locations, provenance: index.provenance }, input.responseFormat ?? "detailed") as OperationOutputs["workspace.findReferences"];
+			return formatProvenanced(
+				{ locations, provenance: lease.value.index.provenance },
+				input.responseFormat ?? "detailed",
+			) as OperationOutputs["workspace.findReferences"];
 		},
 		async "workspace.hover"(_registry, input) {
-			const { index } = await requireCodeIntelligence(warmIndexes, input);
-			const hover = await hoverAt(index, { path: input.path, line: input.line, character: input.character });
-			return { hover, provenance: index.provenance };
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const hover = await hoverAt(lease.value.index, { path: input.path, line: input.line, character: input.character });
+			return { hover, provenance: lease.value.index.provenance };
 		},
 		async "workspace.documentSymbols"(_registry, input) {
-			const { index } = await requireCodeIntelligence(warmIndexes, input);
-			const symbols = await documentSymbolsQuery(index, input.path);
-			return { symbols, provenance: index.provenance };
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const symbols = await documentSymbolsQuery(lease.value.index, input.path);
+			return { symbols, provenance: lease.value.index.provenance };
 		},
 		async "workspace.diagnostics"(_registry, input) {
-			const { index } = await requireCodeIntelligence(warmIndexes, input);
-			const diagnostics = await diagnosticsQuery(index, input.path);
-			return { diagnostics, provenance: index.provenance };
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const diagnostics = await diagnosticsQuery(lease.value.index, input.path);
+			return { diagnostics, provenance: lease.value.index.provenance };
 		},
 		async "workspace.prepareCallHierarchy"(_registry, input) {
-			const { index } = await requireCodeIntelligence(warmIndexes, input);
-			const items = await prepareCallHierarchyQuery(index, { path: input.path, line: input.line, character: input.character });
-			return { items, provenance: index.provenance };
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const items = await prepareCallHierarchyQuery(lease.value.index, { path: input.path, line: input.line, character: input.character });
+			return { items, provenance: lease.value.index.provenance };
 		},
 		async "workspace.incomingCalls"(_registry, input) {
-			const { index } = await requireCodeIntelligence(warmIndexes, input);
-			const calls = await incomingCallsQuery(index, { path: input.path, line: input.line, character: input.character });
-			return { calls, provenance: index.provenance };
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const calls = await incomingCallsQuery(lease.value.index, { path: input.path, line: input.line, character: input.character });
+			return { calls, provenance: lease.value.index.provenance };
 		},
 		async "workspace.outgoingCalls"(_registry, input) {
-			const { index } = await requireCodeIntelligence(warmIndexes, input);
-			const calls = await outgoingCallsQuery(index, { path: input.path, line: input.line, character: input.character });
-			return { calls, provenance: index.provenance };
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const calls = await outgoingCallsQuery(lease.value.index, { path: input.path, line: input.line, character: input.character });
+			return { calls, provenance: lease.value.index.provenance };
 		},
 		// Never spawns -- a caller deciding whether to enrich a result with LSP-backed info must not
 		// pay a cold-start cost just to check. With a path, checks that file's own language; without

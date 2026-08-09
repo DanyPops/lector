@@ -1,6 +1,6 @@
 /** Each schema's safeParse success/failure branches, without spinning up a registry or workspace. */
 import { describe, expect, it } from "bun:test";
-import { repoEvictCacheInputSchema, repoFetchInputSchema, repoListCacheInputSchema } from "../../../src/service/vehicle/repo-fetch-schemas.ts";
+import { repoEvictCacheInputSchema, repoFetchInputSchema, repoListCacheInputSchema } from "../../../src/repo-fetcher/input-schemas.ts";
 
 describe("repoFetchInputSchema", () => {
 	it("accepts a full reference with ref: null and forceRefresh omitted", () => {

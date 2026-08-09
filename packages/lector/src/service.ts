@@ -18,6 +18,7 @@ import { NodeFsFileWatcher } from "./file-watcher/node-fs-file-watcher.ts";
 import type { FileWatcherPort } from "./file-watcher/port.ts";
 import { WatchLimitExceeded } from "./file-watcher/watch-registry.ts";
 import { LocalGit } from "./git/local-git.ts";
+import { GIT_READ_PERMISSIONS, registerGitOperations } from "./git/operation-registration.ts";
 import type { GitPort } from "./git/port.ts";
 import { GithubSearchClient } from "./github-search/github-search-client.ts";
 import type { GithubSearchPort } from "./github-search/port.ts";
@@ -27,10 +28,12 @@ import type { MutationHistoryPort } from "./mutation-history/port.ts";
 import { NpmPackageSourceResolver } from "./npm-registry/npm-package-source-resolver.ts";
 import { NpmRegistryClient } from "./npm-registry/npm-registry-client.ts";
 import type { NpmRegistryPort } from "./npm-registry/port.ts";
+import { dispatchThroughOperationRegistry } from "./operation-dispatch/dispatch-through-registry.ts";
 import { InMemoryPackageSourceIndex } from "./package-source/in-memory-package-source-index.ts";
 import type { PackageSourceIndexPort } from "./package-source/index-port.ts";
 import type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 import { assertAbsolutePath, RelativeWorkspacePath } from "./path-safety/assert-absolute-path.ts";
+import { REPO_LIST_CACHE_PERMISSIONS, REPO_WRITE_PERMISSIONS, registerRepoFetchOperations } from "./repo-fetcher/operation-registration.ts";
 import type { RepoFetcherPort } from "./repo-fetcher/port.ts";
 import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
 import type { SearchCachePort } from "./search-cache/port.ts";
@@ -46,17 +49,14 @@ import { OPERATION_NAMES, type OperationInputs, type OperationName, type Operati
 import { createPackageSourceHandlers } from "./service/package-source-handlers.ts";
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { createSymbolGraphHandlers } from "./service/symbol-graph-handlers.ts";
-import { ANNOTATION_READ_PERMISSIONS, ANNOTATION_WRITE_PERMISSIONS, registerAnnotationVehicleOperations } from "./service/vehicle/annotation-operations.ts";
-import { GIT_READ_PERMISSIONS, registerGitVehicleOperations } from "./service/vehicle/git-operations.ts";
-import { REPO_LIST_CACHE_PERMISSIONS, REPO_WRITE_PERMISSIONS, registerRepoFetchVehicleOperations } from "./service/vehicle/repo-fetch-operations.ts";
-import { dispatchThroughVehicle } from "./service/vehicle/vehicle-dispatch.ts";
-import { type ClosableSymbolIndex, WarmIndexRegistry } from "./service/warm-index-registry.ts";
+import { type ClosableSymbolIndex, type WarmIndexPoolStatus, WarmIndexRegistry } from "./service/warm-index-registry.ts";
 import { createWorkspaceFileHandlers } from "./service/workspace-file-handlers.ts";
 import { createWorkspaceMapHandler } from "./service/workspace-map-handler.ts";
 import type { MutableRegistry } from "./service/workspace-registry.ts";
 import { WorkspaceWatchHandlers } from "./service/workspace-watch-handlers.ts";
 import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
 import { SourcegraphSearchClient } from "./sourcegraph-search/sourcegraph-search-client.ts";
+import { ANNOTATION_READ_PERMISSIONS, ANNOTATION_WRITE_PERMISSIONS, registerAnnotationOperations } from "./symbol-annotation/operation-registration.ts";
 import type { SymbolAnnotationPort } from "./symbol-annotation/port.ts";
 import { InMemorySymbolGraph } from "./symbol-graph/in-memory-symbol-graph.ts";
 import type { PopulateSymbolGraphResult } from "./symbol-graph/populate-symbol-graph.ts";
@@ -85,6 +85,8 @@ export interface LectorService {
 	 * a theoretical one).
 	 */
 	reapIdleSymbolIndexes(maxIdleMs: number): Promise<number>;
+	/** Path-free resource status for supervision and capacity diagnostics. */
+	symbolIndexPoolStatus(): WarmIndexPoolStatus;
 }
 
 export interface LectorServiceOptions {
@@ -92,6 +94,10 @@ export interface LectorServiceOptions {
 	logger?: Logger;
 	/** Factory for the symbol index backing workspace.findSymbols and code intelligence, given the descriptor resolved for the call. Defaults to an LspSymbolIndex configured for whichever descriptor is passed. */
 	createSymbolIndex?: (rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => ClosableSymbolIndex;
+	/** Global warm language-server capacity. Defaults to 3. */
+	maxActiveSymbolIndexes?: number;
+	/** Optional per-language capacities; unspecified languages use the global capacity. */
+	symbolIndexLanguageLimits?: Readonly<Record<string, number>>;
 	/** Shared managed installer for provisionable system-binary language servers. Never used by filesystem-only operations. */
 	languageServerProvisioner?: LanguageServerProvisionerPort;
 	/**
@@ -229,6 +235,12 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const warmIndexes = new WarmIndexRegistry<WorkspaceId>({
 		descriptors: LANGUAGE_SERVER_DESCRIPTORS,
 		createIndex: createSymbolIndex,
+		maxActive: options.maxActiveSymbolIndexes,
+		languageLimits: options.symbolIndexLanguageLimits,
+		observe: (event) => {
+			if (event.kind === "admission-evicted") logger.info("evicted idle symbol index for admission", event);
+			else logger.warn("failed to close symbol index", event);
+		},
 		resolveRoot: (workspaceId) => {
 			const entry = registry.get(workspaceId);
 			if (!entry) throw new UnknownWorkspace(workspaceId);
@@ -304,27 +316,26 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	});
 	ensureOsWatcher = (workspaceId, rootPath) => workspaceWatchHandlers.ensureOsWatcher(workspaceId, rootPath);
 	const gitHandlers = createGitHandlers({ registry, createGitPort, logger });
-	// gitStatus/gitLog/gitDiff route through a VehicleRegistry; every other git operation
-	// (compareSymbolAcrossVersions included) still dispatches straight to gitHandlers below.
-	const vehicleRegistry = new VehicleRegistry({
+	// Registered Git contracts override only their matching direct handlers.
+	const operationRegistry = new VehicleRegistry({
 		name: "lector",
 		version: lectorVersion(),
-		description: "Lector's operation dispatch, migrated incrementally onto Vehicle.",
+		description: "Lector's operation registry.",
 	});
-	registerGitVehicleOperations(vehicleRegistry, registry, gitHandlers);
-	const vehicleGitHandlers: Pick<OperationHandlers, "workspace.gitStatus" | "workspace.gitLog" | "workspace.gitDiff"> = {
-		"workspace.gitStatus": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "workspace.gitStatus", 1, input, GIT_READ_PERMISSIONS),
-		"workspace.gitLog": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "workspace.gitLog", 1, input, GIT_READ_PERMISSIONS),
-		"workspace.gitDiff": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "workspace.gitDiff", 1, input, GIT_READ_PERMISSIONS),
+	registerGitOperations(operationRegistry, registry, gitHandlers);
+	const registryGitHandlers: Pick<OperationHandlers, "workspace.gitStatus" | "workspace.gitLog" | "workspace.gitDiff"> = {
+		"workspace.gitStatus": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitStatus", 1, input, GIT_READ_PERMISSIONS),
+		"workspace.gitLog": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitLog", 1, input, GIT_READ_PERMISSIONS),
+		"workspace.gitDiff": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitDiff", 1, input, GIT_READ_PERMISSIONS),
 	};
 	const repoFetchHandlers = createRepoFetchHandlers({ repoFetcher, logger });
-	registerRepoFetchVehicleOperations(vehicleRegistry, registry, repoFetchHandlers);
-	const vehicleRepoFetchHandlers: Pick<OperationHandlers, "repo.fetch" | "repo.listCache" | "repo.evictCache"> = {
-		"repo.fetch": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "repo.fetch", 1, input, REPO_WRITE_PERMISSIONS),
-		"repo.listCache": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "repo.listCache", 1, input, REPO_LIST_CACHE_PERMISSIONS),
-		"repo.evictCache": (_registry, input) => dispatchThroughVehicle(vehicleRegistry, "repo.evictCache", 1, input, REPO_WRITE_PERMISSIONS),
+	registerRepoFetchOperations(operationRegistry, registry, repoFetchHandlers);
+	const registryRepoFetchHandlers: Pick<OperationHandlers, "repo.fetch" | "repo.listCache" | "repo.evictCache"> = {
+		"repo.fetch": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "repo.fetch", 1, input, REPO_WRITE_PERMISSIONS),
+		"repo.listCache": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "repo.listCache", 1, input, REPO_LIST_CACHE_PERMISSIONS),
+		"repo.evictCache": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "repo.evictCache", 1, input, REPO_WRITE_PERMISSIONS),
 	};
-	registerAnnotationVehicleOperations(vehicleRegistry, registry, annotationHandlers);
+	registerAnnotationOperations(operationRegistry, registry, annotationHandlers);
 	type AnnotationOperationName =
 		| "workspace.createAnnotation"
 		| "workspace.getAnnotation"
@@ -336,11 +347,11 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		| "workspace.uncontainAnnotation"
 		| "workspace.annotationTree";
 	const dispatchAnnotationOperation = <Name extends AnnotationOperationName>(name: Name, permissions: readonly string[]) =>
-		((_registry: MutableRegistry, input: OperationInputs[Name]) => dispatchThroughVehicle(vehicleRegistry, name, 1, input, permissions)) satisfies (
+		((_registry: MutableRegistry, input: OperationInputs[Name]) => dispatchThroughOperationRegistry(operationRegistry, name, 1, input, permissions)) satisfies (
 			registry: MutableRegistry,
 			input: OperationInputs[Name],
 		) => Promise<OperationOutputs[Name]>;
-	const vehicleAnnotationHandlers: Pick<OperationHandlers, AnnotationOperationName> = {
+	const registryAnnotationHandlers: Pick<OperationHandlers, AnnotationOperationName> = {
 		"workspace.createAnnotation": dispatchAnnotationOperation("workspace.createAnnotation", ANNOTATION_WRITE_PERMISSIONS),
 		"workspace.getAnnotation": dispatchAnnotationOperation("workspace.getAnnotation", ANNOTATION_READ_PERMISSIONS),
 		"workspace.listAnnotations": dispatchAnnotationOperation("workspace.listAnnotations", ANNOTATION_READ_PERMISSIONS),
@@ -376,13 +387,13 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...codeIntelligenceHandlers,
 		...symbolGraphHandlers.handlers,
 		...gitHandlers,
-		...vehicleGitHandlers,
+		...registryGitHandlers,
 		...repoFetchHandlers,
-		...vehicleRepoFetchHandlers,
+		...registryRepoFetchHandlers,
 		...packageSourceHandlers,
 		...mutationHistory.handlers,
 		...annotationHandlers.handlers,
-		...vehicleAnnotationHandlers,
+		...registryAnnotationHandlers,
 		...externalSearchHandlers,
 		...crossWorkspaceHandlers,
 		...workspaceWatchHandlers.handlers,
@@ -408,6 +419,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		},
 		async reapIdleSymbolIndexes(maxIdleMs: number): Promise<number> {
 			return warmIndexes.reapIdle(maxIdleMs);
+		},
+		symbolIndexPoolStatus(): WarmIndexPoolStatus {
+			return warmIndexes.status();
 		},
 	};
 }

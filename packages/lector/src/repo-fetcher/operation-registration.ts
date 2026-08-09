@@ -1,25 +1,14 @@
-/**
- * Registers repo.fetch/listCache/evictCache onto a VehicleRegistry, delegating to the same
- * RepoFetchHandlers functions createLectorService's dispatch table uses (see
- * dispatchThroughVehicle). fetch/evictCache use WORKSPACE_WRITE_PERMISSION (they write to and
- * delete from disk); listCache stays a read.
- *
- * Both fetch and evictCache are idempotency "safe" despite writing/deleting: fetch is
- * content-addressed by (host, owner, repo, ref), so a retry reuses the same cache entry instead
- * of double-cloning, and evictCache returns { evicted: false } rather than erroring when nothing
- * was cached -- both converge to the same state on repeat calls, the criterion that actually
- * governs "safe" (transparently retryable), not whether the operation writes at all.
- */
+/** Fetch and eviction are safely retryable because repeated calls converge on the same cache state. */
 import { bindVehicleOperation, defineErrorMapping, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import { UnsafeGitArgument } from "../../git/assert-safe-git-argument.ts";
-import { UnsafePathSegment } from "../../path-safety/assert-safe-path-segment.ts";
-import { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded } from "../../repo-fetcher/repo-fetch-result.ts";
-import { RepoCacheEntryInUse, RepoFetcherNotConfigured } from "../errors.ts";
-import type { RepoFetchHandlers } from "../repo-fetch-handlers.ts";
-import type { MutableRegistry } from "../workspace-registry.ts";
-import { WORKSPACE_READ_PERMISSION, WORKSPACE_WRITE_PERMISSION } from "./permissions.ts";
-import { repoEvictCacheInputSchema, repoFetchInputSchema, repoListCacheInputSchema } from "./repo-fetch-schemas.ts";
+import { UnsafeGitArgument } from "../git/assert-safe-git-argument.ts";
+import { WORKSPACE_READ_PERMISSION, WORKSPACE_WRITE_PERMISSION } from "../operation-dispatch/permissions.ts";
+import { UnsafePathSegment } from "../path-safety/assert-safe-path-segment.ts";
+import { RepoCacheEntryInUse, RepoFetcherNotConfigured } from "../service/errors.ts";
+import type { RepoFetchHandlers } from "../service/repo-fetch-handlers.ts";
+import type { MutableRegistry } from "../service/workspace-registry.ts";
+import { repoEvictCacheInputSchema, repoFetchInputSchema, repoListCacheInputSchema } from "./input-schemas.ts";
+import { RepoFetchCapacityExceeded, RepoFetchFailed, RepoFetchLimitExceeded } from "./repo-fetch-result.ts";
 
 const OWNER = "lector-repo-fetch";
 
@@ -58,11 +47,8 @@ const mapRepoFetchError = defineErrorMapping([
 	{ errorClass: RepoCacheEntryInUse, category: "conflict", code: "repo-cache-entry-in-use" },
 ]);
 
-/**
- * Registers repo.fetch/listCache/evictCache onto `vehicleRegistry`, delegating to the exact same
- * RepoFetchHandlers functions createLectorService's dispatch table uses.
- */
-export function registerRepoFetchVehicleOperations(vehicleRegistry: VehicleRegistry, registry: MutableRegistry, handlers: RepoFetchHandlers): void {
+/** Registers repository-cache contracts without duplicating RepoFetchHandlers behavior. */
+export function registerRepoFetchOperations(operationRegistry: VehicleRegistry, registry: MutableRegistry, handlers: RepoFetchHandlers): void {
 	const fetch = defineVehicleOperation({
 		name: "repo.fetch",
 		version: 1,
@@ -75,7 +61,7 @@ export function registerRepoFetchVehicleOperations(vehicleRegistry: VehicleRegis
 		limits: FETCH_LIMITS,
 		errors: FETCH_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(fetch, () => (context) => mapRepoFetchError(() => handlers["repo.fetch"](registry, context.input))),
 	);
@@ -92,7 +78,7 @@ export function registerRepoFetchVehicleOperations(vehicleRegistry: VehicleRegis
 		limits: LOCAL_LIMITS,
 		errors: [NOT_CONFIGURED_ERROR],
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(listCache, () => (context) => mapRepoFetchError(() => handlers["repo.listCache"](registry, context.input))),
 	);
@@ -109,7 +95,7 @@ export function registerRepoFetchVehicleOperations(vehicleRegistry: VehicleRegis
 		limits: LOCAL_LIMITS,
 		errors: EVICT_CACHE_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(evictCache, () => (context) => mapRepoFetchError(() => handlers["repo.evictCache"](registry, context.input))),
 	);

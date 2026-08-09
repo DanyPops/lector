@@ -100,6 +100,10 @@ export interface LectorDaemonOptions {
 	allowDynamicOnly?: boolean;
 	/** Override symbol-index construction. Tests use controlled indexes; production uses the service's language-dispatching default. */
 	createSymbolIndex?: (rootPath: string) => ClosableSymbolIndex;
+	/** Global warm language-server capacity. Defaults to 3. */
+	maxActiveSymbolIndexes?: number;
+	/** Optional per-language capacities. */
+	symbolIndexLanguageLimits?: Readonly<Record<string, number>>;
 	/** Override managed language-server installation while retaining the real spawn-failure seam. */
 	createLanguageServerProvisioner?: (rootPath: string) => LanguageServerProvisionerPort;
 	/** Override the idle-eviction TTL for warm symbol indexes. Tests use a short value to observe eviction without waiting. */
@@ -157,6 +161,8 @@ function prepare(options: LectorDaemonOptions): {
 		allowDynamicOnly: options.allowDynamicOnly,
 		logger: options.logger,
 		createSymbolIndex: options.createSymbolIndex,
+		maxActiveSymbolIndexes: options.maxActiveSymbolIndexes,
+		symbolIndexLanguageLimits: options.symbolIndexLanguageLimits,
 		languageServerProvisioner,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
 		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),
@@ -188,7 +194,8 @@ function prepare(options: LectorDaemonOptions): {
 				name: "reap-idle-symbol-indexes",
 				intervalMs: options.symbolIndexReapIntervalMs ?? DEFAULT_SYMBOL_INDEX_REAP_INTERVAL_MS,
 				run: async () => {
-					await service.reapIdleSymbolIndexes(idleTtlMs);
+					const reaped = await service.reapIdleSymbolIndexes(idleTtlMs);
+					if (reaped > 0) options.logger?.info("reaped idle symbol indexes", { reaped, pool: service.symbolIndexPoolStatus() });
 				},
 			},
 		],

@@ -9,9 +9,9 @@ import { join } from "node:path";
 import { isVehicleError, type VehicleError } from "@danypops/vehicle-core";
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import { LocalGit } from "../../../src/git/local-git.ts";
+import { registerGitOperations } from "../../../src/git/operation-registration.ts";
 import { NotAGitRepository, UnknownWorkspace } from "../../../src/service/errors.ts";
 import { createGitHandlers } from "../../../src/service/git-handlers.ts";
-import { registerGitVehicleOperations } from "../../../src/service/vehicle/git-operations.ts";
 import type { MutableRegistry } from "../../../src/service/workspace-registry.ts";
 import { LocalFilesystemWorkspace } from "../../../src/workspace/local-filesystem-workspace.ts";
 
@@ -22,7 +22,7 @@ function buildFixture(rootPath: string) {
 	const registry: MutableRegistry = new Map([["ws", { port: new LocalFilesystemWorkspace(rootPath), rootPath, origin: "local" as const }]]);
 	const handlers = createGitHandlers({ registry, createGitPort: (p) => new LocalGit(p), logger: { debug() {}, info() {}, warn() {}, error() {} } });
 	const vehicleRegistry = new VehicleRegistry({ name: "lector-git-error-mapping", version: "1.0.0", description: "test" });
-	registerGitVehicleOperations(vehicleRegistry, registry, handlers);
+	registerGitOperations(vehicleRegistry, registry, handlers);
 	return vehicleRegistry;
 }
 
@@ -58,7 +58,7 @@ describe("git operation error mapping", () => {
 		expect(error.cause).toBeInstanceOf(UnknownWorkspace);
 	});
 
-	it("declares the same 3 error codes on every migrated operation, via manifest()", () => {
+	it("declares the Git error catalog in the manifest", () => {
 		root = mkdtempSync(join(tmpdir(), "lector-vehicle-error-mapping-manifest-"));
 		const vehicleRegistry = buildFixture(root);
 

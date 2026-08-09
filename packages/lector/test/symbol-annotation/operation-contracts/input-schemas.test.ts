@@ -5,7 +5,7 @@ import {
 	containAnnotationInputSchema,
 	createAnnotationInputSchema,
 	listAnnotationsInputSchema,
-} from "../../../src/service/vehicle/annotation-schemas.ts";
+} from "../../../src/symbol-annotation/input-schemas.ts";
 
 describe("createAnnotationInputSchema", () => {
 	it("accepts a valid annotation with one anchor", () => {

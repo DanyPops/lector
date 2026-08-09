@@ -1,25 +1,12 @@
-/**
- * Registers workspace.gitStatus/gitLog/gitDiff onto a VehicleRegistry, delegating to the same
- * GitHandlers functions createLectorService's dispatch table uses (see dispatchThroughVehicle).
- * compareSymbolAcrossVersions and every other handler module stay off this registry.
- *
- * Each operation's own schema (git-schemas.ts) narrows its input, so a malformed value fails at
- * VehicleRegistry.invoke()'s parseInput step with a structured VehicleError("invalid-input", ...,
- * { details: { issues } }) before the handler runs.
- *
- * mapGitError (vehicle-core's defineErrorMapping) codes/categorizes the 3 domain errors
- * requireGitRepository can throw and sets `cause` to the original, so dispatchThroughVehicle's
- * unwrap keeps `instanceof NotAGitRepository` checks working for existing consumers while a
- * direct VehicleClient (or manifest()'s `errors` metadata) sees the real code.
- */
+/** Git operation contracts delegate to GitHandlers so every entry point shares one implementation and the same domain errors. */
 import { bindVehicleOperation, defineErrorMapping, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import { NotAGitRepository, SymbolQueryUnavailable } from "../errors.ts";
-import type { GitHandlers } from "../git-handlers.ts";
-import type { MutableRegistry } from "../workspace-registry.ts";
-import { UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR, UNKNOWN_WORKSPACE_ERROR_MAPPING } from "./common-errors.ts";
-import { gitDiffInputSchema, gitLogInputSchema, gitStatusInputSchema } from "./git-schemas.ts";
-import { WORKSPACE_READ_PERMISSION } from "./permissions.ts";
+import { WORKSPACE_READ_PERMISSION } from "../operation-dispatch/permissions.ts";
+import { UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR, UNKNOWN_WORKSPACE_ERROR_MAPPING } from "../operation-dispatch/workspace-errors.ts";
+import { NotAGitRepository, SymbolQueryUnavailable } from "../service/errors.ts";
+import type { GitHandlers } from "../service/git-handlers.ts";
+import type { MutableRegistry } from "../service/workspace-registry.ts";
+import { gitDiffInputSchema, gitLogInputSchema, gitStatusInputSchema } from "./input-schemas.ts";
 
 const OWNER = "lector-git";
 
@@ -42,12 +29,8 @@ const mapGitError = defineErrorMapping([
 	{ errorClass: NotAGitRepository, category: "validation", code: "not-a-git-repository" },
 ]);
 
-/**
- * Registers workspace.gitStatus/gitLog/gitDiff onto `vehicleRegistry`, delegating to the exact
- * same GitHandlers functions createLectorService's real dispatch table uses -- this adds a real
- * Vehicle-backed entry point over identical business logic, it does not fork it.
- */
-export function registerGitVehicleOperations(vehicleRegistry: VehicleRegistry, registry: MutableRegistry, handlers: GitHandlers): void {
+/** Registers the Git operation contracts without duplicating GitHandlers behavior. */
+export function registerGitOperations(operationRegistry: VehicleRegistry, registry: MutableRegistry, handlers: GitHandlers): void {
 	const gitStatus = defineVehicleOperation({
 		name: "workspace.gitStatus",
 		version: 1,
@@ -60,7 +43,7 @@ export function registerGitVehicleOperations(vehicleRegistry: VehicleRegistry, r
 		limits: LIMITS,
 		errors: GIT_REPOSITORY_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(gitStatus, () => (context) => mapGitError(() => handlers["workspace.gitStatus"](registry, context.input))),
 	);
@@ -77,7 +60,7 @@ export function registerGitVehicleOperations(vehicleRegistry: VehicleRegistry, r
 		limits: LIMITS,
 		errors: GIT_REPOSITORY_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(gitLog, () => (context) => mapGitError(() => handlers["workspace.gitLog"](registry, context.input))),
 	);
@@ -94,7 +77,7 @@ export function registerGitVehicleOperations(vehicleRegistry: VehicleRegistry, r
 		limits: LIMITS,
 		errors: GIT_REPOSITORY_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(gitDiff, () => (context) => mapGitError(() => handlers["workspace.gitDiff"](registry, context.input))),
 	);

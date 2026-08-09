@@ -9,8 +9,8 @@
 import { isVehicleError } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 
-export async function dispatchThroughVehicle<T>(
-	vehicleRegistry: VehicleRegistry,
+export async function dispatchThroughOperationRegistry<T>(
+	operationRegistry: VehicleRegistry,
 	name: string,
 	version: number,
 	input: unknown,
@@ -21,7 +21,7 @@ export async function dispatchThroughVehicle<T>(
 		// output schema, which this generic helper can't thread through as T. Trusted here, same as
 		// language-server-process.ts's JSON-RPC transport trusts a caller's declared T.
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-		return (await vehicleRegistry.invoke(name, version, input, { permissions })) as T;
+		return (await operationRegistry.invoke(name, version, input, { permissions })) as T;
 	} catch (error) {
 		// VehicleError.cause is typed `unknown`; only rethrow it when it's a real Error, else
 		// rethrow the VehicleError itself rather than throw a non-Error value.

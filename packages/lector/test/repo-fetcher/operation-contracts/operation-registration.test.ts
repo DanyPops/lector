@@ -1,7 +1,4 @@
-/**
- * registerRepoFetchVehicleOperations must not fork RepoFetchHandlers's behavior: invoke() has to
- * return exactly what the direct handler call returns, and preserve failure identity via cause.
- */
+/** Registry and direct repository-cache entry points must preserve behavior and failure identity. */
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -10,10 +7,10 @@ import { join } from "node:path";
 import { isVehicleError } from "@danypops/vehicle-core";
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import { GitRepoFetcher } from "../../../src/repo-fetcher/git-repo-fetcher.ts";
+import { registerRepoFetchOperations } from "../../../src/repo-fetcher/operation-registration.ts";
 import type { RepoReference } from "../../../src/repo-fetcher/repo-reference.ts";
 import { RepoFetcherNotConfigured } from "../../../src/service/errors.ts";
 import { createRepoFetchHandlers } from "../../../src/service/repo-fetch-handlers.ts";
-import { registerRepoFetchVehicleOperations } from "../../../src/service/vehicle/repo-fetch-operations.ts";
 import type { MutableRegistry } from "../../../src/service/workspace-registry.ts";
 
 let sourceRepo: string | undefined;
@@ -52,11 +49,11 @@ function buildFixture(repoFetcher: GitRepoFetcher | undefined) {
 	const registry: MutableRegistry = new Map();
 	const handlers = createRepoFetchHandlers({ repoFetcher, logger: { debug() {}, info() {}, warn() {}, error() {} } });
 	const vehicleRegistry = new VehicleRegistry({ name: "lector-repo-fetch", version: "1.0.0", description: "test" });
-	registerRepoFetchVehicleOperations(vehicleRegistry, registry, handlers);
+	registerRepoFetchOperations(vehicleRegistry, registry, handlers);
 	return { registry, handlers, vehicleRegistry };
 }
 
-describe("registerRepoFetchVehicleOperations", () => {
+describe("registerRepoFetchOperations", () => {
 	it("invoke() matches the direct handler call for fetch and listCache", async () => {
 		sourceRepo = buildSourceRepo();
 		reposDir = mkdtempSync(join(tmpdir(), "lector-vehicle-repo-fetch-cache-"));

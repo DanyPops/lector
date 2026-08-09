@@ -1,8 +1,8 @@
 /** Each schema's safeParse success/failure branches, without spinning up a registry or workspace. */
 import { describe, expect, it } from "bun:test";
-import { gitDiffInputSchema, gitLogInputSchema, gitStatusInputSchema } from "../../../src/service/vehicle/git-schemas.ts";
+import { gitDiffInputSchema, gitLogInputSchema, gitStatusInputSchema } from "../../../src/git/input-schemas.ts";
 
-describe("git-schemas.ts", () => {
+describe("Git input schemas", () => {
 	describe("gitStatusInputSchema", () => {
 		it("accepts a valid workspaceId", () => {
 			expect(gitStatusInputSchema.safeParse({ workspaceId: "ws" })).toEqual({ success: true, value: { workspaceId: "ws" } });

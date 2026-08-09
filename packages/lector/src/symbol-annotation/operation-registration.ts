@@ -1,19 +1,11 @@
-/**
- * Registers the 9 annotation operations onto a VehicleRegistry, delegating to the same
- * AnnotationHandlers instance createLectorService's dispatch table uses (see
- * dispatchThroughVehicle). First migrated module where a write has no natural convergence:
- * createAnnotation makes a genuinely new id on every call, so retrying it (unlike repo.fetch's
- * content-addressed cache, or refresh/scrub/restore/contain/uncontain's own idempotent-by-
- * construction boolean returns) would create a second, distinct annotation -- declared
- * idempotency "unsafe" rather than "safe", the honest description of today's real behavior. Real
- * "keyed" dedup would need an actual dedup cache in the handler, not just a descriptor flag, and
- * is deliberately left for its own follow-up rather than declared without being implemented.
- */
+/** Annotation creation is unsafe to retry because each successful call creates a distinct identity. */
 import { bindVehicleOperation, defineErrorMapping, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import type { AnnotationHandlers } from "../annotation-handlers.ts";
-import { AnnotationContainmentCycle, AnnotationRequiresAnchors, UnknownAnnotationAnchor, UnknownAnnotationForContainment } from "../errors.ts";
-import type { MutableRegistry } from "../workspace-registry.ts";
+import { WORKSPACE_READ_PERMISSION, WORKSPACE_WRITE_PERMISSION } from "../operation-dispatch/permissions.ts";
+import { UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR, UNKNOWN_WORKSPACE_ERROR_MAPPING } from "../operation-dispatch/workspace-errors.ts";
+import type { AnnotationHandlers } from "../service/annotation-handlers.ts";
+import { AnnotationContainmentCycle, AnnotationRequiresAnchors, UnknownAnnotationAnchor, UnknownAnnotationForContainment } from "../service/errors.ts";
+import type { MutableRegistry } from "../service/workspace-registry.ts";
 import {
 	annotationTreeInputSchema,
 	containAnnotationInputSchema,
@@ -24,9 +16,7 @@ import {
 	restoreAnnotationInputSchema,
 	scrubAnnotationInputSchema,
 	uncontainAnnotationInputSchema,
-} from "./annotation-schemas.ts";
-import { UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR, UNKNOWN_WORKSPACE_ERROR_MAPPING } from "./common-errors.ts";
-import { WORKSPACE_READ_PERMISSION, WORKSPACE_WRITE_PERMISSION } from "./permissions.ts";
+} from "./input-schemas.ts";
 
 const OWNER = "lector-annotation";
 
@@ -53,13 +43,8 @@ const mapAnnotationError = defineErrorMapping([
 	{ errorClass: AnnotationContainmentCycle, category: "conflict", code: "annotation-containment-cycle" },
 ]);
 
-/**
- * Registers workspace.createAnnotation/getAnnotation/listAnnotations/refreshAnnotation/
- * scrubAnnotation/restoreAnnotation/containAnnotation/uncontainAnnotation/annotationTree onto
- * `vehicleRegistry`, delegating to the exact same AnnotationHandlers instance
- * createLectorService's dispatch table uses.
- */
-export function registerAnnotationVehicleOperations(vehicleRegistry: VehicleRegistry, registry: MutableRegistry, handlers: AnnotationHandlers): void {
+/** Registers annotation contracts without duplicating AnnotationHandlers behavior. */
+export function registerAnnotationOperations(operationRegistry: VehicleRegistry, registry: MutableRegistry, handlers: AnnotationHandlers): void {
 	const createAnnotation = defineVehicleOperation({
 		name: "workspace.createAnnotation",
 		version: 1,
@@ -72,7 +57,7 @@ export function registerAnnotationVehicleOperations(vehicleRegistry: VehicleRegi
 		limits: LIMITS,
 		errors: ANCHOR_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(
 			createAnnotation,
@@ -92,7 +77,7 @@ export function registerAnnotationVehicleOperations(vehicleRegistry: VehicleRegi
 		limits: LIMITS,
 		errors: WORKSPACE_ONLY_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(getAnnotation, () => (context) => mapAnnotationError(() => handlers.handlers["workspace.getAnnotation"](registry, context.input))),
 	);
@@ -109,7 +94,7 @@ export function registerAnnotationVehicleOperations(vehicleRegistry: VehicleRegi
 		limits: LIMITS,
 		errors: WORKSPACE_ONLY_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(listAnnotations, () => (context) => mapAnnotationError(() => handlers.handlers["workspace.listAnnotations"](registry, context.input))),
 	);
@@ -126,7 +111,7 @@ export function registerAnnotationVehicleOperations(vehicleRegistry: VehicleRegi
 		limits: LIMITS,
 		errors: ANCHOR_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(
 			refreshAnnotation,
@@ -146,7 +131,7 @@ export function registerAnnotationVehicleOperations(vehicleRegistry: VehicleRegi
 		limits: LIMITS,
 		errors: WORKSPACE_ONLY_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(scrubAnnotation, () => (context) => mapAnnotationError(() => handlers.handlers["workspace.scrubAnnotation"](registry, context.input))),
 	);
@@ -163,7 +148,7 @@ export function registerAnnotationVehicleOperations(vehicleRegistry: VehicleRegi
 		limits: LIMITS,
 		errors: WORKSPACE_ONLY_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(
 			restoreAnnotation,
@@ -183,7 +168,7 @@ export function registerAnnotationVehicleOperations(vehicleRegistry: VehicleRegi
 		limits: LIMITS,
 		errors: CONTAINMENT_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(
 			containAnnotation,
@@ -203,7 +188,7 @@ export function registerAnnotationVehicleOperations(vehicleRegistry: VehicleRegi
 		limits: LIMITS,
 		errors: WORKSPACE_ONLY_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(
 			uncontainAnnotation,
@@ -223,7 +208,7 @@ export function registerAnnotationVehicleOperations(vehicleRegistry: VehicleRegi
 		limits: LIMITS,
 		errors: WORKSPACE_ONLY_ERRORS,
 	});
-	vehicleRegistry.register(
+	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(annotationTree, () => (context) => mapAnnotationError(() => handlers.handlers["workspace.annotationTree"](registry, context.input))),
 	);
