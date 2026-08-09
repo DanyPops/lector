@@ -50,7 +50,7 @@ import { OPERATION_NAMES, type OperationInputs, type OperationName, type Operati
 import { createPackageSourceHandlers } from "./service/package-source-handlers.ts";
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { createSymbolGraphHandlers } from "./service/symbol-graph-handlers.ts";
-import { type ClosableSymbolIndex, type WarmIndexPoolStatus, WarmIndexRegistry } from "./service/warm-index-registry.ts";
+import { type ClosableSymbolIndex, type WarmIndexPoolStatus, type WarmIndexProcessCostRecorder, WarmIndexRegistry } from "./service/warm-index-registry.ts";
 import { createWorkspaceFileHandlers } from "./service/workspace-file-handlers.ts";
 import { createWorkspaceLifecycleHandlers } from "./service/workspace-lifecycle-handlers.ts";
 import { createWorkspaceMapHandler } from "./service/workspace-map-handler.ts";
@@ -89,6 +89,13 @@ export interface LectorService {
 	reapIdleSymbolIndexes(maxIdleMs: number): Promise<number>;
 	/** Path-free resource status for supervision and capacity diagnostics. */
 	symbolIndexPoolStatus(): WarmIndexPoolStatus;
+	/**
+	 * Samples every currently active warm index's real process tree into the configured
+	 * symbolIndexProcessCostCalibrator, if any -- a no-op otherwise. Wired into the daemon's
+	 * periodic maintenance, replacing static initial byte estimates with bounded runtime
+	 * observation as real language servers actually run.
+	 */
+	calibrateProcessCosts(): void;
 }
 
 export interface LectorServiceOptions {
@@ -108,6 +115,8 @@ export interface LectorServiceOptions {
 	backgroundAdmissionQueueTimeoutMs?: number;
 	/** How many populateSymbolGraph admissions may be simultaneously queued before a new one fails fast with WarmIndexAdmissionQueueFull. Defaults to 8. */
 	maxQueuedBackgroundAdmissions?: number;
+	/** Fed real (languageId, pid) samples by calibrateProcessCosts() -- typically the same LanguageServerCostEstimator instance also passed as symbolIndexResourcePolicy's own costEstimator, so calibration and admission read/write the identical live state. */
+	symbolIndexProcessCostCalibrator?: WarmIndexProcessCostRecorder;
 	/** Shared managed installer for provisionable system-binary language servers. Never used by filesystem-only operations. */
 	languageServerProvisioner?: LanguageServerProvisionerPort;
 	/**
@@ -251,6 +260,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		reservedForegroundSlots: options.reservedForegroundSlots,
 		backgroundAdmissionQueueTimeoutMs: options.backgroundAdmissionQueueTimeoutMs,
 		maxQueuedBackgroundAdmissions: options.maxQueuedBackgroundAdmissions,
+		processCostCalibrator: options.symbolIndexProcessCostCalibrator,
 		observe: (event) => {
 			if (event.kind === "close-failed") logger.warn("failed to close symbol index", event);
 			else if (event.kind === "admission-evicted") logger.info("evicted idle symbol index for admission", event);
@@ -439,6 +449,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		symbolIndexPoolStatus(): WarmIndexPoolStatus {
 			return warmIndexes.status();
 		},
+		calibrateProcessCosts(): void {
+			warmIndexes.calibrateProcessCosts();
+		},
 	};
 }
 
@@ -473,7 +486,7 @@ export {
 } from "./service/errors.ts";
 export type { OperationInputs, OperationName, OperationOutputs } from "./service/operations.ts";
 export { OPERATION_NAMES } from "./service/operations.ts";
-export type { ClosableSymbolIndex } from "./service/warm-index-registry.ts";
+export type { ClosableSymbolIndex, WarmIndexProcessCostRecorder } from "./service/warm-index-registry.ts";
 export type { MutableRegistry, RegisteredWorkspace } from "./service/workspace-registry.ts";
 export { resolveFileTree, resolveWorkspace, WorkspaceDoesNotSupportFileTree } from "./service/workspace-registry.ts";
 export { LineEditRace, LineEditRejected, PatchRejected, RelativeWorkspacePath, StaleExpectedHash, WatchLimitExceeded, WorkspaceEntryNotFound };

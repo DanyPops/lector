@@ -32,10 +32,17 @@ export interface WarmIndexResourceStatusProvider {
 
 export interface WarmIndexResourcePolicy extends WarmIndexAdmissionPolicy, WarmIndexRetentionPolicy, WarmIndexResourceStatusProvider {}
 
+/** Bytes to reserve for one warm index of a language -- a live, possibly-calibrated source AdaptiveWarmIndexResourcePolicy defers to instead of its own static configured map. */
+export interface LanguageCostEstimator {
+	estimateBytes(languageId: string): number;
+}
+
 export interface AdaptiveWarmIndexResourcePolicyOptions {
 	readonly resources: WarmIndexResourceSnapshotPort;
 	readonly estimatedBytesByLanguage: Readonly<Record<string, number>>;
 	readonly defaultEstimatedBytes: number;
+	/** Takes over estimate() entirely when set -- a calibrator already falls back to estimatedBytesByLanguage/defaultEstimatedBytes itself once it has no real sample for a language yet, so this never needs to consult them directly. */
+	readonly costEstimator?: LanguageCostEstimator;
 }
 
 const BUDGET_FACTOR: Readonly<Record<WarmIndexResourcePressure, number>> = Object.freeze({
@@ -75,6 +82,7 @@ export class AdaptiveWarmIndexResourcePolicy implements WarmIndexResourcePolicy 
 	}
 
 	private estimate(languageId: string): number {
+		if (this.options.costEstimator) return this.options.costEstimator.estimateBytes(languageId);
 		return this.options.estimatedBytesByLanguage[languageId] ?? this.options.defaultEstimatedBytes;
 	}
 

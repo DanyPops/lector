@@ -40,6 +40,21 @@ function stubPrimary(
 	};
 }
 
+describe("FallbackCodeIntelligenceIndex processId forwarding", () => {
+	it("forwards the primary's real processId -- process-cost calibration samples the primary's subprocess, never a fallback's", () => {
+		const primary = { ...stubPrimary(), processId: 4242 };
+		const index = new FallbackCodeIntelligenceIndex(primary, []);
+
+		expect(index.processId).toBe(4242);
+	});
+
+	it("is undefined when the primary has no subprocess of its own", () => {
+		const index = new FallbackCodeIntelligenceIndex(stubPrimary(), []);
+
+		expect(index.processId).toBeUndefined();
+	});
+});
+
 describe("FallbackCodeIntelligenceIndex releaseFile delegation", () => {
 	it("delegates to the primary when it implements releaseFile", async () => {
 		const released: string[] = [];

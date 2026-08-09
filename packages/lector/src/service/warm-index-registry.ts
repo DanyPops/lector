@@ -7,8 +7,13 @@ import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts"
 import type { WarmIndexResourcePolicy, WarmIndexResourceStatus } from "../code-intelligence/warm-index-resource-policy.ts";
 import type { FileChangeEvent } from "../file-watcher/file-change-event.ts";
 
-/** A SymbolIndexPort the registry can shut down when its workspace goes cold. */
-export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void>; isAlive?(): boolean };
+/** A SymbolIndexPort the registry can shut down when its workspace goes cold. processId, when present, names the real subprocess process-cost calibration may sample -- undefined for backends with no subprocess of their own (tree-sitter, the TypeScript compiler API). */
+export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void>; isAlive?(): boolean; readonly processId?: number };
+
+/** The registry's own dependency-inversion seam onto calibration -- narrow and mockable, never a direct concrete-class dependency on LanguageServerCostCalibrator. */
+export interface WarmIndexProcessCostRecorder {
+	recordSample(languageId: string, pid: number): void;
+}
 
 export function supportsCodeIntelligence(index: SymbolIndexPort): index is SymbolIndexPort & CodeIntelligencePort {
 	return "goToDefinition" in index && typeof index.goToDefinition === "function";
@@ -108,6 +113,8 @@ export interface WarmIndexRegistryOptions<WorkspaceKey extends string> {
 	readonly backgroundAdmissionQueueTimeoutMs?: number;
 	/** How many background admissions may be simultaneously waiting before a new one fails fast with WarmIndexAdmissionQueueFull instead of growing the wait queue further. Default 8. */
 	readonly maxQueuedBackgroundAdmissions?: number;
+	/** Fed one real (languageId, pid) pair per active entry on calibrateProcessCosts() -- optional, since a caller without a resource policy has nothing for calibration to improve. */
+	readonly processCostCalibrator?: WarmIndexProcessCostRecorder;
 }
 
 interface WarmIndexEntry<WorkspaceKey extends string> {
@@ -499,6 +506,23 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			waitingBackgroundAdmissions: this.queuedBackgroundAdmissions,
 			...(resources ? { resources } : {}),
 		};
+	}
+
+	/**
+	 * Samples every currently active entry's own real process tree and folds it into the
+	 * configured calibrator, if any -- a no-op without one. Read-only over the entry map (no
+	 * admission/eviction decision here), so it deliberately does not run inside serialized(): it
+	 * cannot race with admission in any way that matters, and holding the single admission mutex
+	 * for N bounded /proc samples would only cost foreground admissions latency for no benefit.
+	 */
+	calibrateProcessCosts(): void {
+		const calibrator = this.options.processCostCalibrator;
+		if (!calibrator) return;
+		for (const entry of this.entries.values()) {
+			const pid = entry.index.processId;
+			if (pid === undefined) continue;
+			calibrator.recordSample(entry.languageId, pid);
+		}
 	}
 
 	private codeIntelligenceIndexes(workspaceId: WorkspaceKey): Array<ClosableSymbolIndex & CodeIntelligencePort> {

@@ -168,4 +168,26 @@ describe("adaptive warm-index resource harness", () => {
 		expect(await harness.registry.reapIdle(100)).toBe(1);
 		expect(harness.closed).toEqual(["/lazy", "/eager"]);
 	});
+
+	it("uses a live costEstimator's calibrated peak over its own static estimatedBytesByLanguage once one is set", () => {
+		const resources = new MutableResourceSnapshot({ indexMemoryBudgetBytes: 250, pressure: "low" });
+		let calibratedBytes: number | undefined;
+		const policy = new AdaptiveWarmIndexResourcePolicy({
+			resources,
+			estimatedBytesByLanguage: { typescript: 100 },
+			defaultEstimatedBytes: 100,
+			costEstimator: { estimateBytes: (languageId) => (languageId === "typescript" ? (calibratedBytes ?? 100) : 100) },
+		});
+
+		// Before calibration: static-equivalent 100 bytes per language, so a 250-byte budget
+		// admits two.
+		expect(policy.canAdmit(["typescript"], "typescript")).toBe(true);
+		expect(policy.canAdmit(["typescript", "typescript"], "typescript")).toBe(false);
+
+		// A real sample shows this language server actually needs far more than the static
+		// guess -- admission must reflect that immediately, never underestimate it.
+		calibratedBytes = 240;
+		expect(policy.canAdmit([], "typescript")).toBe(true);
+		expect(policy.canAdmit(["typescript"], "typescript")).toBe(false); // one already-admitted 240-byte index leaves no room for a second
+	});
 });

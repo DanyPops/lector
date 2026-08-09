@@ -4,7 +4,9 @@ import type { Logger } from "@danypops/vehicle-server/logging";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
+import { LanguageServerCostCalibrator } from "./code-intelligence/language-server-cost-calibrator.ts";
 import { createLinuxCgroupWarmIndexResourceSnapshot } from "./code-intelligence/linux-cgroup-warm-index-resources.ts";
+import { BoundedProcTreeCostObserver, type LanguageServerProcessCostObserverPort } from "./code-intelligence/lsp/language-server-process-cost-observer.ts";
 import {
 	AdaptiveWarmIndexResourcePolicy,
 	type WarmIndexResourcePolicy,
@@ -96,6 +98,8 @@ export function buildLectorApp(service: LectorService, token: string): { fetch(r
  */
 const DEFAULT_SYMBOL_INDEX_IDLE_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_SYMBOL_INDEX_REAP_INTERVAL_MS = 5 * 60 * 1000;
+/** Calibration is a cheap, strictly-bounded /proc sample per active index, not a real scan -- runs far more often than idle reaping so real numbers replace static guesses quickly. */
+const DEFAULT_SYMBOL_INDEX_CALIBRATION_INTERVAL_MS = 60 * 1000;
 const DEFAULT_ADAPTIVE_SYMBOL_INDEX_MAX_ACTIVE = 8;
 const DEFAULT_SYMBOL_INDEX_ESTIMATED_BYTES = 512 * 1024 * 1024;
 const DEFAULT_ADAPTIVE_LANGUAGE_LIMITS: Readonly<Record<string, number>> = Object.freeze({ c: 1, cpp: 1 });
@@ -129,6 +133,10 @@ export interface LectorDaemonOptions {
 	symbolIndexDefaultEstimatedBytes?: number;
 	/** Resource-snapshot seam for embedders and deterministic tests. Production discovers Linux cgroup v2. */
 	createSymbolIndexResourceSnapshot?: () => WarmIndexResourceSnapshotPort | undefined;
+	/** Process-cost observer seam for deterministic tests. Production samples real /proc, bounded on process count, file count, and wall-clock time. Only consulted on the internally-constructed adaptive resource-policy path -- ignored when symbolIndexResourcePolicy is supplied directly, since that caller already owns any calibration its own policy wants. */
+	symbolIndexProcessCostObserver?: LanguageServerProcessCostObserverPort;
+	/** Override how often calibrateProcessCosts() samples every active warm index's real process tree. */
+	symbolIndexCalibrationIntervalMs?: number;
 	/** Override managed language-server installation while retaining the real spawn-failure seam. */
 	createLanguageServerProvisioner?: (rootPath: string) => LanguageServerProvisionerPort;
 	/** Override the idle-eviction TTL for warm symbol indexes. Tests use a short value to observe eviction without waiting. */
@@ -188,14 +196,30 @@ function prepare(options: LectorDaemonOptions): {
 			: options.createSymbolIndexResourceSnapshot
 				? options.createSymbolIndexResourceSnapshot()
 				: createLinuxCgroupWarmIndexResourceSnapshot({ explicitIndexMemoryBudgetBytes: options.symbolIndexMemoryBudgetBytes });
+	// Only built on the internally-constructed adaptive-policy path: a caller supplying its own
+	// symbolIndexResourcePolicy already owns whatever calibration (if any) that policy wants --
+	// this daemon must not silently graft its own calibrator onto a policy instance it didn't
+	// create.
+	let processCostCalibrator: LanguageServerCostCalibrator | undefined;
 	const resourcePolicy =
 		options.symbolIndexResourcePolicy ??
 		(resourceSnapshot
-			? new AdaptiveWarmIndexResourcePolicy({
-					resources: resourceSnapshot,
-					estimatedBytesByLanguage: options.symbolIndexEstimatedBytesByLanguage ?? {},
-					defaultEstimatedBytes: options.symbolIndexDefaultEstimatedBytes ?? DEFAULT_SYMBOL_INDEX_ESTIMATED_BYTES,
-				})
+			? (() => {
+					const estimatedBytesByLanguage = options.symbolIndexEstimatedBytesByLanguage ?? {};
+					const defaultEstimatedBytes = options.symbolIndexDefaultEstimatedBytes ?? DEFAULT_SYMBOL_INDEX_ESTIMATED_BYTES;
+					const calibrator = new LanguageServerCostCalibrator({
+						observer: options.symbolIndexProcessCostObserver ?? new BoundedProcTreeCostObserver(),
+						fallbackBytesByLanguage: estimatedBytesByLanguage,
+						defaultEstimatedBytes,
+					});
+					processCostCalibrator = calibrator;
+					return new AdaptiveWarmIndexResourcePolicy({
+						resources: resourceSnapshot,
+						estimatedBytesByLanguage,
+						defaultEstimatedBytes,
+						costEstimator: calibrator,
+					});
+				})()
 			: undefined);
 	const service = createLectorService(options.workspaces, {
 		allowDynamicOnly: options.allowDynamicOnly,
@@ -207,6 +231,7 @@ function prepare(options: LectorDaemonOptions): {
 		reservedForegroundSlots: options.reservedForegroundSlots,
 		backgroundAdmissionQueueTimeoutMs: options.backgroundAdmissionQueueTimeoutMs,
 		maxQueuedBackgroundAdmissions: options.maxQueuedBackgroundAdmissions,
+		symbolIndexProcessCostCalibrator: processCostCalibrator,
 		languageServerProvisioner,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
 		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),
@@ -240,6 +265,16 @@ function prepare(options: LectorDaemonOptions): {
 				run: async () => {
 					const reaped = await service.reapIdleSymbolIndexes(idleTtlMs);
 					if (reaped > 0) options.logger?.info("reaped idle symbol indexes", { reaped, pool: service.symbolIndexPoolStatus() });
+				},
+			},
+			// Only meaningful with a calibrator wired in (the internally-constructed adaptive-policy
+			// path) -- a plain no-op run every tick otherwise costs nothing worth skipping the task
+			// registration over.
+			{
+				name: "calibrate-process-costs",
+				intervalMs: options.symbolIndexCalibrationIntervalMs ?? DEFAULT_SYMBOL_INDEX_CALIBRATION_INTERVAL_MS,
+				run: async () => {
+					service.calibrateProcessCosts();
 				},
 			},
 		],
