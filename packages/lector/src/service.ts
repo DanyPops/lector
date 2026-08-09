@@ -238,8 +238,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		maxActive: options.maxActiveSymbolIndexes,
 		languageLimits: options.symbolIndexLanguageLimits,
 		observe: (event) => {
-			if (event.kind === "admission-evicted") logger.info("evicted idle symbol index for admission", event);
-			else logger.warn("failed to close symbol index", event);
+			if (event.kind === "close-failed") logger.warn("failed to close symbol index", event);
+			else logger.info(event.kind === "admission-evicted" ? "evicted idle symbol index for admission" : "replaced dead symbol index", event);
 		},
 		resolveRoot: (workspaceId) => {
 			const entry = registry.get(workspaceId);

@@ -162,6 +162,10 @@ export class LanguageServerProcess {
 		return this.child.pid;
 	}
 
+	get isAlive(): boolean {
+		return !this.processExited;
+	}
+
 	static spawnProcess(options: LanguageServerProcessOptions): LanguageServerProcess {
 		const maxPendingRequests = options.maxPendingRequests ?? 64;
 		const maxMessageBytes = options.maxMessageBytes ?? 8 * 1024 * 1024;

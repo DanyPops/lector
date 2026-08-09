@@ -441,6 +441,10 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private readonly logger: Logger;
 	private readonly provisioner: LanguageServerProvisionerPort | undefined;
 
+	isAlive(): boolean {
+		return this.process?.isAlive ?? true;
+	}
+
 	constructor(cwd: string, descriptor: LanguageServerDescriptor, seedFile?: string, options: LspSymbolIndexOptions = {}) {
 		this.cwd = resolve(cwd);
 		this.canonicalCwd = realpathSync(this.cwd);

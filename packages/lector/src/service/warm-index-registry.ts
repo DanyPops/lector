@@ -7,7 +7,7 @@ import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts"
 import type { FileChangeEvent } from "../file-watcher/file-change-event.ts";
 
 /** A SymbolIndexPort the registry can shut down when its workspace goes cold. */
-export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void> };
+export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void>; isAlive?(): boolean };
 
 export function supportsCodeIntelligence(index: SymbolIndexPort): index is SymbolIndexPort & CodeIntelligencePort {
 	return "goToDefinition" in index && typeof index.goToDefinition === "function";
@@ -30,8 +30,8 @@ export class WarmIndexCapacityExceeded extends Error {
 }
 
 export type WarmIndexPoolEvent =
-	| { readonly kind: "admission-evicted"; readonly languageId: string }
-	| { readonly kind: "close-failed"; readonly reason: "admission" | "idle-reap"; readonly languageId: string; readonly errorName: string };
+	| { readonly kind: "admission-evicted" | "dead-replaced"; readonly languageId: string }
+	| { readonly kind: "close-failed"; readonly reason: "admission" | "dead-replacement" | "idle-reap"; readonly languageId: string; readonly errorName: string };
 
 export interface WarmIndexRegistryOptions<WorkspaceKey extends string> {
 	readonly descriptors: readonly LanguageServerDescriptor[];
@@ -126,20 +126,20 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		return selected;
 	}
 
-	private async evict(entry: [string, WarmIndexEntry<WorkspaceKey>]): Promise<void> {
+	private async evict(entry: [string, WarmIndexEntry<WorkspaceKey>], reason: "admission" | "dead-replacement" = "admission"): Promise<void> {
 		try {
 			await entry[1].index.close();
 		} catch (error) {
 			this.options.observe?.({
 				kind: "close-failed",
-				reason: "admission",
+				reason,
 				languageId: entry[1].languageId,
 				errorName: error instanceof Error ? error.name : "UnknownError",
 			});
 			throw error;
 		}
 		this.entries.delete(entry[0]);
-		this.options.observe?.({ kind: "admission-evicted", languageId: entry[1].languageId });
+		this.options.observe?.({ kind: reason === "admission" ? "admission-evicted" : "dead-replaced", languageId: entry[1].languageId });
 	}
 
 	private async admit(
@@ -192,6 +192,11 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		return this.serialized(async () => {
 			const key = this.key(workspaceId, descriptor.languageId);
 			let entry = this.entries.get(key);
+			if (entry?.index.isAlive?.() === false) {
+				if (entry.activeLeases > 0) throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, this.languageLimit(descriptor.languageId));
+				await this.evict([key, entry], "dead-replacement");
+				entry = undefined;
+			}
 			if (!entry) {
 				entry = await this.admit(workspaceId, rootPath, descriptor, seedFile);
 				this.entries.set(key, entry);

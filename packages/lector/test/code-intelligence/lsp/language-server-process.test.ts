@@ -350,8 +350,10 @@ describe("LanguageServerProcess against a process that dies mid-flight", () => {
 
 	it("a request made after the process already exited is rejected immediately, never silently queued", async () => {
 		const proc = spawnEvil("exit-after-initialize");
+		expect(proc.isAlive).toBe(true);
 		await proc.request("initialize", {});
 		await new Promise((resolve) => setTimeout(resolve, 300)); // let the exit actually land
+		expect(proc.isAlive).toBe(false);
 
 		const started = Date.now();
 		await expect(proc.request("workspace/symbol", { query: "x" })).rejects.toBeInstanceOf(LanguageServerProcessExited);

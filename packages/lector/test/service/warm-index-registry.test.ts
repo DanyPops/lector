@@ -164,6 +164,32 @@ describe("WarmIndexRegistry", () => {
 		expect(registry.status().active).toBe(1);
 	});
 
+	it("replaces a dead idle index instead of reusing it", async () => {
+		let creates = 0;
+		let firstAlive = true;
+		const closed: string[] = [];
+		const events: unknown[] = [];
+		const registry = new WarmIndexRegistry({
+			descriptors: [TYPESCRIPT],
+			resolveRoot: () => "/workspace",
+			createIndex: () => {
+				creates++;
+				const index = fakeIndex(`index-${creates}`, closed, []);
+				return { ...index, isAlive: () => creates > 1 || firstAlive };
+			},
+			observe: (event) => events.push(event),
+		});
+		const first = await registry.leaseWarmIndex({ workspaceId: "a", path: "a.ts" });
+		await first[Symbol.asyncDispose]();
+		firstAlive = false;
+		await using replacement = await registry.leaseWarmIndex({ workspaceId: "a", path: "a.ts" });
+
+		expect(replacement.value.index).not.toBe(first.value.index);
+		expect(creates).toBe(2);
+		expect(closed).toEqual(["index-1"]);
+		expect(events).toEqual([{ kind: "dead-replaced", languageId: "typescript" }]);
+	});
+
 	it("eviction stops a real language-server process before replacement", async () => {
 		const root = mkdtempSync(join(tmpdir(), "lector-warm-index-process-"));
 		const roots = { a: join(root, "a"), b: join(root, "b") };

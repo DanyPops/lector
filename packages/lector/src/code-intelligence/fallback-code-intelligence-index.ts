@@ -9,7 +9,7 @@ import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../symbol-g
 import type { ParsedWorkspaceEdit, RenameRange } from "../workspace/workspace-edit.ts";
 import type { SymbolSearchResult, WorkspaceLocation } from "../workspace/workspace-symbol.ts";
 
-export type ClosableIntelligenceIndex = SymbolIndexPort & { close(): Promise<void> };
+export type ClosableIntelligenceIndex = SymbolIndexPort & { close(): Promise<void>; isAlive?(): boolean };
 
 /** Structural fallbacks serve name discovery only; identity-aware operations always stay on the semantic primary. */
 export class FallbackCodeIntelligenceIndex implements SymbolIndexPort, CodeIntelligencePort {
@@ -20,6 +20,10 @@ export class FallbackCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 		private readonly fallbacks: readonly ClosableIntelligenceIndex[],
 	) {
 		this.provenance = primary.provenance;
+	}
+
+	isAlive(): boolean {
+		return this.primary.isAlive?.() ?? true;
 	}
 
 	async findSymbols(query: string, bounds?: SymbolSearchBounds): Promise<SymbolSearchResult> {
