@@ -457,7 +457,11 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		this.maxFileBytes = positiveLimit(options.maxFileBytes, DEFAULT_MAX_FILE_BYTES, "maxFileBytes");
 		this.maxRefreshBytes = positiveLimit(options.maxRefreshBytes, 50 * 1024 * 1024, "maxRefreshBytes");
 		this.maxFallbackSeedFiles = positiveLimit(options.maxFallbackSeedFiles, 8, "maxFallbackSeedFiles");
-		this.workspaceReadyTimeoutMs = positiveLimit(options.workspaceReadyTimeoutMs, DEFAULT_WORKSPACE_READY_TIMEOUT_MS, "workspaceReadyTimeoutMs");
+		this.workspaceReadyTimeoutMs = positiveLimit(
+			options.workspaceReadyTimeoutMs ?? descriptor.workspaceReadyTimeoutMs,
+			DEFAULT_WORKSPACE_READY_TIMEOUT_MS,
+			"workspaceReadyTimeoutMs",
+		);
 		if (this.workspaceReadyTimeoutMs > MAX_WORKSPACE_READY_TIMEOUT_MS) {
 			throw new TypeError(`workspaceReadyTimeoutMs must not exceed ${MAX_WORKSPACE_READY_TIMEOUT_MS}`);
 		}

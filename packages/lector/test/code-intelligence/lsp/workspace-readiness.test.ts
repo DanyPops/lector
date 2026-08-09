@@ -97,6 +97,41 @@ describe("LspSymbolIndex workspace readiness", () => {
 		}
 	}, 10_000);
 
+	it("honors a descriptor's own workspaceReadyTimeoutMs when the constructor is given no explicit override -- the pyright cold-start fix", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-progress-gated-"));
+		writeFileSync(join(root, "seed.ts"), "export function readySymbol() {}\n");
+		index = new LspSymbolIndex(root, { ...PROGRESS_GATED_DESCRIPTOR, args: [PROGRESS_GATED_SERVER, "--never-finish"], workspaceReadyTimeoutMs: 75 }, "seed.ts");
+
+		let failure: unknown;
+		try {
+			await index.findSymbols("readySymbol");
+		} catch (error) {
+			failure = error;
+		}
+		expect(failure).toBeInstanceOf(LanguageServerWorkspaceNotReady);
+		if (failure instanceof LanguageServerWorkspaceNotReady) expect(failure.timeoutMs).toBe(75);
+	}, 10_000);
+
+	it("an explicit LspSymbolIndexOptions.workspaceReadyTimeoutMs still overrides a descriptor's own value", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-progress-gated-"));
+		writeFileSync(join(root, "seed.ts"), "export function readySymbol() {}\n");
+		index = new LspSymbolIndex(
+			root,
+			{ ...PROGRESS_GATED_DESCRIPTOR, args: [PROGRESS_GATED_SERVER, "--never-finish"], workspaceReadyTimeoutMs: 60_000 },
+			"seed.ts",
+			{ workspaceReadyTimeoutMs: 60 },
+		);
+
+		let failure: unknown;
+		try {
+			await index.findSymbols("readySymbol");
+		} catch (error) {
+			failure = error;
+		}
+		expect(failure).toBeInstanceOf(LanguageServerWorkspaceNotReady);
+		if (failure instanceof LanguageServerWorkspaceNotReady) expect(failure.timeoutMs).toBe(60);
+	}, 10_000);
+
 	it("observes a real gopls cold-start progress lifecycle without losing the workspace symbol", async () => {
 		root = mkdtempSync(join(tmpdir(), "lector-gopls-readiness-"));
 		writeFileSync(join(root, "go.mod"), "module example.com/readiness\n\ngo 1.23\n");

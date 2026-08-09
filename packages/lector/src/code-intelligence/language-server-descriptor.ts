@@ -33,6 +33,8 @@ export interface LanguageServerDescriptor {
 	readonly extraCapabilities?: Record<string, unknown>;
 	/** Milliseconds to wait after opening a file before trusting the server's answers -- no server signals "project loaded". Default 1000ms; rust-analyzer needs more (see RUST_DESCRIPTOR). */
 	readonly settleMs?: number;
+	/** Milliseconds LspSymbolIndex waits for every active $/progress work-done token to end before a workspace-wide query proceeds. Default 30000ms; pyright needs more (see PYTHON_DESCRIPTOR) -- an explicit LspSymbolIndexOptions.workspaceReadyTimeoutMs still overrides this. */
+	readonly workspaceReadyTimeoutMs?: number;
 }
 
 export const DEFAULT_SETTLE_MS = 1000;
@@ -67,6 +69,11 @@ export const PYTHON_DESCRIPTOR: LanguageServerDescriptor = {
 	args: ["--stdio"],
 	rootMarkers: ["pyrightconfig.json", "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"],
 	commonSeedCandidates: ["main.py", "src/main.py", "__init__.py", "src/__init__.py"],
+	// pyright keeps one work-done progress token open for its own background standard-library
+	// stub indexing, which can legitimately run past the generic 30s default on a workspace's
+	// first cold analysis (confirmed live: LanguageServerWorkspaceNotReady with exactly 1 active
+	// token, not zero -- real ongoing work, not a stuck/never-ending token).
+	workspaceReadyTimeoutMs: 90_000,
 };
 
 export const GO_DESCRIPTOR: LanguageServerDescriptor = {

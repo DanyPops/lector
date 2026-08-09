@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { BASH_DESCRIPTOR, CPP_DESCRIPTOR, GO_DESCRIPTOR, RUST_DESCRIPTOR } from "../../src/code-intelligence/language-server-descriptor.ts";
+import {
+	BASH_DESCRIPTOR,
+	CPP_DESCRIPTOR,
+	GO_DESCRIPTOR,
+	PYTHON_DESCRIPTOR,
+	RUST_DESCRIPTOR,
+	TYPESCRIPT_DESCRIPTOR,
+} from "../../src/code-intelligence/language-server-descriptor.ts";
 import type { LspPlatform } from "../../src/lsp-provisioning/lsp-platform.ts";
 
 const platform = (os: LspPlatform["os"], arch: LspPlatform["arch"], libc?: LspPlatform["libc"]): LspPlatform => ({ os, arch, libc });
@@ -31,5 +38,10 @@ describe("managed language-server descriptors", () => {
 	it("does not claim managed sources for unsupported distribution models", () => {
 		expect(GO_DESCRIPTOR.provisioning).toBeUndefined();
 		expect(BASH_DESCRIPTOR.provisioning).toBeUndefined();
+	});
+
+	it("gives pyright a longer workspace-ready budget than the generic default -- its own background stub indexing legitimately outlasts 30s on a cold workspace", () => {
+		expect(PYTHON_DESCRIPTOR.workspaceReadyTimeoutMs).toBe(90_000);
+		expect(TYPESCRIPT_DESCRIPTOR.workspaceReadyTimeoutMs).toBeUndefined(); // unset languages still fall back to LspSymbolIndex's own 30s default
 	});
 });
