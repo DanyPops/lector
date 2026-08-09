@@ -60,7 +60,10 @@ describe("createLectorService's search.symbols (cross-workspace fan-out)", () =>
 		const dirB = buildDir("b.ts", "export function found() {}");
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
-			createSymbolIndex: () => new InstantSymbolIndex({ name: "found", kind: "function", location: { path: "x", line: 1, character: 1 } }),
+			// findSymbols now enforces workspace-root containment on whatever a backend returns, so a
+			// fake index's own symbol must actually live under the workspace root it was created for.
+			createSymbolIndex: (rootPath) =>
+				new InstantSymbolIndex({ name: "found", kind: "function", location: { path: join(rootPath, "a.ts"), line: 1, character: 1 } }),
 		});
 		const { workspaceId: idA } = await service.dispatch("workspace.registerPath", { path: dirA });
 		const { workspaceId: idB } = await service.dispatch("workspace.registerPath", { path: dirB });

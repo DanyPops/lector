@@ -12,8 +12,9 @@ import { incomingCalls as incomingCallsQuery } from "../symbol-graph/incoming-ca
 import { outgoingCalls as outgoingCallsQuery } from "../symbol-graph/outgoing-calls.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "../symbol-graph/prepare-call-hierarchy.ts";
 import { findWorkspaceSymbols } from "../workspace/find-workspace-symbols.ts";
+import { normalizeSymbolSearchResult } from "../workspace/normalize-symbol-search-result.ts";
 import { formatProvenanced, formatSymbolSearchResult } from "../workspace/response-format.ts";
-import { MAX_SYMBOL_RESULTS } from "./bounds.ts";
+import { MAX_SYMBOL_RESULTS, SYMBOL_SEARCH_OVERFETCH_MULTIPLIER } from "./bounds.ts";
 import { CodeIntelligenceUnavailable, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
 import type { OperationInputs, OperationOutputs } from "./operations.ts";
 import { supportsCodeIntelligence, type WarmIndexLease, type WarmIndexRegistry } from "./warm-index-registry.ts";
@@ -92,14 +93,20 @@ export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps
 	const { warmIndexes } = deps;
 
 	return {
-		async "workspace.findSymbols"(_registry, input) {
+		async "workspace.findSymbols"(registry, input) {
 			assertBoundedSymbolQuery(input.query);
 			const maxResults = input.maxResults ?? 1_000;
 			if (!Number.isSafeInteger(maxResults) || maxResults < 1 || maxResults > MAX_SYMBOL_RESULTS) {
 				throw new TypeError(`maxResults must be a positive safe integer no greater than ${MAX_SYMBOL_RESULTS}`);
 			}
 			await using lease = await warmIndexes.leaseWorkspaceIndex(input.workspaceId, input.seedFile);
-			const result = await findWorkspaceSymbols(lease.value.index, input.query, { maxResults });
+			// leaseWorkspaceIndex above already required registry.get(input.workspaceId).rootPath to
+			// resolve (it throws SymbolQueryUnavailable otherwise) -- this read can't observe it missing.
+			const entry = registry.get(input.workspaceId);
+			if (!entry?.rootPath) throw new UnknownWorkspace(input.workspaceId);
+			const overfetchBound = Math.min(maxResults * SYMBOL_SEARCH_OVERFETCH_MULTIPLIER, MAX_SYMBOL_RESULTS);
+			const raw = await findWorkspaceSymbols(lease.value.index, input.query, { maxResults: overfetchBound });
+			const result = normalizeSymbolSearchResult(raw, input.query, entry.rootPath, maxResults);
 			// "concise" narrows the actual JSON payload per workspace/response-format.ts; the declared
 			// output type stays SymbolSearchResult (this operation's default, and every untouched
 			// caller's honest shape) -- a caller that opts into responseFormat:"concise" already knows
