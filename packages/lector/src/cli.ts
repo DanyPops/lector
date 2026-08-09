@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
-import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { connectPushChannel } from "@danypops/vehicle-client/daemon-client";
 import { createLogger } from "@danypops/vehicle-server/logging";
-import { createNodeServiceInstallDeps, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
+import { createServiceCli, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { connectLectorClient, resolveLectorDaemonConnection } from "./client.ts";
 import type { JobSnapshot } from "./concurrency/bounded-job-executor.ts";
-import { LECTOR_PATH_NAMES, resolveLectorPaths } from "./constants.ts";
+import { resolveLectorPaths } from "./constants.ts";
 import type { ContentHash } from "./content-identity/content-hash.ts";
 import { serveMain } from "./daemon.ts";
 import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS } from "./external-search/external-search-result.ts";
@@ -1510,12 +1509,10 @@ async function runWorkspaceRevertMutation(workspaceId: string | undefined, entry
  * attach to it, so it starts with zero pre-registered workspaces and relies
  * entirely on workspace.registerPath at runtime.
  *
- * Unit generation and install/enable itself goes through vehicle-server's
- * shared installUserService -- restartOnFailure:true because Lector's own
+ * Native service installation and lifecycle actions go through vehicle-server's
+ * shared Armada-backed service CLI. restartOnFailure:true because Lector's own
  * client (client.ts) never auto-spawns, unlike connectWithPolicy's autoStart
- * consumers, so systemd's own supervision is this daemon's only recovery path.
- * start/stop/restart/status stay direct systemctl calls: Linux/systemd is the
- * only platform Lector's own lifecycle commands support today.
+ * consumers, so native service supervision is this daemon's only recovery path.
  */
 export function lectorServiceSpec(): ServiceSpec {
 	return {
@@ -1533,39 +1530,22 @@ export function lectorServiceSpec(): ServiceSpec {
 	};
 }
 
-function systemctl(...args: string[]): void {
-	execFileSync("systemctl", ["--user", ...args], { stdio: "inherit" });
-}
-
-function installService(): void {
-	const result = installUserService(lectorServiceSpec(), createNodeServiceInstallDeps());
-	if (!result.installed) fail(`failed to install the Lector service: ${result.reason}`);
-	// installUserService's Linux path is `enable --now` (starts if not already running) --
-	// an explicit restart on top ensures a re-install after a Lector upgrade actually picks
-	// up the freshly-generated unit's new ExecStart path, not just re-enables the old one.
-	systemctl("restart", LECTOR_PATH_NAMES.systemdUnitName);
+export function lectorServiceCli() {
+	return createServiceCli(lectorServiceSpec());
 }
 
 function runService(action: string | undefined): void {
-	switch (action) {
-		case "install":
-			installService();
-			return;
-		case "start":
-			systemctl("start", LECTOR_PATH_NAMES.systemdUnitName);
-			return;
-		case "stop":
-			systemctl("stop", LECTOR_PATH_NAMES.systemdUnitName);
-			return;
-		case "restart":
-			systemctl("restart", LECTOR_PATH_NAMES.systemdUnitName);
-			return;
-		case "status":
-			systemctl("status", LECTOR_PATH_NAMES.systemdUnitName);
-			return;
-		default:
-			fail(USAGE);
+	const service = lectorServiceCli();
+	if (action === "install") {
+		const result = service.install();
+		if (!result.installed) fail(`failed to install the Lector service: ${result.reason}`);
+		return;
 	}
+	if (action === "start" || action === "stop" || action === "restart" || action === "status") {
+		service.action(action);
+		return;
+	}
+	fail(USAGE);
 }
 
 type ActionHandler = (actionArgs: string[]) => Promise<void>;

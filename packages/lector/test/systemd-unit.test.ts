@@ -8,9 +8,13 @@
 import { describe, expect, it } from "bun:test";
 import { LAUNCH_PROVENANCE_ENV_VAR } from "@danypops/vehicle-server/daemon";
 import { generateSystemdUnit } from "@danypops/vehicle-server/service";
-import { lectorServiceSpec } from "../src/cli.ts";
+import { lectorServiceCli, lectorServiceSpec } from "../src/cli.ts";
 
 describe("Lector systemd service", () => {
+	it("targets Armada's native service rather than the obsolete legacy unit", () => {
+		expect(lectorServiceCli().unitName).toBe("armada-lector.service");
+	});
+
 	it("runs in dynamic-workspaces mode -- a persistent background daemon cannot know upfront which project(s) will attach to it", () => {
 		const unit = generateSystemdUnit(lectorServiceSpec());
 		expect(unit).toContain("serve");
