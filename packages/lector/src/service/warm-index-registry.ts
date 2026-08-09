@@ -30,6 +30,14 @@ export class WarmIndexCapacityExceeded extends Error {
 	}
 }
 
+/** Raised by releaseWorkspaceIfIdle when a warm index for this workspace still has an active lease -- the caller must let the in-flight query finish and retry, never force-closed out from under it. */
+export class WarmIndexInUse extends Error {
+	constructor(readonly workspaceId: string) {
+		super(`cannot release workspace "${workspaceId}": a warm code-intelligence index for it still has an active lease`);
+		this.name = "WarmIndexInUse";
+	}
+}
+
 export type WarmIndexPoolEvent =
 	| { readonly kind: "admission-evicted" | "dead-replaced" | "resource-pressure-evicted"; readonly languageId: string }
 	| {
@@ -363,6 +371,23 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		const stale = Array.from(this.entries.entries()).filter(([, entry]) => entry.workspaceId === workspaceId);
 		for (const [key] of stale) this.entries.delete(key);
 		await Promise.all(stale.map(([, entry]) => entry.index.close()));
+	}
+
+	/**
+	 * The safe sibling of closeWorkspace: refuses (does not evict anything) while any of this
+	 * workspace's warm indexes has an active lease, instead of closeWorkspace's own unconditional
+	 * force-close (which exists for the very different case of a remote directory swapped out
+	 * from under an already-warm process -- correctness there requires closing regardless of who
+	 * still holds it). Serialized against concurrent admission so a lease can't be granted between
+	 * the check and the close.
+	 */
+	async releaseWorkspaceIfIdle(workspaceId: WorkspaceKey): Promise<{ readonly closed: number }> {
+		return this.serialized(async () => {
+			const matching = Array.from(this.entries.entries()).filter(([, entry]) => entry.workspaceId === workspaceId);
+			if (matching.some(([, entry]) => entry.activeLeases > 0)) throw new WarmIndexInUse(workspaceId);
+			for (const pair of matching) await this.evict(pair, "admission");
+			return { closed: matching.length };
+		});
 	}
 
 	async closeAll(): Promise<void> {

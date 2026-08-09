@@ -43,6 +43,7 @@ export type OperationName =
 	| "workspace.mutationHistory"
 	| "workspace.revertMutation"
 	| "workspace.registerPath"
+	| "workspace.release"
 	| "workspace.findSymbols"
 	| "workspace.goToDefinition"
 	| "workspace.goToImplementation"
@@ -109,6 +110,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.mutationHistory",
 	"workspace.revertMutation",
 	"workspace.registerPath",
+	"workspace.release",
 	"workspace.findSymbols",
 	"workspace.goToDefinition",
 	"workspace.goToImplementation",
@@ -184,6 +186,7 @@ export interface OperationInputs {
 	"workspace.mutationHistory": { workspaceId: WorkspaceId; path: string; maxResults: number };
 	"workspace.revertMutation": { workspaceId: WorkspaceId; entryId: string };
 	"workspace.registerPath": { path: string };
+	"workspace.release": { workspaceId: WorkspaceId };
 	"workspace.listDirectory": { workspaceId: WorkspaceId; path: string };
 	"workspace.createDirectory": { workspaceId: WorkspaceId; path: string };
 	"workspace.renamePath": { workspaceId: WorkspaceId; oldPath: string; newPath: string };
@@ -291,6 +294,8 @@ export interface OperationOutputs {
 	/** newHash is null when the reverted-to state is "the file doesn't exist" -- reverting a create back to nonexistence, or reverting a delete when the file has stayed deleted since. */
 	"workspace.revertMutation": { path: string; newHash: ContentHash | null };
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
+	/** closedIndexes/closedGraph/closedWatch each report only what this call itself actually tore down -- a workspace that was never warmed, populated, or watched legitimately reports zero/false across the board without that being an error. */
+	"workspace.release": { workspaceId: WorkspaceId; closedIndexes: number; closedGraph: boolean; closedWatch: boolean };
 	"workspace.listDirectory": DirectoryListing;
 	"workspace.createDirectory": { path: string };
 	"workspace.renamePath": { oldPath: string; newPath: string };

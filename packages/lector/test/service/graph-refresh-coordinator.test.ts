@@ -1,11 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import { GraphRefreshCoordinator } from "../../src/service/graph-refresh-coordinator.ts";
+import { GraphRefreshCoordinator, GraphRefreshJobActive } from "../../src/service/graph-refresh-coordinator.ts";
 import { InMemorySymbolGraph } from "../../src/symbol-graph/in-memory-symbol-graph.ts";
 
 class RecordingScheduler {
 	readonly callbacks = new Map<string, () => void>();
 	schedule(key: string, callback: () => void): void {
 		this.callbacks.set(key, callback);
+	}
+	cancel(key: string): void {
+		this.callbacks.delete(key);
 	}
 	clear(): void {
 		this.callbacks.clear();
@@ -66,5 +69,50 @@ describe("GraphRefreshCoordinator", () => {
 
 		scheduler.flush();
 		expect(runs).toBe(10);
+	});
+
+	it("releaseWorkspaceIfIdle closes and forgets one workspace's graph handle, reporting whether one existed", async () => {
+		let closes = 0;
+		const coordinator = new GraphRefreshCoordinator({
+			debounceMs: 10,
+			createGraph: () => {
+				const graph = new InMemorySymbolGraph();
+				const close = graph.close.bind(graph);
+				graph.close = async () => {
+					closes += 1;
+					await close();
+				};
+				return graph;
+			},
+		});
+		const graph = coordinator.graph("workspace-a");
+
+		expect(await coordinator.releaseWorkspaceIfIdle("workspace-a")).toBe(true);
+		expect(closes).toBe(1);
+		expect(coordinator.graph("workspace-a")).not.toBe(graph); // a fresh handle, not the released one
+
+		expect(await coordinator.releaseWorkspaceIfIdle("never-touched")).toBe(false);
+	});
+
+	it("releaseWorkspaceIfIdle throws GraphRefreshJobActive and closes nothing while a job is running", async () => {
+		const coordinator = new GraphRefreshCoordinator({ debounceMs: 10, createGraph: () => new InMemorySymbolGraph() });
+		coordinator.graph("workspace-a");
+		coordinator.setActiveJob("workspace-a", "job-1");
+
+		await expect(coordinator.releaseWorkspaceIfIdle("workspace-a")).rejects.toBeInstanceOf(GraphRefreshJobActive);
+	});
+
+	it("releaseWorkspaceIfIdle cancels a pending debounced refresh so it cannot fire after release", async () => {
+		const scheduler = new RecordingScheduler();
+		const coordinator = new GraphRefreshCoordinator({ debounceMs: 10, createGraph: () => new InMemorySymbolGraph(), scheduler });
+		let ran = false;
+		coordinator.schedule("workspace-a", () => {
+			ran = true;
+		});
+
+		await coordinator.releaseWorkspaceIfIdle("workspace-a");
+		scheduler.flush();
+
+		expect(ran).toBe(false);
 	});
 });

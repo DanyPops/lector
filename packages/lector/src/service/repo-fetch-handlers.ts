@@ -64,7 +64,7 @@ export function createRepoFetchHandlers(deps: RepoFetchHandlerDeps): RepoFetchHa
 			const { host, owner, repo, ref, text } = input;
 			return queryCachedRepositories(entries, { host, owner, repo, ref, text }, input.maxResults, input.cursor);
 		},
-		/** Refuses (RepoCacheEntryInUse) rather than deleting a currently-registered workspace's backing checkout out from under it -- there is no workspace.unregister operation to resolve that conflict safely today. */
+		/** Refuses (RepoCacheEntryInUse) rather than deleting a currently-registered workspace's backing checkout out from under it. Call workspace.release first to resolve the conflict. */
 		async "repo.evictCache"(registry, input) {
 			if (!deps.repoFetcher) throw new RepoFetcherNotConfigured();
 			const requestedRef = input.ref ?? "HEAD";

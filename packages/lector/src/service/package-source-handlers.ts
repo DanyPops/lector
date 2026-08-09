@@ -108,7 +108,7 @@ export function createPackageSourceHandlers(deps: PackageSourceHandlerDeps): Pac
 			});
 			return { entries, nextCursor: page.nextCursor };
 		},
-		/** Refuses (PackageSourceEntryInUse) rather than dropping the bookkeeping for a currently-registered workspace's backing checkout out from under it -- there is no workspace.unregister operation, mirroring repo.evictCache's identical refusal. Removes only the package-source index entry (bookkeeping); the underlying RepoFetcherPort disk cache entry is a separate, independently-addressed cache managed by repo.evictCache/repo_cache, not duplicated here -- a monorepo can have several package-source entries sharing one physical checkout, so this handler must never assume ownership of it. */
+		/** Refuses (PackageSourceEntryInUse) rather than dropping the bookkeeping for a currently-registered workspace's backing checkout out from under it, mirroring repo.evictCache's identical refusal -- call workspace.release first. Removes only the package-source index entry (bookkeeping); the underlying RepoFetcherPort disk cache entry is a separate, independently-addressed cache managed by repo.evictCache/repo_cache, not duplicated here -- a monorepo can have several package-source entries sharing one physical checkout, so this handler must never assume ownership of it. */
 		async "package.removeSource"(registry, input) {
 			if (!deps.packageSourceResolver) throw new PackageSourceResolverNotConfigured();
 			if (!PACKAGE_ECOSYSTEMS.includes(input.ecosystem)) throw new InvalidPackageSourceContract("ecosystem");

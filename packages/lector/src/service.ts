@@ -52,6 +52,7 @@ import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { createSymbolGraphHandlers } from "./service/symbol-graph-handlers.ts";
 import { type ClosableSymbolIndex, type WarmIndexPoolStatus, WarmIndexRegistry } from "./service/warm-index-registry.ts";
 import { createWorkspaceFileHandlers } from "./service/workspace-file-handlers.ts";
+import { createWorkspaceLifecycleHandlers } from "./service/workspace-lifecycle-handlers.ts";
 import { createWorkspaceMapHandler } from "./service/workspace-map-handler.ts";
 import type { MutableRegistry } from "./service/workspace-registry.ts";
 import { WorkspaceWatchHandlers } from "./service/workspace-watch-handlers.ts";
@@ -319,6 +320,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		},
 	});
 	ensureOsWatcher = (workspaceId, rootPath) => workspaceWatchHandlers.ensureOsWatcher(workspaceId, rootPath);
+	const workspaceLifecycleHandlers = createWorkspaceLifecycleHandlers({ registry, warmIndexes, graphRefresh, watchHandlers: workspaceWatchHandlers });
 	const gitHandlers = createGitHandlers({ registry, createGitPort, logger });
 	// Registered Git contracts override only their matching direct handlers.
 	const operationRegistry = new VehicleRegistry({
@@ -388,6 +390,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const handlers: OperationHandlers = {
 		...workspaceFileHandlers,
 		"workspace.registerPath": registerPath,
+		...workspaceLifecycleHandlers,
 		...codeIntelligenceHandlers,
 		...symbolGraphHandlers.handlers,
 		...gitHandlers,
@@ -457,6 +460,7 @@ export {
 	UnsupportedJobOperation,
 	UnsupportedLanguage,
 	WorkspaceChangedDuringPopulation,
+	WorkspaceReleaseBlocked,
 } from "./service/errors.ts";
 export type { OperationInputs, OperationName, OperationOutputs } from "./service/operations.ts";
 export { OPERATION_NAMES } from "./service/operations.ts";

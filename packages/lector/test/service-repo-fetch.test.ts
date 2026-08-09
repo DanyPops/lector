@@ -169,6 +169,24 @@ describe("createLectorService's repo.evictCache", () => {
 		expect(page.entries[0]?.registeredWorkspaceId).toBe(fetched.workspaceId);
 		await expect(service.dispatch("workspace.rawRead", { workspaceId: fetched.workspaceId, path: "README.md" })).resolves.toMatchObject({ content: "hello\n" });
 	});
+
+	it("workspace.release resolves the RepoCacheEntryInUse conflict -- repo.evictCache succeeds once the workspace is no longer registered", async () => {
+		sourceRepo = buildSourceRepo();
+		reposDir = mkdtempSync(join(tmpdir(), "lector-repo-fetch-service-cache-"));
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
+		});
+		const fetched = await service.dispatch("repo.fetch", reference());
+		await expect(service.dispatch("repo.evictCache", reference())).rejects.toBeInstanceOf(RepoCacheEntryInUse);
+
+		const released = await service.dispatch("workspace.release", { workspaceId: fetched.workspaceId });
+
+		expect(released).toMatchObject({ workspaceId: fetched.workspaceId, closedGraph: false, closedWatch: false });
+		await expect(service.dispatch("repo.evictCache", reference())).resolves.toEqual({ evicted: true });
+		const page = await service.dispatch("repo.listCache", { maxResults: 10 });
+		expect(page.entries).toEqual([]);
+	});
 });
 
 describe("createLectorService's repo.listCache", () => {

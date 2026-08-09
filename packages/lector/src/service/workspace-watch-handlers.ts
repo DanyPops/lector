@@ -55,6 +55,19 @@ export class WorkspaceWatchHandlers {
 		return { watchId, topic };
 	}
 
+	/** True while any workspace.watch registration for this workspace is still active (not yet workspace.unwatch'd). */
+	hasActiveWatch(workspaceId: WorkspaceId): boolean {
+		return this.registrations.hasAnyFor(workspaceId);
+	}
+
+	/** Idempotent teardown of this one workspace's real OS-level watcher, if any -- returns whether one actually existed to close. Safe to call even when hasActiveWatch already refused release -- there is nothing to tear down in that case, since the registration itself (and thus the watcher) is still live. */
+	releaseWorkspace(workspaceId: WorkspaceId): boolean {
+		const watcher = this.osWatchers.get(workspaceId);
+		watcher?.close();
+		this.osWatchers.delete(workspaceId);
+		return watcher !== undefined;
+	}
+
 	private unwatch(input: OperationInputs["workspace.unwatch"]): OperationOutputs["workspace.unwatch"] {
 		const removed = this.registrations.remove(input.watchId);
 		if (removed && !this.registrations.hasAnyFor(removed.workspaceId) && !this.deps.isGraphWatched(removed.workspaceId)) {

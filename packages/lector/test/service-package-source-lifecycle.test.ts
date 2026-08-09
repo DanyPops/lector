@@ -163,6 +163,25 @@ describe("createLectorService package-source lifecycle", () => {
 		expect(page.entries).toHaveLength(1);
 	});
 
+	it("workspace.release resolves the PackageSourceEntryInUse conflict -- package.removeSource succeeds once the workspace is no longer registered", async () => {
+		const root = newRoot();
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createPackageSourceResolver: () => new FixedResolver(new Map([["zod", verified("zod", "3.22.0", root)]])),
+		});
+		const resolved = await service.dispatch("package.resolveSource", { request: requestFor("zod"), bounds: DEFAULT_PACKAGE_SOURCE_BOUNDS });
+		await expect(service.dispatch("package.removeSource", { ecosystem: "npm", registry: null, name: "zod", resolvedVersion: "3.22.0" })).rejects.toBeInstanceOf(
+			PackageSourceEntryInUse,
+		);
+
+		expect(resolved.workspaceId).not.toBeNull();
+		await service.dispatch("workspace.release", { workspaceId: resolved.workspaceId as string });
+
+		await expect(service.dispatch("package.removeSource", { ecosystem: "npm", registry: null, name: "zod", resolvedVersion: "3.22.0" })).resolves.toEqual({
+			removed: true,
+		});
+	});
+
 	it("returns removed:false, not an error, for a key that was never recorded", async () => {
 		service = createLectorService(new Map(), { allowDynamicOnly: true, createPackageSourceResolver: () => new FixedResolver(new Map()) });
 		const result = await service.dispatch("package.removeSource", { ecosystem: "npm", registry: null, name: "never-recorded", resolvedVersion: "1.0.0" });

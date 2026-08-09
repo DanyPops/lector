@@ -147,10 +147,10 @@ export class RepoFetcherNotConfigured extends Error {
 	}
 }
 
-/** Raised by repo.evictCache when the target cache entry's resolved path is still a currently-registered workspace. There is no workspace.unregister operation, so evicting would delete a live workspace's backing storage out from under every other operation still reading it. */
+/** Raised by repo.evictCache when the target cache entry's resolved path is still a currently-registered workspace -- evicting would delete a live workspace's backing storage out from under every other operation still reading it. Call workspace.release first. */
 export class RepoCacheEntryInUse extends Error {
 	constructor(readonly workspaceId: WorkspaceId) {
-		super(`cannot evict: still registered as workspace "${workspaceId}"`);
+		super(`cannot evict: still registered as workspace "${workspaceId}" -- call workspace.release first`);
 		this.name = "RepoCacheEntryInUse";
 	}
 }
@@ -162,11 +162,35 @@ export class PackageSourceResolverNotConfigured extends Error {
 	}
 }
 
-/** Raised by package.removeSource/cleanSources when the entry's own recorded workspaceId is still a currently-registered workspace. There is no workspace.unregister operation, mirroring RepoCacheEntryInUse's identical limitation for repo.evictCache. */
+/** Raised by package.removeSource/cleanSources when the entry's own recorded workspaceId is still a currently-registered workspace, mirroring RepoCacheEntryInUse's identical limitation for repo.evictCache. Call workspace.release first. */
 export class PackageSourceEntryInUse extends Error {
 	constructor(readonly workspaceId: WorkspaceId) {
-		super(`cannot remove: still registered as workspace "${workspaceId}"`);
+		super(`cannot remove: still registered as workspace "${workspaceId}" -- call workspace.release first`);
 		this.name = "PackageSourceEntryInUse";
+	}
+}
+
+/**
+ * Raised by workspace.release when tearing it down now would pull storage/processes out from
+ * under work that is still using this workspace. Fails closed rather than racing a lease
+ * completion, an in-flight populateSymbolGraph job, or a still-registered workspace.watch
+ * subscription -- the caller resolves the specific condition (let the query finish, wait for the
+ * job, workspace.unwatch first) and retries, rather than release silently tearing down what it
+ * shouldn't or blocking forever.
+ */
+export class WorkspaceReleaseBlocked extends Error {
+	constructor(
+		readonly workspaceId: WorkspaceId,
+		readonly reason: "active-lease" | "active-job" | "active-watch",
+	) {
+		const explanation =
+			reason === "active-lease"
+				? "a code-intelligence query is still using this workspace's warm index"
+				: reason === "active-job"
+					? "a background populateSymbolGraph job is still running for this workspace"
+					: "this workspace still has an active workspace.watch subscription -- workspace.unwatch it first";
+		super(`cannot release workspace "${workspaceId}": ${explanation}`);
+		this.name = "WorkspaceReleaseBlocked";
 	}
 }
 

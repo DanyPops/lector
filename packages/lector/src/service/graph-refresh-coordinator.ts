@@ -2,8 +2,17 @@ import type { Logger } from "@danypops/vehicle-server/logging";
 import { DebouncedScheduler } from "../concurrency/debounced-scheduler.ts";
 import type { SymbolGraphPort } from "../symbol-graph/port.ts";
 
+/** Raised by releaseWorkspaceIfIdle when a populateSymbolGraph job for this workspace is still running -- closing the graph handle out from under it would corrupt bookkeeping the job still expects to find. */
+export class GraphRefreshJobActive extends Error {
+	constructor(readonly workspaceId: string) {
+		super(`cannot release workspace "${workspaceId}": a populateSymbolGraph job for it is still running`);
+		this.name = "GraphRefreshJobActive";
+	}
+}
+
 interface RefreshScheduler {
 	schedule(key: string, callback: () => unknown): void;
+	cancel(key: string): void;
 	clear(): void;
 }
 
@@ -66,5 +75,29 @@ export class GraphRefreshCoordinator<WorkspaceKey extends string, JobKey extends
 		const graphs = Array.from(this.graphs.values());
 		this.graphs.clear();
 		await Promise.all(graphs.map((graph) => graph.close()));
+	}
+
+	/**
+	 * Closes and forgets this one workspace's graph handle -- durable graph data on disk (a
+	 * SQLite-backed graph) is untouched, only the in-memory handle is released, the same
+	 * distinction every other Lector store's close() makes. Throws GraphRefreshJobActive (closes
+	 * nothing) while a populateSymbolGraph job for this workspace is still running: closing the
+	 * handle out from under an in-flight write would corrupt bookkeeping the job still expects to
+	 * find. Also drops this workspace's own watched/debounce state so a later workspace.watch on
+	 * the same id starts clean. Returns whether a graph handle actually existed to close -- a
+	 * workspace whose graph was never populated legitimately closes nothing.
+	 */
+	async releaseWorkspaceIfIdle(workspaceId: WorkspaceKey): Promise<boolean> {
+		if (this.activeJobs.has(workspaceId)) throw new GraphRefreshJobActive(workspaceId);
+		// A debounced refresh scheduled just before release, but not yet fired, is not an "active
+		// job" (setActiveJob only runs once the callback actually starts) -- without this it could
+		// fire after release and repopulate a graph handle nothing is meant to be using anymore.
+		this.scheduler.cancel(workspaceId);
+		this.watchedWorkspaces.delete(workspaceId);
+		const graph = this.graphs.get(workspaceId);
+		if (!graph) return false;
+		this.graphs.delete(workspaceId);
+		await graph.close();
+		return true;
 	}
 }

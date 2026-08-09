@@ -7,7 +7,7 @@ import type { LanguageServerDescriptor } from "../../src/code-intelligence/langu
 import { LanguageServerProcess } from "../../src/code-intelligence/lsp/language-server-process.ts";
 import type { CodeIntelligencePort } from "../../src/code-intelligence/port.ts";
 import type { FileChangeEvent } from "../../src/file-watcher/file-change-event.ts";
-import { type ClosableSymbolIndex, WarmIndexCapacityExceeded, WarmIndexRegistry } from "../../src/service/warm-index-registry.ts";
+import { type ClosableSymbolIndex, WarmIndexCapacityExceeded, WarmIndexInUse, WarmIndexRegistry } from "../../src/service/warm-index-registry.ts";
 
 const EVIL_SERVER_PATH = fileURLToPath(new URL("../support/evil-lsp-server.ts", import.meta.url));
 
@@ -101,6 +101,52 @@ describe("WarmIndexRegistry", () => {
 		await registry.closeWorkspace("workspace-a");
 		expect(registry.hasWarmIndex("workspace-a")).toBe(false);
 		expect(registry.hasWarmIndex("workspace-b")).toBe(true);
+	});
+
+	it("releaseWorkspaceIfIdle closes only the idle workspace's own entries, leaving another workspace warm", async () => {
+		const closed: string[] = [];
+		const registry = new WarmIndexRegistry({
+			descriptors: [TYPESCRIPT],
+			resolveRoot: (workspaceId) => `/${workspaceId}`,
+			createIndex: (_root, descriptor) => fakeIndex(descriptor.languageId, closed, []),
+		});
+		const leaseA = await registry.leaseWarmIndex({ workspaceId: "workspace-a", path: "src/index.ts" });
+		await leaseA[Symbol.asyncDispose]();
+		const leaseB = await registry.leaseWarmIndex({ workspaceId: "workspace-b", path: "src/index.ts" });
+		await leaseB[Symbol.asyncDispose]();
+
+		const result = await registry.releaseWorkspaceIfIdle("workspace-a");
+
+		expect(result).toEqual({ closed: 1 });
+		expect(registry.hasWarmIndex("workspace-a")).toBe(false);
+		expect(registry.hasWarmIndex("workspace-b")).toBe(true);
+		expect(closed).toEqual(["typescript"]);
+	});
+
+	it("releaseWorkspaceIfIdle refuses, closing nothing, while a lease is still active", async () => {
+		const closed: string[] = [];
+		const registry = new WarmIndexRegistry({
+			descriptors: [TYPESCRIPT],
+			resolveRoot: () => "/workspace-a",
+			createIndex: (_root, descriptor) => fakeIndex(descriptor.languageId, closed, []),
+		});
+		const lease = await registry.leaseWarmIndex({ workspaceId: "workspace-a", path: "src/index.ts" });
+
+		await expect(registry.releaseWorkspaceIfIdle("workspace-a")).rejects.toBeInstanceOf(WarmIndexInUse);
+		expect(registry.hasWarmIndex("workspace-a")).toBe(true);
+		expect(closed).toEqual([]);
+
+		await lease[Symbol.asyncDispose]();
+	});
+
+	it("releaseWorkspaceIfIdle is a safe no-op (closes 0) for a workspace with no warm index at all", async () => {
+		const registry = new WarmIndexRegistry({
+			descriptors: [TYPESCRIPT],
+			resolveRoot: () => "/workspace-a",
+			createIndex: () => fakeIndex("typescript", [], []),
+		});
+
+		expect(await registry.releaseWorkspaceIfIdle("never-warmed")).toEqual({ closed: 0 });
 	});
 
 	it("discovers a workspace language, honors a preferred seed, and reports source extensions", async () => {
