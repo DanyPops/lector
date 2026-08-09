@@ -13,6 +13,7 @@
  *                          (simulates a crash after a request is already pending)
  *   sends-notification    responds to `initialize`, then pushes a fake
  *                          textDocument/publishDiagnostics notification
+ *   reports-temp-directory responds to `initialize` with its TMPDIR for lifecycle cleanup tests
  *   oversized-response    responds after initialize with a deliberately large body
  *   sends-server-request   responds to `initialize`, then issues a sequence of
  *                          server-initiated requests and reports each response
@@ -124,7 +125,7 @@ function handle(message: JsonRpcMessage): void {
 
 	if (message.method === "initialize") {
 		if (mode === "hang-on-initialize") return;
-		respond(message.id, { capabilities: {} });
+		respond(message.id, { capabilities: {}, ...(mode === "reports-temp-directory" ? { tempDirectory: process.env.TMPDIR } : {}) });
 		if (mode === "exit-after-initialize") process.exit(1);
 		if (mode === "sends-notification") {
 			notify("textDocument/publishDiagnostics", { uri: "file:///fake.ts", diagnostics: [] });

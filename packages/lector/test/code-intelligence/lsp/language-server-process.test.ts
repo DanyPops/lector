@@ -4,7 +4,7 @@
  * real language server.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -86,6 +86,14 @@ describe("LanguageServerProcess against a well-behaved mock", () => {
 		// A second stop() must be a safe no-op, not hang or throw, regardless of how the
 		// first one actually terminated the process.
 		await expect(proc.stop()).resolves.toBeUndefined();
+	});
+
+	it("removes the language server's owned temporary directory on exit", async () => {
+		const proc = spawnEvil("reports-temp-directory");
+		const result = await proc.request<{ tempDirectory: string }>("initialize", {});
+		expect(existsSync(result.tempDirectory)).toBe(true);
+		await proc.stop();
+		expect(existsSync(result.tempDirectory)).toBe(false);
 	});
 });
 

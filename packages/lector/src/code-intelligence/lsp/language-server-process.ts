@@ -1,4 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcMessageLimitExceeded, JsonRpcStreamDecoder } from "./json-rpc-stream.ts";
 
 export interface LanguageServerProcessOptions {
@@ -113,12 +116,21 @@ export class LanguageServerProcess {
 	private nextId = 1;
 	private processExited = false;
 	private exitError: Error;
+	private temporaryDirectory: string | undefined;
 
-	private constructor(child: ChildProcessWithoutNullStreams, label: string, requestTimeoutMs: number, maxPendingRequests: number, maxMessageBytes: number) {
+	private constructor(
+		child: ChildProcessWithoutNullStreams,
+		label: string,
+		requestTimeoutMs: number,
+		maxPendingRequests: number,
+		maxMessageBytes: number,
+		temporaryDirectory: string,
+	) {
 		this.child = child;
 		this.requestTimeoutMs = requestTimeoutMs;
 		this.maxPendingRequests = maxPendingRequests;
 		this.maxMessageBytes = maxMessageBytes;
+		this.temporaryDirectory = temporaryDirectory;
 		this.decoder = new JsonRpcStreamDecoder({ maxMessageBytes });
 		this.exitError = new LanguageServerProcessExited(label);
 		this.child.stderr.resume();
@@ -140,6 +152,9 @@ export class LanguageServerProcess {
 				this.pending.delete(id);
 			}
 		});
+		// Unlike "exit", "close" also fires when spawning itself fails, after every
+		// stdio handle is gone, so both normal and pre-launch failure paths are cleaned.
+		this.child.once("close", () => this.removeTemporaryDirectory());
 	}
 
 	/** Undefined only if the OS never assigned one, i.e. spawn itself failed before this constructor ran. */
@@ -152,14 +167,37 @@ export class LanguageServerProcess {
 		const maxMessageBytes = options.maxMessageBytes ?? 8 * 1024 * 1024;
 		if (!Number.isSafeInteger(maxPendingRequests) || maxPendingRequests < 1) throw new TypeError("maxPendingRequests must be a positive safe integer");
 		if (!Number.isSafeInteger(maxMessageBytes) || maxMessageBytes < 1) throw new TypeError("maxMessageBytes must be a positive safe integer");
-		const child = spawn(options.command, [...(options.args ?? [])], {
-			cwd: options.cwd,
-			env: { ...process.env, ...options.env },
-			stdio: ["pipe", "pipe", "pipe"],
-			// Own process group on POSIX so stop() can kill every descendant as a unit.
-			detached: process.platform !== "win32",
-		});
-		return new LanguageServerProcess(child, options.command, options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS, maxPendingRequests, maxMessageBytes);
+		// Some language servers create per-process files but never remove them (notably
+		// typescript-language-server's tscancellation directories). Give every server an
+		// owned sandbox so process exit can clean the entire subtree reliably.
+		const temporaryDirectory = mkdtempSync(join(tmpdir(), "lector-lsp-"));
+		let child: ChildProcessWithoutNullStreams;
+		try {
+			child = spawn(options.command, [...(options.args ?? [])], {
+				cwd: options.cwd,
+				env: { ...process.env, ...options.env, TMPDIR: temporaryDirectory, TMP: temporaryDirectory, TEMP: temporaryDirectory },
+				stdio: ["pipe", "pipe", "pipe"],
+				// Own process group on POSIX so stop() can kill every descendant as a unit.
+				detached: process.platform !== "win32",
+			});
+		} catch (error) {
+			rmSync(temporaryDirectory, { recursive: true, force: true });
+			throw error;
+		}
+		return new LanguageServerProcess(
+			child,
+			options.command,
+			options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+			maxPendingRequests,
+			maxMessageBytes,
+			temporaryDirectory,
+		);
+	}
+
+	private removeTemporaryDirectory(): void {
+		if (!this.temporaryDirectory) return;
+		rmSync(this.temporaryDirectory, { recursive: true, force: true });
+		this.temporaryDirectory = undefined;
 	}
 
 	private dispatch(message: JsonRpcMessage): void {
@@ -327,7 +365,10 @@ export class LanguageServerProcess {
 	}
 
 	async stop(stopTimeoutMs = DEFAULT_STOP_TIMEOUT_MS): Promise<void> {
-		if (this.processExited) return;
+		if (this.processExited) {
+			this.removeTemporaryDirectory();
+			return;
+		}
 
 		const exited = new Promise<void>((resolve) => {
 			if (this.processExited) resolve();
@@ -361,6 +402,7 @@ export class LanguageServerProcess {
 		// Bounded wait for the exit event to actually land; stop() must itself never hang
 		// even if, somehow, neither the graceful path nor SIGKILL produced one promptly.
 		await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, stopTimeoutMs))]);
+		this.removeTemporaryDirectory();
 	}
 
 	private killProcessGroup(): void {
