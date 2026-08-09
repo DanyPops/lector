@@ -55,6 +55,16 @@ export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } 
 export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./code-intelligence/typescript-compiler-symbol-index.ts";
 export {
+	AdaptiveWarmIndexResourcePolicy,
+	type AdaptiveWarmIndexResourcePolicyOptions,
+	type WarmIndexAdmissionPolicy,
+	type WarmIndexResourcePolicy,
+	type WarmIndexResourcePressure,
+	type WarmIndexResourceSnapshot,
+	type WarmIndexResourceSnapshotPort,
+	type WarmIndexRetentionPolicy,
+} from "./code-intelligence/warm-index-resource-policy.ts";
+export {
 	BoundedJobExecutor,
 	type BoundedJobExecutorOptions,
 	JobCapacityExceeded,

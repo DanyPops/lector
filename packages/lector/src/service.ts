@@ -7,6 +7,7 @@ import { LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./co
 import { LspSymbolIndex } from "./code-intelligence/lsp/lsp-symbol-index.ts";
 import { TreeSitterSymbolIndex } from "./code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "./code-intelligence/typescript-compiler-symbol-index.ts";
+import type { WarmIndexResourcePolicy } from "./code-intelligence/warm-index-resource-policy.ts";
 import { BoundedJobExecutor } from "./concurrency/bounded-job-executor.ts";
 import { SerialExecutionQueue } from "./concurrency/serial-execution-queue.ts";
 import { InMemoryContentCache } from "./content-cache/in-memory-content-cache.ts";
@@ -98,6 +99,8 @@ export interface LectorServiceOptions {
 	maxActiveSymbolIndexes?: number;
 	/** Optional per-language capacities; unspecified languages use the global capacity. */
 	symbolIndexLanguageLimits?: Readonly<Record<string, number>>;
+	/** Optional adaptive resource strategy layered beneath the fixed process safety ceilings. */
+	symbolIndexResourcePolicy?: WarmIndexResourcePolicy;
 	/** Shared managed installer for provisionable system-binary language servers. Never used by filesystem-only operations. */
 	languageServerProvisioner?: LanguageServerProvisionerPort;
 	/**
@@ -237,9 +240,12 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		createIndex: createSymbolIndex,
 		maxActive: options.maxActiveSymbolIndexes,
 		languageLimits: options.symbolIndexLanguageLimits,
+		resourcePolicy: options.symbolIndexResourcePolicy,
 		observe: (event) => {
 			if (event.kind === "close-failed") logger.warn("failed to close symbol index", event);
-			else logger.info(event.kind === "admission-evicted" ? "evicted idle symbol index for admission" : "replaced dead symbol index", event);
+			else if (event.kind === "admission-evicted") logger.info("evicted idle symbol index for admission", event);
+			else if (event.kind === "resource-pressure-evicted") logger.info("evicted idle symbol index under resource pressure", event);
+			else logger.info("replaced dead symbol index", event);
 		},
 		resolveRoot: (workspaceId) => {
 			const entry = registry.get(workspaceId);

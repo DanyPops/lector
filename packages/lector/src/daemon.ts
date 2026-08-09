@@ -4,6 +4,7 @@ import type { Logger } from "@danypops/vehicle-server/logging";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
+import type { WarmIndexResourcePolicy } from "./code-intelligence/warm-index-resource-policy.ts";
 import { resolveLectorPaths } from "./constants.ts";
 import type { GithubSearchPort } from "./github-search/port.ts";
 import { InstallLocation } from "./lsp-provisioning/install-location.ts";
@@ -104,6 +105,8 @@ export interface LectorDaemonOptions {
 	maxActiveSymbolIndexes?: number;
 	/** Optional per-language capacities. */
 	symbolIndexLanguageLimits?: Readonly<Record<string, number>>;
+	/** Optional adaptive resource strategy layered beneath the fixed process safety ceilings. */
+	symbolIndexResourcePolicy?: WarmIndexResourcePolicy;
 	/** Override managed language-server installation while retaining the real spawn-failure seam. */
 	createLanguageServerProvisioner?: (rootPath: string) => LanguageServerProvisionerPort;
 	/** Override the idle-eviction TTL for warm symbol indexes. Tests use a short value to observe eviction without waiting. */
@@ -163,6 +166,7 @@ function prepare(options: LectorDaemonOptions): {
 		createSymbolIndex: options.createSymbolIndex,
 		maxActiveSymbolIndexes: options.maxActiveSymbolIndexes,
 		symbolIndexLanguageLimits: options.symbolIndexLanguageLimits,
+		symbolIndexResourcePolicy: options.symbolIndexResourcePolicy,
 		languageServerProvisioner,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
 		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),

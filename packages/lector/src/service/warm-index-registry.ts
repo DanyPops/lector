@@ -4,6 +4,7 @@ import { discoverWorkspaceDescriptor, discoverWorkspaceDescriptors } from "../co
 import { PolyglotCodeIntelligenceIndex } from "../code-intelligence/polyglot-code-intelligence-index.ts";
 import type { CodeIntelligencePort } from "../code-intelligence/port.ts";
 import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts";
+import type { WarmIndexResourcePolicy } from "../code-intelligence/warm-index-resource-policy.ts";
 import type { FileChangeEvent } from "../file-watcher/file-change-event.ts";
 
 /** A SymbolIndexPort the registry can shut down when its workspace goes cold. */
@@ -30,8 +31,13 @@ export class WarmIndexCapacityExceeded extends Error {
 }
 
 export type WarmIndexPoolEvent =
-	| { readonly kind: "admission-evicted" | "dead-replaced"; readonly languageId: string }
-	| { readonly kind: "close-failed"; readonly reason: "admission" | "dead-replacement" | "idle-reap"; readonly languageId: string; readonly errorName: string };
+	| { readonly kind: "admission-evicted" | "dead-replaced" | "resource-pressure-evicted"; readonly languageId: string }
+	| {
+			readonly kind: "close-failed";
+			readonly reason: "admission" | "dead-replacement" | "idle-reap" | "resource-pressure";
+			readonly languageId: string;
+			readonly errorName: string;
+	  };
 
 export interface WarmIndexRegistryOptions<WorkspaceKey extends string> {
 	readonly descriptors: readonly LanguageServerDescriptor[];
@@ -41,6 +47,7 @@ export interface WarmIndexRegistryOptions<WorkspaceKey extends string> {
 	readonly now?: () => number;
 	readonly maxActive?: number;
 	readonly languageLimits?: Readonly<Record<string, number>>;
+	readonly resourcePolicy?: WarmIndexResourcePolicy;
 	readonly observe?: (event: WarmIndexPoolEvent) => void;
 }
 
@@ -114,6 +121,10 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		return count;
 	}
 
+	private activeLanguages(): string[] {
+		return Array.from(this.entries.values(), (entry) => entry.languageId);
+	}
+
 	private leastRecentlyUsedIdle(languageId?: string): [string, WarmIndexEntry<WorkspaceKey>] | undefined {
 		let selected: [string, WarmIndexEntry<WorkspaceKey>] | undefined;
 		for (const candidate of this.entries) {
@@ -126,7 +137,10 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		return selected;
 	}
 
-	private async evict(entry: [string, WarmIndexEntry<WorkspaceKey>], reason: "admission" | "dead-replacement" = "admission"): Promise<void> {
+	private async evict(
+		entry: [string, WarmIndexEntry<WorkspaceKey>],
+		reason: "admission" | "dead-replacement" | "resource-pressure" = "admission",
+	): Promise<void> {
 		try {
 			await entry[1].index.close();
 		} catch (error) {
@@ -139,7 +153,8 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			throw error;
 		}
 		this.entries.delete(entry[0]);
-		this.options.observe?.({ kind: reason === "admission" ? "admission-evicted" : "dead-replaced", languageId: entry[1].languageId });
+		const kind = reason === "admission" ? "admission-evicted" : reason === "dead-replacement" ? "dead-replaced" : "resource-pressure-evicted";
+		this.options.observe?.({ kind, languageId: entry[1].languageId });
 	}
 
 	private async admit(
@@ -158,6 +173,11 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			const victim = this.leastRecentlyUsedIdle();
 			if (!victim) throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, languageLimit);
 			await this.evict(victim);
+		}
+		while (this.options.resourcePolicy && !this.options.resourcePolicy.canAdmit(this.activeLanguages(), descriptor.languageId)) {
+			const victim = this.leastRecentlyUsedIdle();
+			if (!victim) throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, languageLimit);
+			await this.evict(victim, "resource-pressure");
 		}
 		return {
 			index: this.options.createIndex(rootPath, descriptor, seedFile),
@@ -210,15 +230,15 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		let released = false;
 		return {
 			value,
-			[Symbol.asyncDispose]: () => {
-				if (released) return Promise.resolve();
+			[Symbol.asyncDispose]: async () => {
+				if (released) return;
 				released = true;
 				const completedAt = this.now();
 				for (const entry of entries) {
 					entry.activeLeases--;
 					entry.lastUsedAt = completedAt;
 				}
-				return Promise.resolve();
+				await this.reconcileResources();
 			},
 		};
 	}
@@ -348,24 +368,48 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		await Promise.all(entries.map((entry) => entry.index.close()));
 	}
 
-	async reapIdle(maxIdleMs: number): Promise<number> {
-		const now = this.now();
-		const idle = Array.from(this.entries.entries()).filter(([, entry]) => entry.activeLeases === 0 && now - entry.lastUsedAt > maxIdleMs);
+	private async reconcileResourcesUnsafe(): Promise<number> {
+		const policy = this.options.resourcePolicy;
+		if (!policy) return 0;
 		let reaped = 0;
-		for (const [key, entry] of idle) {
+		while (policy.isOverBudget(this.activeLanguages())) {
+			const victim = this.leastRecentlyUsedIdle();
+			if (!victim) break;
 			try {
-				await entry.index.close();
-				if (this.entries.get(key) === entry) this.entries.delete(key);
+				await this.evict(victim, "resource-pressure");
 				reaped++;
-			} catch (error) {
-				this.options.observe?.({
-					kind: "close-failed",
-					reason: "idle-reap",
-					languageId: entry.languageId,
-					errorName: error instanceof Error ? error.name : "UnknownError",
-				});
+			} catch {
+				break;
 			}
 		}
 		return reaped;
+	}
+
+	async reconcileResources(): Promise<number> {
+		return this.serialized(() => this.reconcileResourcesUnsafe());
+	}
+
+	async reapIdle(maxIdleMs: number): Promise<number> {
+		return this.serialized(async () => {
+			let reaped = await this.reconcileResourcesUnsafe();
+			const now = this.now();
+			const effectiveMaxIdleMs = this.options.resourcePolicy?.maxIdleMs(maxIdleMs, this.activeLanguages()) ?? maxIdleMs;
+			const idle = Array.from(this.entries.entries()).filter(([, entry]) => entry.activeLeases === 0 && now - entry.lastUsedAt > effectiveMaxIdleMs);
+			for (const [key, entry] of idle) {
+				try {
+					await entry.index.close();
+					if (this.entries.get(key) === entry) this.entries.delete(key);
+					reaped++;
+				} catch (error) {
+					this.options.observe?.({
+						kind: "close-failed",
+						reason: "idle-reap",
+						languageId: entry.languageId,
+						errorName: error instanceof Error ? error.name : "UnknownError",
+					});
+				}
+			}
+			return reaped;
+		});
 	}
 }
