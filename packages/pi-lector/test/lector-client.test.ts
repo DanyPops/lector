@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectLectorClient, type LectorClient, resolveLectorPaths } from "@danypops/lector";
+import { connectLectorClient, type LectorClient, LectorDaemonUnavailable, resolveLectorPaths } from "@danypops/lector";
 import {
 	lectorClient,
 	resetLectorClientForTests,
@@ -288,6 +288,23 @@ describe("lectorClient recovers from a stale cached connection", () => {
 		} finally {
 			await daemon.stop();
 		}
+	});
+
+	it("preserves structured diagnostics after retrying a stopped real daemon", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const client = await lectorClient();
+		await client.call("workspace.registerPath", { path: "/tmp" });
+		await daemon.stop();
+
+		let caught: unknown;
+		try {
+			await client.call("workspace.rawRead", { workspaceId: "workspace-a", path: "a.ts" });
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toBeInstanceOf(LectorDaemonUnavailable);
+		expect((caught as LectorDaemonUnavailable).details.operation).toBe("workspace.rawRead");
 	});
 
 	it("gives up after one retry if the connection stays stale, rather than retrying forever", async () => {

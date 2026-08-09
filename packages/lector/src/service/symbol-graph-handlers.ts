@@ -370,51 +370,57 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		if (!entry) throw new UnknownWorkspace(input.workspaceId);
 		if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 
-		// Point 6 of this operation's own design: refuse outright, before touching anything, unless
-		// the symbol graph is fully "cached" for these exact bounds -- a "partial" or "not-cached"
-		// graph cannot honestly enumerate every reference, and CodeScaleBench's own finding is that a
-		// partial multi-file change scores WORSE than no change at all.
-		const status = await cacheStatusHandler(registry, { workspaceId: input.workspaceId, maxFiles: input.maxFiles, maxSymbolsPerFile: input.maxSymbolsPerFile });
-		if (status.status !== "cached") throw new ReferenceBasedRenameRequiresFreshGraph(input.workspaceId, status.status);
+		return renameMutationBarrier.run(input.workspaceId, async () => {
+			// Point 6 of this operation's own design: refuse outright, before touching anything, unless
+			// the symbol graph is fully "cached" for these exact bounds -- a "partial" or "not-cached"
+			// graph cannot honestly enumerate every reference, and CodeScaleBench's own finding is that a
+			// partial multi-file change scores WORSE than no change at all.
+			const status = await cacheStatusHandler(registry, {
+				workspaceId: input.workspaceId,
+				maxFiles: input.maxFiles,
+				maxSymbolsPerFile: input.maxSymbolsPerFile,
+			});
+			if (status.status !== "cached") throw new ReferenceBasedRenameRequiresFreshGraph(input.workspaceId, status.status);
 
-		const fromPath = entry.port.resolvePath(input.fromPath);
-		const toPath = entry.port.resolvePath(input.toPath);
+			const fromPath = entry.port.resolvePath(input.fromPath);
+			const toPath = entry.port.resolvePath(input.toPath);
 
-		await using indexLease = await requireCodeIntelligence(warmIndexes, { workspaceId: input.workspaceId, path: fromPath });
-		const { index } = indexLease.value;
-		const topLevelSymbols = await documentSymbolsQuery(index, fromPath);
-		const positions = flattenTopLevelPositions(topLevelSymbols, fromPath);
+			await using indexLease = await requireCodeIntelligence(warmIndexes, { workspaceId: input.workspaceId, path: fromPath });
+			const { index } = indexLease.value;
+			const topLevelSymbols = await documentSymbolsQuery(index, fromPath);
+			const positions = flattenTopLevelPositions(topLevelSymbols, fromPath);
 
-		const referencingPaths = new Set<string>();
-		for (const position of positions) {
-			const locations = await findReferencesQuery(index, { path: position.path, line: position.line, character: position.character }, false);
-			for (const location of locations) {
-				const locationPath = entry.port.resolvePath(location.path);
-				if (locationPath !== fromPath) referencingPaths.add(locationPath);
+			const referencingPaths = new Set<string>();
+			for (const position of positions) {
+				const locations = await findReferencesQuery(index, { path: position.path, line: position.line, character: position.character }, false);
+				for (const location of locations) {
+					const locationPath = entry.port.resolvePath(location.path);
+					if (locationPath !== fromPath) referencingPaths.add(locationPath);
+				}
 			}
-		}
 
-		const referencingFiles = [];
-		for (const path of referencingPaths) {
-			const read = await entry.port.readEntry(path);
-			if (!read.exists) continue;
-			const hash = contentHashOf(read.content);
-			const importSpecifiers = await findImportSpecifiers(read.content, extname(path));
-			referencingFiles.push({ path, content: read.content, hash, importSpecifiers });
-		}
+			const referencingFiles = [];
+			for (const path of referencingPaths) {
+				const read = await entry.port.readEntry(path);
+				if (!read.exists) continue;
+				const hash = contentHashOf(read.content);
+				const importSpecifiers = await findImportSpecifiers(read.content, extname(path));
+				referencingFiles.push({ path, content: read.content, hash, importSpecifiers });
+			}
 
-		const movedFile = await entry.port.readEntry(fromPath);
-		if (!movedFile.exists) throw new WorkspaceEntryNotFound(fromPath);
+			const movedFile = await entry.port.readEntry(fromPath);
+			if (!movedFile.exists) throw new WorkspaceEntryNotFound(fromPath);
 
-		const plan = planReferenceBasedRename({
-			fromPath,
-			toPath,
-			movedFileContent: movedFile.content,
-			movedFileHash: contentHashOf(movedFile.content),
-			referencingFiles,
+			const plan = planReferenceBasedRename({
+				fromPath,
+				toPath,
+				movedFileContent: movedFile.content,
+				movedFileHash: contentHashOf(movedFile.content),
+				referencingFiles,
+			});
+
+			return applyReferenceBasedRename(entry.port, plan);
 		});
-
-		return applyReferenceBasedRename(entry.port, plan);
 	}
 
 	async function prepareRenameHandler(
@@ -476,9 +482,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		if (existingJobId) {
 			const existing = jobs.status(existingJobId);
 			if (existing.status === "queued" || existing.status === "running") {
-				graphRefresh.schedule(workspaceId, () => {
-					void scheduleGraphRefresh(workspaceId);
-				});
+				graphRefresh.schedule(workspaceId, () => scheduleGraphRefresh(workspaceId));
 				return;
 			}
 			graphRefresh.clearActiveJob(workspaceId);

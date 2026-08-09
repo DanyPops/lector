@@ -309,9 +309,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		notifyWarmIndexes: (workspaceId, event) => warmIndexes.notifyFileChanged(workspaceId, event),
 		isGraphWatched: (workspaceId) => graphRefresh.isWatched(workspaceId),
 		scheduleGraphRefresh: (workspaceId) => {
-			graphRefresh.schedule(workspaceId, () => {
-				void symbolGraphHandlers.scheduleGraphRefresh(workspaceId);
-			});
+			graphRefresh.schedule(workspaceId, () => symbolGraphHandlers.scheduleGraphRefresh(workspaceId));
 		},
 	});
 	ensureOsWatcher = (workspaceId, rootPath) => workspaceWatchHandlers.ensureOsWatcher(workspaceId, rootPath);

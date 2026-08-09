@@ -103,6 +103,33 @@ describe("DebouncedScheduler", () => {
 		expect(JSON.stringify(calls)).not.toContain("secret-bearing detail");
 	});
 
+	it("contains an async callback rejection without an unhandled rejection", async () => {
+		const { logger, calls } = recordingLogger();
+		const scheduler = new DebouncedScheduler(15, { logger });
+		const unhandled: unknown[] = [];
+		const onUnhandled = (error: unknown): void => {
+			unhandled.push(error);
+		};
+		process.on("unhandledRejection", onUnhandled);
+		try {
+			scheduler.schedule("a", async () => {
+				await Promise.resolve();
+				throw new RangeError("secret-bearing async detail");
+			});
+			await wait(30);
+		} finally {
+			process.off("unhandledRejection", onUnhandled);
+		}
+
+		expect(unhandled).toEqual([]);
+		expect(calls).toContainEqual({
+			level: "warn",
+			message: "debounced callback failed",
+			fields: { component: "debounced-scheduler", operation: "fire", code: "RangeError" },
+		});
+		expect(JSON.stringify(calls)).not.toContain("secret-bearing async detail");
+	});
+
 	it("rejects and logs a new distinct key beyond the bound, while an already-pending key keeps working", async () => {
 		const { logger, calls: logCalls } = recordingLogger();
 		const scheduler = new DebouncedScheduler(15, { maxKeys: 1, logger });

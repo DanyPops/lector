@@ -5,13 +5,14 @@ import {
 	descriptorForExtension,
 	LANGUAGE_SERVER_DESCRIPTORS,
 	type LectorClient,
+	LectorDaemonUnavailable,
 	type OperationInputs,
 	type OperationName,
 	type OperationOutputs,
 	remoteErrorIs,
 	type WorkspaceId,
 } from "@danypops/lector";
-import { createRetryingClient, type RetryingClient } from "@danypops/vehicle-client/daemon-client";
+import { createRetryingClient, isLikelyStaleConnectionError, type RetryingClient } from "@danypops/vehicle-client/daemon-client";
 import { nearestGitRoot, nearestProjectRoot } from "./nearest-workspace-root.ts";
 
 /**
@@ -37,7 +38,10 @@ let connector: ClientConnector = () => connectLectorClient();
 // Wraps `() => connector()` rather than `connector` itself, so a test's
 // setLectorClientConnectorForTests still takes effect after this retrying
 // client is constructed once at module load.
-const retryingClient: RetryingClient<LectorClient> = createRetryingClient(() => connector(), { label: "Lector" });
+const retryingClient: RetryingClient<LectorClient> = createRetryingClient(() => connector(), {
+	label: "Lector",
+	isStaleConnectionError: (error) => error instanceof LectorDaemonUnavailable || isLikelyStaleConnectionError(error),
+});
 const workspaceIdByRoot = new Map<string, WorkspaceId>();
 
 /**

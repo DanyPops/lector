@@ -3,6 +3,8 @@ export {
 	connectLectorClient,
 	connectLectorClientAt,
 	type LectorClient,
+	LectorDaemonUnavailable,
+	type LectorDaemonUnavailableDetails,
 	remoteErrorIs,
 	resolveLectorDaemonConnection,
 } from "./client.ts";

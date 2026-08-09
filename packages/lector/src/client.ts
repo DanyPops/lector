@@ -1,10 +1,130 @@
 import { readFileSync } from "node:fs";
+import { isLikelyStaleConnectionError } from "@danypops/vehicle-client/daemon-client";
 import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { type DaemonPaths, readDaemonHandle } from "@danypops/vehicle-server/paths";
 import { resolveLectorPaths } from "./constants.ts";
 import type { OperationInputs, OperationName, OperationOutputs } from "./service.ts";
 
-export type LectorClient = AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>;
+export interface LectorClient {
+	call<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]>;
+	operations(): Promise<OperationName[]>;
+	ready(): Promise<boolean>;
+	health(): Promise<{ ok: true; version: string }>;
+}
+
+export interface LectorDaemonUnavailableDetails {
+	readonly code: "lector-daemon-unavailable";
+	readonly operation: OperationName | "health" | "ready" | "operations";
+	readonly requestId: string;
+	readonly workspaceId: string | null;
+	readonly daemonPid: number | null;
+	readonly processState: "exited" | "alive-unreachable" | "unknown";
+	readonly exitStatus: number | null;
+	readonly signal: string | null;
+	readonly causeName: string;
+	readonly diagnosticCommand: "systemctl --user status lector.service && journalctl --user-unit lector.service -n 50 --no-pager";
+	readonly recovery: "Restart Lector, re-register dynamic workspaces, then retry.";
+}
+
+export class LectorDaemonUnavailable extends Error {
+	constructor(readonly details: LectorDaemonUnavailableDetails) {
+		super(
+			`Lector daemon unavailable during ${details.operation} (request ${details.requestId}${details.workspaceId ? `, workspace ${details.workspaceId}` : ""}, process ${details.processState}). ${details.recovery}`,
+		);
+		this.name = "LectorDaemonUnavailable";
+	}
+}
+
+let requestSequence = 0;
+
+function requestId(): string {
+	requestSequence = (requestSequence + 1) % Number.MAX_SAFE_INTEGER;
+	return `lector-${Date.now().toString(36)}-${requestSequence.toString(36)}`;
+}
+
+function isPidAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return error instanceof Error && "code" in error && error.code === "EPERM";
+	}
+}
+
+function workspaceIdFrom(input: unknown): string | null {
+	if (typeof input !== "object" || input === null || !("workspaceId" in input)) return null;
+	const workspaceId = input.workspaceId;
+	return typeof workspaceId === "string" ? workspaceId.slice(0, 128) : null;
+}
+
+interface DaemonDiagnosticsSource {
+	readonly daemonPid: number | null;
+	readonly lastExit?: () => { exitStatus: number | null; signal: string | null } | null;
+}
+
+class DiagnosticLectorClient implements LectorClient {
+	constructor(
+		private readonly client: AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>,
+		private readonly diagnostics: DaemonDiagnosticsSource,
+	) {}
+
+	private unavailable(error: unknown, operation: LectorDaemonUnavailableDetails["operation"], id: string, workspaceId: string | null): never {
+		if (error instanceof LectorDaemonUnavailable) throw error;
+		if (!isLikelyStaleConnectionError(error)) throw error;
+		const lastExit = this.diagnostics.lastExit?.() ?? null;
+		const daemonPid = this.diagnostics.daemonPid;
+		const processState = lastExit !== null || (daemonPid !== null && !isPidAlive(daemonPid)) ? "exited" : daemonPid === null ? "unknown" : "alive-unreachable";
+		throw new LectorDaemonUnavailable({
+			code: "lector-daemon-unavailable",
+			operation,
+			requestId: id,
+			workspaceId,
+			daemonPid,
+			processState,
+			exitStatus: lastExit?.exitStatus ?? null,
+			signal: lastExit?.signal ?? null,
+			causeName: error instanceof Error ? error.name || "Error" : "Error",
+			diagnosticCommand: "systemctl --user status lector.service && journalctl --user-unit lector.service -n 50 --no-pager",
+			recovery: "Restart Lector, re-register dynamic workspaces, then retry.",
+		});
+	}
+
+	async call<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]> {
+		const id = requestId();
+		try {
+			return await this.client.call(operation, input);
+		} catch (error) {
+			return this.unavailable(error, operation, id, workspaceIdFrom(input));
+		}
+	}
+
+	async operations(): Promise<OperationName[]> {
+		const id = requestId();
+		try {
+			return await this.client.operations();
+		} catch (error) {
+			return this.unavailable(error, "operations", id, null);
+		}
+	}
+
+	async ready(): Promise<boolean> {
+		const id = requestId();
+		try {
+			return await this.client.ready();
+		} catch (error) {
+			return this.unavailable(error, "ready", id, null);
+		}
+	}
+
+	async health(): Promise<{ ok: true; version: string }> {
+		const id = requestId();
+		try {
+			return await this.client.health();
+		} catch (error) {
+			return this.unavailable(error, "health", id, null);
+		}
+	}
+}
 
 export interface ConnectLectorClientOptions {
 	/** Override resolved paths (tests inject an isolated tmp root). Defaults to the real XDG paths. */
@@ -28,15 +148,14 @@ export function resolveLectorDaemonConnection(options: ConnectLectorClientOption
 
 /** Connect to a running Lector daemon, probing health before returning. */
 export async function connectLectorClient(options: ConnectLectorClientOptions = {}): Promise<LectorClient> {
-	const { host, port, token } = resolveLectorDaemonConnection(options);
-	const client = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${host}:${port}`, token, {
-		label: "Lector",
-	});
-	try {
-		await client.health();
-	} catch {
-		throw new Error("Lector daemon state is stale or unreachable; restart it with `lector serve`");
-	}
+	const paths = options.paths ?? resolveLectorPaths();
+	const handle = readDaemonHandle(paths.handle);
+	const { host, port, token } = resolveLectorDaemonConnection({ paths });
+	const client = new DiagnosticLectorClient(
+		new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${host}:${port}`, token, { label: "Lector" }),
+		{ daemonPid: handle?.pid ?? null },
+	);
+	await client.health();
 	return client;
 }
 
@@ -50,8 +169,15 @@ export async function connectLectorClient(options: ConnectLectorClientOptions = 
  * @danypops/vehicle-client in a consumer's own node_modules would otherwise be a
  * structurally distinct (if identical-looking) type.
  */
-export function connectLectorClientAt(baseUrl: string, token: string): LectorClient {
-	return new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(baseUrl, token, { label: "Lector" });
+export function connectLectorClientAt(
+	baseUrl: string,
+	token: string,
+	options: { daemonPid?: number; lastExit?: () => { exitStatus: number | null; signal: string | null } | null } = {},
+): LectorClient {
+	return new DiagnosticLectorClient(new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(baseUrl, token, { label: "Lector" }), {
+		daemonPid: options.daemonPid ?? null,
+		lastExit: options.lastExit,
+	});
 }
 
 /**

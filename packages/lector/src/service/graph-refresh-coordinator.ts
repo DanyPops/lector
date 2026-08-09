@@ -3,7 +3,7 @@ import { DebouncedScheduler } from "../concurrency/debounced-scheduler.ts";
 import type { SymbolGraphPort } from "../symbol-graph/port.ts";
 
 interface RefreshScheduler {
-	schedule(key: string, callback: () => void): void;
+	schedule(key: string, callback: () => unknown): void;
 	clear(): void;
 }
 
@@ -55,7 +55,7 @@ export class GraphRefreshCoordinator<WorkspaceKey extends string, JobKey extends
 		return this.watchedWorkspaces.has(workspaceId);
 	}
 
-	schedule(workspaceId: WorkspaceKey, callback: () => void): void {
+	schedule(workspaceId: WorkspaceKey, callback: () => unknown): void {
 		this.scheduler.schedule(workspaceId, callback);
 	}
 

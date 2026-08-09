@@ -44,12 +44,12 @@ export class DebouncedScheduler {
 
 	/**
 	 * Schedules `callback` to run delayMs after this call, resetting any pending fire already
-	 * scheduled for `key`. A callback that throws is caught and dropped -- there is no request
-	 * awaiting this fire to report the error to, and an uncaught exception inside a bare
-	 * setTimeout would otherwise crash the whole process rather than just this one key's work.
+	 * scheduled for `key`. A callback that throws or rejects is caught and dropped -- there is
+	 * no request awaiting this fire to report the error, and an unhandled timer failure would
+	 * otherwise crash the whole process rather than just this one key's work.
 	 * A caller that cares about its own errors should catch and log inside `callback` itself.
 	 */
-	schedule(key: string, callback: () => void): void {
+	schedule(key: string, callback: () => unknown): void {
 		const existing = this.timers.get(key);
 		if (existing) {
 			clearTimeout(existing);
@@ -62,17 +62,19 @@ export class DebouncedScheduler {
 			});
 			throw new DebounceCapacityExceeded(key, this.maxKeys);
 		}
+		const reportFailure = (error: unknown): void => {
+			this.logger.warn("debounced callback failed", {
+				component: "debounced-scheduler",
+				operation: "fire",
+				code: error instanceof Error ? error.name || "Error" : "Error",
+			});
+		};
 		const timer = setTimeout(() => {
 			this.timers.delete(key);
 			try {
-				callback();
+				Promise.resolve(callback()).catch(reportFailure);
 			} catch (error: unknown) {
-				this.logger.warn("debounced callback failed", {
-					component: "debounced-scheduler",
-					operation: "fire",
-					code: error instanceof Error ? error.name || "Error" : "Error",
-				});
-				// Swallowed by design -- see doc comment above.
+				reportFailure(error);
 			}
 		}, this.delayMs);
 		this.timers.set(key, timer);
