@@ -35,7 +35,7 @@
     },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.18.5",
+      "version": "0.18.6",
       "bin": {
         "lector": "src/cli.ts",
       },
