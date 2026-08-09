@@ -172,7 +172,7 @@ export async function monitorWorkspaceCache(operations: WorkspaceCacheOperations
 	}
 
 	let jobId: string;
-	if (initial.status === "caching") {
+	if (initial.status === "caching" || initial.status === "waiting-for-resources") {
 		jobId = initial.jobId;
 	} else {
 		options.onState({ status: "not-cached", reason: initial.reason });

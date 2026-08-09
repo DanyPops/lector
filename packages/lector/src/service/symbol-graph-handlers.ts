@@ -213,7 +213,10 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		// directory and does not survive having it swapped out from under it, and "before"
 		// further down must see the freshly-fetched content, not what was on disk previously.
 		await refreshRemoteWorkspaceIfMoved(input.workspaceId, entry, previousGeneration);
-		await using workspaceLease = await warmIndexes.leaseWorkspaceIndex(input.workspaceId);
+		// "background": populateSymbolGraph is self-scheduled, unlike an interactive query, and must
+		// never be able to grow the warm-index pool past the slots reserved for foreground work --
+		// it queues (bounded, cancellable) instead of competing for admission on equal footing.
+		await using workspaceLease = await warmIndexes.leaseWorkspaceIndex(input.workspaceId, undefined, "background");
 		const workspaceIndex = workspaceLease.value;
 		if (!supportsCodeIntelligence(workspaceIndex.index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
 		const extensions = warmIndexes.sourceExtensions(workspaceIndex.descriptors);
@@ -322,6 +325,9 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		const activeJobId = graphRefresh.activeJob(input.workspaceId);
 		if (activeJobId) {
 			const snapshot = jobs.status(activeJobId);
+			if (snapshot.status === "running" && warmIndexes.waitingForAdmission(input.workspaceId)) {
+				return { status: "waiting-for-resources", jobId: activeJobId };
+			}
 			if (snapshot.status === "queued" || snapshot.status === "running") return { status: "caching", jobId: activeJobId };
 			graphRefresh.clearActiveJob(input.workspaceId);
 		}

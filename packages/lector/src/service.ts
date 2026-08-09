@@ -102,6 +102,12 @@ export interface LectorServiceOptions {
 	symbolIndexLanguageLimits?: Readonly<Record<string, number>>;
 	/** Optional adaptive resource strategy layered beneath the fixed process safety ceilings. */
 	symbolIndexResourcePolicy?: WarmIndexResourcePolicy;
+	/** Warm-index slots populateSymbolGraph alone can never grow the pool into -- interactive queries (findSymbols, goToDefinition, rename, cross-project search) keep the full maxActiveSymbolIndexes; background population queues instead of competing for admission on equal footing. Defaults to 0 (no reservation, today's behavior). */
+	reservedForegroundSlots?: number;
+	/** How long populateSymbolGraph's own admission wait can queue for a slot before giving up with WarmIndexAdmissionQueueTimedOut. Defaults to 10s. */
+	backgroundAdmissionQueueTimeoutMs?: number;
+	/** How many populateSymbolGraph admissions may be simultaneously queued before a new one fails fast with WarmIndexAdmissionQueueFull. Defaults to 8. */
+	maxQueuedBackgroundAdmissions?: number;
 	/** Shared managed installer for provisionable system-binary language servers. Never used by filesystem-only operations. */
 	languageServerProvisioner?: LanguageServerProvisionerPort;
 	/**
@@ -242,6 +248,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		maxActive: options.maxActiveSymbolIndexes,
 		languageLimits: options.symbolIndexLanguageLimits,
 		resourcePolicy: options.symbolIndexResourcePolicy,
+		reservedForegroundSlots: options.reservedForegroundSlots,
+		backgroundAdmissionQueueTimeoutMs: options.backgroundAdmissionQueueTimeoutMs,
+		maxQueuedBackgroundAdmissions: options.maxQueuedBackgroundAdmissions,
 		observe: (event) => {
 			if (event.kind === "close-failed") logger.warn("failed to close symbol index", event);
 			else if (event.kind === "admission-evicted") logger.info("evicted idle symbol index for admission", event);

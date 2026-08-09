@@ -32,6 +32,7 @@ export function formatWorkspaceCacheStatusResult(status: WorkspaceCacheStatus | 
 	if (!status) return theme.fg("dim", "No result.");
 	if (status.status === "not-cached") return theme.fg("warning", `not cached (${status.reason})`);
 	if (status.status === "caching") return theme.fg("accent", `caching (job ${status.jobId})`);
+	if (status.status === "waiting-for-resources") return theme.fg("accent", `waiting for resources (job ${status.jobId})`);
 	if (status.status === "partial") return theme.fg("warning", `partial -- ${formatResultCounts(status.generation.result)}`);
 	return theme.fg("success", `cached -- ${formatResultCounts(status.generation.result)}`);
 }

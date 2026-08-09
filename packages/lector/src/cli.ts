@@ -622,6 +622,7 @@ async function runWorkspaceCacheStatus(workspaceId: string | undefined, flags: s
 	}
 	if (status.status === "not-cached") console.log(`not cached -- ${status.reason}`);
 	else if (status.status === "caching") console.log(`caching -- job ${status.jobId}`);
+	else if (status.status === "waiting-for-resources") console.log(`waiting for resources -- job ${status.jobId} is queued behind foreground work`);
 	else if (status.status === "partial") console.log(`partially cached -- ${formatPopulationResult(status.generation.result)}`);
 	else console.log(`cached -- completed ${new Date(status.generation.completedAt).toISOString()}`);
 }

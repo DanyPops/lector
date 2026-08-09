@@ -443,10 +443,17 @@ export function createCallGraphContribution(operations: LectorOperations): CallG
 		);
 		if (
 			!cacheState ||
-			(cacheState.status !== "cached" && cacheState.status !== "partial" && cacheState.status !== "caching" && cacheState.status !== "not-cached")
+			(cacheState.status !== "cached" &&
+				cacheState.status !== "partial" &&
+				cacheState.status !== "caching" &&
+				cacheState.status !== "waiting-for-resources" &&
+				cacheState.status !== "not-cached")
 		)
 			return failure("invalid-response", "Lector returned an invalid symbol-graph cache status");
-		const cacheStatus = cacheState.status;
+		// "waiting-for-resources" (queued behind foreground admission, not yet walking files) reads
+		// the same as "caching" here -- both mean "not ready yet, still working towards a real
+		// generation", the only distinction this projection's own cacheStatus field needs to make.
+		const cacheStatus = cacheState.status === "waiting-for-resources" ? "caching" : cacheState.status;
 		if (cacheStatus === "not-cached" || cacheStatus === "caching") {
 			const staleReason =
 				cacheStatus === "caching"

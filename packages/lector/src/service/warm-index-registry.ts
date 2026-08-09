@@ -38,6 +38,51 @@ export class WarmIndexInUse extends Error {
 	}
 }
 
+/**
+ * Distinguishes an interactive human/agent-facing request (findSymbols, goToDefinition, rename,
+ * cross-project search) from a self-scheduled background one (populateSymbolGraph). Foreground
+ * admission is never queued or reduced below reservedForegroundSlots' effective ceiling --
+ * background is the only work kind that ever waits. Defaults to "foreground": every existing
+ * caller that never opts in keeps today's exact behavior.
+ */
+export type WarmIndexWorkKind = "foreground" | "background";
+
+/** Raised when background admission is already waiting at maxQueuedBackgroundAdmissions -- fails fast rather than growing the wait queue without bound. */
+export class WarmIndexAdmissionQueueFull extends Error {
+	constructor(
+		readonly languageId: string,
+		readonly maxQueued: number,
+	) {
+		super(`background admission for language "${languageId}" is already waiting at capacity (${maxQueued} queued); retry later`);
+		this.name = "WarmIndexAdmissionQueueFull";
+	}
+}
+
+/** Raised when background admission waited backgroundAdmissionQueueTimeoutMs for a slot reserved for foreground work and none appeared -- a bounded, cancellable wait, not an indefinite one. */
+export class WarmIndexAdmissionQueueTimedOut extends Error {
+	constructor(
+		readonly languageId: string,
+		readonly timeoutMs: number,
+	) {
+		super(
+			`background admission for language "${languageId}" waited ${timeoutMs}ms for a warm-index slot and gave up -- foreground demand is holding every admittable slot`,
+		);
+		this.name = "WarmIndexAdmissionQueueTimedOut";
+	}
+}
+
+/**
+ * Internal signal only: admit() throws this to tell acquireLanguageIndex "release the serialized
+ * lock and wait outside it" -- never surfaced to a caller. Waiting for a background admission's
+ * turn can legitimately take seconds; holding admissionTail (the single global admission mutex)
+ * for that whole span would block every OTHER admission request, including foreground's, which
+ * is exactly the starvation this exists to prevent.
+ */
+class NeedsBackgroundAdmissionWait extends Error {}
+
+const DEFAULT_BACKGROUND_ADMISSION_QUEUE_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_QUEUED_BACKGROUND_ADMISSIONS = 8;
+
 export type WarmIndexPoolEvent =
 	| { readonly kind: "admission-evicted" | "dead-replaced" | "resource-pressure-evicted"; readonly languageId: string }
 	| {
@@ -57,6 +102,12 @@ export interface WarmIndexRegistryOptions<WorkspaceKey extends string> {
 	readonly languageLimits?: Readonly<Record<string, number>>;
 	readonly resourcePolicy?: WarmIndexResourcePolicy;
 	readonly observe?: (event: WarmIndexPoolEvent) => void;
+	/** Slots background admission alone can never grow into -- "borrowable" because it only constrains background's own effective ceiling, never reserves capacity foreground can't already reach; background simply queues instead of admitting past it. Default 0 (today's exact behavior: no reservation). */
+	readonly reservedForegroundSlots?: number;
+	/** How long a queued background admission waits for a slot before giving up with WarmIndexAdmissionQueueTimedOut. Default 10s. */
+	readonly backgroundAdmissionQueueTimeoutMs?: number;
+	/** How many background admissions may be simultaneously waiting before a new one fails fast with WarmIndexAdmissionQueueFull instead of growing the wait queue further. Default 8. */
+	readonly maxQueuedBackgroundAdmissions?: number;
 }
 
 interface WarmIndexEntry<WorkspaceKey extends string> {
@@ -74,6 +125,8 @@ export interface WarmIndexPoolStatus {
 	readonly maxActive: number;
 	readonly byLanguage: Readonly<Record<string, number>>;
 	readonly resources?: WarmIndexResourceStatus;
+	/** How many background admissions are currently waiting for a slot reserved for foreground work -- path-free, language/count only. Zero whenever reservedForegroundSlots is unset or nothing is contending. */
+	readonly waitingBackgroundAdmissions: number;
 }
 
 export interface WarmIndexLease<Value> extends AsyncDisposable {
@@ -94,6 +147,12 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 	private readonly languageLimits: Readonly<Record<string, number>>;
 	private admissionTail: Promise<void> = Promise.resolve();
 	private nextSequence = 0;
+	private readonly reservedForegroundSlots: number;
+	private readonly backgroundAdmissionQueueTimeoutMs: number;
+	private readonly maxQueuedBackgroundAdmissions: number;
+	private readonly admissionWaiters = new Set<() => void>();
+	private queuedBackgroundAdmissions = 0;
+	private readonly waitingCounts = new Map<WorkspaceKey, number>();
 
 	constructor(private readonly options: WarmIndexRegistryOptions<WorkspaceKey>) {
 		this.now = options.now ?? Date.now;
@@ -102,6 +161,18 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		if (!Number.isSafeInteger(this.maxActive) || this.maxActive < 1) throw new TypeError("maxActive must be a positive safe integer");
 		for (const [languageId, limit] of Object.entries(this.languageLimits)) {
 			if (!languageId || !Number.isSafeInteger(limit) || limit < 1) throw new TypeError("language limits must be positive safe integers keyed by language id");
+		}
+		this.reservedForegroundSlots = options.reservedForegroundSlots ?? 0;
+		if (!Number.isSafeInteger(this.reservedForegroundSlots) || this.reservedForegroundSlots < 0) {
+			throw new TypeError("reservedForegroundSlots must be a non-negative safe integer");
+		}
+		this.backgroundAdmissionQueueTimeoutMs = options.backgroundAdmissionQueueTimeoutMs ?? DEFAULT_BACKGROUND_ADMISSION_QUEUE_TIMEOUT_MS;
+		if (!Number.isSafeInteger(this.backgroundAdmissionQueueTimeoutMs) || this.backgroundAdmissionQueueTimeoutMs < 0) {
+			throw new TypeError("backgroundAdmissionQueueTimeoutMs must be a non-negative safe integer");
+		}
+		this.maxQueuedBackgroundAdmissions = options.maxQueuedBackgroundAdmissions ?? DEFAULT_MAX_QUEUED_BACKGROUND_ADMISSIONS;
+		if (!Number.isSafeInteger(this.maxQueuedBackgroundAdmissions) || this.maxQueuedBackgroundAdmissions < 1) {
+			throw new TypeError("maxQueuedBackgroundAdmissions must be a positive safe integer");
 		}
 	}
 
@@ -164,13 +235,63 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		this.entries.delete(entry[0]);
 		const kind = reason === "admission" ? "admission-evicted" : reason === "dead-replacement" ? "dead-replaced" : "resource-pressure-evicted";
 		this.options.observe?.({ kind, languageId: entry[1].languageId });
+		this.notifyAdmissionWaiters();
+	}
+
+	/** Wakes every queued background admission to re-check the real state -- called whenever an entry is removed OR a lease completes (an idle candidate an admit() retry might now be able to evict). A false wake just re-checks and re-waits; never a correctness issue, only a wasted retry. */
+	private notifyAdmissionWaiters(): void {
+		if (this.admissionWaiters.size === 0) return;
+		const waiters = Array.from(this.admissionWaiters);
+		this.admissionWaiters.clear();
+		for (const waiter of waiters) waiter();
+	}
+
+	/** True while at least one background admission for this workspace is currently waiting for a reserved-slot conflict to clear -- workspace.cacheStatus's "waiting-for-resources" signal. */
+	waitingForAdmission(workspaceId: WorkspaceKey): boolean {
+		return (this.waitingCounts.get(workspaceId) ?? 0) > 0;
+	}
+
+	/**
+	 * Runs entirely outside the serialized admission lock -- admissionTail is the single global
+	 * admission mutex, and this wait can legitimately take up to backgroundAdmissionQueueTimeoutMs.
+	 * Holding that lock for the whole wait would block every other admission request, foreground
+	 * included, which is the exact starvation this exists to prevent.
+	 */
+	private async waitForAdmissionRoom(languageId: string, workspaceId: WorkspaceKey): Promise<void> {
+		if (this.queuedBackgroundAdmissions >= this.maxQueuedBackgroundAdmissions) {
+			throw new WarmIndexAdmissionQueueFull(languageId, this.maxQueuedBackgroundAdmissions);
+		}
+		this.queuedBackgroundAdmissions++;
+		this.waitingCounts.set(workspaceId, (this.waitingCounts.get(workspaceId) ?? 0) + 1);
+		try {
+			const gotSignal = await new Promise<boolean>((resolve) => {
+				let settled = false;
+				const finish = (ready: boolean): void => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					this.admissionWaiters.delete(onSignal);
+					resolve(ready);
+				};
+				const onSignal = (): void => finish(true);
+				const timer = setTimeout(() => finish(false), this.backgroundAdmissionQueueTimeoutMs);
+				this.admissionWaiters.add(onSignal);
+			});
+			if (!gotSignal) throw new WarmIndexAdmissionQueueTimedOut(languageId, this.backgroundAdmissionQueueTimeoutMs);
+		} finally {
+			this.queuedBackgroundAdmissions--;
+			const remaining = (this.waitingCounts.get(workspaceId) ?? 1) - 1;
+			if (remaining <= 0) this.waitingCounts.delete(workspaceId);
+			else this.waitingCounts.set(workspaceId, remaining);
+		}
 	}
 
 	private async admit(
 		workspaceId: WorkspaceKey,
 		rootPath: string,
 		descriptor: LanguageServerDescriptor,
-		seedFile?: string,
+		seedFile: string | undefined,
+		workKind: WarmIndexWorkKind,
 	): Promise<WarmIndexEntry<WorkspaceKey>> {
 		const languageLimit = this.languageLimit(descriptor.languageId);
 		while (this.countLanguage(descriptor.languageId) >= languageLimit) {
@@ -178,10 +299,18 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			if (!victim) throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, languageLimit);
 			await this.evict(victim);
 		}
-		while (this.entries.size >= this.maxActive) {
+		// "Borrowable": background's own effective ceiling is reduced, but only background is ever
+		// held to it -- it constrains what background alone can grow the pool into, not a hard
+		// set-aside nothing else can reach. Foreground keeps using the full maxActive unchanged.
+		const effectiveMaxActive = workKind === "background" ? Math.max(this.maxActive - this.reservedForegroundSlots, 0) : this.maxActive;
+		while (this.entries.size >= effectiveMaxActive) {
 			const victim = this.leastRecentlyUsedIdle();
-			if (!victim) throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, languageLimit);
-			await this.evict(victim);
+			if (victim) {
+				await this.evict(victim);
+				continue;
+			}
+			if (workKind === "background") throw new NeedsBackgroundAdmissionWait();
+			throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, languageLimit);
 		}
 		while (this.options.resourcePolicy && !this.options.resourcePolicy.canAdmit(this.activeLanguages(), descriptor.languageId)) {
 			const victim = this.leastRecentlyUsedIdle();
@@ -216,23 +345,35 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		workspaceId: WorkspaceKey,
 		rootPath: string,
 		descriptor: LanguageServerDescriptor,
-		seedFile?: string,
+		seedFile: string | undefined,
+		workKind: WarmIndexWorkKind,
 	): Promise<WarmIndexEntry<WorkspaceKey>> {
-		return this.serialized(async () => {
-			const key = this.key(workspaceId, descriptor.languageId);
-			let entry = this.entries.get(key);
-			if (entry?.index.isAlive?.() === false) {
-				if (entry.activeLeases > 0) throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, this.languageLimit(descriptor.languageId));
-				await this.evict([key, entry], "dead-replacement");
-				entry = undefined;
+		for (;;) {
+			try {
+				return await this.serialized(async () => {
+					const key = this.key(workspaceId, descriptor.languageId);
+					let entry = this.entries.get(key);
+					if (entry?.index.isAlive?.() === false) {
+						if (entry.activeLeases > 0) {
+							throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, this.languageLimit(descriptor.languageId));
+						}
+						await this.evict([key, entry], "dead-replacement");
+						entry = undefined;
+					}
+					if (!entry) {
+						entry = await this.admit(workspaceId, rootPath, descriptor, seedFile, workKind);
+						this.entries.set(key, entry);
+					}
+					entry.activeLeases++;
+					return entry;
+				});
+			} catch (error) {
+				if (!(error instanceof NeedsBackgroundAdmissionWait)) throw error;
+				// Outside the lock deliberately -- see waitForAdmissionRoom's own comment. Throws
+				// WarmIndexAdmissionQueueFull/TimedOut instead of looping back if it can't wait.
+				await this.waitForAdmissionRoom(descriptor.languageId, workspaceId);
 			}
-			if (!entry) {
-				entry = await this.admit(workspaceId, rootPath, descriptor, seedFile);
-				this.entries.set(key, entry);
-			}
-			entry.activeLeases++;
-			return entry;
-		});
+		}
 	}
 
 	private lease<Value>(value: Value, entries: readonly WarmIndexEntry<WorkspaceKey>[]): WarmIndexLease<Value> {
@@ -248,12 +389,21 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 					entry.lastUsedAt = completedAt;
 					entry.recencySequence = this.nextSequence++;
 				}
+				// A lease completing makes its entry newly idle -- exactly the condition a queued
+				// background admission's retry is waiting to find, whether or not resource pressure
+				// itself ends up evicting anything below.
+				this.notifyAdmissionWaiters();
 				await this.reconcileResources();
 			},
 		};
 	}
 
-	async leaseWarmIndex(input: { readonly workspaceId: WorkspaceKey; readonly path?: string; readonly seedFile?: string }): Promise<
+	async leaseWarmIndex(input: {
+		readonly workspaceId: WorkspaceKey;
+		readonly path?: string;
+		readonly seedFile?: string;
+		readonly workKind?: WarmIndexWorkKind;
+	}): Promise<
 		WarmIndexLease<{
 			index: ClosableSymbolIndex;
 			descriptor: LanguageServerDescriptor;
@@ -273,11 +423,15 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			descriptor = discovered.descriptor;
 			seedFile = discovered.seedFile;
 		}
-		const entry = await this.acquireLanguageIndex(input.workspaceId, rootPath, descriptor, seedFile);
+		const entry = await this.acquireLanguageIndex(input.workspaceId, rootPath, descriptor, seedFile, input.workKind ?? "foreground");
 		return this.lease({ index: entry.index, descriptor }, [entry]);
 	}
 
-	async leaseWorkspaceIndex(workspaceId: WorkspaceKey, preferredSeedFile?: string): Promise<WarmIndexLease<WorkspaceIndex>> {
+	async leaseWorkspaceIndex(
+		workspaceId: WorkspaceKey,
+		preferredSeedFile?: string,
+		workKind: WarmIndexWorkKind = "foreground",
+	): Promise<WarmIndexLease<WorkspaceIndex>> {
 		const rootPath = this.options.resolveRoot(workspaceId);
 		const preferredDescriptor = preferredSeedFile ? this.descriptorForPath(preferredSeedFile) : undefined;
 		if (preferredSeedFile && !preferredDescriptor) throw this.unsupportedLanguage(preferredSeedFile);
@@ -295,6 +449,7 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 						rootPath,
 						descriptor,
 						preferredDescriptor?.languageId === descriptor.languageId ? preferredSeedFile : seedFile,
+						workKind,
 					),
 				);
 			}
@@ -336,7 +491,14 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			if (entry.activeLeases > 0) leased++;
 		}
 		const resources = this.options.resourcePolicy?.status(this.activeLanguages());
-		return { active: this.entries.size, leased, maxActive: this.maxActive, byLanguage, ...(resources ? { resources } : {}) };
+		return {
+			active: this.entries.size,
+			leased,
+			maxActive: this.maxActive,
+			byLanguage,
+			waitingBackgroundAdmissions: this.queuedBackgroundAdmissions,
+			...(resources ? { resources } : {}),
+		};
 	}
 
 	private codeIntelligenceIndexes(workspaceId: WorkspaceKey): Array<ClosableSymbolIndex & CodeIntelligencePort> {
@@ -437,6 +599,7 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 					});
 				}
 			}
+			if (idle.length > 0) this.notifyAdmissionWaiters();
 			return reaped;
 		});
 	}

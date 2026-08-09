@@ -55,5 +55,7 @@ export interface SymbolGraphGeneration {
 export type WorkspaceCacheStatus =
 	| { readonly status: "not-cached"; readonly reason: "no-completed-generation" | "bounds-changed" | "source-changed" }
 	| { readonly status: "caching"; readonly jobId: string }
+	/** The job is running but its own populateSymbolGraph call is queued waiting for a warm-index slot reserved for foreground work, not actually walking files -- distinct from "caching" so a caller can tell "genuinely working" from "waiting its turn behind interactive queries". */
+	| { readonly status: "waiting-for-resources"; readonly jobId: string }
 	| { readonly status: "partial"; readonly generation: SymbolGraphGeneration }
 	| { readonly status: "cached"; readonly generation: SymbolGraphGeneration };

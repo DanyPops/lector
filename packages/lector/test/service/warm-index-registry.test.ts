@@ -191,7 +191,7 @@ describe("WarmIndexRegistry", () => {
 		await using _third = await registry.leaseWarmIndex({ workspaceId: "c", path: "c.ts" });
 
 		expect(closed).toEqual(["/a"]);
-		expect(registry.status()).toEqual({ active: 2, leased: 1, maxActive: 2, byLanguage: { typescript: 2 } });
+		expect(registry.status()).toEqual({ active: 2, leased: 1, maxActive: 2, byLanguage: { typescript: 2 }, waitingBackgroundAdmissions: 0 });
 	});
 
 	it("keeps a reused index most-recent when clock ticks tie", async () => {
