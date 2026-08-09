@@ -34,6 +34,14 @@ export {
 	TYPESCRIPT_DESCRIPTOR,
 } from "./code-intelligence/language-server-descriptor.ts";
 export {
+	type CgroupV2DiscoveryOptions,
+	type CgroupV2MemoryPaths,
+	createLinuxCgroupWarmIndexResourceSnapshot,
+	discoverCgroupV2MemoryPaths,
+	type LinuxCgroupWarmIndexResourceOptions,
+	type ResourceTextFilePort,
+} from "./code-intelligence/linux-cgroup-warm-index-resources.ts";
+export {
 	LanguageServerCapacityExceeded,
 	LanguageServerProcess,
 	LanguageServerProcessExited,
@@ -62,6 +70,8 @@ export {
 	type WarmIndexResourcePressure,
 	type WarmIndexResourceSnapshot,
 	type WarmIndexResourceSnapshotPort,
+	type WarmIndexResourceStatus,
+	type WarmIndexResourceStatusProvider,
 	type WarmIndexRetentionPolicy,
 } from "./code-intelligence/warm-index-resource-policy.ts";
 export {

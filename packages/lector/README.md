@@ -32,6 +32,8 @@ with zero pre-registered workspaces and relies entirely on `workspace.registerPa
 at runtime — the same explicit-registration path a host adapter uses to attach
 whatever directory it's running in.
 
+Warm language-server admission uses a finite cgroup v2 `memory.high` when the service has one, subtracting the daemon's measured startup baseline to obtain the LSP budget. `memory.current`, `memory.events`, `memory.max`, and PSI `memory.pressure` drive bounded pressure levels and delayed recovery. An operator can instead set `LECTOR_LSP_MEMORY_BUDGET_BYTES` or pass `lector serve --lsp-memory-budget-bytes <n>`. Without either an explicit budget or finite `memory.high`, Lector retains its fixed conservative pool limits.
+
 ## CLI
 
 ```bash

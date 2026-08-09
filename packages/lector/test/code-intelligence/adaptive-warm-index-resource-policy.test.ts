@@ -96,6 +96,12 @@ describe("AdaptiveWarmIndexResourcePolicy", () => {
 		expect(policy.canAdmit(["typescript", "typescript"], "typescript")).toBe(true);
 		resources.set({ indexMemoryBudgetBytes: 400, pressure: "high" });
 		expect(policy.isOverBudget(["typescript", "typescript", "typescript"])).toBe(true);
+		expect(policy.status(["typescript", "typescript", "typescript"])).toEqual({
+			pressure: "high",
+			indexMemoryBudgetBytes: 400,
+			effectiveIndexMemoryBudgetBytes: 200,
+			estimatedActiveBytes: 300,
+		});
 	});
 
 	it("keeps sparse healthy indexes longer and reaps pressured indexes sooner", () => {

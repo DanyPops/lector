@@ -4,7 +4,12 @@ import type { Logger } from "@danypops/vehicle-server/logging";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
-import type { WarmIndexResourcePolicy } from "./code-intelligence/warm-index-resource-policy.ts";
+import { createLinuxCgroupWarmIndexResourceSnapshot } from "./code-intelligence/linux-cgroup-warm-index-resources.ts";
+import {
+	AdaptiveWarmIndexResourcePolicy,
+	type WarmIndexResourcePolicy,
+	type WarmIndexResourceSnapshotPort,
+} from "./code-intelligence/warm-index-resource-policy.ts";
 import { resolveLectorPaths } from "./constants.ts";
 import type { GithubSearchPort } from "./github-search/port.ts";
 import { InstallLocation } from "./lsp-provisioning/install-location.ts";
@@ -91,6 +96,9 @@ export function buildLectorApp(service: LectorService, token: string): { fetch(r
  */
 const DEFAULT_SYMBOL_INDEX_IDLE_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_SYMBOL_INDEX_REAP_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_ADAPTIVE_SYMBOL_INDEX_MAX_ACTIVE = 8;
+const DEFAULT_SYMBOL_INDEX_ESTIMATED_BYTES = 512 * 1024 * 1024;
+const DEFAULT_ADAPTIVE_LANGUAGE_LIMITS: Readonly<Record<string, number>> = Object.freeze({ c: 1, cpp: 1 });
 
 export interface LectorDaemonOptions {
 	workspaces: ReadonlyMap<WorkspaceId, WorkspacePort>;
@@ -107,6 +115,14 @@ export interface LectorDaemonOptions {
 	symbolIndexLanguageLimits?: Readonly<Record<string, number>>;
 	/** Optional adaptive resource strategy layered beneath the fixed process safety ceilings. */
 	symbolIndexResourcePolicy?: WarmIndexResourcePolicy;
+	/** Explicit byte budget for language-server process trees; otherwise a finite cgroup memory.high is used when available. */
+	symbolIndexMemoryBudgetBytes?: number;
+	/** Initial resource estimates used until process-tree calibration is available. */
+	symbolIndexEstimatedBytesByLanguage?: Readonly<Record<string, number>>;
+	/** Estimate for a language without an explicit entry. Defaults to 512 MiB. */
+	symbolIndexDefaultEstimatedBytes?: number;
+	/** Resource-snapshot seam for embedders and deterministic tests. Production discovers Linux cgroup v2. */
+	createSymbolIndexResourceSnapshot?: () => WarmIndexResourceSnapshotPort | undefined;
 	/** Override managed language-server installation while retaining the real spawn-failure seam. */
 	createLanguageServerProvisioner?: (rootPath: string) => LanguageServerProvisionerPort;
 	/** Override the idle-eviction TTL for warm symbol indexes. Tests use a short value to observe eviction without waiting. */
@@ -160,13 +176,28 @@ function prepare(options: LectorDaemonOptions): {
 	// explicitly set), before startDaemon/runDaemonProcess ever binds a listener or writes a
 	// handle file -- the daemon fails loudly at construction rather than starting and silently
 	// returning empty/error results per call. (Locus LCS-BUG-88 class.)
+	const resourceSnapshot =
+		options.symbolIndexResourcePolicy !== undefined
+			? undefined
+			: options.createSymbolIndexResourceSnapshot
+				? options.createSymbolIndexResourceSnapshot()
+				: createLinuxCgroupWarmIndexResourceSnapshot({ explicitIndexMemoryBudgetBytes: options.symbolIndexMemoryBudgetBytes });
+	const resourcePolicy =
+		options.symbolIndexResourcePolicy ??
+		(resourceSnapshot
+			? new AdaptiveWarmIndexResourcePolicy({
+					resources: resourceSnapshot,
+					estimatedBytesByLanguage: options.symbolIndexEstimatedBytesByLanguage ?? {},
+					defaultEstimatedBytes: options.symbolIndexDefaultEstimatedBytes ?? DEFAULT_SYMBOL_INDEX_ESTIMATED_BYTES,
+				})
+			: undefined);
 	const service = createLectorService(options.workspaces, {
 		allowDynamicOnly: options.allowDynamicOnly,
 		logger: options.logger,
 		createSymbolIndex: options.createSymbolIndex,
-		maxActiveSymbolIndexes: options.maxActiveSymbolIndexes,
-		symbolIndexLanguageLimits: options.symbolIndexLanguageLimits,
-		symbolIndexResourcePolicy: options.symbolIndexResourcePolicy,
+		maxActiveSymbolIndexes: options.maxActiveSymbolIndexes ?? (resourcePolicy ? DEFAULT_ADAPTIVE_SYMBOL_INDEX_MAX_ACTIVE : undefined),
+		symbolIndexLanguageLimits: options.symbolIndexLanguageLimits ?? (resourcePolicy ? DEFAULT_ADAPTIVE_LANGUAGE_LIMITS : undefined),
+		symbolIndexResourcePolicy: resourcePolicy,
 		languageServerProvisioner,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
 		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),

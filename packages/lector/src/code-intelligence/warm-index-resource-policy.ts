@@ -19,7 +19,18 @@ export interface WarmIndexRetentionPolicy {
 	maxIdleMs(configuredMaxIdleMs: number, activeLanguages: readonly string[]): number;
 }
 
-export interface WarmIndexResourcePolicy extends WarmIndexAdmissionPolicy, WarmIndexRetentionPolicy {}
+export interface WarmIndexResourceStatus {
+	readonly pressure: WarmIndexResourcePressure;
+	readonly indexMemoryBudgetBytes: number;
+	readonly effectiveIndexMemoryBudgetBytes: number;
+	readonly estimatedActiveBytes: number;
+}
+
+export interface WarmIndexResourceStatusProvider {
+	status(activeLanguages: readonly string[]): WarmIndexResourceStatus;
+}
+
+export interface WarmIndexResourcePolicy extends WarmIndexAdmissionPolicy, WarmIndexRetentionPolicy, WarmIndexResourceStatusProvider {}
 
 export interface AdaptiveWarmIndexResourcePolicyOptions {
 	readonly resources: WarmIndexResourceSnapshotPort;
@@ -95,5 +106,15 @@ export class AdaptiveWarmIndexResourcePolicy implements WarmIndexResourcePolicy 
 		const utilization = budget === 0 ? 1 : this.estimatedBytes(activeLanguages) / budget;
 		if (utilization > 0.5) return configuredMaxIdleMs;
 		return Math.min(Number.MAX_SAFE_INTEGER, configuredMaxIdleMs * 2);
+	}
+
+	status(activeLanguages: readonly string[]): WarmIndexResourceStatus {
+		const snapshot = this.snapshot();
+		return {
+			pressure: snapshot.pressure,
+			indexMemoryBudgetBytes: snapshot.indexMemoryBudgetBytes,
+			effectiveIndexMemoryBudgetBytes: this.effectiveBudget(snapshot),
+			estimatedActiveBytes: this.estimatedBytes(activeLanguages),
+		};
 	}
 }

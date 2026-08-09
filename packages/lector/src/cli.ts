@@ -35,6 +35,8 @@ const USAGE = `Usage:
                                  runtime via "lector workspace register" (workspace.registerPath) --
                                  the mode a long-lived background daemon (e.g. lector.service) wants,
                                  since it does not know upfront which project(s) will attach to it
+    --lsp-memory-budget-bytes <n> explicit adaptive budget for language-server process trees;
+                                 otherwise a finite cgroup v2 memory.high is used when available
   lector service <install|start|stop|restart|status>
     install: writes a user systemd unit (lector serve --dynamic-workspaces), enables + starts it
   lector workspace register <dir> [--json]
@@ -207,6 +209,14 @@ function hasFlag(args: string[], flag: string): boolean {
 	return args.includes(flag);
 }
 
+function positiveIntegerFlag(args: string[], flag: string, environmentValue?: string): number | undefined {
+	const raw = flagValue(args, flag) ?? environmentValue;
+	if (raw === undefined) return undefined;
+	const value = Number(raw);
+	if (!Number.isSafeInteger(value) || value < 1) fail(`${flag} must be a positive safe integer`);
+	return value;
+}
+
 function parseWorkspacePathFlag(raw: string): { id: string; dir: string } {
 	const separatorIndex = raw.indexOf("=");
 	if (separatorIndex <= 0 || separatorIndex === raw.length - 1) {
@@ -219,6 +229,7 @@ async function runServe(args: string[]): Promise<void> {
 	const memoryIds = collectFlagValues(args, "--workspace");
 	const pathEntries = collectFlagValues(args, "--workspace-path").map(parseWorkspacePathFlag);
 	const dynamicWorkspaces = hasFlag(args, "--dynamic-workspaces");
+	const symbolIndexMemoryBudgetBytes = positiveIntegerFlag(args, "--lsp-memory-budget-bytes", process.env.LECTOR_LSP_MEMORY_BUDGET_BYTES);
 	if (memoryIds.length === 0 && pathEntries.length === 0 && !dynamicWorkspaces) {
 		fail("lector serve requires at least one --workspace <id>, --workspace-path <id>=<dir>, or --dynamic-workspaces");
 	}
@@ -233,6 +244,7 @@ async function runServe(args: string[]): Promise<void> {
 	serveMain({
 		workspaces,
 		allowDynamicOnly: dynamicWorkspaces,
+		symbolIndexMemoryBudgetBytes,
 		logger: createLogger("lector", { levelEnvVar: "LECTOR_LOG_LEVEL" }),
 		onListen: ({ host, port }) => {
 			console.error(`Lector listening on ${host}:${port} (workspaces: ${summary})`);

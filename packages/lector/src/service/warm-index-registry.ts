@@ -4,7 +4,7 @@ import { discoverWorkspaceDescriptor, discoverWorkspaceDescriptors } from "../co
 import { PolyglotCodeIntelligenceIndex } from "../code-intelligence/polyglot-code-intelligence-index.ts";
 import type { CodeIntelligencePort } from "../code-intelligence/port.ts";
 import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts";
-import type { WarmIndexResourcePolicy } from "../code-intelligence/warm-index-resource-policy.ts";
+import type { WarmIndexResourcePolicy, WarmIndexResourceStatus } from "../code-intelligence/warm-index-resource-policy.ts";
 import type { FileChangeEvent } from "../file-watcher/file-change-event.ts";
 
 /** A SymbolIndexPort the registry can shut down when its workspace goes cold. */
@@ -65,6 +65,7 @@ export interface WarmIndexPoolStatus {
 	readonly leased: number;
 	readonly maxActive: number;
 	readonly byLanguage: Readonly<Record<string, number>>;
+	readonly resources?: WarmIndexResourceStatus;
 }
 
 export interface WarmIndexLease<Value> extends AsyncDisposable {
@@ -325,7 +326,8 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			byLanguage[entry.languageId] = (byLanguage[entry.languageId] ?? 0) + 1;
 			if (entry.activeLeases > 0) leased++;
 		}
-		return { active: this.entries.size, leased, maxActive: this.maxActive, byLanguage };
+		const resources = this.options.resourcePolicy?.status(this.activeLanguages());
+		return { active: this.entries.size, leased, maxActive: this.maxActive, byLanguage, ...(resources ? { resources } : {}) };
 	}
 
 	private codeIntelligenceIndexes(workspaceId: WorkspaceKey): Array<ClosableSymbolIndex & CodeIntelligencePort> {

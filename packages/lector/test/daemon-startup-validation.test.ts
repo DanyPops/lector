@@ -68,4 +68,14 @@ describe("startLectorDaemon", () => {
 
 		expect(() => startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: false })).toThrow(/at least one registered workspace/);
 	});
+
+	it("rejects an invalid explicit LSP memory budget before binding", () => {
+		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
+		cleanup = cleanupPaths;
+
+		expect(() => startLectorDaemon({ workspaces: new Map(), paths, allowDynamicOnly: true, symbolIndexMemoryBudgetBytes: 0 })).toThrow(
+			/explicitIndexMemoryBudgetBytes must be a positive safe integer/,
+		);
+		expect(readDaemonHandle(paths.handle)).toBeNull();
+	});
 });
