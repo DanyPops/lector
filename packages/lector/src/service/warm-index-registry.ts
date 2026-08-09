@@ -55,7 +55,7 @@ interface WarmIndexEntry<WorkspaceKey extends string> {
 	readonly index: ClosableSymbolIndex;
 	readonly workspaceId: WorkspaceKey;
 	readonly languageId: string;
-	readonly sequence: number;
+	recencySequence: number;
 	activeLeases: number;
 	lastUsedAt: number;
 }
@@ -132,7 +132,7 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			const entry = candidate[1];
 			if (entry.activeLeases > 0 || (languageId !== undefined && entry.languageId !== languageId)) continue;
 			const current = selected?.[1];
-			if (!current || entry.lastUsedAt < current.lastUsedAt || (entry.lastUsedAt === current.lastUsedAt && entry.sequence < current.sequence))
+			if (!current || entry.lastUsedAt < current.lastUsedAt || (entry.lastUsedAt === current.lastUsedAt && entry.recencySequence < current.recencySequence))
 				selected = candidate;
 		}
 		return selected;
@@ -184,7 +184,7 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			index: this.options.createIndex(rootPath, descriptor, seedFile),
 			workspaceId,
 			languageId: descriptor.languageId,
-			sequence: this.nextSequence++,
+			recencySequence: this.nextSequence++,
 			activeLeases: 0,
 			lastUsedAt: this.now(),
 		};
@@ -238,6 +238,7 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 				for (const entry of entries) {
 					entry.activeLeases--;
 					entry.lastUsedAt = completedAt;
+					entry.recencySequence = this.nextSequence++;
 				}
 				await this.reconcileResources();
 			},

@@ -148,6 +148,27 @@ describe("WarmIndexRegistry", () => {
 		expect(registry.status()).toEqual({ active: 2, leased: 1, maxActive: 2, byLanguage: { typescript: 2 } });
 	});
 
+	it("keeps a reused index most-recent when clock ticks tie", async () => {
+		const closed: string[] = [];
+		const registry = new WarmIndexRegistry({
+			descriptors: [TYPESCRIPT],
+			resolveRoot: (workspaceId) => `/${workspaceId}`,
+			createIndex: (root) => fakeIndex(root, closed, []),
+			now: () => 1,
+			maxActive: 2,
+			languageLimits: { typescript: 2 },
+		});
+		const first = await registry.leaseWarmIndex({ workspaceId: "a", path: "a.ts" });
+		await first[Symbol.asyncDispose]();
+		const second = await registry.leaseWarmIndex({ workspaceId: "b", path: "b.ts" });
+		await second[Symbol.asyncDispose]();
+		const reusedFirst = await registry.leaseWarmIndex({ workspaceId: "a", path: "a.ts" });
+		await reusedFirst[Symbol.asyncDispose]();
+		await using _third = await registry.leaseWarmIndex({ workspaceId: "c", path: "c.ts" });
+
+		expect(closed).toEqual(["/b"]);
+	});
+
 	it("never evicts an active lease", async () => {
 		const closed: string[] = [];
 		const registry = new WarmIndexRegistry({
