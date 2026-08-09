@@ -117,6 +117,12 @@ export interface LectorDaemonOptions {
 	symbolIndexResourcePolicy?: WarmIndexResourcePolicy;
 	/** Explicit byte budget for language-server process trees; otherwise a finite cgroup memory.high is used when available. */
 	symbolIndexMemoryBudgetBytes?: number;
+	/** Admission slots background population (workspace.populateSymbolGraph) can never grow into, so it cannot starve a concurrent interactive query out of every warm-index slot. Defaults to 0 (today's shared, unreserved behavior). */
+	reservedForegroundSlots?: number;
+	/** How long a queued background admission waits for room before failing with WarmIndexAdmissionQueueTimedOut. */
+	backgroundAdmissionQueueTimeoutMs?: number;
+	/** Bounds the background admission queue itself; a queue already at this depth fails fast with WarmIndexAdmissionQueueFull instead of growing unbounded. */
+	maxQueuedBackgroundAdmissions?: number;
 	/** Initial resource estimates used until process-tree calibration is available. */
 	symbolIndexEstimatedBytesByLanguage?: Readonly<Record<string, number>>;
 	/** Estimate for a language without an explicit entry. Defaults to 512 MiB. */
@@ -198,6 +204,9 @@ function prepare(options: LectorDaemonOptions): {
 		maxActiveSymbolIndexes: options.maxActiveSymbolIndexes ?? (resourcePolicy ? DEFAULT_ADAPTIVE_SYMBOL_INDEX_MAX_ACTIVE : undefined),
 		symbolIndexLanguageLimits: options.symbolIndexLanguageLimits ?? (resourcePolicy ? DEFAULT_ADAPTIVE_LANGUAGE_LIMITS : undefined),
 		symbolIndexResourcePolicy: resourcePolicy,
+		reservedForegroundSlots: options.reservedForegroundSlots,
+		backgroundAdmissionQueueTimeoutMs: options.backgroundAdmissionQueueTimeoutMs,
+		maxQueuedBackgroundAdmissions: options.maxQueuedBackgroundAdmissions,
 		languageServerProvisioner,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
 		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),

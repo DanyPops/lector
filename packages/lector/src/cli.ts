@@ -37,6 +37,14 @@ const USAGE = `Usage:
                                  since it does not know upfront which project(s) will attach to it
     --lsp-memory-budget-bytes <n> explicit adaptive budget for language-server process trees;
                                  otherwise a finite cgroup v2 memory.high is used when available
+    --reserved-foreground-slots <n> warm-index admission slots background population
+                                 (workspace.populateSymbolGraph) can never grow into, so it
+                                 cannot starve a concurrent interactive query out of every slot;
+                                 defaults to 0 (today's shared, unreserved behavior)
+    --background-admission-queue-timeout-ms <n> how long a queued background admission waits
+                                 for room before failing; defaults to 10000
+    --max-queued-background-admissions <n> bounds the background admission queue itself;
+                                 defaults to 8
   lector service <install|start|stop|restart|status>
     install: writes a user systemd unit (lector serve --dynamic-workspaces), enables + starts it
   lector workspace register <dir> [--json]
@@ -217,6 +225,14 @@ function positiveIntegerFlag(args: string[], flag: string, environmentValue?: st
 	return value;
 }
 
+function nonNegativeIntegerFlag(args: string[], flag: string, environmentValue?: string): number | undefined {
+	const raw = flagValue(args, flag) ?? environmentValue;
+	if (raw === undefined) return undefined;
+	const value = Number(raw);
+	if (!Number.isSafeInteger(value) || value < 0) fail(`${flag} must be a non-negative safe integer`);
+	return value;
+}
+
 function parseWorkspacePathFlag(raw: string): { id: string; dir: string } {
 	const separatorIndex = raw.indexOf("=");
 	if (separatorIndex <= 0 || separatorIndex === raw.length - 1) {
@@ -230,6 +246,13 @@ async function runServe(args: string[]): Promise<void> {
 	const pathEntries = collectFlagValues(args, "--workspace-path").map(parseWorkspacePathFlag);
 	const dynamicWorkspaces = hasFlag(args, "--dynamic-workspaces");
 	const symbolIndexMemoryBudgetBytes = positiveIntegerFlag(args, "--lsp-memory-budget-bytes", process.env.LECTOR_LSP_MEMORY_BUDGET_BYTES);
+	const reservedForegroundSlots = nonNegativeIntegerFlag(args, "--reserved-foreground-slots", process.env.LECTOR_RESERVED_FOREGROUND_SLOTS);
+	const backgroundAdmissionQueueTimeoutMs = nonNegativeIntegerFlag(
+		args,
+		"--background-admission-queue-timeout-ms",
+		process.env.LECTOR_BACKGROUND_ADMISSION_QUEUE_TIMEOUT_MS,
+	);
+	const maxQueuedBackgroundAdmissions = positiveIntegerFlag(args, "--max-queued-background-admissions", process.env.LECTOR_MAX_QUEUED_BACKGROUND_ADMISSIONS);
 	if (memoryIds.length === 0 && pathEntries.length === 0 && !dynamicWorkspaces) {
 		fail("lector serve requires at least one --workspace <id>, --workspace-path <id>=<dir>, or --dynamic-workspaces");
 	}
@@ -245,6 +268,9 @@ async function runServe(args: string[]): Promise<void> {
 		workspaces,
 		allowDynamicOnly: dynamicWorkspaces,
 		symbolIndexMemoryBudgetBytes,
+		reservedForegroundSlots,
+		backgroundAdmissionQueueTimeoutMs,
+		maxQueuedBackgroundAdmissions,
 		logger: createLogger("lector", { levelEnvVar: "LECTOR_LOG_LEVEL" }),
 		onListen: ({ host, port }) => {
 			console.error(`Lector listening on ${host}:${port} (workspaces: ${summary})`);

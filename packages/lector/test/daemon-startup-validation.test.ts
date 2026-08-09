@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { readDaemonHandle } from "@danypops/vehicle-server/paths";
 import { startLectorDaemon } from "../src/daemon.ts";
+import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
 let cleanup: (() => void) | undefined;
@@ -22,6 +23,15 @@ describe("startLectorDaemon", () => {
 		cleanup = cleanupPaths;
 
 		expect(() => startLectorDaemon({ workspaces: new Map(), paths })).toThrow(/at least one registered workspace/);
+	});
+
+	it("throws synchronously on an invalid reservedForegroundSlots, proving the CLI-exposed option really reaches WarmIndexRegistry's own validation", () => {
+		const { paths, cleanup: cleanupPaths } = isolatedLectorPaths();
+		cleanup = cleanupPaths;
+
+		expect(() => startLectorDaemon({ workspaces: new Map([["main", new InMemoryWorkspace()]]), paths, reservedForegroundSlots: -1 })).toThrow(
+			/reservedForegroundSlots must be a non-negative safe integer/,
+		);
 	});
 
 	it("never writes a daemon handle file when startup is refused", () => {
