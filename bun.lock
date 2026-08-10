@@ -35,7 +35,7 @@
     },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.18.7",
+      "version": "0.18.8",
       "bin": {
         "lector": "src/cli.ts",
       },
@@ -70,7 +70,7 @@
     },
     "packages/pi-lector": {
       "name": "@danypops/pi-lector",
-      "version": "0.12.5",
+      "version": "0.12.6",
       "dependencies": {
         "@danypops/lector": "^0.17.0",
         "@danypops/vehicle-client": "^0.2.0",
