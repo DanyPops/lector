@@ -125,7 +125,14 @@ export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps
 			const entry = registry.get(input.workspaceId);
 			if (!entry?.rootPath) throw new UnknownWorkspace(input.workspaceId);
 			const overfetchBound = Math.min(maxResults * SYMBOL_SEARCH_OVERFETCH_MULTIPLIER, MAX_SYMBOL_RESULTS);
-			const raw = await findWorkspaceSymbols(lease.value.index, input.query, { maxResults: overfetchBound });
+			// find_symbols' own documented contract is case-insensitive; sending the caller's original
+			// casing straight to the backend leaks each backend's own case-sensitive ranking into what
+			// SHOULD be a case-neutral match -- live evidence: rust-analyzer's workspace/symbol never
+			// surfaced a real "normalize" symbol at all for the query "Normalize", so no amount of
+			// post-filtering here could have recovered it. Lowercasing the outbound query (matching the
+			// exact casing normalizeSymbolSearchResult's own needle already normalizes to) maximizes a
+			// case-sensitive backend's own recall without changing what counts as a match.
+			const raw = await findWorkspaceSymbols(lease.value.index, input.query.toLowerCase(), { maxResults: overfetchBound });
 			const result = normalizeSymbolSearchResult(raw, input.query, entry.rootPath, maxResults);
 			// "concise" narrows the actual JSON payload per workspace/response-format.ts; the declared
 			// output type stays SymbolSearchResult (this operation's default, and every untouched
