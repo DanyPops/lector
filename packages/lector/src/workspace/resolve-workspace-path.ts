@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { dirname, parse } from "node:path";
+import { dirname, extname, parse } from "node:path";
 import { descriptorForExtension, LANGUAGE_SERVER_DESCRIPTORS } from "../code-intelligence/language-server-descriptor.ts";
 import { nearestDeclaredWorkspaceRoot, nearestGitRoot, nearestProjectRoot } from "./nearest-workspace-root.ts";
 
@@ -29,9 +29,21 @@ export type WorkspaceResolutionRequest =
 	| { readonly strategy: "git-root"; readonly path: string; readonly fallback?: WorkspaceResolutionFallback }
 	| { readonly strategy: "language-project-root"; readonly path: string; readonly fallback?: WorkspaceResolutionFallback; readonly extension?: string }
 	| { readonly strategy: "declared-monorepo-root"; readonly path: string }
-	| { readonly strategy: "path-or-directory"; readonly path: string };
+	| { readonly strategy: "path-or-directory"; readonly path: string }
+	/**
+	 * For an operation whose own `path` genuinely means "which workspace does this belong to" and
+	 * can honestly be either an existing project directory or one specific source file -- symbol
+	 * annotation's own create/get/list/refresh/scrub/restore/contain/uncontain/tree, all of which
+	 * previously took dirname() unconditionally (silently resolving a project's own root directory
+	 * to its *parent*, the same class of bug path-or-directory itself already fixed for
+	 * populateSymbolGraph/workspaceMap/hasWarmIndex). Unlike path-or-directory, a directory
+	 * resolves via language-specific project markers, not just the nearest .git, and a genuinely
+	 * nonexistent path is reported explicitly (found: false, reason: "nonexistent-path") rather
+	 * than silently guessed as "must be a file, take its dirname()."
+	 */
+	| { readonly strategy: "code-intelligence-path-or-directory"; readonly path: string };
 
-export type WorkspaceResolutionOutcome = { readonly found: true; readonly root: string } | { readonly found: false };
+export type WorkspaceResolutionOutcome = { readonly found: true; readonly root: string } | { readonly found: false; readonly reason?: "nonexistent-path" };
 
 function applyFallback(path: string, fallback: WorkspaceResolutionFallback | undefined): WorkspaceResolutionOutcome {
 	if (!fallback) return { found: false };
@@ -69,16 +81,26 @@ export function resolveWorkspacePath(request: WorkspaceResolutionRequest): Works
 		const root = nearestDeclaredWorkspaceRoot(request.path);
 		return root ? { found: true, root } : { found: false };
 	}
-	// "path-or-directory": the one strategy that needs the real filesystem to tell whether the
-	// raw path it was given is itself already a directory (populateSymbolGraph/workspaceMap/
-	// hasWarmIndex's own `path` genuinely means "the project itself") -- a real, previously-
-	// shipped bug: naively taking dirname() of a project's own root directory (which has its own
-	// .git right there) silently resolved to that directory's *parent*, mixing in every sibling
-	// project's own graph. Delegates to a plain git-root walk once it knows the real starting
-	// directory -- same algorithm and fallback as "git-root"/"given-directory", never language
-	// markers (matching workspaceForPathOrDirectory's own former delegation to workspaceForDirectory).
-	const isRealDirectory = existsSync(request.path) && statSync(request.path).isDirectory();
-	const directory = isRealDirectory ? request.path : dirname(request.path);
-	const matched = nearestGitRoot(directory);
-	return matched ? { found: true, root: matched } : { found: true, root: directory };
+	if (request.strategy === "path-or-directory") {
+		// The one strategy that needs the real filesystem to tell whether the raw path it was given
+		// is itself already a directory (populateSymbolGraph/workspaceMap/hasWarmIndex's own `path`
+		// genuinely means "the project itself") -- a real, previously-shipped bug: naively taking
+		// dirname() of a project's own root directory (which has its own .git right there) silently
+		// resolved to that directory's *parent*, mixing in every sibling project's own graph.
+		// Delegates to a plain git-root walk once it knows the real starting directory -- same
+		// algorithm and fallback as "git-root"/"given-directory", never language markers (matching
+		// workspaceForPathOrDirectory's own former delegation to workspaceForDirectory).
+		const isRealDirectory = existsSync(request.path) && statSync(request.path).isDirectory();
+		const directory = isRealDirectory ? request.path : dirname(request.path);
+		const matched = nearestGitRoot(directory);
+		return matched ? { found: true, root: matched } : { found: true, root: directory };
+	}
+	// "code-intelligence-path-or-directory": a genuinely nonexistent path gets its own explicit
+	// outcome rather than being silently treated as "must be a file" -- an existing directory
+	// resolves via language-project-root markers on itself (no extension: a directory has none);
+	// an existing file resolves via language-project-root on its own dirname()+extension, matching
+	// workspaceForCodeIntelligencePath's existing per-file behavior exactly.
+	if (!existsSync(request.path)) return { found: false, reason: "nonexistent-path" };
+	if (statSync(request.path).isDirectory()) return resolveLanguageProjectRoot(request.path, undefined, "given-directory");
+	return resolveLanguageProjectRoot(dirname(request.path), extname(request.path), "given-directory");
 }

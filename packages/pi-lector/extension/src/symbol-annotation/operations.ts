@@ -1,5 +1,5 @@
 import type { OperationInputs, OperationOutputs } from "@danypops/lector";
-import { lectorClient, withWorkspace, workspaceForCodeIntelligencePath } from "../lector-client.ts";
+import { lectorClient, withWorkspace, workspaceForAnnotationPath } from "../lector-client.ts";
 
 /** A bare symbol position an anchor is given as -- symbolNodeId and the anchor's baseline file hash are derived server-side, never supplied by the caller. */
 export interface AnnotationAnchorInput {
@@ -9,10 +9,12 @@ export interface AnnotationAnchorInput {
 }
 
 /**
- * Thin wrappers over Lector's annotation operations. Anchored to a workspace
- * via the first anchor's own path (workspaceForCodeIntelligencePath) --
- * every operation that needs a workspace already has at least one real
- * anchor position or an id whose workspace the caller already knows.
+ * Thin wrappers over Lector's annotation operations. Every operation resolves its workspace from
+ * its own `path` parameter via workspaceForAnnotationPath -- a real project directory or an
+ * existing source file, never dirname()'d unconditionally the way a plain code-intelligence
+ * path is. `path` here means "which workspace this call belongs to," not necessarily one of the
+ * operation's own anchors (create/refresh's anchors carry their own, separately-validated paths
+ * server-side).
  */
 export interface SymbolAnnotationOperations {
 	create(
@@ -46,7 +48,7 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 	return {
 		async create(path, subtype, title, body, anchors) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForAnnotationPath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.callOnce("workspace.createAnnotation", { workspaceId, subtype, title, body, anchors });
@@ -55,7 +57,7 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 		},
 		async get(path, id) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForAnnotationPath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.call("workspace.getAnnotation", { workspaceId, id });
@@ -64,7 +66,7 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 		},
 		async list(path, options = {}) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForAnnotationPath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.call("workspace.listAnnotations", {
@@ -79,7 +81,7 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 		},
 		async refresh(path, id, subtype, title, body, anchors) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForAnnotationPath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.callOnce("workspace.refreshAnnotation", { workspaceId, id, subtype, title, body, anchors });
@@ -88,7 +90,7 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 		},
 		async scrub(path, id) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForAnnotationPath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.callOnce("workspace.scrubAnnotation", { workspaceId, id });
@@ -97,7 +99,7 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 		},
 		async restore(path, id) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForAnnotationPath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.callOnce("workspace.restoreAnnotation", { workspaceId, id });
@@ -106,7 +108,7 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 		},
 		async contain(path, parentId, childId) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForAnnotationPath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.callOnce("workspace.containAnnotation", { workspaceId, parentId, childId });
@@ -115,7 +117,7 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 		},
 		async uncontain(path, parentId, childId) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForAnnotationPath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.callOnce("workspace.uncontainAnnotation", { workspaceId, parentId, childId });
@@ -124,7 +126,7 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 		},
 		async tree(path, rootId, maxDepth) {
 			return withWorkspace(
-				() => workspaceForCodeIntelligencePath(path),
+				() => workspaceForAnnotationPath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.call("workspace.annotationTree", { workspaceId, rootId, maxDepth });

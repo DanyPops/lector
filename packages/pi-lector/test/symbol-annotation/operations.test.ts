@@ -136,6 +136,53 @@ describe("Lector-backed annotation operations", () => {
 		expect(afterUncontain.map((a) => a.id)).toEqual([flow.id]);
 	}, 20_000);
 
+	it("resolves scope from a project directory the same way it resolves from a file inside it -- the real bug this fixes (dirname() silently resolving a project's own root to its parent)", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const anchor = await realAnchor(mathFile);
+		const ops = createLectorSymbolAnnotationOperations();
+		const { annotation: created } = await ops.create(root, "comment", "dir-scoped", "created via the project directory itself", [anchor]);
+
+		// The exact same annotation is visible whether the scope was resolved from the directory or a file inside it.
+		const { annotation: fetchedViaFile } = await ops.get(mathFile, created.id);
+		expect(fetchedViaFile?.id).toBe(created.id);
+
+		const { annotations: listedViaDir } = await ops.list(root);
+		expect(listedViaDir.map((a) => a.id)).toContain(created.id);
+
+		const { annotation: refreshed } = await ops.refresh(root, created.id, "comment", "dir-scoped", "refreshed via the project directory", [anchor]);
+		expect(refreshed?.body).toBe("refreshed via the project directory");
+
+		const { annotation: child } = await ops.create(mathFile, "comment", "child", "b", [anchor]);
+		await ops.contain(root, created.id, child.id);
+		const { annotations: tree } = await ops.tree(root, created.id, 5);
+		expect(tree.map((a) => a.id).sort()).toEqual([created.id, child.id].sort());
+	}, 20_000);
+
+	it("rejects an anchor outside the resolved workspace, before it is ever persisted", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+		const outsideRoot = mkdtempSync(join(tmpdir(), "pi-lector-annotations-outside-"));
+		try {
+			const outsideFile = join(outsideRoot, "unrelated.ts");
+			writeFileSync(outsideFile, "export const unrelated = 1;\n");
+
+			const ops = createLectorSymbolAnnotationOperations();
+			// mathFile's own workspace is `root`; this anchor names a real file, but one entirely
+			// outside that workspace's tree -- PathEscapesWorkspaceRoot must refuse it.
+			await expect(ops.create(mathFile, "comment", "t", "b", [{ path: outsideFile, line: 1, character: 1 }])).rejects.toThrow();
+		} finally {
+			rmSync(outsideRoot, { recursive: true, force: true });
+		}
+	}, 20_000);
+
 	it("rejects a containment cycle via a running Lector daemon", async () => {
 		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;

@@ -214,3 +214,48 @@ describe("resolveWorkspacePath -- path-or-directory", () => {
 		}
 	});
 });
+
+describe("resolveWorkspacePath -- code-intelligence-path-or-directory", () => {
+	it("resolves an existing project directory via language markers on itself, not its parent -- the real bug symbol-annotation hit", () => {
+		const outer = tempDir("resolve-ci-path-or-dir-outer-");
+		try {
+			const project = join(outer, "packages", "app");
+			mkdirSync(project, { recursive: true });
+			writeFileSync(join(project, "package.json"), "{}");
+
+			expect(resolveWorkspacePath({ strategy: "code-intelligence-path-or-directory", path: project })).toEqual({ found: true, root: project });
+		} finally {
+			rmSync(outer, { recursive: true, force: true });
+		}
+	});
+
+	it("resolves an existing file via its own dirname()+extension language markers, matching workspaceForCodeIntelligencePath's per-file behavior", () => {
+		const repo = tempDir("resolve-ci-path-or-dir-file-");
+		try {
+			writeFileSync(join(repo, "go.mod"), "module example\n");
+			const nested = join(repo, "cmd", "main.go");
+			mkdirSync(dirname(nested), { recursive: true });
+			writeFileSync(nested, "package main\n");
+
+			expect(resolveWorkspacePath({ strategy: "code-intelligence-path-or-directory", path: nested })).toEqual({ found: true, root: repo });
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("reports a genuinely nonexistent path explicitly, never silently guessing file/directory semantics", () => {
+		expect(resolveWorkspacePath({ strategy: "code-intelligence-path-or-directory", path: "/definitely/does/not/exist/at/all" })).toEqual({
+			found: false,
+			reason: "nonexistent-path",
+		});
+	});
+
+	it("falls back to the directory itself when it exists but has no known language marker anywhere above it", () => {
+		const scratch = tempDir("resolve-ci-path-or-dir-fallback-");
+		try {
+			expect(resolveWorkspacePath({ strategy: "code-intelligence-path-or-directory", path: scratch })).toEqual({ found: true, root: scratch });
+		} finally {
+			rmSync(scratch, { recursive: true, force: true });
+		}
+	});
+});

@@ -197,7 +197,7 @@ async function resolvePathHandler(
 	// Same rejection as registerPath -- a daemon has no caller-relative cwd of its own.
 	assertAbsolutePath(input.path);
 	const outcome = resolveWorkspacePath({ ...input, path: resolve(input.path) });
-	if (!outcome.found) return { found: false };
+	if (!outcome.found) return { found: false, reason: outcome.reason };
 	const { workspaceId, created } = await registerPath(registry, { path: outcome.root });
 	return { found: true, workspaceId, root: outcome.root, created };
 }

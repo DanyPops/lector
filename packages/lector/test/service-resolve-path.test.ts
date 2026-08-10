@@ -85,6 +85,28 @@ describe("workspace.resolvePath", () => {
 		expect(resolved).toEqual({ found: false });
 	});
 
+	it("resolves and registers an existing project directory via code-intelligence-path-or-directory, not its parent -- the symbol-annotation bug", async () => {
+		fixtureRoot = mkdtempSync(join(tmpdir(), "lector-resolve-path-ci-dir-"));
+		const project = join(fixtureRoot, "packages", "app");
+		mkdirSync(project, { recursive: true });
+		writeFileSync(join(project, "package.json"), "{}");
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+
+		const resolved = await service.dispatch("workspace.resolvePath", { strategy: "code-intelligence-path-or-directory", path: project });
+		expect(resolved).toMatchObject({ found: true, root: project, created: true });
+	});
+
+	it("reports found: false with reason nonexistent-path for code-intelligence-path-or-directory against a path that doesn't exist, without registering anything", async () => {
+		fixtureRoot = mkdtempSync(join(tmpdir(), "lector-resolve-path-ci-missing-"));
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+
+		const resolved = await service.dispatch("workspace.resolvePath", {
+			strategy: "code-intelligence-path-or-directory",
+			path: join(fixtureRoot, "never-created"),
+		});
+		expect(resolved).toEqual({ found: false, reason: "nonexistent-path" });
+	});
+
 	it("finds a declared monorepo root and registers it", async () => {
 		fixtureRoot = mkdtempSync(join(tmpdir(), "lector-resolve-path-declared-found-"));
 		writeFileSync(join(fixtureRoot, "package.json"), JSON.stringify({ name: "repo", workspaces: ["packages/*"] }));

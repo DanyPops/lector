@@ -326,10 +326,15 @@ export interface OperationOutputs {
 	/** transactionId here is the REVERT's own new transaction id (itself further-revertible), not the one that was reverted. */
 	"workspace.revertMutationTransaction": { transactionId: string; reverted: readonly { path: string; newHash: ContentHash | null }[] };
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
-	/** found is false only for "declared-monorepo-root" (the one strategy with no directory-itself/filesystem-root fallback) -- every other strategy always resolves to something. */
+	/**
+	 * found is false for "declared-monorepo-root" (the one strategy with no directory-itself/
+	 * filesystem-root fallback) and for "code-intelligence-path-or-directory" given a genuinely
+	 * nonexistent path (reason: "nonexistent-path") -- every other strategy/case always resolves
+	 * to something.
+	 */
 	"workspace.resolvePath":
 		| { readonly found: true; readonly workspaceId: WorkspaceId; readonly root: string; readonly created: boolean }
-		| { readonly found: false };
+		| { readonly found: false; readonly reason?: "nonexistent-path" };
 	/** closedIndexes/closedGraph/closedWatch each report only what this call itself actually tore down -- a workspace that was never warmed, populated, or watched legitimately reports zero/false across the board without that being an error. */
 	"workspace.release": { workspaceId: WorkspaceId; closedIndexes: number; closedGraph: boolean; closedWatch: boolean };
 	"workspace.listDirectory": DirectoryListing;

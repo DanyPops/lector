@@ -10,11 +10,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectLectorClient, type LectorClient, LectorDaemonUnavailable, resolveLectorPaths } from "@danypops/lector";
 import {
+	AnnotationPathDoesNotExist,
 	lectorClient,
 	resetLectorClientForTests,
 	setLectorClientConnectorForTests,
 	setNewWorkspaceObserver,
 	withWorkspace,
+	workspaceForAnnotationPath,
 	workspaceForCodeIntelligencePath,
 	workspaceForDirectory,
 	workspaceForPath,
@@ -267,6 +269,58 @@ describe("workspaceForPathOrDirectory", () => {
 		try {
 			const resolved = await workspaceForPathOrDirectory(join(repo, "not-yet-created.ts"));
 			expect(resolved.root).toBe(repo);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+});
+
+describe("workspaceForAnnotationPath", () => {
+	it("resolves an existing project directory via its own language markers, not its parent -- the symbol-annotation bug", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const outer = mkdtempSync(join(tmpdir(), "pi-lector-annotation-path-outer-"));
+		try {
+			mkdirSync(join(outer, ".git"));
+			const project = join(outer, "packages", "app");
+			mkdirSync(project, { recursive: true });
+			writeFileSync(join(project, "package.json"), "{}");
+
+			const resolved = await workspaceForAnnotationPath(project);
+			expect(resolved.root).toBe(project);
+		} finally {
+			rmSync(outer, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("resolves an existing file the same way workspaceForCodeIntelligencePath does", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const repo = fakeRepo("pi-lector-annotation-path-file-");
+		try {
+			const file = join(repo, "a.ts");
+			writeFileSync(file, "export const a = 1;\n");
+			const byAnnotation = await workspaceForAnnotationPath(file);
+			const byCodeIntelligence = await workspaceForCodeIntelligencePath(file);
+			expect(byAnnotation.workspaceId).toBe(byCodeIntelligence.workspaceId);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("throws a typed AnnotationPathDoesNotExist for a path that does not exist -- never silently guessed as a file's dirname()", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const repo = fakeRepo("pi-lector-annotation-path-missing-");
+		try {
+			const missing = join(repo, "never-created.ts");
+			await expect(workspaceForAnnotationPath(missing)).rejects.toBeInstanceOf(AnnotationPathDoesNotExist);
 		} finally {
 			rmSync(repo, { recursive: true, force: true });
 			await daemon.stop();

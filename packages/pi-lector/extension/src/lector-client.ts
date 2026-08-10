@@ -220,6 +220,38 @@ export function workspaceForPathOrDirectory(path: string): Promise<ResolvedWorks
 	return resolveWorkspace({ strategy: "path-or-directory", path });
 }
 
+/** Raised by workspaceForAnnotationPath for a path that does not exist on disk at all -- a distinct, explicit failure the caller must handle, never silently guessed as "must be a file, take its dirname()." */
+export class AnnotationPathDoesNotExist extends Error {
+	constructor(readonly path: string) {
+		super(`"${path}" does not exist -- a symbol-annotation scope must be a real project directory or an existing source file`);
+		this.name = "AnnotationPathDoesNotExist";
+	}
+}
+
+/**
+ * For symbol-annotation's own `path` parameter, which genuinely means "which workspace does this
+ * belong to" and can honestly be either an existing project directory or one specific source
+ * file -- unlike workspaceForCodeIntelligencePath (files only, dirname() unconditional), a real
+ * project directory resolves via its own language markers, not its parent's. A genuinely
+ * nonexistent path throws AnnotationPathDoesNotExist rather than being silently treated as a file.
+ */
+export async function workspaceForAnnotationPath(path: string): Promise<ResolvedWorkspace> {
+	const request: WorkspaceResolutionRequest = { strategy: "code-intelligence-path-or-directory", path };
+	const key = requestCacheKey(request);
+	const cached = resolutionCache.get(key);
+	if (cached) return cached;
+	const client = await lectorClient();
+	const outcome = await client.callOnce("workspace.resolvePath", request);
+	if (!outcome.found) {
+		if (outcome.reason === "nonexistent-path") throw new AnnotationPathDoesNotExist(path);
+		throw new Error(`workspace.resolvePath unexpectedly reported not-found for code-intelligence-path-or-directory: ${path}`);
+	}
+	const resolved: ResolvedWorkspace = { workspaceId: outcome.workspaceId, root: outcome.root };
+	resolutionCache.set(key, resolved);
+	if (outcome.created) onNewWorkspace?.(outcome.root);
+	return resolved;
+}
+
 /**
  * The nearest ancestor of an already-resolved project root whose own package.json declares that
  * project as a workspace member via npm/yarn/bun's "workspaces" field -- undefined (no
