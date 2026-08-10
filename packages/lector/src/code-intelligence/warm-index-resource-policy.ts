@@ -13,6 +13,16 @@ export interface WarmIndexResourceSnapshotPort {
 export interface WarmIndexAdmissionPolicy {
 	canAdmit(activeLanguages: readonly string[], requestedLanguage: string): boolean;
 	isOverBudget(activeLanguages: readonly string[]): boolean;
+	/**
+	 * A conservative, count-shaped ceiling derived from the real memory budget and worst-case known
+	 * per-language cost -- lets a larger cgroup envelope actually raise how many warm indexes the
+	 * registry will try to keep active, instead of a fixed configured count being the permanent
+	 * bottleneck regardless of how much memory is genuinely available. Never authoritative on its
+	 * own: canAdmit's own precise per-attempt byte check still gates the actual admission. Returns
+	 * undefined on any metric loss (a snapshot read failure, an invalid/zero cost) -- fails closed,
+	 * never treated as "unlimited room."
+	 */
+	softActiveCeiling(activeLanguages: readonly string[]): number | undefined;
 }
 
 export interface WarmIndexRetentionPolicy {
@@ -35,6 +45,8 @@ export interface WarmIndexResourcePolicy extends WarmIndexAdmissionPolicy, WarmI
 /** Bytes to reserve for one warm index of a language -- a live, possibly-calibrated source AdaptiveWarmIndexResourcePolicy defers to instead of its own static configured map. */
 export interface LanguageCostEstimator {
 	estimateBytes(languageId: string): number;
+	/** The highest cost known across every language this estimator currently tracks -- for conservative capacity planning only (softActiveCeiling), never a specific per-admission estimate. Optional: an estimator with nothing to enumerate simply isn't consulted for this. */
+	maxKnownCostBytes?(): number;
 }
 
 export interface AdaptiveWarmIndexResourcePolicyOptions {
@@ -94,6 +106,13 @@ export class AdaptiveWarmIndexResourcePolicy implements WarmIndexResourcePolicy 
 		return Math.floor(snapshot.indexMemoryBudgetBytes * BUDGET_FACTOR[snapshot.pressure]);
 	}
 
+	/** Worst-case per-index cost for capacity planning -- the calibrator's own tracked maximum when it can enumerate one, otherwise the highest static baseline across every configured language. Never optimistic: sizing capacity on an average would let a mix skewed toward the cheapest language overcommit against a later request for the most expensive one. */
+	private conservativeCostPerIndex(): number {
+		if (this.options.costEstimator?.maxKnownCostBytes) return this.options.costEstimator.maxKnownCostBytes();
+		const staticCosts = Object.values(this.options.estimatedBytesByLanguage);
+		return staticCosts.length > 0 ? Math.max(this.options.defaultEstimatedBytes, ...staticCosts) : this.options.defaultEstimatedBytes;
+	}
+
 	canAdmit(activeLanguages: readonly string[], requestedLanguage: string): boolean {
 		const snapshot = this.snapshot();
 		return this.estimatedBytes(activeLanguages) + this.estimate(requestedLanguage) <= this.effectiveBudget(snapshot);
@@ -102,6 +121,21 @@ export class AdaptiveWarmIndexResourcePolicy implements WarmIndexResourcePolicy 
 	isOverBudget(activeLanguages: readonly string[]): boolean {
 		const snapshot = this.snapshot();
 		return this.estimatedBytes(activeLanguages) > this.effectiveBudget(snapshot);
+	}
+
+	softActiveCeiling(activeLanguages: readonly string[]): number | undefined {
+		let snapshot: WarmIndexResourceSnapshot;
+		try {
+			snapshot = this.snapshot();
+		} catch {
+			return undefined;
+		}
+		const cost = this.conservativeCostPerIndex();
+		if (!Number.isFinite(cost) || cost <= 0) return undefined;
+		const budget = this.effectiveBudget(snapshot);
+		const committed = this.estimatedBytes(activeLanguages);
+		const remaining = Math.max(0, budget - committed);
+		return activeLanguages.length + Math.floor(remaining / cost);
 	}
 
 	maxIdleMs(configuredMaxIdleMs: number, activeLanguages: readonly string[]): number {

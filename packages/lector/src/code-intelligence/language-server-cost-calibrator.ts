@@ -41,6 +41,14 @@ export class LanguageServerCostCalibrator implements LanguageCostEstimator {
 		return this.byLanguage.get(languageId);
 	}
 
+	/** The highest peak ever observed across every calibrated language, or the highest static fallback when nothing has been sampled yet -- conservative capacity planning only (see LanguageCostEstimator.maxKnownCostBytes), never a specific per-language estimate. */
+	maxKnownCostBytes(): number {
+		const fallbacks = Object.values(this.options.fallbackBytesByLanguage);
+		const staticMax = fallbacks.length > 0 ? Math.max(this.options.defaultEstimatedBytes, ...fallbacks) : this.options.defaultEstimatedBytes;
+		const peaks = [...this.byLanguage.values()].map((calibration) => calibration.peakBytes);
+		return peaks.length > 0 ? Math.max(staticMax, ...peaks) : staticMax;
+	}
+
 	/**
 	 * Samples one live process tree and folds it into this language's calibration, if the sample
 	 * is a valid positive byte count. Never throws: an observer that fails, or a process that has

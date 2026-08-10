@@ -46,6 +46,9 @@ const USAGE = `Usage:
                                  for room before failing; defaults to 10000
     --max-queued-background-admissions <n> bounds the background admission queue itself;
                                  defaults to 8
+    --absolute-max-active-indexes <n> hard structural ceiling a resource budget's own soft
+                                 ceiling can never raise the warm-index count past, independent
+                                 of memory; defaults to 32 (or --max-active-symbol-indexes if higher)
   lector service <install|start|stop|restart|status>
     install: writes a user systemd unit (lector serve --dynamic-workspaces), enables + starts it
   lector workspace register <dir> [--json]
@@ -256,6 +259,7 @@ async function runServe(args: string[]): Promise<void> {
 		process.env.LECTOR_BACKGROUND_ADMISSION_QUEUE_TIMEOUT_MS,
 	);
 	const maxQueuedBackgroundAdmissions = positiveIntegerFlag(args, "--max-queued-background-admissions", process.env.LECTOR_MAX_QUEUED_BACKGROUND_ADMISSIONS);
+	const absoluteMaxActiveIndexes = positiveIntegerFlag(args, "--absolute-max-active-indexes", process.env.LECTOR_ABSOLUTE_MAX_ACTIVE_INDEXES);
 	if (memoryIds.length === 0 && pathEntries.length === 0 && !dynamicWorkspaces) {
 		fail("lector serve requires at least one --workspace <id>, --workspace-path <id>=<dir>, or --dynamic-workspaces");
 	}
@@ -274,6 +278,7 @@ async function runServe(args: string[]): Promise<void> {
 		reservedForegroundSlots,
 		backgroundAdmissionQueueTimeoutMs,
 		maxQueuedBackgroundAdmissions,
+		absoluteMaxActiveIndexes,
 		logger: createLogger("lector", { levelEnvVar: "LECTOR_LOG_LEVEL" }),
 		onListen: ({ host, port }) => {
 			console.error(`Lector listening on ${host}:${port} (workspaces: ${summary})`);

@@ -104,6 +104,54 @@ describe("AdaptiveWarmIndexResourcePolicy", () => {
 		});
 	});
 
+	it("raises the soft ceiling above the active count once budget genuinely allows more, using conservative worst-case cost", () => {
+		const resources = new MutableResourceSnapshot({ indexMemoryBudgetBytes: 1_000, pressure: "low" });
+		const policy = new AdaptiveWarmIndexResourcePolicy({
+			resources,
+			estimatedBytesByLanguage: { typescript: 100, rust: 300 },
+			defaultEstimatedBytes: 100,
+		});
+
+		// 2 active (typescript+rust, worst-case 300 each committed=400) leaves 600 of 1000 remaining;
+		// conservative sizing uses the highest known cost (300, rust), so 600/300 = 2 more slots fit.
+		expect(policy.softActiveCeiling(["typescript", "rust"])).toBe(4);
+	});
+
+	it("never reports a ceiling below the current active count, even when already over budget", () => {
+		const resources = new MutableResourceSnapshot({ indexMemoryBudgetBytes: 100, pressure: "low" });
+		const policy = new AdaptiveWarmIndexResourcePolicy({
+			resources,
+			estimatedBytesByLanguage: { typescript: 100 },
+			defaultEstimatedBytes: 100,
+		});
+
+		expect(policy.softActiveCeiling(["typescript", "typescript", "typescript"])).toBe(3);
+	});
+
+	it("fails closed (undefined) when the resource snapshot itself cannot be read", () => {
+		const resources: WarmIndexResourceSnapshotPort = {
+			current(): WarmIndexResourceSnapshot {
+				throw new Error("cgroup read failed");
+			},
+		};
+		const policy = new AdaptiveWarmIndexResourcePolicy({ resources, estimatedBytesByLanguage: { typescript: 100 }, defaultEstimatedBytes: 100 });
+
+		expect(policy.softActiveCeiling(["typescript"])).toBeUndefined();
+	});
+
+	it("consults a costEstimator's own maxKnownCostBytes when one is configured, not the static baseline", () => {
+		const resources = new MutableResourceSnapshot({ indexMemoryBudgetBytes: 1_000, pressure: "low" });
+		const policy = new AdaptiveWarmIndexResourcePolicy({
+			resources,
+			estimatedBytesByLanguage: { typescript: 100 },
+			defaultEstimatedBytes: 100,
+			costEstimator: { estimateBytes: () => 100, maxKnownCostBytes: () => 500 },
+		});
+
+		// committed = 100 (1 active typescript at the estimator's own 100), remaining = 900, cost = 500 -> 1 more slot.
+		expect(policy.softActiveCeiling(["typescript"])).toBe(2);
+	});
+
 	it("keeps sparse healthy indexes longer and reaps pressured indexes sooner", () => {
 		const resources = new MutableResourceSnapshot({ indexMemoryBudgetBytes: 400, pressure: "low" });
 		const policy = new AdaptiveWarmIndexResourcePolicy({
@@ -124,6 +172,58 @@ describe("AdaptiveWarmIndexResourcePolicy", () => {
 });
 
 describe("adaptive warm-index resource harness", () => {
+	it("a larger memory budget actually raises real concurrent capacity past a configured maxActive that would otherwise be the bottleneck -- the live stress-test regression", async () => {
+		const resources = new MutableResourceSnapshot({ indexMemoryBudgetBytes: 300, pressure: "low" });
+		const closed: string[] = [];
+		const policy = new AdaptiveWarmIndexResourcePolicy({ resources, estimatedBytesByLanguage: { typescript: 100 }, defaultEstimatedBytes: 100 });
+		// maxActive: 2 mirrors a conservative configured default -- the memory budget (300 bytes,
+		// enough for 3 typescript indexes at 100 each) genuinely supports more.
+		const registry = new WarmIndexRegistry({
+			descriptors: [TYPESCRIPT],
+			resolveRoot: (workspaceId: string) => `/${workspaceId}`,
+			createIndex: (root) => fakeIndex(root, closed),
+			maxActive: 2,
+			languageLimits: { typescript: 10 },
+			resourcePolicy: policy,
+		});
+
+		const first = await registry.leaseWarmIndex({ workspaceId: "a", path: "a.ts" });
+		const second = await registry.leaseWarmIndex({ workspaceId: "b", path: "b.ts" });
+		// Without this fix, this third lease would fail with WarmIndexCapacityExceeded purely on the
+		// static maxActive=2 count check, even though the real memory budget has room for it.
+		const third = await registry.leaseWarmIndex({ workspaceId: "c", path: "c.ts" });
+
+		expect(registry.status().active).toBe(3);
+		expect(registry.status().effectiveMaxActive).toBe(3);
+		expect(registry.status().activeCeilingSource).toBe("resource-budget");
+		await first[Symbol.asyncDispose]();
+		await second[Symbol.asyncDispose]();
+		await third[Symbol.asyncDispose]();
+	});
+
+	it("never raises the effective ceiling past absoluteMaxActiveIndexes even when the budget would allow more", async () => {
+		const resources = new MutableResourceSnapshot({ indexMemoryBudgetBytes: 100_000, pressure: "low" });
+		const closed: string[] = [];
+		const policy = new AdaptiveWarmIndexResourcePolicy({ resources, estimatedBytesByLanguage: { typescript: 1 }, defaultEstimatedBytes: 1 });
+		const registry = new WarmIndexRegistry({
+			descriptors: [TYPESCRIPT],
+			resolveRoot: (workspaceId: string) => `/${workspaceId}`,
+			createIndex: (root) => fakeIndex(root, closed),
+			maxActive: 2,
+			absoluteMaxActiveIndexes: 3,
+			languageLimits: { typescript: 100 },
+			resourcePolicy: policy,
+		});
+
+		const leases = [];
+		for (let i = 0; i < 3; i++) leases.push(await registry.leaseWarmIndex({ workspaceId: `ws-${i}`, path: `${i}.ts` }));
+		expect(registry.status().active).toBe(3);
+		expect(registry.status().activeCeilingSource).toBe("absolute-cap");
+
+		await expect(registry.leaseWarmIndex({ workspaceId: "overflow", path: "overflow.ts" })).rejects.toBeInstanceOf(WarmIndexCapacityExceeded);
+		for (const lease of leases) await lease[Symbol.asyncDispose]();
+	});
+
 	it("raises the cap with resources and evicts only after active leases can retire", async () => {
 		const harness = createHarness({ indexMemoryBudgetBytes: 200, pressure: "low" });
 		const first = await harness.registry.leaseWarmIndex({ workspaceId: "a", path: "a.ts" });

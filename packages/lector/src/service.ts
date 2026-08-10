@@ -117,6 +117,8 @@ export interface LectorServiceOptions {
 	symbolIndexResourcePolicy?: WarmIndexResourcePolicy;
 	/** Warm-index slots populateSymbolGraph alone can never grow the pool into -- interactive queries (findSymbols, goToDefinition, rename, cross-project search) keep the full maxActiveSymbolIndexes; background population queues instead of competing for admission on equal footing. Defaults to 0 (no reservation, today's behavior). */
 	reservedForegroundSlots?: number;
+	/** The hard structural ceiling a resource policy's own soft ceiling can never raise maxActiveSymbolIndexes past -- independent of memory, protecting against pathological process-count exhaustion. Defaults to 32 (or maxActiveSymbolIndexes if that's already higher). */
+	absoluteMaxActiveIndexes?: number;
 	/** How long populateSymbolGraph's own admission wait can queue for a slot before giving up with WarmIndexAdmissionQueueTimedOut. Defaults to 10s. */
 	backgroundAdmissionQueueTimeoutMs?: number;
 	/** How many populateSymbolGraph admissions may be simultaneously queued before a new one fails fast with WarmIndexAdmissionQueueFull. Defaults to 8. */
@@ -278,6 +280,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		languageLimits: options.symbolIndexLanguageLimits,
 		resourcePolicy: options.symbolIndexResourcePolicy,
 		reservedForegroundSlots: options.reservedForegroundSlots,
+		absoluteMaxActiveIndexes: options.absoluteMaxActiveIndexes,
 		backgroundAdmissionQueueTimeoutMs: options.backgroundAdmissionQueueTimeoutMs,
 		maxQueuedBackgroundAdmissions: options.maxQueuedBackgroundAdmissions,
 		processCostCalibrator: options.symbolIndexProcessCostCalibrator,

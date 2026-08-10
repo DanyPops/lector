@@ -127,6 +127,8 @@ export interface LectorDaemonOptions {
 	backgroundAdmissionQueueTimeoutMs?: number;
 	/** Bounds the background admission queue itself; a queue already at this depth fails fast with WarmIndexAdmissionQueueFull instead of growing unbounded. */
 	maxQueuedBackgroundAdmissions?: number;
+	/** Hard structural ceiling a resource policy's own soft ceiling can never raise the warm-index count past, independent of memory. Defaults to 32 (or maxActiveSymbolIndexes if that's already higher). */
+	absoluteMaxActiveIndexes?: number;
 	/** Initial resource estimates used until process-tree calibration is available. */
 	symbolIndexEstimatedBytesByLanguage?: Readonly<Record<string, number>>;
 	/** Estimate for a language without an explicit entry. Defaults to 512 MiB. */
@@ -229,6 +231,7 @@ function prepare(options: LectorDaemonOptions): {
 		symbolIndexLanguageLimits: options.symbolIndexLanguageLimits ?? (resourcePolicy ? DEFAULT_ADAPTIVE_LANGUAGE_LIMITS : undefined),
 		symbolIndexResourcePolicy: resourcePolicy,
 		reservedForegroundSlots: options.reservedForegroundSlots,
+		absoluteMaxActiveIndexes: options.absoluteMaxActiveIndexes,
 		backgroundAdmissionQueueTimeoutMs: options.backgroundAdmissionQueueTimeoutMs,
 		maxQueuedBackgroundAdmissions: options.maxQueuedBackgroundAdmissions,
 		symbolIndexProcessCostCalibrator: processCostCalibrator,

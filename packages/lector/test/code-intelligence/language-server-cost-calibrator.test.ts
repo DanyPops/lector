@@ -95,6 +95,33 @@ describe("LanguageServerCostCalibrator", () => {
 		expect(calibrator.estimateBytes("typescript")).toBe(512);
 	});
 
+	it("maxKnownCostBytes returns the highest static fallback when nothing has been sampled yet", () => {
+		const observer = new ScriptedObserver();
+		const calibrator = new LanguageServerCostCalibrator({ observer, fallbackBytesByLanguage: { typescript: 512, rust: 900 }, defaultEstimatedBytes: 256 });
+
+		expect(calibrator.maxKnownCostBytes()).toBe(900);
+	});
+
+	it("maxKnownCostBytes rises once a real sample exceeds every static fallback", () => {
+		const observer = new ScriptedObserver();
+		observer.script(1, 5_000_000);
+		const calibrator = new LanguageServerCostCalibrator({ observer, fallbackBytesByLanguage: { typescript: 512, rust: 900 }, defaultEstimatedBytes: 256 });
+		calibrator.recordSample("typescript", 1);
+
+		expect(calibrator.maxKnownCostBytes()).toBe(5_000_000);
+	});
+
+	it("maxKnownCostBytes never drops once a real sample raised it, mirroring estimateBytes' own peak-tracking", () => {
+		const observer = new ScriptedObserver();
+		observer.script(1, 5_000_000);
+		const calibrator = new LanguageServerCostCalibrator({ observer, fallbackBytesByLanguage: { typescript: 512 }, defaultEstimatedBytes: 256 });
+		calibrator.recordSample("typescript", 1);
+		observer.script(1, 100);
+		calibrator.recordSample("typescript", 1);
+
+		expect(calibrator.maxKnownCostBytes()).toBe(5_000_000);
+	});
+
 	it("retains bounded state -- one entry per distinct language actually sampled, never growing with repeated samples of the same language", () => {
 		const observer = new ScriptedObserver();
 		observer.script(1, 1000);

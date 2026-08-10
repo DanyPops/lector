@@ -20,6 +20,8 @@ export function supportsCodeIntelligence(index: SymbolIndexPort): index is Symbo
 }
 
 const DEFAULT_MAX_ACTIVE = 3;
+/** A genuine structural ceiling on process count -- independent of memory, protecting against pathological OS-level exhaustion (file descriptors, threads, scheduler overhead) that no amount of available RAM makes safe to exceed. maxActive itself can never be raised past this by a resource policy's own soft ceiling. */
+const DEFAULT_ABSOLUTE_MAX_ACTIVE = 32;
 const DEFAULT_LANGUAGE_LIMITS: Readonly<Record<string, number>> = Object.freeze({ c: 1, cpp: 1, typescript: 2 });
 
 export class WarmIndexCapacityExceeded extends Error {
@@ -106,6 +108,8 @@ export interface WarmIndexRegistryOptions<WorkspaceKey extends string> {
 	readonly maxActive?: number;
 	readonly languageLimits?: Readonly<Record<string, number>>;
 	readonly resourcePolicy?: WarmIndexResourcePolicy;
+	/** The hard structural ceiling a resource policy's own softActiveCeiling can never raise maxActive past. Defaults to 32. Must be >= maxActive. */
+	readonly absoluteMaxActiveIndexes?: number;
 	readonly observe?: (event: WarmIndexPoolEvent) => void;
 	/** Slots background admission alone can never grow into -- "borrowable" because it only constrains background's own effective ceiling, never reserves capacity foreground can't already reach; background simply queues instead of admitting past it. Default 0 (today's exact behavior: no reservation). */
 	readonly reservedForegroundSlots?: number;
@@ -126,10 +130,17 @@ interface WarmIndexEntry<WorkspaceKey extends string> {
 	lastUsedAt: number;
 }
 
+/** Which ceiling actually constrained the most recent admission decision -- "configured" when no resource policy is present or it reported no room to raise, "resource-budget" when the policy's own soft ceiling (derived from the real memory budget) is currently in effect above maxActive, "absolute-cap" when a resource policy would allow more but DEFAULT_ABSOLUTE_MAX_ACTIVE/absoluteMaxActiveIndexes itself is the binding constraint. */
+export type WarmIndexActiveCeilingSource = "configured" | "resource-budget" | "absolute-cap";
+
 export interface WarmIndexPoolStatus {
 	readonly active: number;
 	readonly leased: number;
 	readonly maxActive: number;
+	/** The count ceiling actually in effect for the most recent admission -- may exceed maxActive when a resource policy's own soft ceiling raised it, never exceeds absoluteMaxActiveIndexes. */
+	readonly effectiveMaxActive: number;
+	readonly activeCeilingSource: WarmIndexActiveCeilingSource;
+	readonly absoluteMaxActiveIndexes: number;
 	readonly byLanguage: Readonly<Record<string, number>>;
 	readonly resources?: WarmIndexResourceStatus;
 	/** How many background admissions are currently waiting for a slot reserved for foreground work -- path-free, language/count only. Zero whenever reservedForegroundSlots is unset or nothing is contending. */
@@ -151,6 +162,9 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 	private readonly entries = new Map<string, WarmIndexEntry<WorkspaceKey>>();
 	private readonly now: () => number;
 	private readonly maxActive: number;
+	private readonly absoluteMaxActiveIndexes: number;
+	private lastActiveCeilingSource: WarmIndexActiveCeilingSource = "configured";
+	private lastEffectiveMaxActive: number;
 	private readonly languageLimits: Readonly<Record<string, number>>;
 	private admissionTail: Promise<void> = Promise.resolve();
 	private nextSequence = 0;
@@ -166,6 +180,11 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		this.maxActive = options.maxActive ?? DEFAULT_MAX_ACTIVE;
 		this.languageLimits = options.languageLimits ?? DEFAULT_LANGUAGE_LIMITS;
 		if (!Number.isSafeInteger(this.maxActive) || this.maxActive < 1) throw new TypeError("maxActive must be a positive safe integer");
+		this.absoluteMaxActiveIndexes = options.absoluteMaxActiveIndexes ?? Math.max(DEFAULT_ABSOLUTE_MAX_ACTIVE, this.maxActive);
+		if (!Number.isSafeInteger(this.absoluteMaxActiveIndexes) || this.absoluteMaxActiveIndexes < this.maxActive) {
+			throw new TypeError("absoluteMaxActiveIndexes must be a safe integer no smaller than maxActive");
+		}
+		this.lastEffectiveMaxActive = this.maxActive;
 		for (const [languageId, limit] of Object.entries(this.languageLimits)) {
 			if (!languageId || !Number.isSafeInteger(limit) || limit < 1) throw new TypeError("language limits must be positive safe integers keyed by language id");
 		}
@@ -306,10 +325,14 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			if (!victim) throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, languageLimit);
 			await this.evict(victim);
 		}
+		const { ceiling: baseCeiling, source: ceilingSource } = this.baseActiveCeiling();
+		this.lastEffectiveMaxActive = baseCeiling;
+		this.lastActiveCeilingSource = ceilingSource;
 		// "Borrowable": background's own effective ceiling is reduced, but only background is ever
 		// held to it -- it constrains what background alone can grow the pool into, not a hard
-		// set-aside nothing else can reach. Foreground keeps using the full maxActive unchanged.
-		const effectiveMaxActive = workKind === "background" ? Math.max(this.maxActive - this.reservedForegroundSlots, 0) : this.maxActive;
+		// set-aside nothing else can reach. Foreground keeps using the full (possibly resource-
+		// budget-raised) baseCeiling unchanged.
+		const effectiveMaxActive = workKind === "background" ? Math.max(baseCeiling - this.reservedForegroundSlots, 0) : baseCeiling;
 		while (this.entries.size >= effectiveMaxActive) {
 			const victim = this.leastRecentlyUsedIdle();
 			if (victim) {
@@ -317,11 +340,11 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 				continue;
 			}
 			if (workKind === "background") throw new NeedsBackgroundAdmissionWait();
-			throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, languageLimit);
+			throw new WarmIndexCapacityExceeded(descriptor.languageId, baseCeiling, languageLimit);
 		}
 		while (this.options.resourcePolicy && !this.options.resourcePolicy.canAdmit(this.activeLanguages(), descriptor.languageId)) {
 			const victim = this.leastRecentlyUsedIdle();
-			if (!victim) throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, languageLimit);
+			if (!victim) throw new WarmIndexCapacityExceeded(descriptor.languageId, baseCeiling, languageLimit);
 			await this.evict(victim, "resource-pressure");
 		}
 		return {
@@ -490,6 +513,21 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		return false;
 	}
 
+	/**
+	 * Derives the count ceiling actually in effect right now, independent of any particular
+	 * admission attempt -- the resource policy's own soft ceiling (from the real memory budget and
+	 * worst-case known cost) raises maxActive when it reports more room, clamped to
+	 * absoluteMaxActiveIndexes, and falls back to maxActive alone (source "configured") on any
+	 * metric loss (no policy, or the policy declines/fails to compute one) -- fails closed, never
+	 * treated as "unlimited room."
+	 */
+	private baseActiveCeiling(): { readonly ceiling: number; readonly source: WarmIndexActiveCeilingSource } {
+		const soft = this.options.resourcePolicy?.softActiveCeiling(this.activeLanguages());
+		if (soft === undefined || !Number.isFinite(soft) || soft <= this.maxActive) return { ceiling: this.maxActive, source: "configured" };
+		const clamped = Math.min(Math.floor(soft), this.absoluteMaxActiveIndexes);
+		return { ceiling: clamped, source: clamped >= this.absoluteMaxActiveIndexes ? "absolute-cap" : "resource-budget" };
+	}
+
 	status(): WarmIndexPoolStatus {
 		const byLanguage: Record<string, number> = {};
 		let leased = 0;
@@ -502,6 +540,9 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			active: this.entries.size,
 			leased,
 			maxActive: this.maxActive,
+			effectiveMaxActive: this.lastEffectiveMaxActive,
+			activeCeilingSource: this.lastActiveCeilingSource,
+			absoluteMaxActiveIndexes: this.absoluteMaxActiveIndexes,
 			byLanguage,
 			waitingBackgroundAdmissions: this.queuedBackgroundAdmissions,
 			...(resources ? { resources } : {}),
