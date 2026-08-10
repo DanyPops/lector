@@ -130,7 +130,7 @@ describe("waitForJobCompletion", () => {
 		await Promise.resolve();
 		listener?.(succeededJob());
 
-		expect(await completion).toMatchObject({ status: "succeeded" });
+		expect(await completion).toMatchObject({ kind: "terminal", job: { status: "succeeded" } });
 		expect(polls).toBe(1);
 		expect(sleeps).toBe(1);
 	});
@@ -157,7 +157,7 @@ describe("waitForJobCompletion", () => {
 				shouldContinue: () => true,
 				signal: controller.signal,
 			}),
-		).toBeUndefined();
+		).toEqual({ kind: "canceled" });
 		expect(closed).toBe(true);
 		expect(polls).toBe(0);
 	});
@@ -171,15 +171,71 @@ describe("waitForJobCompletion", () => {
 			watchJob: () => Promise.resolve({ status: "unavailable" }),
 		};
 
-		const job = await waitForJobCompletion(operations, "job-1", {
+		const outcome = await waitForJobCompletion(operations, "job-1", {
 			pollIntervalMs: 1,
 			maxPolls: 2,
 			shouldContinue: () => true,
 			sleep: () => Promise.resolve(),
 		});
 
-		expect(job).toMatchObject({ status: "succeeded" });
+		expect(outcome).toMatchObject({ kind: "terminal", job: { status: "succeeded" } });
 		expect(polls).toBe(2);
+	});
+
+	it("reports job-not-found rather than throwing when the job id has expired, been evicted, or survives a daemon restart", async () => {
+		const operations: WorkspaceCacheOperations = {
+			status: () => Promise.resolve({ status: "caching", jobId: "job-1" }),
+			submit: () => Promise.resolve(runningJob()),
+			jobStatus: () =>
+				Promise.reject(new Error('JobNotFound: background job "job-1" is unknown: it expired, was evicted, or belonged to a previous daemon process')),
+			watchJob: () => Promise.resolve({ status: "unavailable" }),
+		};
+
+		const outcome = await waitForJobCompletion(operations, "job-1", {
+			pollIntervalMs: 1,
+			maxPolls: 2,
+			shouldContinue: () => true,
+			sleep: () => Promise.resolve(),
+		});
+
+		expect(outcome).toEqual({ kind: "job-not-found" });
+	});
+
+	it("reports transport-failed rather than throwing when the daemon can't be reached at all", async () => {
+		const transportError = new Error("fetch failed");
+		const operations: WorkspaceCacheOperations = {
+			status: () => Promise.resolve({ status: "caching", jobId: "job-1" }),
+			submit: () => Promise.resolve(runningJob()),
+			jobStatus: () => Promise.reject(transportError),
+			watchJob: () => Promise.resolve({ status: "unavailable" }),
+		};
+
+		const outcome = await waitForJobCompletion(operations, "job-1", {
+			pollIntervalMs: 1,
+			maxPolls: 2,
+			shouldContinue: () => true,
+			sleep: () => Promise.resolve(),
+		});
+
+		expect(outcome).toEqual({ kind: "transport-failed", error: transportError });
+	});
+
+	it("reports timed-out, not a terminal job, when the bounded poll budget is spent and the job is still running", async () => {
+		const operations: WorkspaceCacheOperations = {
+			status: () => Promise.resolve({ status: "caching", jobId: "job-1" }),
+			submit: () => Promise.resolve(runningJob()),
+			jobStatus: () => Promise.resolve(runningJob()),
+			watchJob: () => Promise.resolve({ status: "unavailable" }),
+		};
+
+		const outcome = await waitForJobCompletion(operations, "job-1", {
+			pollIntervalMs: 1,
+			maxPolls: 2,
+			shouldContinue: () => true,
+			sleep: () => Promise.resolve(),
+		});
+
+		expect(outcome).toEqual({ kind: "timed-out" });
 	});
 });
 
@@ -282,8 +338,9 @@ describe("monitorWorkspaceCache", () => {
 		expect(states).toEqual(["not-cached", "finished-caching", "partial"]);
 	});
 
-	it("stops after bounded fallback intervals and one final status check", async () => {
+	it("stops after bounded fallback intervals and one final status check -- still genuinely caching is reported honestly, not silently dropped", async () => {
 		let polls = 0;
+		const states: string[] = [];
 		const operations: WorkspaceCacheOperations = {
 			status: () => Promise.resolve({ status: "caching", jobId: "job-1" }),
 			submit: () => Promise.resolve(runningJob()),
@@ -299,9 +356,185 @@ describe("monitorWorkspaceCache", () => {
 			pollIntervalMs: 1,
 			maxPolls: 2,
 			shouldContinue: () => true,
-			onState: () => {},
+			onState: (state) => states.push(state.status),
 			sleep: () => Promise.resolve(),
 		});
 		expect(polls).toBe(3);
+		expect(states).toEqual(["caching", "caching"]);
+	});
+
+	it("reconciles a timed-out watch against authoritative status, never leaving the UI stuck at caching once the graph actually finished", async () => {
+		const states: string[] = [];
+		const job = succeededJob();
+		let statusCalls = 0;
+		const operations: WorkspaceCacheOperations = {
+			status: () => {
+				statusCalls++;
+				return Promise.resolve(
+					statusCalls === 1
+						? { status: "caching", jobId: "job-1" }
+						: { status: "cached", generation: { sourceFingerprint: "x", maxFiles: 10, maxSymbolsPerFile: 10, completedAt: 1, result: job.result } },
+				);
+			},
+			submit: () => Promise.resolve(runningJob()),
+			// The watch itself never observes the terminal transition -- only the fresh status() call does, simulating
+			// another session/process completing the same generation while this bounded watch was still polling.
+			jobStatus: () => Promise.resolve(runningJob()),
+		};
+		await monitorWorkspaceCache(operations, {
+			directory: "/repo",
+			maxFiles: 10,
+			maxSymbolsPerFile: 10,
+			pollIntervalMs: 1,
+			maxPolls: 1,
+			shouldContinue: () => true,
+			onState: (state) => states.push(state.status),
+			sleep: () => Promise.resolve(),
+		});
+		expect(states).toEqual(["caching", "cached"]);
+		expect(states.at(-1)).not.toBe("caching");
+	});
+
+	it("reconciles a job-not-found watch against authoritative status instead of throwing or freezing on a stale message", async () => {
+		const states: string[] = [];
+		const job = partialJob();
+		let statusCalls = 0;
+		const operations: WorkspaceCacheOperations = {
+			status: () => {
+				statusCalls++;
+				return Promise.resolve(
+					statusCalls === 1
+						? { status: "caching", jobId: "job-1" }
+						: { status: "partial", generation: { sourceFingerprint: "x", maxFiles: 10, maxSymbolsPerFile: 10, completedAt: 1, result: job.result } },
+				);
+			},
+			submit: () => Promise.resolve(runningJob()),
+			jobStatus: () =>
+				Promise.reject(new Error('JobNotFound: background job "job-1" is unknown: it expired, was evicted, or belonged to a previous daemon process')),
+		};
+		await monitorWorkspaceCache(operations, {
+			directory: "/repo",
+			maxFiles: 10,
+			maxSymbolsPerFile: 10,
+			pollIntervalMs: 1,
+			maxPolls: 2,
+			shouldContinue: () => true,
+			onState: (state) => states.push(state.status),
+			sleep: () => Promise.resolve(),
+		});
+		expect(states).toEqual(["caching", "partial"]);
+	});
+
+	it("reconciles a job-not-found watch all the way to not-cached when the source itself changed underneath it", async () => {
+		const states: string[] = [];
+		let statusCalls = 0;
+		const operations: WorkspaceCacheOperations = {
+			status: () => {
+				statusCalls++;
+				return Promise.resolve(statusCalls === 1 ? { status: "caching", jobId: "job-1" } : { status: "not-cached", reason: "source-changed" });
+			},
+			submit: () => Promise.resolve(runningJob()),
+			jobStatus: () =>
+				Promise.reject(new Error('JobNotFound: background job "job-1" is unknown: it expired, was evicted, or belonged to a previous daemon process')),
+		};
+		await monitorWorkspaceCache(operations, {
+			directory: "/repo",
+			maxFiles: 10,
+			maxSymbolsPerFile: 10,
+			pollIntervalMs: 1,
+			maxPolls: 2,
+			shouldContinue: () => true,
+			onState: (state) => states.push(state.status),
+			sleep: () => Promise.resolve(),
+		});
+		expect(states).toEqual(["caching", "not-cached"]);
+	});
+
+	it("reconciles a transport-failed watch against authoritative status too, not just job-not-found and timed-out", async () => {
+		const states: string[] = [];
+		let jobStatusCalls = 0;
+		let statusCalls = 0;
+		const operations: WorkspaceCacheOperations = {
+			status: () => {
+				statusCalls++;
+				return Promise.resolve(
+					statusCalls === 1
+						? { status: "caching", jobId: "job-1" }
+						: { status: "cached", generation: { sourceFingerprint: "x", maxFiles: 10, maxSymbolsPerFile: 10, completedAt: 1, result: succeededJob().result } },
+				);
+			},
+			submit: () => Promise.resolve(runningJob()),
+			jobStatus: () => {
+				jobStatusCalls++;
+				return Promise.reject(new Error("fetch failed"));
+			},
+		};
+		await monitorWorkspaceCache(operations, {
+			directory: "/repo",
+			maxFiles: 10,
+			maxSymbolsPerFile: 10,
+			pollIntervalMs: 1,
+			maxPolls: 2,
+			shouldContinue: () => true,
+			onState: (state) => states.push(state.status),
+			sleep: () => Promise.resolve(),
+		});
+		expect(states).toEqual(["caching", "cached"]);
+		expect(jobStatusCalls).toBeGreaterThan(0);
+	});
+
+	it("propagates a genuine reconciliation failure rather than swallowing it -- there is nothing more authoritative left to ask", async () => {
+		const reconcileError = new Error("daemon unreachable");
+		let statusCalls = 0;
+		const operations: WorkspaceCacheOperations = {
+			status: () => {
+				statusCalls++;
+				if (statusCalls === 1) return Promise.resolve({ status: "caching", jobId: "job-1" });
+				return Promise.reject(reconcileError);
+			},
+			submit: () => Promise.resolve(runningJob()),
+			jobStatus: () => Promise.reject(new Error("fetch failed")),
+		};
+		await expect(
+			monitorWorkspaceCache(operations, {
+				directory: "/repo",
+				maxFiles: 10,
+				maxSymbolsPerFile: 10,
+				pollIntervalMs: 1,
+				maxPolls: 2,
+				shouldContinue: () => true,
+				onState: () => {},
+				sleep: () => Promise.resolve(),
+			}),
+		).rejects.toBe(reconcileError);
+	});
+
+	it("does not reconcile at all when the monitor stops because the caller genuinely canceled it", async () => {
+		const states: string[] = [];
+		let statusCalls = 0;
+		const operations: WorkspaceCacheOperations = {
+			status: () => {
+				statusCalls++;
+				return Promise.resolve({ status: "caching", jobId: "job-1" });
+			},
+			submit: () => Promise.resolve(runningJob()),
+			jobStatus: () => Promise.resolve(runningJob()),
+		};
+		let stillRunning = true;
+		await monitorWorkspaceCache(operations, {
+			directory: "/repo",
+			maxFiles: 10,
+			maxSymbolsPerFile: 10,
+			pollIntervalMs: 1,
+			maxPolls: 5,
+			shouldContinue: () => stillRunning,
+			onState: (state) => {
+				states.push(state.status);
+				stillRunning = false;
+			},
+			sleep: () => Promise.resolve(),
+		});
+		expect(states).toEqual(["caching"]);
+		expect(statusCalls).toBe(1);
 	});
 });

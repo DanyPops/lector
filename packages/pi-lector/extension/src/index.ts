@@ -1155,14 +1155,20 @@ export default function (pi: ExtensionAPI) {
 					if (!Number.isSafeInteger(waitMs) || waitMs < 1 || waitMs > 300_000)
 						throw new Error("workspace_cache action=wait waitMs must be an integer from 1 to 300000");
 					const pollIntervalMs = 5_000;
-					const completed = await waitForJobCompletion(cacheOperations, params.jobId, {
+					const outcome = await waitForJobCompletion(cacheOperations, params.jobId, {
 						pollIntervalMs,
 						maxPolls: Math.ceil(waitMs / pollIntervalMs),
 						shouldContinue: () => !signal?.aborted,
 						signal,
 					});
 					if (signal?.aborted) throw new DOMException("workspace cache wait canceled", "AbortError");
-					const job = completed ?? (await cacheOperations.jobStatus(params.jobId));
+					if (outcome.kind === "transport-failed") throw outcome.error instanceof Error ? outcome.error : new Error(String(outcome.error));
+					if (outcome.kind === "job-not-found") {
+						throw new Error(
+							`workspace cache job "${params.jobId}" is no longer known -- it expired, was evicted, or belonged to a previous daemon process; check workspace_cache action=status instead`,
+						);
+					}
+					const job = outcome.kind === "terminal" ? outcome.job : await cacheOperations.jobStatus(params.jobId);
 					return { content: [{ type: "text", text: JSON.stringify(job) }], details: { action: "wait", job } };
 				}
 				if (!params.directory) throw new Error(`workspace_cache action=${params.action} requires directory`);

@@ -1,4 +1,4 @@
-import { type JobSnapshot, type PopulateSymbolGraphResult, resolveLectorDaemonConnection, type WorkspaceCacheStatus } from "@danypops/lector";
+import { type JobSnapshot, type PopulateSymbolGraphResult, remoteErrorIs, resolveLectorDaemonConnection, type WorkspaceCacheStatus } from "@danypops/lector";
 import { connectPushChannel } from "@danypops/vehicle-client/daemon-client";
 import { lectorClient, withWorkspace, workspaceForProjectDirectory } from "../lector-client.ts";
 
@@ -117,12 +117,27 @@ export interface WaitForJobCompletionOptions {
 	readonly sleep?: (ms: number) => Promise<void>;
 }
 
+/**
+ * Exhaustive outcome of waiting on one job -- every path monitorWorkspaceCache must reconcile
+ * against authoritative workspace.cacheStatus, distinct from a genuine terminal result:
+ * "job-not-found" (the id expired, was evicted, or survives from a since-restarted daemon),
+ * "timed-out" (the bounded poll budget was spent and the job is still non-terminal), and
+ * "transport-failed" (the daemon couldn't be reached at all) all mean "we no longer know this
+ * job's real state" -- never treated as if the job were still "caching" forever.
+ */
+export type JobCompletionOutcome =
+	| { readonly kind: "terminal"; readonly job: JobSnapshot<PopulateSymbolGraphResult> & { readonly status: "succeeded" | "failed" } }
+	| { readonly kind: "timed-out" }
+	| { readonly kind: "canceled" }
+	| { readonly kind: "job-not-found" }
+	| { readonly kind: "transport-failed"; readonly error: unknown };
+
 /** Waits on Vehicle push delivery and checks status on a bounded cadence when push is unavailable or disconnected. */
 export async function waitForJobCompletion(
 	operations: WorkspaceCacheOperations,
 	jobId: string,
 	options: WaitForJobCompletionOptions,
-): Promise<JobSnapshot<PopulateSymbolGraphResult> | undefined> {
+): Promise<JobCompletionOutcome> {
 	const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 	let pushedResolve: ((job: JobSnapshot<PopulateSymbolGraphResult>) => void) | undefined;
 	const pushed = new Promise<JobSnapshot<PopulateSymbolGraphResult>>((resolve) => {
@@ -135,17 +150,29 @@ export async function waitForJobCompletion(
 	});
 	const onAbort = () => resolveAbort();
 	options.signal?.addEventListener("abort", onAbort, { once: true });
-	try {
-		const outcome = await operations.watchJob?.(jobId, (job) => pushedResolve?.(job));
-		if (outcome?.status === "subscribed") watch = outcome.handle;
-		for (let poll = 0; poll < options.maxPolls && options.shouldContinue() && !options.signal?.aborted; poll++) {
+
+	async function checkStatus(): Promise<JobCompletionOutcome | undefined> {
+		try {
 			const current = await operations.jobStatus(jobId);
-			if (current.status === "succeeded" || current.status === "failed") return current;
-			const next = await Promise.race([pushed, sleep(options.pollIntervalMs).then(() => undefined), aborted.then(() => undefined)]);
-			if (next?.status === "succeeded" || next?.status === "failed") return next;
+			if (current.status === "succeeded" || current.status === "failed") return { kind: "terminal", job: current };
+			return undefined;
+		} catch (error) {
+			if (remoteErrorIs(error, "JobNotFound")) return { kind: "job-not-found" };
+			return { kind: "transport-failed", error };
 		}
-		if (options.shouldContinue() && !options.signal?.aborted) return operations.jobStatus(jobId);
-		return undefined;
+	}
+
+	try {
+		const subscription = await operations.watchJob?.(jobId, (job) => pushedResolve?.(job));
+		if (subscription?.status === "subscribed") watch = subscription.handle;
+		for (let poll = 0; poll < options.maxPolls && options.shouldContinue() && !options.signal?.aborted; poll++) {
+			const checked = await checkStatus();
+			if (checked) return checked;
+			const next = await Promise.race([pushed, sleep(options.pollIntervalMs).then(() => undefined), aborted.then(() => undefined)]);
+			if (next?.status === "succeeded" || next?.status === "failed") return { kind: "terminal", job: next };
+		}
+		if (!options.shouldContinue() || options.signal?.aborted) return { kind: "canceled" };
+		return (await checkStatus()) ?? { kind: "timed-out" };
 	} finally {
 		options.signal?.removeEventListener("abort", onAbort);
 		watch?.close();
@@ -186,12 +213,31 @@ export async function monitorWorkspaceCache(operations: WorkspaceCacheOperations
 	}
 	options.onState({ status: "caching", jobId });
 
-	const job = await waitForJobCompletion(operations, jobId, {
+	const outcome = await waitForJobCompletion(operations, jobId, {
 		pollIntervalMs: options.pollIntervalMs,
 		maxPolls: options.maxPolls,
 		shouldContinue: options.shouldContinue,
 		sleep,
 	});
-	if (job?.status === "failed") throw new Error(`${job.error.code}: ${job.error.message}`);
-	if (job?.status === "succeeded") reportCompleted(job);
+	if (outcome.kind === "canceled") return;
+	if (outcome.kind === "terminal") {
+		if (outcome.job.status === "failed") throw new Error(`${outcome.job.error.code}: ${outcome.job.error.message}`);
+		reportCompleted(outcome.job);
+		return;
+	}
+	// job-not-found, timed-out, and transport-failed all mean the same thing here: this specific
+	// watch no longer knows the job's real state. Never leave the last-reported "caching" message
+	// standing -- ask the daemon's own authoritative record what is actually true right now.
+	const reconciled = await operations.status(options.directory, options.maxFiles, options.maxSymbolsPerFile);
+	if (reconciled.status === "cached") {
+		options.onState({ status: "cached" });
+	} else if (reconciled.status === "partial") {
+		options.onState({ status: "partial", result: reconciled.generation.result });
+	} else if (reconciled.status === "not-cached") {
+		options.onState({ status: "not-cached", reason: reconciled.reason });
+	} else {
+		// Still genuinely caching or queued behind resource admission under a fresh check --
+		// an accurate report, not a stale one, even though the presented status string repeats.
+		options.onState({ status: "caching", jobId: reconciled.jobId });
+	}
 }
