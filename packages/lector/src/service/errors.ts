@@ -216,6 +216,21 @@ export class InvalidJobInput extends Error {
 	}
 }
 
+/**
+ * Refuses an auto-population trigger against a resolved root that looks like a broad host
+ * directory (home directory, an XDG config/cache/data root, a dotfile directory) rather than a
+ * real project -- live evidence: a stale ~/.config registration produced a 500-file population
+ * over unrelated application caches, and ~/.pi/agent queued behind real projects before failing
+ * UnsupportedLanguage on files that were never a real project's source. Pass allowBroadRoot:
+ * true to proceed anyway -- an explicit, auditable opt-in, never a silent default.
+ */
+export class BroadNonProjectRoot extends Error {
+	constructor(readonly rootPath: string) {
+		super(`"${rootPath}" looks like a broad host directory, not a real project -- refusing to auto-populate without allowBroadRoot: true`);
+		this.name = "BroadNonProjectRoot";
+	}
+}
+
 export class WorkspaceChangedDuringPopulation extends Error {
 	constructor(readonly workspaceId: WorkspaceId) {
 		super(

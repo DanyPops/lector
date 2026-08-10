@@ -337,6 +337,8 @@ export {
 	applyPatch,
 	PatchRejected,
 } from "./workspace/apply-patch.ts";
+export type { AutoPopulationRootClassification, ClassifyAutoPopulationRootInput } from "./workspace/classify-auto-population-root.ts";
+export { classifyAutoPopulationRoot } from "./workspace/classify-auto-population-root.ts";
 export type { CodeRange } from "./workspace/code-range.ts";
 export {
 	type EditOutcome,

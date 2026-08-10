@@ -26,10 +26,27 @@ function deferred<T>() {
 	return { promise, resolve };
 }
 
-/** Blocks on documentSymbols until released -- simulates populateSymbolGraph mid-flight, holding its lease ACTIVE (never idle, so it can never simply be evicted). */
+/**
+ * Blocks on documentSymbols until released -- simulates populateSymbolGraph mid-flight, holding
+ * its lease ACTIVE (never idle, so it can never simply be evicted). `entered` resolves the
+ * instant documentSymbols() is actually called -- by then the lease is provably held (leasing
+ * happens before populateSymbolGraphQuery ever calls documentSymbols), the only fully
+ * deterministic point to synchronize a test on, as opposed to inferring lease state from
+ * job.status ("running" reflects executor scheduling, not lease acquisition specifically, and
+ * the population handler's own real work before leasing -- including the broad-non-project-root
+ * classification's own directory read -- is not a fixed number of ticks).
+ */
 class BlockedOnDocumentSymbolsIndex implements ClosableSymbolIndex {
 	readonly provenance = TEST_SEMANTIC_PROVENANCE;
-	constructor(private readonly documents: Promise<readonly DocumentSymbolEntry[]>) {}
+	private readonly enteredResolve: () => void;
+	readonly entered: Promise<void>;
+	constructor(private readonly documents: Promise<readonly DocumentSymbolEntry[]>) {
+		let resolveEntered!: () => void;
+		this.entered = new Promise((resolvePromise) => {
+			resolveEntered = resolvePromise;
+		});
+		this.enteredResolve = resolveEntered;
+	}
 	findSymbols() {
 		return Promise.resolve(symbolSearchResult());
 	}
@@ -37,6 +54,7 @@ class BlockedOnDocumentSymbolsIndex implements ClosableSymbolIndex {
 		return Promise.resolve([]);
 	}
 	documentSymbols(): Promise<readonly DocumentSymbolEntry[]> {
+		this.enteredResolve();
 		return this.documents;
 	}
 	outgoingCalls(): Promise<[]> {
@@ -78,11 +96,11 @@ describe("foreground admission priority over background population", () => {
 		const rootA = fixture();
 		const rootB = fixture();
 		const documents = deferred<readonly DocumentSymbolEntry[]>();
+		const blocked = new BlockedOnDocumentSymbolsIndex(documents.promise);
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
 			maxActiveSymbolIndexes: 1,
-			createSymbolIndex: (rootPath: string, _descriptor: LanguageServerDescriptor) =>
-				rootPath === rootA ? new BlockedOnDocumentSymbolsIndex(documents.promise) : new InstantIndex(),
+			createSymbolIndex: (rootPath: string, _descriptor: LanguageServerDescriptor) => (rootPath === rootA ? blocked : new InstantIndex()),
 		});
 		const { workspaceId: workspaceA } = await service.dispatch("workspace.registerPath", { path: rootA });
 		const { workspaceId: workspaceB } = await service.dispatch("workspace.registerPath", { path: rootB });
@@ -92,6 +110,9 @@ describe("foreground admission priority over background population", () => {
 			input: { workspaceId: workspaceA, maxFiles: 10, maxSymbolsPerFile: 10 },
 			waitMs: 0,
 		});
+		// Deterministic: the lease is provably held only once documentSymbols() is actually called --
+		// job.status alone can't prove that (it reflects executor scheduling, not lease acquisition).
+		await blocked.entered;
 		expect((await service.dispatch("job.status", { jobId: job.id })).job.status).toBe("running");
 
 		await expect(service.dispatch("workspace.findSymbols", { workspaceId: workspaceB, query: "found" })).rejects.toBeInstanceOf(WarmIndexCapacityExceeded);
@@ -103,12 +124,12 @@ describe("foreground admission priority over background population", () => {
 		const rootA = fixture();
 		const rootB = fixture();
 		const documents = deferred<readonly DocumentSymbolEntry[]>();
+		const blocked = new BlockedOnDocumentSymbolsIndex(documents.promise);
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
 			maxActiveSymbolIndexes: 2,
 			reservedForegroundSlots: 1,
-			createSymbolIndex: (rootPath: string, _descriptor: LanguageServerDescriptor) =>
-				rootPath === rootA ? new BlockedOnDocumentSymbolsIndex(documents.promise) : new InstantIndex(),
+			createSymbolIndex: (rootPath: string, _descriptor: LanguageServerDescriptor) => (rootPath === rootA ? blocked : new InstantIndex()),
 		});
 		const { workspaceId: workspaceA } = await service.dispatch("workspace.registerPath", { path: rootA });
 		const { workspaceId: workspaceB } = await service.dispatch("workspace.registerPath", { path: rootB });
@@ -118,6 +139,7 @@ describe("foreground admission priority over background population", () => {
 			input: { workspaceId: workspaceA, maxFiles: 10, maxSymbolsPerFile: 10 },
 			waitMs: 0,
 		});
+		await blocked.entered;
 		expect((await service.dispatch("job.status", { jobId: job.id })).job.status).toBe("running");
 
 		const startedAt = Date.now();
@@ -132,13 +154,13 @@ describe("foreground admission priority over background population", () => {
 		const rootA = fixture();
 		const rootB = fixture();
 		const firstDocuments = deferred<readonly DocumentSymbolEntry[]>();
+		const blocked = new BlockedOnDocumentSymbolsIndex(firstDocuments.promise);
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
 			maxActiveSymbolIndexes: 1,
 			reservedForegroundSlots: 0,
 			backgroundAdmissionQueueTimeoutMs: 2_000,
-			createSymbolIndex: (rootPath: string, _descriptor: LanguageServerDescriptor) =>
-				rootPath === rootA ? new BlockedOnDocumentSymbolsIndex(firstDocuments.promise) : new InstantIndex(),
+			createSymbolIndex: (rootPath: string, _descriptor: LanguageServerDescriptor) => (rootPath === rootA ? blocked : new InstantIndex()),
 		});
 		const { workspaceId: workspaceA } = await service.dispatch("workspace.registerPath", { path: rootA });
 		const { workspaceId: workspaceB } = await service.dispatch("workspace.registerPath", { path: rootB });
@@ -148,6 +170,7 @@ describe("foreground admission priority over background population", () => {
 			input: { workspaceId: workspaceA, maxFiles: 10, maxSymbolsPerFile: 10 },
 			waitMs: 0,
 		});
+		await blocked.entered;
 		expect((await service.dispatch("job.status", { jobId: first.job.id })).job.status).toBe("running");
 
 		// A second background populate, for a different workspace, has no idle victim (workspace A's

@@ -224,7 +224,8 @@ export interface OperationInputs {
 	"workspace.prepareCallHierarchy": WorkspacePosition;
 	"workspace.incomingCalls": WorkspacePosition & { maxResults?: number; maxBytes?: number };
 	"workspace.outgoingCalls": WorkspacePosition & { maxResults?: number; maxBytes?: number };
-	"workspace.populateSymbolGraph": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
+	/** allowBroadRoot is an explicit, auditable opt-in past classifyAutoPopulationRoot's own refusal -- see BroadNonProjectRoot. */
+	"workspace.populateSymbolGraph": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number; allowBroadRoot?: boolean };
 	"workspace.reachableFrom": WorkspacePosition & { maxDepth: number; kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
 	"workspace.symbolEdgesFrom": WorkspacePosition & { kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
 	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };

@@ -1,3 +1,5 @@
+import { readdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type {
 	CachedRepositoryPage,
@@ -44,7 +46,7 @@ import { Type } from "typebox";
 /** Real ANSI-aware measurement for Table -- Malevich's own default is ASCII-only, unsafe against theme-styled cell/header text. */
 const tableMeasure: TextMeasure = { visibleWidth, truncateToWidth };
 
-import { isFilesystemRoot } from "@danypops/lector";
+import { classifyAutoPopulationRoot, isFilesystemRoot } from "@danypops/lector";
 import { createLectorApplyPatchOperations } from "./apply-patch/operations.ts";
 import { formatApplyPatchCall, formatApplyPatchResult } from "./apply-patch/rendering.ts";
 import { createLectorCodeIntelligenceOperations } from "./code-intelligence/operations.ts";
@@ -214,10 +216,23 @@ export default function (pi: ExtensionAPI) {
 	 * intentional fallback for a raw read/write of a file outside any git repo can register
 	 * exactly this as a "new workspace", and auto-populating it would attempt a full
 	 * filesystem-wide symbol-graph scan -- confirmed live as a real, previously-shipped bug.
+	 *
+	 * Also short-circuits a broad host directory (home directory, an XDG config/cache/data
+	 * root, a dotfile directory) the exact same way workspace.populateSymbolGraph's own
+	 * server-side gate would refuse it -- avoids the round trip (and the queue-behind-real-
+	 * projects ergonomics this caused live for ~/.pi/agent) entirely, using the identical
+	 * classification Lector itself uses so the two never drift. A readdir failure (permission,
+	 * race) is treated as "can't tell, don't block" -- the server-side gate is still authoritative.
 	 */
 	function startMonitoringRoot(root: string, ctx: Parameters<Parameters<ExtensionAPI["on"]>[1]>[1]): void {
 		if (isFilesystemRoot(root)) return;
 		if (monitoringRoots.has(root)) return;
+		try {
+			const topLevelEntries = readdirSync(root);
+			if (classifyAutoPopulationRoot({ rootPath: root, homeDir: homedir(), topLevelEntries }) === "broad-non-project") return;
+		} catch {
+			// Can't read it here -- let the server-side gate be the authoritative answer.
+		}
 		monitoringRoots.add(root);
 		const thisGeneration = sessionGeneration;
 		void monitorWorkspaceCache(cacheOperations, {

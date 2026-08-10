@@ -1,3 +1,5 @@
+import { readdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { extname } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { boundList, boundListFromStart, jsonByteSize } from "../bounds/bound-list.ts";
@@ -30,6 +32,7 @@ import { symbolEdgesTo } from "../symbol-graph/symbol-edges-to.ts";
 import type { SymbolGraphGeneration } from "../symbol-graph/symbol-graph-generation.ts";
 import { deriveSymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import { applyWorkspaceEdit, collectTouchedPaths } from "../workspace/apply-workspace-edit.ts";
+import { classifyAutoPopulationRoot } from "../workspace/classify-auto-population-root.ts";
 import { WorkspaceEntryNotFound } from "../workspace/raw-read.ts";
 import { deriveSourceManifest } from "../workspace/source-manifest.ts";
 import type { ParsedWorkspaceEdit } from "../workspace/workspace-edit.ts";
@@ -46,6 +49,7 @@ import {
 } from "./bounds.ts";
 import { requireCodeIntelligence } from "./code-intelligence-handlers.ts";
 import {
+	BroadNonProjectRoot,
 	CodeIntelligenceUnavailable,
 	InvalidJobInput,
 	JobWaitTooLong,
@@ -81,6 +85,8 @@ export interface SymbolGraphHandlerDeps {
 	 * ensureOsWatcher, WorkspaceWatchHandlers needs scheduleGraphRefresh below) -- the caller
 	 * passes an initially-no-op indirection and rebinds it once both objects exist. */
 	readonly ensureOsWatcher: (workspaceId: WorkspaceId, rootPath: string) => void;
+	/** Injectable for tests -- classifyAutoPopulationRoot's own home-directory heuristic must never depend on the real host machine's actual home directory. Defaults to the real one via node:os. */
+	readonly homeDir?: string;
 }
 
 export interface SymbolGraphHandlers {
@@ -146,6 +152,7 @@ export interface SymbolGraphHandlerFactory {
 export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolGraphHandlerFactory {
 	const { registry, warmIndexes, graphRefresh, repoFetcher, createGitPort, jobs, logger, renameMutationBarrier, publish, ensureOsWatcher, mutationHistory } =
 		deps;
+	const homeDir = deps.homeDir ?? homedir();
 	const ensureSymbolGraph = (workspaceId: WorkspaceId) => graphRefresh.graph(workspaceId);
 
 	/**
@@ -228,6 +235,12 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		const entry = registry.get(input.workspaceId);
 		if (!entry?.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
 		const rootPath = entry.rootPath;
+		if (!input.allowBroadRoot) {
+			const topLevelEntries = await readdir(rootPath).catch(() => [] as string[]);
+			if (classifyAutoPopulationRoot({ rootPath, homeDir, topLevelEntries }) === "broad-non-project") {
+				throw new BroadNonProjectRoot(rootPath);
+			}
+		}
 		const graph = ensureSymbolGraph(input.workspaceId);
 		// Purge before repopulating: a file walked last generation but absent from this one was
 		// deleted (or moved out of scope), and its stale nodes/edges must not survive indefinitely.
@@ -554,7 +567,10 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		}
 		const generation = await graphRefresh.graph(workspaceId).getGeneration();
 		if (!generation) return; // never populated (or its cache was reset) -- nothing to keep warm
-		const input = { workspaceId, maxFiles: generation.maxFiles, maxSymbolsPerFile: generation.maxSymbolsPerFile };
+		// A completed generation already exists -- classifyAutoPopulationRoot already approved this
+		// root (or it was explicitly allowed) the first time population ran; re-asking on every
+		// subsequent watch-triggered refresh of an already-established project is pure overhead.
+		const input = { workspaceId, maxFiles: generation.maxFiles, maxSymbolsPerFile: generation.maxSymbolsPerFile, allowBroadRoot: true };
 		let submittedJobId = "";
 		const submitted = jobs.submit({
 			operation: "workspace.populateSymbolGraph",
@@ -588,6 +604,8 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		const waitMs = rawWaitMs ?? 0;
 		if (typeof waitMs !== "number" || !Number.isSafeInteger(waitMs) || waitMs < 0) throw new InvalidJobInput("waitMs must be a non-negative safe integer");
 		if (waitMs > MAX_INITIAL_JOB_WAIT_MS) throw new JobWaitTooLong(waitMs, MAX_INITIAL_JOB_WAIT_MS);
+		const rawAllowBroadRoot = rawInput.allowBroadRoot;
+		if (rawAllowBroadRoot !== undefined && typeof rawAllowBroadRoot !== "boolean") throw new InvalidJobInput("allowBroadRoot must be a boolean when given");
 		const workspace = registry.get(workspaceId);
 		if (!workspace) throw new UnknownWorkspace(workspaceId);
 		const existingJobId = graphRefresh.activeJob(workspaceId);
@@ -598,7 +616,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 			}
 			graphRefresh.clearActiveJob(workspaceId);
 		}
-		const input = { workspaceId, maxFiles, maxSymbolsPerFile };
+		const input = { workspaceId, maxFiles, maxSymbolsPerFile, allowBroadRoot: rawAllowBroadRoot };
 		let submittedJobId = "";
 		const submitted = jobs.submit({
 			operation,

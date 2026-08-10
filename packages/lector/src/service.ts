@@ -143,6 +143,8 @@ export interface LectorServiceOptions {
 	createSymbolAnnotations?: (workspaceId: WorkspaceId) => SymbolAnnotationPort;
 	/** Factory for the store backing workspace.mutationHistory/revertMutation. Defaults to an in-memory store (not durable across a restart), bounded to 50 entries per file. */
 	createMutationHistory?: (workspaceId: WorkspaceId) => MutationHistoryPort;
+	/** Injectable for tests -- classifyAutoPopulationRoot's own broad-non-project-root heuristic must never depend on the real host machine's actual home directory. Defaults to the real one via node:os. */
+	homeDir?: string;
 	/** Factory for the git port backing workspace.gitStatus/gitLog/gitDiff. Defaults to LocalGit, the real `git` CLI. Cheap to construct -- never cached, unlike symbol indexes. */
 	createGitPort?: (rootPath: string) => GitPort;
 	/** Factory for the port backing repo.fetch. No default -- unlike createSymbolGraph's safe in-memory fallback, fetching a real external repo always needs a real disk location only a host (daemon.ts) can supply. Called once at construction and reused, not per-call. */
@@ -345,6 +347,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		renameMutationBarrier,
 		publish,
 		mutationHistory,
+		homeDir: options.homeDir,
 		ensureOsWatcher: (workspaceId, rootPath) => ensureOsWatcher(workspaceId, rootPath),
 	});
 	const workspaceWatchHandlers = new WorkspaceWatchHandlers({
@@ -495,6 +498,7 @@ export type { WorkspaceId } from "./service/errors.ts";
 export {
 	AnnotationContainmentCycle,
 	AnnotationRequiresAnchors,
+	BroadNonProjectRoot,
 	CodeIntelligenceUnavailable,
 	deriveWorkspaceId,
 	InvalidJobInput,
