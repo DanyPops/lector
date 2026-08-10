@@ -2,6 +2,7 @@ import { type ContentHash, contentHashOf } from "../content-identity/content-has
 import { annotationsContainedFrom, wouldCreateContainmentCycle } from "../symbol-annotation/annotation-containment.ts";
 import { checkAnnotationStaleness } from "../symbol-annotation/check-annotation-staleness.ts";
 import { InMemorySymbolAnnotations } from "../symbol-annotation/in-memory-symbol-annotations.ts";
+import { nearestDeclarationAt } from "../symbol-annotation/nearest-declaration-fallback.ts";
 import type { SymbolAnnotationListOptions, SymbolAnnotationPort } from "../symbol-annotation/port.ts";
 import type { SymbolAnnotation, SymbolAnnotationAnchor } from "../symbol-annotation/symbol-annotation.ts";
 import type { SymbolGraphPort } from "../symbol-graph/port.ts";
@@ -74,8 +75,16 @@ export class AnnotationHandlers {
 		const anchors: SymbolAnnotationAnchor[] = [];
 		for (const position of positions) {
 			const resolvedPath = workspace.resolvePath(position.path);
-			const symbolNodeId = deriveSymbolNodeId({ ...position, path: resolvedPath });
-			if (!(await graph.getNode(symbolNodeId))) throw new UnknownAnnotationAnchor(position.path, position.line, position.character);
+			const exactId = deriveSymbolNodeId({ ...position, path: resolvedPath });
+			let resolvedNode = await graph.getNode(exactId);
+			// A live LSP query's own reported column can genuinely differ by a few characters from what
+			// documentSymbols' selectionRange.start recorded for the same declaration (e.g.
+			// workspace/symbol's own SymbolInformation.location vs. DocumentSymbol.selectionRange),
+			// even though hover/goToDefinition/findReferences all still resolve the same symbol. Falls
+			// back to the single unambiguous same-line declaration, never guessing across a real tie.
+			resolvedNode ??= nearestDeclarationAt(await graph.nodesAtLine(resolvedPath, position.line), position.character);
+			if (!resolvedNode) throw new UnknownAnnotationAnchor(position.path, position.line, position.character);
+			const symbolNodeId = resolvedNode.id;
 			let hash = hashByPath.get(resolvedPath);
 			if (hash === undefined) {
 				const entry = await workspace.readEntry(resolvedPath);

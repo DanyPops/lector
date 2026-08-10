@@ -23,6 +23,10 @@ export class InMemorySymbolGraph implements SymbolGraphPort {
 		return this.nodes.get(id);
 	}
 
+	async nodesAtLine(path: string, line: number): Promise<readonly SymbolNode[]> {
+		return Array.from(this.nodes.values()).filter((node) => node.location.path === path && node.location.line === line);
+	}
+
 	async addEdge(from: SymbolNodeId, to: SymbolNodeId, kind: SymbolEdgeKind): Promise<void> {
 		if (!this.graph.hasNode(from)) this.graph.addNode(from);
 		if (!this.graph.hasNode(to)) this.graph.addNode(to);

@@ -28,6 +28,7 @@ function fakeGraph(reachable: readonly SymbolNodeId[], nodesById: ReadonlyMap<Sy
 	return {
 		addNode: unimplemented,
 		getNode: (id: SymbolNodeId) => Promise.resolve(nodesById.get(id)),
+		nodesAtLine: unimplemented,
 		addEdge: unimplemented,
 		removeNodesForFile: unimplemented,
 		edgesFrom: unimplemented,

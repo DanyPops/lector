@@ -47,6 +47,59 @@ export function runSymbolGraphPortConformanceSuite(name: string, harness: Symbol
 				expect(await graph.getNode(nid("a"))).toEqual(a);
 			}));
 
+		it("nodesAtLine returns an empty list for a path/line nothing was ever added under", () =>
+			withGraph(async (graph) => {
+				expect(await graph.nodesAtLine("/src/never.ts", 1)).toEqual([]);
+			}));
+
+		it("nodesAtLine finds every node at the exact path and line, any character -- the nearest-declaration fallback's own lookup", () =>
+			withGraph(async (graph) => {
+				const first: SymbolNode = {
+					id: deriveSymbolNodeId({ path: "/src/multi.ts", line: 5, character: 1 }),
+					name: "a",
+					kind: "variable",
+					location: { path: "/src/multi.ts", line: 5, character: 1 },
+				};
+				const second: SymbolNode = {
+					id: deriveSymbolNodeId({ path: "/src/multi.ts", line: 5, character: 10 }),
+					name: "b",
+					kind: "variable",
+					location: { path: "/src/multi.ts", line: 5, character: 10 },
+				};
+				const elsewhere: SymbolNode = {
+					id: deriveSymbolNodeId({ path: "/src/multi.ts", line: 6, character: 1 }),
+					name: "c",
+					kind: "variable",
+					location: { path: "/src/multi.ts", line: 6, character: 1 },
+				};
+				await graph.addNode(first);
+				await graph.addNode(second);
+				await graph.addNode(elsewhere);
+
+				const found = await graph.nodesAtLine("/src/multi.ts", 5);
+				expect(found.map((entry) => entry.name).sort()).toEqual(["a", "b"]);
+			}));
+
+		it("nodesAtLine never crosses paths, even for the identical line number", () =>
+			withGraph(async (graph) => {
+				const here: SymbolNode = {
+					id: deriveSymbolNodeId({ path: "/src/here.ts", line: 3, character: 1 }),
+					name: "here",
+					kind: "variable",
+					location: { path: "/src/here.ts", line: 3, character: 1 },
+				};
+				const there: SymbolNode = {
+					id: deriveSymbolNodeId({ path: "/src/there.ts", line: 3, character: 1 }),
+					name: "there",
+					kind: "variable",
+					location: { path: "/src/there.ts", line: 3, character: 1 },
+				};
+				await graph.addNode(here);
+				await graph.addNode(there);
+
+				expect((await graph.nodesAtLine("/src/here.ts", 3)).map((entry) => entry.name)).toEqual(["here"]);
+			}));
+
 		it("edgesFrom/edgesTo are empty for a node with no edges, not an error", () =>
 			withGraph(async (graph) => {
 				await graph.addNode(node("a", "a"));

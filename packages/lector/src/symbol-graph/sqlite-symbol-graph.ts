@@ -230,6 +230,13 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 		return { id, name: row.name, kind: row.kind, location: { path: row.path, line: row.line, character: row.character } };
 	}
 
+	async nodesAtLine(path: string, line: number): Promise<readonly SymbolNode[]> {
+		const rows = this.db.query("SELECT id, name, kind, path, line, character FROM symbol_nodes WHERE path = ? AND line = ?").all(path, line) as (NodeRow & {
+			id: SymbolNodeId;
+		})[];
+		return rows.map((row) => ({ id: row.id, name: row.name, kind: row.kind, location: { path: row.path, line: row.line, character: row.character } }));
+	}
+
 	async addEdge(from: SymbolNodeId, to: SymbolNodeId, kind: SymbolEdgeKind): Promise<void> {
 		this.db.query("INSERT OR IGNORE INTO symbol_edges (from_id, to_id, kind) VALUES (?, ?, ?)").run(from, to, kind);
 	}

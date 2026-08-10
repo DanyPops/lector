@@ -114,6 +114,56 @@ describe("createLectorService's annotation operations", () => {
 		expect(fetched?.status).toBe("fresh");
 	});
 
+	it("resolves an anchor whose column is off by a few characters from the graph's own recorded position -- the exact-position-fragility bug this fixes", async () => {
+		fixtureRoot = buildFixture();
+		const { service: svc, graphs } = createServiceWithCapturedGraphs();
+		service = svc;
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		const path = join(fixtureRoot, "src", "a.ts");
+		await warmGraph(service, workspaceId, path);
+		// documentSymbols' own selectionRange.start recorded the declaration at character 17 (the
+		// real name's own start), but the caller's anchor position (e.g. from a different LSP
+		// request type, like workspace/symbol's own SymbolInformation.location) reports character 1
+		// on the same line -- hover/goToDefinition would still resolve this to the same symbol.
+		graphs
+			.get(workspaceId)
+			?.addNode({ id: deriveSymbolNodeId({ path, line: 1, character: 17 }), name: "add", kind: "function", location: { path, line: 1, character: 17 } });
+
+		const { annotation } = await service.dispatch("workspace.createAnnotation", {
+			workspaceId,
+			subtype: "comment",
+			title: "off-by-a-few-characters",
+			body: "anchored via a position the graph didn't record exactly",
+			anchors: [{ path, line: 1, character: 1 }],
+		});
+		expect(annotation.status).toBe("fresh");
+		// The stored anchor names the graph's own real node -- the nearest-declaration fallback
+		// normalizes to the canonical position, it doesn't fabricate a new node at the caller's own.
+		expect(annotation.anchors[0]?.symbolNodeId).toBe(deriveSymbolNodeId({ path, line: 1, character: 17 }));
+	});
+
+	it("still refuses an anchor when two candidate declarations on the same line are equally plausible -- never guesses across a real ambiguity", async () => {
+		fixtureRoot = buildFixture();
+		const { service: svc, graphs } = createServiceWithCapturedGraphs();
+		service = svc;
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		const path = join(fixtureRoot, "src", "a.ts");
+		await warmGraph(service, workspaceId, path);
+		const graph = graphs.get(workspaceId);
+		graph?.addNode({ id: deriveSymbolNodeId({ path, line: 1, character: 5 }), name: "left", kind: "variable", location: { path, line: 1, character: 5 } });
+		graph?.addNode({ id: deriveSymbolNodeId({ path, line: 1, character: 15 }), name: "right", kind: "variable", location: { path, line: 1, character: 15 } });
+
+		await expect(
+			service.dispatch("workspace.createAnnotation", {
+				workspaceId,
+				subtype: "comment",
+				title: "t",
+				body: "b",
+				anchors: [{ path, line: 1, character: 10 }],
+			}),
+		).rejects.toThrow(UnknownAnnotationAnchor);
+	});
+
 	it("rejects an anchor that does not resolve to any known symbol", async () => {
 		fixtureRoot = buildFixture();
 		const { service: svc } = createServiceWithCapturedGraphs();

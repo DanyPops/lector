@@ -29,6 +29,8 @@ export interface SymbolEdgeRecord {
 export interface SymbolGraphPort {
 	addNode(node: SymbolNode): Promise<void>;
 	getNode(id: SymbolNodeId): Promise<SymbolNode | undefined>;
+	/** Every node recorded at this exact path and line, any character -- the nearest-declaration fallback for an anchor position that misses getNode()'s own exact match: a live LSP query's own reported column can genuinely differ by a few characters from what documentSymbols' selectionRange.start recorded for the same declaration (e.g. workspace/symbol's own SymbolInformation.location vs. DocumentSymbol.selectionRange), even though hover/goToDefinition/findReferences all still resolve the same symbol. Bounded to one line, never a fuzzy whole-file search. */
+	nodesAtLine(path: string, line: number): Promise<readonly SymbolNode[]>;
 	addEdge(from: SymbolNodeId, to: SymbolNodeId, kind: SymbolEdgeKind): Promise<void>;
 	/** Removes every node at this exact path and every edge touching one of them (both directions). A no-op if no node has this path. */
 	removeNodesForFile(path: string): Promise<void>;
