@@ -33,25 +33,58 @@ function fakeRepo(prefix: string): string {
 }
 
 describe("workspaceForPath", () => {
-	it("registers a distinct project root exactly once, even across many calls for different files in it", async () => {
+	it("resolves the same underlying workspace, created exactly once, across many calls for different files in the same project", async () => {
 		const daemon = await startIsolatedLectorDaemon();
-		let registerCalls = 0;
+		let createdCount = 0;
 		const countingClient: LectorClient = {
 			...daemon.client,
-			call: (operation, input) => {
-				if (operation === "workspace.registerPath") registerCalls++;
-				return daemon.client.call(operation, input);
+			call: async (operation, input) => {
+				const result = await daemon.client.call(operation, input);
+				if (operation === "workspace.resolvePath" && (result as { created?: boolean }).created) createdCount++;
+				return result;
 			},
 		} as LectorClient;
 		setLectorClientConnectorForTests(() => Promise.resolve(countingClient));
 
 		const repo = fakeRepo("pi-lector-project-");
 		try {
+			const first = await workspaceForPath(join(repo, "a.ts"));
+			const second = await workspaceForPath(join(repo, "src", "b.ts"));
+			const third = await workspaceForPath(join(repo, "a.ts"));
+
+			// Two distinct files' containing directories are two distinct resolution requests --
+			// each pays its own round trip -- but the daemon's own idempotent registerPath check
+			// still only ever creates the underlying workspace once, and every call agrees on the
+			// same workspaceId/root.
+			expect(createdCount).toBe(1);
+			expect(first.workspaceId).toBe(second.workspaceId);
+			expect(second.workspaceId).toBe(third.workspaceId);
+			expect(first.root).toBe(repo);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+			await daemon.stop();
+		}
+	});
+
+	it("reuses its own cache for an exact repeat call, never issuing a second resolvePath round trip for it", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		let resolveCalls = 0;
+		const countingClient: LectorClient = {
+			...daemon.client,
+			call: (operation, input) => {
+				if (operation === "workspace.resolvePath") resolveCalls++;
+				return daemon.client.call(operation, input);
+			},
+		} as LectorClient;
+		setLectorClientConnectorForTests(() => Promise.resolve(countingClient));
+
+		const repo = fakeRepo("pi-lector-exact-repeat-");
+		try {
 			await workspaceForPath(join(repo, "a.ts"));
-			await workspaceForPath(join(repo, "src", "b.ts"));
+			await workspaceForPath(join(repo, "a.ts"));
 			await workspaceForPath(join(repo, "a.ts"));
 
-			expect(registerCalls).toBe(1);
+			expect(resolveCalls).toBe(1);
 		} finally {
 			rmSync(repo, { recursive: true, force: true });
 			await daemon.stop();

@@ -44,6 +44,7 @@ import { Type } from "typebox";
 /** Real ANSI-aware measurement for Table -- Malevich's own default is ASCII-only, unsafe against theme-styled cell/header text. */
 const tableMeasure: TextMeasure = { visibleWidth, truncateToWidth };
 
+import { isFilesystemRoot } from "@danypops/lector";
 import { createLectorApplyPatchOperations } from "./apply-patch/operations.ts";
 import { formatApplyPatchCall, formatApplyPatchResult } from "./apply-patch/rendering.ts";
 import { createLectorCodeIntelligenceOperations } from "./code-intelligence/operations.ts";
@@ -89,11 +90,10 @@ import { createLectorFindSymbolsOperations } from "./find-symbols/operations.ts"
 import { describeFindSymbolSources, formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols/rendering.ts";
 import { createLectorGitOperations } from "./git/operations.ts";
 import { formatGitCall, formatGitResult, type GitToolDetails } from "./git/rendering.ts";
-import { setNewWorkspaceObserver } from "./lector-client.ts";
+import { nearestGitWorkspaceRoot, setNewWorkspaceObserver } from "./lector-client.ts";
 import { createLectorLineEditOperations } from "./line-edit/operations.ts";
 import { formatLineEditCall, formatLineEditResult } from "./line-edit/rendering.ts";
 import { createMutationHistoryOperations } from "./mutation-history/operations.ts";
-import { isFilesystemRoot, nearestGitRoot } from "./nearest-workspace-root.ts";
 import { createLectorPackageSourceOperations, type PackageSourceListPage } from "./package-source/operations.ts";
 import {
 	buildPackageSourceListTableRows,
@@ -279,9 +279,17 @@ export default function (pi: ExtensionAPI) {
 		lastInjectedSummary = undefined;
 		uiContext = ctx;
 		setNewWorkspaceObserver((root) => startMonitoringRoot(root, ctx));
-		const projectRoot = nearestGitRoot(cwd);
-		if (projectRoot) startMonitoringRoot(projectRoot, ctx);
-		else ctx.ui.setStatus("lector-cache", undefined);
+		const thisGeneration = sessionGeneration;
+		void nearestGitWorkspaceRoot(cwd)
+			.then((projectRoot) => {
+				if (sessionGeneration !== thisGeneration) return;
+				if (projectRoot) startMonitoringRoot(projectRoot, ctx);
+				else ctx.ui.setStatus("lector-cache", undefined);
+			})
+			.catch(() => {
+				// A daemon that isn't running yet is not a session_start failure -- the first real
+				// tool call surfaces that clearly instead.
+			});
 
 		pi.registerTool(createReadToolDefinition(cwd, { operations: createLectorReadOperations() }));
 		pi.registerTool(createWriteToolDefinition(cwd, { operations: createLectorWriteOperations() }));

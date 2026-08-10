@@ -364,6 +364,7 @@ export {
 export type { DirectoryListing } from "./workspace/list-directory.ts";
 export { listDirectory } from "./workspace/list-directory.ts";
 export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./workspace/local-filesystem-workspace.ts";
+export { isFilesystemRoot } from "./workspace/nearest-workspace-root.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./workspace/port.ts";
 export { raceWorkspaceQuery } from "./workspace/race-workspace-query.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./workspace/raw-read.ts";

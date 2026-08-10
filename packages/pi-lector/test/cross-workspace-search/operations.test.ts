@@ -23,6 +23,10 @@ function scriptedClient(handlers: Partial<Record<OperationName, (input: never) =
 				const { path } = input as OperationInputs["workspace.registerPath"];
 				return { workspaceId: `ws-${path}`, created: true } as OperationOutputs[Name];
 			}
+			if (operation === "workspace.resolvePath") {
+				const { path } = input as OperationInputs["workspace.resolvePath"];
+				return { found: true, workspaceId: `ws-${path}`, root: path, created: true } as OperationOutputs[Name];
+			}
 			throw new Error(`scriptedClient: no handler for ${operation}`);
 		},
 		operations: async () => [],
@@ -225,14 +229,15 @@ describe("Lector-backed cross-workspace search operations", () => {
 
 	it("re-registers a workspace the daemon forgot (a real daemon restart wipes its in-memory registry) and retries once, transparently", async () => {
 		const dirA = buildDir("a.txt", "hello from a\n");
-		let registerCalls = 0;
+		let resolveCalls = 0;
 		let searchCalls = 0;
 		setLectorClientConnectorForTests(() =>
 			Promise.resolve(
 				scriptedClient({
-					"workspace.registerPath": async (input) => {
-						registerCalls++;
-						return { workspaceId: `ws-${(input as { path: string }).path}`, created: true };
+					"workspace.resolvePath": async (input) => {
+						resolveCalls++;
+						const { path } = input as { path: string };
+						return { found: true, workspaceId: `ws-${path}`, root: path, created: true };
 					},
 					"search.text": async (input) => {
 						searchCalls++;
@@ -252,7 +257,7 @@ describe("Lector-backed cross-workspace search operations", () => {
 		const results = await ops.searchText("hello", [dirA], 100, 10_000);
 
 		expect(searchCalls).toBe(2); // one failed attempt, one retry -- never silently stuck on the stale error forever
-		expect(registerCalls).toBe(2); // re-registered once after dropping the stale cached id
+		expect(resolveCalls).toBe(2); // re-resolved once after dropping the stale cached id
 		expect(results[0]?.outcome.status).toBe("ready");
 	});
 

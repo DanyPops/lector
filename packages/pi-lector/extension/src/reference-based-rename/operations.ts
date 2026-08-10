@@ -1,6 +1,5 @@
 import { type OperationOutputs, remoteErrorIs } from "@danypops/lector";
-import { lectorClient, type ResolvedWorkspace, withWorkspace, workspaceForCodeIntelligencePath, workspaceForProjectDirectory } from "../lector-client.ts";
-import { nearestDeclaredWorkspaceRoot } from "../nearest-workspace-root.ts";
+import { lectorClient, type ResolvedWorkspace, withWorkspace, workspaceForCodeIntelligencePath, workspaceForDeclaredMonorepoRoot } from "../lector-client.ts";
 
 /**
  * Thin wrapper over Lector's non-LSP reference-based rename: moves a file and rewrites every
@@ -31,10 +30,10 @@ export function createReferenceBasedRenameOperations(): ReferenceBasedRenameOper
 				return await withWorkspace(() => workspaceForCodeIntelligencePath(fromPath), performRename);
 			} catch (error) {
 				if (!remoteErrorIs(error, "ReferenceBasedRenameRequiresFreshGraph")) throw error;
-				const { root: narrowRoot } = await workspaceForCodeIntelligencePath(fromPath);
-				const declaredRoot = nearestDeclaredWorkspaceRoot(narrowRoot);
-				if (!declaredRoot) throw error;
-				return withWorkspace(() => workspaceForProjectDirectory(declaredRoot), performRename);
+				const narrow = await workspaceForCodeIntelligencePath(fromPath);
+				const declared = await workspaceForDeclaredMonorepoRoot(narrow.root);
+				if (!declared) throw error;
+				return withWorkspace(() => Promise.resolve(declared), performRename);
 			}
 		},
 	};

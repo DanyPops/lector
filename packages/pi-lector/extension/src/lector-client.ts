@@ -1,9 +1,6 @@
-import { existsSync, statSync } from "node:fs";
-import { dirname, extname, parse } from "node:path";
+import { dirname, extname } from "node:path";
 import {
 	connectLectorClient,
-	descriptorForExtension,
-	LANGUAGE_SERVER_DESCRIPTORS,
 	type LectorClient,
 	LectorDaemonUnavailable,
 	type OperationInputs,
@@ -11,25 +8,31 @@ import {
 	type OperationOutputs,
 	remoteErrorIs,
 	type WorkspaceId,
+	type WorkspaceResolutionRequest,
 } from "@danypops/lector";
 import { createRetryingClient, isLikelyStaleConnectionError, type RetryingClient } from "@danypops/vehicle-client/daemon-client";
-import { nearestGitRoot, nearestProjectRoot } from "./nearest-workspace-root.ts";
 
 /**
- * Lazily connects to a running Lector daemon and caches, per project root,
- * the workspaceId that root registers under. Never auto-spawns the daemon:
- * a clear "start it with `lector serve`" error is preferable to guessing
- * at a lifecycle the user didn't ask for. A failed connection attempt is
- * not cached, so the very next tool call retries once the daemon is
- * actually running.
+ * Lazily connects to a running Lector daemon and caches, per resolution request, the
+ * workspace it resolves to. Never auto-spawns the daemon: a clear "start it with `lector serve`"
+ * error is preferable to guessing at a lifecycle the user didn't ask for. A failed connection
+ * attempt is not cached, so the very next tool call retries once the daemon is actually running.
  *
- * The daemon binds a new random port on every restart. A client resolved
- * once and cached for the rest of the session would otherwise point at a
- * dead port after any later restart -- daemon-kit's createRetryingClient
- * detects that on the failing call itself (not just the first connection
- * attempt) and retries once against a freshly re-resolved client, the same
- * policy this file used to hand-roll and now shares with web-spider's
- * callWebSpider(), papyrus's callService(), and pi-packed's createNatives().
+ * The daemon binds a new random port on every restart. A client resolved once and cached for
+ * the rest of the session would otherwise point at a dead port after any later restart --
+ * daemon-kit's createRetryingClient detects that on the failing call itself (not just the first
+ * connection attempt) and retries once against a freshly re-resolved client, the same policy
+ * this file used to hand-roll and now shares with web-spider's callWebSpider(), papyrus's
+ * callService(), and pi-packed's createNatives().
+ *
+ * Workspace-root resolution itself (which file belongs to which project) is Lector's own
+ * server-side concern -- see @danypops/lector's workspace.resolvePath and its own
+ * resolveWorkspacePath. This module used to reimplement that same filesystem walk-up locally
+ * (nearestGitRoot/nearestProjectRoot/nearestDeclaredWorkspaceRoot); two real, previously-shipped
+ * bugs (a project's own root directory silently resolving to its parent, and two sibling
+ * monorepo packages in this very repo collapsing onto the same workspaceId) traced directly to
+ * that logic living in the wrong process. Every workspaceForXxx below is now a thin RPC wrapper
+ * over workspace.resolvePath.
  */
 
 type ClientConnector = () => Promise<LectorClient>;
@@ -42,14 +45,15 @@ const retryingClient: RetryingClient<LectorClient> = createRetryingClient(() => 
 	label: "Lector",
 	isStaleConnectionError: (error) => error instanceof LectorDaemonUnavailable || isLikelyStaleConnectionError(error),
 });
-const workspaceIdByRoot = new Map<string, WorkspaceId>();
 
 /**
- * Fires exactly once per distinct root, the moment it's first registered in this process --
- * never on a later call that reuses the cached workspaceId. The single choke point every
+ * Fires exactly once per distinct root, the moment the daemon itself first registers it --
+ * never on a later call that resolves an already-registered root. The single choke point every
  * resolver (workspaceForPath, workspaceForDirectory, workspaceForCodeIntelligencePath,
  * workspaceForPathOrDirectory) funnels through, so this is genuinely "the first time any tool
- * call resolves this workspace," not just the one cwd workspace at session start.
+ * call resolves this workspace," not just the one cwd workspace at session start. Driven by
+ * workspace.resolvePath's own authoritative `created` flag, not a local cache -- correct even
+ * when a different process registered the same root moments earlier.
  */
 let onNewWorkspace: ((root: string) => void) | undefined;
 
@@ -80,18 +84,41 @@ export async function lectorClient(): Promise<RetryingLectorClient> {
 
 export interface ResolvedWorkspace {
 	workspaceId: WorkspaceId;
-	/** The registered root the target path is relative to -- a git root or the filesystem root, never a fixed session cwd. */
+	/** The root workspace.resolvePath actually registered -- a git root, a language project root, or the filesystem root, never a fixed session cwd. */
 	root: string;
 }
 
-async function workspaceForRoot(root: string): Promise<ResolvedWorkspace> {
-	const cached = workspaceIdByRoot.get(root);
-	if (cached) return { workspaceId: cached, root };
+/**
+ * Caches by the exact resolution request, not by the discovered root (this process no longer
+ * discovers roots itself) -- a repeated call with the identical path+strategy avoids a network
+ * round trip; two different files under the same repo each pay one round trip the first time,
+ * same as workspace.registerPath's own idempotent registration would cost anyway. A daemon
+ * restart wipes its in-memory registry; withWorkspace's own UnknownWorkspace retry (unchanged
+ * below) evicts exactly the stale entry this cache produced, the same recovery it always gave.
+ */
+const resolutionCache = new Map<string, ResolvedWorkspace>();
+
+function requestCacheKey(request: WorkspaceResolutionRequest): string {
+	return JSON.stringify(request, Object.keys(request).sort());
+}
+
+async function resolveWorkspace(request: WorkspaceResolutionRequest): Promise<ResolvedWorkspace> {
+	const key = requestCacheKey(request);
+	const cached = resolutionCache.get(key);
+	if (cached) return cached;
 	const client = await lectorClient();
-	const { workspaceId } = await client.callOnce("workspace.registerPath", { path: root });
-	workspaceIdByRoot.set(root, workspaceId);
-	onNewWorkspace?.(root);
-	return { workspaceId, root };
+	const outcome = await client.callOnce("workspace.resolvePath", request);
+	if (!outcome.found) {
+		// Every strategy this function is used for (git-root/language-project-root with an
+		// explicit fallback, path-or-directory) always resolves to something server-side --
+		// declared-monorepo-root (the one strategy that can legitimately report not found) is
+		// never routed through this function, see resolveDeclaredMonorepoRoot below.
+		throw new Error(`workspace.resolvePath unexpectedly reported not-found for a fallback-guaranteed strategy: ${key}`);
+	}
+	const resolved: ResolvedWorkspace = { workspaceId: outcome.workspaceId, root: outcome.root };
+	resolutionCache.set(key, resolved);
+	if (outcome.created) onNewWorkspace?.(outcome.root);
+	return resolved;
 }
 
 /**
@@ -99,9 +126,8 @@ async function workspaceForRoot(root: string): Promise<ResolvedWorkspace> {
  * contains this absolute FILE path -- never a session's original cwd.
  * Files under the same repo share one cached workspace+id; a path under a
  * different repo (or outside any repo entirely) gets its own, registered
- * on demand via workspace.registerPath. This is what makes read/write/edit
- * work for *any* absolute path in one session, exactly like Pi's built-in
- * tools always have -- not just paths under wherever the session started.
+ * on demand. This is what makes read/write/edit work for *any* absolute
+ * path in one session, exactly like Pi's built-in tools always have.
  *
  * Falls back to the filesystem root when no enclosing git repo exists:
  * unlike workspaceForDirectory, any absolute path is fair game here (a
@@ -110,9 +136,7 @@ async function workspaceForRoot(root: string): Promise<ResolvedWorkspace> {
  * built-in read/write/edit already allow.
  */
 export function workspaceForPath(absolutePath: string): Promise<ResolvedWorkspace> {
-	const directory = dirname(absolutePath);
-	const root = nearestGitRoot(directory) ?? parse(directory).root;
-	return workspaceForRoot(root);
+	return resolveWorkspace({ strategy: "git-root", path: dirname(absolutePath), fallback: "filesystem-root" });
 }
 
 /**
@@ -124,8 +148,19 @@ export function workspaceForPath(absolutePath: string): Promise<ResolvedWorkspac
  * outside the project) and unbounded (scanning the whole disk).
  */
 export function workspaceForDirectory(directory: string): Promise<ResolvedWorkspace> {
-	const root = nearestGitRoot(directory) ?? directory;
-	return workspaceForRoot(root);
+	return resolveWorkspace({ strategy: "git-root", path: directory, fallback: "given-directory" });
+}
+
+/**
+ * Honest "does a real git repo exist here at all" -- unlike workspaceForDirectory, no fallback
+ * masks a non-project directory as its own root. Used by session_start to decide whether cwd
+ * looks like a real project worth auto-populating a cache for, never a bare scratch/home
+ * directory.
+ */
+export async function nearestGitWorkspaceRoot(directory: string): Promise<string | undefined> {
+	const client = await lectorClient();
+	const outcome = await client.call("workspace.resolvePath", { strategy: "git-root", path: directory });
+	return outcome.found ? outcome.root : undefined;
 }
 
 /**
@@ -141,14 +176,13 @@ export function workspaceForDirectory(directory: string): Promise<ResolvedWorksp
  * gets that subproject's rootUri instead of the whole repo's.
  */
 export function workspaceForCodeIntelligencePath(absolutePath: string): Promise<ResolvedWorkspace> {
-	const directory = dirname(absolutePath);
-	const descriptor = descriptorForExtension(extname(absolutePath));
-	const root = descriptor ? (nearestProjectRoot(directory, descriptor.rootMarkers) ?? directory) : (nearestGitRoot(directory) ?? directory);
-	return workspaceForRoot(root);
+	return resolveWorkspace({
+		strategy: "language-project-root",
+		path: dirname(absolutePath),
+		fallback: "given-directory",
+		extension: extname(absolutePath),
+	});
 }
-
-/** Every known language's own rootMarkers, deduplicated -- see workspaceForProjectDirectory. */
-const ALL_PROJECT_ROOT_MARKERS: readonly string[] = [...new Set(LANGUAGE_SERVER_DESCRIPTORS.flatMap((descriptor) => descriptor.rootMarkers))];
 
 /**
  * Resolves a caller-supplied directory to its OWN nearest project root -- never the outer repo's
@@ -162,13 +196,11 @@ const ALL_PROJECT_ROOT_MARKERS: readonly string[] = [...new Set(LANGUAGE_SERVER_
  *
  * Unlike workspaceForCodeIntelligencePath, there is no single file (and therefore no known
  * extension) to pick one specific language's markers from -- a caller-supplied directory could
- * be any language, so this checks the union of every known language's rootMarkers. Falls back to
- * the nearest git root, then the directory itself, exactly as nearestProjectRoot already does
- * internally (it appends ".git" to whatever marker list it's given).
+ * be any language, so the daemon checks the union of every known language's rootMarkers when no
+ * extension is given.
  */
 export function workspaceForProjectDirectory(directory: string): Promise<ResolvedWorkspace> {
-	const root = nearestProjectRoot(directory, ALL_PROJECT_ROOT_MARKERS) ?? directory;
-	return workspaceForRoot(root);
+	return resolveWorkspace({ strategy: "language-project-root", path: directory, fallback: "given-directory" });
 }
 
 /**
@@ -180,19 +212,35 @@ export function workspaceForProjectDirectory(directory: string): Promise<Resolve
  * dirname() strips its final segment, silently resolving to the *parent*
  * directory's own nearest git root instead -- for a project nested one level
  * under a broader already-registered workspace, this mixes in every sibling
- * project's own graph, with no error at all. Checks whether the path is
- * itself a real, existing directory first; only takes dirname() when it is
- * not (a file, or a not-yet-existing path).
+ * project's own graph, with no error at all. The daemon checks whether the
+ * path is itself a real, existing directory first; only takes dirname() when
+ * it is not (a file, or a not-yet-existing path).
  */
 export function workspaceForPathOrDirectory(path: string): Promise<ResolvedWorkspace> {
-	const isRealDirectory = existsSync(path) && statSync(path).isDirectory();
-	return workspaceForDirectory(isRealDirectory ? path : dirname(path));
+	return resolveWorkspace({ strategy: "path-or-directory", path });
+}
+
+/**
+ * The nearest ancestor of an already-resolved project root whose own package.json declares that
+ * project as a workspace member via npm/yarn/bun's "workspaces" field -- undefined (no
+ * directory-itself/filesystem-root fallback) when no such ancestor exists, a real and expected
+ * outcome for a plain single-package repo. Used only by reference-based-rename's own
+ * widen-and-retry: on ReferenceBasedRenameRequiresFreshGraph, retry once against the declared
+ * monorepo root instead of the narrower project the rename was first attempted against.
+ * Deliberately uncached (a rare retry path, not a hot loop).
+ */
+export async function workspaceForDeclaredMonorepoRoot(projectRoot: string): Promise<ResolvedWorkspace | undefined> {
+	const client = await lectorClient();
+	const outcome = await client.callOnce("workspace.resolvePath", { strategy: "declared-monorepo-root", path: projectRoot });
+	if (!outcome.found) return undefined;
+	if (outcome.created) onNewWorkspace?.(outcome.root);
+	return { workspaceId: outcome.workspaceId, root: outcome.root };
 }
 
 /**
  * Resolves a workspace via `resolve`, then calls `perform` with it. A daemon
  * restart wipes its in-memory workspace registry (workspace ids are not
- * persisted across restarts by design), but this module's own workspaceId
+ * persisted across restarts by design), but this module's own resolution
  * cache does not know that on its own -- a call through a stale cached id
  * fails with UnknownWorkspace even though the underlying files on disk
  * never changed. On exactly that failure, the stale cache entry is dropped
@@ -208,30 +256,34 @@ export async function withWorkspace<T>(resolve: () => Promise<ResolvedWorkspace>
 			return await perform(resolved);
 		} catch (error) {
 			if (attempt === 1 || !remoteErrorIs(error, "UnknownWorkspace")) throw error;
-			workspaceIdByRoot.delete(resolved.root);
+			forgetWorkspaceId(resolved.root);
 		}
 	}
 	throw new Error("Lector workspace resolution retry exhausted");
 }
 
 /**
- * Drops one root's cached workspaceId without retrying anything itself -- the batch sibling of
- * withWorkspace's own single-workspace `workspaceIdByRoot.delete(resolved.root)` recovery, for a
- * caller (cross-workspace search's fan-out) that resolves many roots at once and needs to evict
- * only the specific ones a daemon restart actually invalidated, not the whole cache.
+ * Drops every cache entry resolved to this root without retrying anything itself -- the batch
+ * sibling of withWorkspace's own single-workspace recovery, for a caller (cross-workspace
+ * search's fan-out) that resolves many roots at once and needs to evict only the specific ones a
+ * daemon restart actually invalidated, not the whole cache. A root can appear under more than one
+ * cache key (workspaceForPath and workspaceForDirectory can each independently resolve to the
+ * same root for related paths), so this scans by value, not a single key lookup.
  */
 export function forgetWorkspaceId(root: string): void {
-	workspaceIdByRoot.delete(root);
+	for (const [key, resolved] of resolutionCache) {
+		if (resolved.root === root) resolutionCache.delete(key);
+	}
 }
 
 export function setLectorClientConnectorForTests(value: ClientConnector): void {
 	retryingClient.reset();
-	workspaceIdByRoot.clear();
+	resolutionCache.clear();
 	connector = value;
 }
 
 export function resetLectorClientForTests(): void {
 	retryingClient.reset();
-	workspaceIdByRoot.clear();
+	resolutionCache.clear();
 	connector = () => connectLectorClient();
 }
