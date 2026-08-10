@@ -11,6 +11,38 @@ const CALLABLE_KINDS = new Set(["function", "method", "constructor"]);
 const MAX_RECORDED_FAILURES = 100;
 const MAX_FAILURE_MESSAGE_LENGTH = 500;
 
+/**
+ * Known transient "this file hasn't been attached to a project yet" error messages --
+ * observed live from typescript-language-server/tsserver specifically under
+ * population's own reduced settle time and concurrency: a fast documentSymbols or
+ * outgoingCalls request can race tsserver's own asynchronous project-file-set
+ * attachment, especially for a large node_modules-nested package where project
+ * discovery itself takes longer. Never a permanent property of the file -- a
+ * different file in the same generation succeeds, and the same file succeeds
+ * outright on a later generation -- so exactly one bounded retry is safe here in a
+ * way it would not be for a genuine application error.
+ */
+const TRANSIENT_PROJECT_ATTACHMENT_PATTERNS: readonly RegExp[] = [/^No Project\.?$/i, /Could not find source file/i];
+
+function isTransientProjectAttachmentError(error: unknown): boolean {
+	return error instanceof Error && TRANSIENT_PROJECT_ATTACHMENT_PATTERNS.some((pattern) => pattern.test(error.message));
+}
+
+/**
+ * Retries `operation` exactly once when it fails with a known transient
+ * project-attachment error, never for any other failure -- a real application
+ * error (a malformed file, a genuine backend bug) must still surface on the
+ * first attempt, not be silently masked behind a second try.
+ */
+async function withTransientRetry<T>(operation: () => Promise<T>): Promise<T> {
+	try {
+		return await operation();
+	} catch (error) {
+		if (!isTransientProjectAttachmentError(error)) throw error;
+		return await operation();
+	}
+}
+
 const NOOP_LOGGER: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 
 /**
@@ -154,7 +186,7 @@ export async function populateSymbolGraph(
 		try {
 			let topLevel: DocumentSymbolEntry[];
 			try {
-				topLevel = await index.documentSymbols(file, { settleMs: POPULATION_SETTLE_MS });
+				topLevel = await withTransientRetry(() => index.documentSymbols(file, { settleMs: POPULATION_SETTLE_MS }));
 			} catch (error) {
 				recordFailure(file, "document-symbols", error);
 				return;
@@ -176,7 +208,7 @@ export async function populateSymbolGraph(
 				if (CALLABLE_KINDS.has(entry.kind)) {
 					let callees: OutgoingCall[];
 					try {
-						callees = await index.outgoingCalls(location, { settleMs: POPULATION_SETTLE_MS });
+						callees = await withTransientRetry(() => index.outgoingCalls(location, { settleMs: POPULATION_SETTLE_MS }));
 					} catch (error) {
 						recordFailure(file, "outgoing-calls", error);
 						continue;

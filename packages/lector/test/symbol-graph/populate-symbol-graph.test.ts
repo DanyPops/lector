@@ -122,6 +122,145 @@ describe("populateSymbolGraph", () => {
 		expect(result.failures[0]?.message.length).toBeLessThanOrEqual(500);
 	});
 
+	it("retries a transient tsserver 'No Project.' documentSymbols failure once, succeeding without recording a failure -- the exact live race this fixes (a file's project attachment hadn't caught up with population's own reduced settle time)", async () => {
+		const empty = async () => [];
+		let calls = 0;
+		const flaky: CodeIntelligencePort = {
+			provenance: {
+				fidelity: "semantic",
+				backend: "flaky-test-server",
+				languageId: "test",
+				authority: "language-server",
+				freshness: "live-process",
+				limitations: [],
+			},
+			goToDefinition: empty,
+			goToImplementation: empty,
+			findReferences: empty,
+			hover: async () => undefined,
+			documentSymbols: async () => {
+				calls++;
+				if (calls === 1) throw new Error("No Project.");
+				return [];
+			},
+			diagnostics: empty,
+			prepareCallHierarchy: empty,
+			incomingCalls: empty,
+			outgoingCalls: empty,
+		};
+		graph = new InMemorySymbolGraph();
+
+		const result = await populateSymbolGraph(flaky, graph, ["/repo/file.test"], 10);
+
+		expect(calls).toBe(2);
+		expect(result).toMatchObject({ completeness: "complete", filesProcessed: 1, filesFailed: 0, failureCount: 0 });
+	});
+
+	it("retries a transient 'Could not find source file' outgoingCalls failure once, without recording a failure", async () => {
+		const empty = async () => [];
+		let calls = 0;
+		const flaky: CodeIntelligencePort = {
+			provenance: {
+				fidelity: "semantic",
+				backend: "flaky-test-server",
+				languageId: "test",
+				authority: "language-server",
+				freshness: "live-process",
+				limitations: [],
+			},
+			goToDefinition: empty,
+			goToImplementation: empty,
+			findReferences: empty,
+			hover: async () => undefined,
+			documentSymbols: async (path) => [
+				{
+					name: "handle",
+					kind: "function",
+					range: { path, start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
+					selectionRange: { path, start: { line: 0, character: 9 }, end: { line: 0, character: 15 } },
+				},
+			],
+			diagnostics: empty,
+			prepareCallHierarchy: empty,
+			incomingCalls: empty,
+			outgoingCalls: async () => {
+				calls++;
+				if (calls === 1) throw new Error("Could not find source file: '/repo/file.test'.");
+				return [];
+			},
+		};
+		graph = new InMemorySymbolGraph();
+
+		const result = await populateSymbolGraph(flaky, graph, ["/repo/file.test"], 10);
+
+		expect(calls).toBe(2);
+		expect(result).toMatchObject({ completeness: "complete", filesProcessed: 1, filesFailed: 0, failureCount: 0 });
+	});
+
+	it("still records a failure when a transient-shaped error persists across the one bounded retry -- never an infinite or unbounded retry loop", async () => {
+		let calls = 0;
+		const stillFlaky: CodeIntelligencePort = {
+			provenance: {
+				fidelity: "semantic",
+				backend: "flaky-test-server",
+				languageId: "test",
+				authority: "language-server",
+				freshness: "live-process",
+				limitations: [],
+			},
+			goToDefinition: async () => [],
+			goToImplementation: async () => [],
+			findReferences: async () => [],
+			hover: async () => undefined,
+			documentSymbols: async () => {
+				calls++;
+				throw new Error("No Project.");
+			},
+			diagnostics: async () => [],
+			prepareCallHierarchy: async () => [],
+			incomingCalls: async () => [],
+			outgoingCalls: async () => [],
+		};
+		graph = new InMemorySymbolGraph();
+
+		const result = await populateSymbolGraph(stillFlaky, graph, ["/repo/file.test"], 10);
+
+		expect(calls).toBe(2);
+		expect(result).toMatchObject({ completeness: "partial", filesProcessed: 0, filesFailed: 1, failureCount: 1 });
+	});
+
+	it("does not retry a genuinely different documentSymbols error -- only the known transient project-attachment signature gets a second chance", async () => {
+		let calls = 0;
+		const genuinelyBroken: CodeIntelligencePort = {
+			provenance: {
+				fidelity: "semantic",
+				backend: "broken-test-server",
+				languageId: "test",
+				authority: "language-server",
+				freshness: "live-process",
+				limitations: [],
+			},
+			goToDefinition: async () => [],
+			goToImplementation: async () => [],
+			findReferences: async () => [],
+			hover: async () => undefined,
+			documentSymbols: async () => {
+				calls++;
+				throw new Error("Unexpected token in source file");
+			},
+			diagnostics: async () => [],
+			prepareCallHierarchy: async () => [],
+			incomingCalls: async () => [],
+			outgoingCalls: async () => [],
+		};
+		graph = new InMemorySymbolGraph();
+
+		const result = await populateSymbolGraph(genuinelyBroken, graph, ["/repo/file.test"], 10);
+
+		expect(calls).toBe(1);
+		expect(result).toMatchObject({ completeness: "partial", filesFailed: 1, failureCount: 1 });
+	});
+
 	it("crawls many real cross-file-calling files fast, without paying the interactive settle wait per file", async () => {
 		// Encodes a real, measured finding, not an assumption: real fixtures (25 and 53
 		// files, both with genuine cross-file outgoingCalls resolution) produced
