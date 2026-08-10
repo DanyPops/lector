@@ -1,8 +1,17 @@
 import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
+import { boundMutationHistoryEntries } from "../mutation-history/bound-mutation-history-entries.ts";
 import { InMemoryMutationHistory } from "../mutation-history/in-memory-mutation-history.ts";
 import type { MutationOperation } from "../mutation-history/mutation-history.ts";
 import { canRevertMutation } from "../mutation-history/mutation-history.ts";
 import type { MutationHistoryPort } from "../mutation-history/port.ts";
+import {
+	DEFAULT_MUTATION_HISTORY_BYTES,
+	DEFAULT_MUTATION_HISTORY_RESULTS,
+	MAX_MUTATION_HISTORY_BYTES,
+	MAX_MUTATION_HISTORY_ENTRY_CONTENT_BYTES,
+	MAX_MUTATION_HISTORY_RESULTS,
+	resolveBound,
+} from "./bounds.ts";
 import { MutationEntryNotFound, MutationRevertStale, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
 import type { OperationInputs, OperationOutputs } from "./operations.ts";
 import { type MutableRegistry, resolveWorkspace } from "./workspace-registry.ts";
@@ -41,7 +50,10 @@ export class MutationHistoryCoordinator {
 		this.handlers = {
 			"workspace.mutationHistory": async (_registry, input) => {
 				if (!this.deps.registry.has(input.workspaceId)) throw new UnknownWorkspace(input.workspaceId);
-				return { entries: await this.store(input.workspaceId).listForPath(input.path, input.maxResults) };
+				const maxResults = resolveBound(input.maxResults, DEFAULT_MUTATION_HISTORY_RESULTS, MAX_MUTATION_HISTORY_RESULTS, "maxResults");
+				const maxBytes = resolveBound(input.maxBytes, DEFAULT_MUTATION_HISTORY_BYTES, MAX_MUTATION_HISTORY_BYTES, "maxBytes");
+				const stored = await this.store(input.workspaceId).listForPath(input.path, maxResults);
+				return boundMutationHistoryEntries(stored, maxResults, maxBytes, MAX_MUTATION_HISTORY_ENTRY_CONTENT_BYTES);
 			},
 			"workspace.revertMutation": async (registry, input) => this.revert(registry, input),
 		};

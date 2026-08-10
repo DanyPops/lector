@@ -9,7 +9,7 @@ import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandid
 import type { GitDiffResult } from "../git/diff-result.ts";
 import type { GitLogEntry } from "../git/log-entry.ts";
 import type { GitStatusSummary } from "../git/status.ts";
-import type { MutationHistoryEntry } from "../mutation-history/mutation-history.ts";
+import type { BoundedMutationHistoryEntry } from "../mutation-history/bound-mutation-history-entries.ts";
 import type { PackageEcosystem, PackageSourceBounds, PackageSourceOperationResult, PackageSourceRequest } from "../package-source/package-source.ts";
 import type { PackageSourceIndexQuery, PackageSourceListEntry } from "../package-source/package-source-index.ts";
 import type { ReferenceBasedRenameOutcome } from "../reference-based-rename/apply-reference-based-rename.ts";
@@ -190,7 +190,7 @@ export interface OperationInputs {
 	"workspace.deleteEntry": { workspaceId: WorkspaceId; path: string; expectedHash: ContentHash };
 	"workspace.lineEdit": { workspaceId: WorkspaceId; path: string; edits: readonly LineEdit[] };
 	"workspace.applyPatch": { workspaceId: WorkspaceId; path: string; expectedHash: ContentHash; patchText: string };
-	"workspace.mutationHistory": { workspaceId: WorkspaceId; path: string; maxResults: number };
+	"workspace.mutationHistory": { workspaceId: WorkspaceId; path: string; maxResults: number; maxBytes?: number };
 	"workspace.revertMutation": { workspaceId: WorkspaceId; entryId: string };
 	"workspace.registerPath": { path: string };
 	/**
@@ -312,7 +312,7 @@ export interface OperationOutputs {
 	"workspace.deleteEntry": { path: string; previousHash: ContentHash | null };
 	"workspace.lineEdit": LineEditOutcome;
 	"workspace.applyPatch": EditOutcome;
-	"workspace.mutationHistory": { entries: readonly MutationHistoryEntry[] };
+	"workspace.mutationHistory": { entries: readonly BoundedMutationHistoryEntry[]; truncated: boolean };
 	/** newHash is null when the reverted-to state is "the file doesn't exist" -- reverting a create back to nonexistence, or reverting a delete when the file has stayed deleted since. */
 	"workspace.revertMutation": { path: string; newHash: ContentHash | null };
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };

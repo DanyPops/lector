@@ -52,6 +52,18 @@ export const MAX_DIAGNOSTIC_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_HOVER_BYTES = 16 * 1024;
 export const MAX_HOVER_BYTES = 256 * 1024;
 
+/**
+ * workspace.mutationHistory returns real stored file snapshots, not location-shaped metadata --
+ * one entry's own beforeContent is capped independently (MAX_MUTATION_HISTORY_ENTRY_CONTENT_BYTES)
+ * so a single giant file's history can't exhaust the whole response budget by itself, then the
+ * resulting list is bounded by count and total bytes same as every other list operation.
+ */
+export const DEFAULT_MUTATION_HISTORY_RESULTS = 100;
+export const MAX_MUTATION_HISTORY_RESULTS = 2_000;
+export const DEFAULT_MUTATION_HISTORY_BYTES = 512 * 1024;
+export const MAX_MUTATION_HISTORY_BYTES = 4 * 1024 * 1024;
+export const MAX_MUTATION_HISTORY_ENTRY_CONTENT_BYTES = 64 * 1024;
+
 /** workspace.reachableFrom/symbolEdgesFrom/symbolEdgesTo already bound traversal depth (maxDepth/kind) -- this bounds the resulting symbol list's own size, which depth alone does not cap in a densely-connected graph. */
 export const DEFAULT_GRAPH_QUERY_RESULTS = 500;
 export const MAX_GRAPH_QUERY_RESULTS = 5_000;

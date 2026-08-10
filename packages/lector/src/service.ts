@@ -25,6 +25,11 @@ import { GithubSearchClient } from "./github-search/github-search-client.ts";
 import type { GithubSearchPort } from "./github-search/port.ts";
 import { NpmLockfileVersionResolver } from "./installed-package-version-resolver/npm-lockfile-version-resolver.ts";
 import type { LanguageServerProvisionerPort } from "./lsp-provisioning/port.ts";
+import {
+	MUTATION_HISTORY_READ_PERMISSIONS,
+	MUTATION_HISTORY_WRITE_PERMISSIONS,
+	registerMutationHistoryOperations,
+} from "./mutation-history/operation-registration.ts";
 import type { MutationHistoryPort } from "./mutation-history/port.ts";
 import { NpmPackageSourceResolver } from "./npm-registry/npm-package-source-resolver.ts";
 import { NpmRegistryClient } from "./npm-registry/npm-registry-client.ts";
@@ -373,6 +378,13 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"repo.listCache": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "repo.listCache", 1, input, REPO_LIST_CACHE_PERMISSIONS),
 		"repo.evictCache": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "repo.evictCache", 1, input, REPO_WRITE_PERMISSIONS),
 	};
+	registerMutationHistoryOperations(operationRegistry, registry, mutationHistory.handlers);
+	const registryMutationHistoryHandlers: Pick<OperationHandlers, "workspace.mutationHistory" | "workspace.revertMutation"> = {
+		"workspace.mutationHistory": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.mutationHistory", 1, input, MUTATION_HISTORY_READ_PERMISSIONS),
+		"workspace.revertMutation": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.revertMutation", 1, input, MUTATION_HISTORY_WRITE_PERMISSIONS),
+	};
 	registerAnnotationOperations(operationRegistry, registry, annotationHandlers);
 	type AnnotationOperationName =
 		| "workspace.createAnnotation"
@@ -432,6 +444,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...registryRepoFetchHandlers,
 		...packageSourceHandlers,
 		...mutationHistory.handlers,
+		...registryMutationHistoryHandlers,
 		...annotationHandlers.handlers,
 		...registryAnnotationHandlers,
 		...externalSearchHandlers,
