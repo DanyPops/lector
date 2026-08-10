@@ -314,7 +314,14 @@ export { reachableSymbolsFrom } from "./symbol-graph/reachable-symbols-from.ts";
 export { SqliteSymbolGraph } from "./symbol-graph/sqlite-symbol-graph.ts";
 export { symbolEdgesFrom } from "./symbol-graph/symbol-edges-from.ts";
 export { symbolEdgesTo } from "./symbol-graph/symbol-edges-to.ts";
-export type { SymbolGraphGeneration, WorkspaceCacheStatus } from "./symbol-graph/symbol-graph-generation.ts";
+export type {
+	CacheFailureSummaryEntry,
+	CacheGenerationResultSummary,
+	CacheGenerationSummary,
+	CacheResultCounts,
+	SymbolGraphGeneration,
+	WorkspaceCacheStatus,
+} from "./symbol-graph/symbol-graph-generation.ts";
 export { deriveSymbolNodeId, type SymbolNodeId } from "./symbol-graph/symbol-node-id.ts";
 export { assertSafeGlobPattern, UnsafeGlobPattern } from "./text-search/assert-safe-glob-pattern.ts";
 export { assertSafeSearchQuery, UnsafeSearchQuery } from "./text-search/assert-safe-search-query.ts";

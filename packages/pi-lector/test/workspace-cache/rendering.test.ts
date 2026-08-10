@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { JobSnapshot, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
+import type { CacheGenerationResultSummary, JobSnapshot, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
 import type { LectorTheme } from "../../extension/src/lector-tui-theme.ts";
 import { formatJobSnapshotResult, formatWorkspaceCacheCall, formatWorkspaceCacheStatusResult } from "../../extension/src/workspace-cache/rendering.ts";
 
@@ -17,6 +17,23 @@ function succeededResult(overrides: Partial<PopulateSymbolGraphResult> = {}): Po
 		failureCount: 0,
 		failures: [],
 		failuresTruncated: false,
+		...overrides,
+	};
+}
+
+/** The compact wire shape workspace.cacheStatus actually returns for its generation.result -- see summarizeCacheGeneration server-side. */
+function summarizedResult(overrides: Partial<CacheGenerationResultSummary> = {}): CacheGenerationResultSummary {
+	return {
+		completeness: "complete",
+		filesAttempted: 2,
+		filesProcessed: 2,
+		filesFailed: 0,
+		symbolsProcessed: 4,
+		nodesAdded: 4,
+		edgesAdded: 2,
+		failureCount: 0,
+		failureSummary: [],
+		failureSummaryTruncated: false,
 		...overrides,
 	};
 }
@@ -64,7 +81,7 @@ describe("formatWorkspaceCacheStatusResult", () => {
 	it("renders cached with the generation's file/symbol counts", () => {
 		const status: WorkspaceCacheStatus = {
 			status: "cached",
-			generation: { sourceFingerprint: "x", maxFiles: 500, maxSymbolsPerFile: 100, completedAt: 1, result: succeededResult() },
+			generation: { maxFiles: 500, maxSymbolsPerFile: 100, completedAt: 1, walkedFileCount: 2, result: summarizedResult() },
 		};
 		const text = formatWorkspaceCacheStatusResult(status, theme);
 		expect(text).toContain("cached");
@@ -75,11 +92,11 @@ describe("formatWorkspaceCacheStatusResult", () => {
 		const status: WorkspaceCacheStatus = {
 			status: "partial",
 			generation: {
-				sourceFingerprint: "x",
 				maxFiles: 500,
 				maxSymbolsPerFile: 100,
 				completedAt: 1,
-				result: succeededResult({ completeness: "partial", filesFailed: 3, failureCount: 3 }),
+				walkedFileCount: 3,
+				result: summarizedResult({ completeness: "partial", filesFailed: 3, failureCount: 3 }),
 			},
 		};
 		const text = formatWorkspaceCacheStatusResult(status, theme);

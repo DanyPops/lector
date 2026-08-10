@@ -19,6 +19,7 @@ import {
 import type { WorkspaceId } from "./service.ts";
 import type { SymbolAnnotation } from "./symbol-annotation/symbol-annotation.ts";
 import type { PopulateSymbolGraphResult } from "./symbol-graph/populate-symbol-graph.ts";
+import type { CacheGenerationResultSummary } from "./symbol-graph/symbol-graph-generation.ts";
 import { lectorVersion } from "./version.ts";
 import { InMemoryWorkspace } from "./workspace/in-memory-workspace.ts";
 import { LocalFilesystemWorkspace } from "./workspace/local-filesystem-workspace.ts";
@@ -536,6 +537,14 @@ function formatPopulationResult(result: PopulateSymbolGraphResult): string {
 	return `partial -- ${counts}, ${result.filesFailed} failed files (${result.failureCount} failed operations)${failure}`;
 }
 
+function formatCacheGenerationSummaryResult(result: CacheGenerationResultSummary): string {
+	const counts = `${result.filesProcessed}/${result.filesAttempted} files, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`;
+	if (result.completeness === "complete") return counts;
+	const first = result.failureSummary[0];
+	const failure = first ? `; first failure: ${first.path} [${first.code}] ${first.message}` : "";
+	return `partial -- ${counts}, ${result.filesFailed} failed files (${result.failureCount} failed operations)${failure}`;
+}
+
 function formatJobSnapshot(job: JobSnapshot<PopulateSymbolGraphResult>): string {
 	if (job.status === "queued") return `${job.id}: queued (${job.operation}); wait with: lector job wait ${job.id}`;
 	if (job.status === "running") return `${job.id}: still running (${job.operation}); wait with: lector job wait ${job.id}`;
@@ -649,7 +658,7 @@ async function runWorkspaceCacheStatus(workspaceId: string | undefined, flags: s
 	if (status.status === "not-cached") console.log(`not cached -- ${status.reason}`);
 	else if (status.status === "caching") console.log(`caching -- job ${status.jobId}`);
 	else if (status.status === "waiting-for-resources") console.log(`waiting for resources -- job ${status.jobId} is queued behind foreground work`);
-	else if (status.status === "partial") console.log(`partially cached -- ${formatPopulationResult(status.generation.result)}`);
+	else if (status.status === "partial") console.log(`partially cached -- ${formatCacheGenerationSummaryResult(status.generation.result)}`);
 	else console.log(`cached -- completed ${new Date(status.generation.completedAt).toISOString()}`);
 }
 

@@ -18,7 +18,7 @@ import type { RepoFetchResult } from "../repo-fetcher/repo-fetch-result.ts";
 import type { RepoReference } from "../repo-fetcher/repo-reference.ts";
 import type { AnnotationId, SymbolAnnotation } from "../symbol-annotation/symbol-annotation.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../symbol-graph/call-hierarchy.ts";
-import type { PopulateSymbolGraphResult } from "../symbol-graph/populate-symbol-graph.ts";
+import type { PopulateSymbolGraphResult, SymbolGraphPopulationFailure } from "../symbol-graph/populate-symbol-graph.ts";
 import type { SymbolEdgeKind, SymbolNode } from "../symbol-graph/port.ts";
 import type { WorkspaceCacheStatus } from "../symbol-graph/symbol-graph-generation.ts";
 import type { FindFilesResult } from "../text-search/find-files-result.ts";
@@ -60,6 +60,8 @@ export type OperationName =
 	| "workspace.symbolEdgesTo"
 	| "workspace.hasWarmIndex"
 	| "workspace.cacheStatus"
+	| "workspace.cacheWalkedFiles"
+	| "workspace.cacheFailures"
 	| "workspace.referenceBasedRename"
 	| "workspace.prepareRename"
 	| "workspace.rename"
@@ -127,6 +129,8 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.symbolEdgesTo",
 	"workspace.hasWarmIndex",
 	"workspace.cacheStatus",
+	"workspace.cacheWalkedFiles",
+	"workspace.cacheFailures",
 	"workspace.referenceBasedRename",
 	"workspace.prepareRename",
 	"workspace.rename",
@@ -207,6 +211,10 @@ export interface OperationInputs {
 	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind };
 	"workspace.hasWarmIndex": { workspaceId: WorkspaceId; path?: string };
 	"workspace.cacheStatus": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
+	/** Paginated raw detail behind cacheStatus's own compact summary -- the workspace's last completed generation regardless of whether it is still fresh (this is inspection, not a freshness check). Throws NoCompletedGeneration if none exists yet. */
+	"workspace.cacheWalkedFiles": { workspaceId: WorkspaceId; offset: number; maxResults: number; maxBytes: number };
+	/** Paginated raw (non-deduplicated) failures behind cacheStatus's own compact failureSummary -- see workspace.cacheWalkedFiles for the same completed-generation semantics. */
+	"workspace.cacheFailures": { workspaceId: WorkspaceId; offset: number; maxResults: number; maxBytes: number };
 	/** maxFiles/maxSymbolsPerFile gate the same freshness check cacheStatus uses -- this rename refuses outright unless the graph is fully "cached" (never "partial") for those exact bounds. */
 	"workspace.referenceBasedRename": { workspaceId: WorkspaceId; fromPath: string; toPath: string; maxFiles: number; maxSymbolsPerFile: number };
 	"workspace.prepareRename": WorkspacePosition;
@@ -316,6 +324,8 @@ export interface OperationOutputs {
 	"workspace.symbolEdgesTo": { symbols: readonly SymbolNode[] };
 	"workspace.hasWarmIndex": { warm: boolean };
 	"workspace.cacheStatus": WorkspaceCacheStatus;
+	"workspace.cacheWalkedFiles": { files: readonly string[]; totalCount: number; truncated: boolean };
+	"workspace.cacheFailures": { failures: readonly SymbolGraphPopulationFailure[]; totalCount: number; truncated: boolean };
 	"workspace.referenceBasedRename": ReferenceBasedRenameOutcome;
 	"workspace.prepareRename": Provenanced<{ range: RenameRange | null }>;
 	"workspace.rename": Provenanced<{ touchedPaths: readonly string[] }>;

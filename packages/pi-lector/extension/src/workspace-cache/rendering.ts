@@ -1,4 +1,4 @@
-import type { JobSnapshot, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
+import type { CacheResultCounts, JobSnapshot, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
 import type { LectorTheme } from "../lector-tui-theme.ts";
 
 type WorkspaceCacheAction = "status" | "populate" | "wait" | "job_status";
@@ -23,7 +23,7 @@ export function formatWorkspaceCacheCall(
 	return `${label} ${theme.fg("accent", action)} ${theme.fg("dim", directory)}${bounds}`;
 }
 
-function formatResultCounts(result: PopulateSymbolGraphResult): string {
+function formatResultCounts(result: CacheResultCounts): string {
 	const failed = result.filesFailed > 0 ? `, ${result.filesFailed} failed` : "";
 	return `${result.filesProcessed}/${result.filesAttempted} files${failed}, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`;
 }

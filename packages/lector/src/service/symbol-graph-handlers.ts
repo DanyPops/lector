@@ -18,10 +18,12 @@ import { shouldRefetchFromRemote } from "../repo-fetcher/remote-cache-freshness.
 import { computeUpdatedFileContentHashes } from "../symbol-graph/compute-updated-file-content-hashes.ts";
 import { findDependentFiles } from "../symbol-graph/find-dependent-files.ts";
 import { mergePopulationResult } from "../symbol-graph/merge-population-result.ts";
+import { paginateWithByteBudget } from "../symbol-graph/paginate-cache-generation-detail.ts";
 import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "../symbol-graph/populate-symbol-graph.ts";
 import { purgeFilesNoLongerWalked } from "../symbol-graph/purge-stale-graph-entries.ts";
 import { reachableSymbolsFrom } from "../symbol-graph/reachable-symbols-from.ts";
 import { diffFileHashes } from "../symbol-graph/select-files-to-reprocess.ts";
+import { summarizeCacheGeneration } from "../symbol-graph/summarize-cache-generation.ts";
 import { symbolEdgesFrom } from "../symbol-graph/symbol-edges-from.ts";
 import { symbolEdgesTo } from "../symbol-graph/symbol-edges-to.ts";
 import type { SymbolGraphGeneration } from "../symbol-graph/symbol-graph-generation.ts";
@@ -38,6 +40,7 @@ import {
 	JobWaitTooLong,
 	jobTopicFor,
 	jobWatchIdFor,
+	NoCompletedGeneration,
 	ReferenceBasedRenameRequiresFreshGraph,
 	RenameNotSupported,
 	SymbolQueryUnavailable,
@@ -73,6 +76,14 @@ export interface SymbolGraphHandlers {
 		input: OperationInputs["workspace.populateSymbolGraph"],
 	) => Promise<OperationOutputs["workspace.populateSymbolGraph"]>;
 	"workspace.cacheStatus": (registry: MutableRegistry, input: OperationInputs["workspace.cacheStatus"]) => Promise<OperationOutputs["workspace.cacheStatus"]>;
+	"workspace.cacheWalkedFiles": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.cacheWalkedFiles"],
+	) => Promise<OperationOutputs["workspace.cacheWalkedFiles"]>;
+	"workspace.cacheFailures": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.cacheFailures"],
+	) => Promise<OperationOutputs["workspace.cacheFailures"]>;
 	"workspace.referenceBasedRename": (
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.referenceBasedRename"],
@@ -348,7 +359,8 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		// this path can only ever short-circuit to the SAME answer the full check would give,
 		// never a different one.
 		if (generation.gitHeadSha !== undefined && (await isCacheFreshViaGit(entry.rootPath, generation.gitHeadSha))) {
-			return generation.result.completeness === "partial" ? { status: "partial", generation } : { status: "cached", generation };
+			const summary = summarizeCacheGeneration(generation);
+			return generation.result.completeness === "partial" ? { status: "partial", generation: summary } : { status: "cached", generation: summary };
 		}
 		const discovered = discoverWorkspaceDescriptors(entry.rootPath, LANGUAGE_SERVER_DESCRIPTORS);
 		if (discovered.length === 0) return { status: "not-cached", reason: "source-changed" };
@@ -360,7 +372,37 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 			return { status: "not-cached", reason: "source-changed" };
 		}
 		if (currentFingerprint !== generation.sourceFingerprint) return { status: "not-cached", reason: "source-changed" };
-		return generation.result.completeness === "partial" ? { status: "partial", generation } : { status: "cached", generation };
+		const summary = summarizeCacheGeneration(generation);
+		return generation.result.completeness === "partial" ? { status: "partial", generation: summary } : { status: "cached", generation: summary };
+	}
+
+	async function requireCompletedGeneration(workspaceId: WorkspaceId): Promise<SymbolGraphGeneration> {
+		if (!registry.get(workspaceId)) throw new UnknownWorkspace(workspaceId);
+		const generation = await ensureSymbolGraph(workspaceId).getGeneration();
+		if (!generation) throw new NoCompletedGeneration(workspaceId);
+		return generation;
+	}
+
+	async function cacheWalkedFilesHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.cacheWalkedFiles"],
+	): Promise<OperationOutputs["workspace.cacheWalkedFiles"]> {
+		const generation = await requireCompletedGeneration(input.workspaceId);
+		const { page, totalCount, truncated } = paginateWithByteBudget(generation.walkedFiles ?? [], input.offset, input.maxResults, input.maxBytes, (path) =>
+			Buffer.byteLength(path, "utf8"),
+		);
+		return { files: page, totalCount, truncated };
+	}
+
+	async function cacheFailuresHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.cacheFailures"],
+	): Promise<OperationOutputs["workspace.cacheFailures"]> {
+		const generation = await requireCompletedGeneration(input.workspaceId);
+		const { page, totalCount, truncated } = paginateWithByteBudget(generation.result.failures, input.offset, input.maxResults, input.maxBytes, (failure) =>
+			Buffer.byteLength(failure.message, "utf8"),
+		);
+		return { failures: page, totalCount, truncated: truncated || generation.result.failuresTruncated };
 	}
 
 	/** Every top-level document symbol's own selectionRange -- deliberately not descending into `children` (a class method can't itself be reached via a module specifier, only the file's own top-level exports can be). */
@@ -614,6 +656,8 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		handlers: {
 			"workspace.populateSymbolGraph": populateSymbolGraphHandler,
 			"workspace.cacheStatus": cacheStatusHandler,
+			"workspace.cacheWalkedFiles": cacheWalkedFilesHandler,
+			"workspace.cacheFailures": cacheFailuresHandler,
 			"workspace.referenceBasedRename": referenceBasedRenameHandler,
 			"workspace.prepareRename": prepareRenameHandler,
 			"workspace.rename": renameHandler,

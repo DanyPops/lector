@@ -47,6 +47,14 @@ export class SymbolQueryUnavailable extends Error {
 	}
 }
 
+/** Raised by workspace.cacheWalkedFiles/workspace.cacheFailures when the workspace has never completed a population -- there is no generation to page through detail from at all, distinct from cacheStatus's own "not-cached" (a status, not an error) because these two operations only ever make sense given a completed generation to begin with. */
+export class NoCompletedGeneration extends Error {
+	constructor(readonly workspaceId: WorkspaceId) {
+		super(`workspace "${workspaceId}" has no completed symbol-graph generation yet; populate it first`);
+		this.name = "NoCompletedGeneration";
+	}
+}
+
 /** Raised when the negotiated backend has no rename/prepareRename support at all (e.g. a tree-sitter fallback, or a real server that never advertised renameProvider). */
 export class RenameNotSupported extends Error {
 	constructor(readonly workspaceId: WorkspaceId) {

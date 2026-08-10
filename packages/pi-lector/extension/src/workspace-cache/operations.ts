@@ -1,4 +1,11 @@
-import { type JobSnapshot, type PopulateSymbolGraphResult, remoteErrorIs, resolveLectorDaemonConnection, type WorkspaceCacheStatus } from "@danypops/lector";
+import {
+	type CacheResultCounts,
+	type JobSnapshot,
+	type PopulateSymbolGraphResult,
+	remoteErrorIs,
+	resolveLectorDaemonConnection,
+	type WorkspaceCacheStatus,
+} from "@danypops/lector";
 import { connectPushChannel } from "@danypops/vehicle-client/daemon-client";
 import { lectorClient, withWorkspace, workspaceForProjectDirectory } from "../lector-client.ts";
 
@@ -79,7 +86,7 @@ export type CachePresentationState =
 	| { readonly status: "not-cached"; readonly reason: string }
 	| { readonly status: "caching"; readonly jobId: string }
 	| { readonly status: "finished-caching"; readonly job: JobSnapshot<PopulateSymbolGraphResult> & { readonly status: "succeeded" } }
-	| { readonly status: "partial"; readonly result: PopulateSymbolGraphResult }
+	| { readonly status: "partial"; readonly result: CacheResultCounts }
 	| { readonly status: "cached" };
 
 export function describeCacheState(state: CachePresentationState): string {

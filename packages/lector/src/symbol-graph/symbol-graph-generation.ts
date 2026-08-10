@@ -52,10 +52,55 @@ export interface SymbolGraphGeneration {
 	readonly remoteCommit?: string;
 }
 
+/** One (path, operation, code) group from summarizeCacheFailures -- message is one representative example, truncated shorter than a raw SymbolGraphPopulationFailure's own message; count is always 1 today (one failure per group per generation) but stays honest if that ever changes. */
+export interface CacheFailureSummaryEntry {
+	readonly path: string;
+	readonly operation: string;
+	readonly code: string;
+	readonly message: string;
+	readonly count: number;
+}
+
+/** The counts every cache-status caller actually asks for -- both a raw PopulateSymbolGraphResult and this compact summary satisfy it structurally, so pi-lector's own rendering can accept either without knowing which one it got. */
+export interface CacheResultCounts {
+	readonly filesAttempted: number;
+	readonly filesProcessed: number;
+	readonly filesFailed: number;
+	readonly symbolsProcessed: number;
+	readonly nodesAdded: number;
+	readonly edgesAdded: number;
+}
+
+/** The compact view of one generation's own population result that crosses the wire by default -- see summarize-cache-generation.ts for why. */
+export interface CacheGenerationResultSummary extends CacheResultCounts {
+	readonly completeness: "complete" | "partial";
+	readonly failureCount: number;
+	readonly failureSummary: readonly CacheFailureSummaryEntry[];
+	readonly failureSummaryTruncated: boolean;
+}
+
+/**
+ * The compact view of one SymbolGraphGeneration that crosses the wire by default -- omits
+ * walkedFiles and fileContentHashes entirely (delta-population-only bookkeeping, never useful to
+ * a status caller) and reports only a count of how many files were walked. The full raw detail
+ * remains reachable through workspace.cacheWalkedFiles/workspace.cacheFailures.
+ */
+export interface CacheGenerationSummary {
+	readonly completedAt: number;
+	readonly maxFiles: number;
+	readonly maxSymbolsPerFile: number;
+	readonly walkedFileCount: number;
+	readonly result: CacheGenerationResultSummary;
+	/** Absent only for generations persisted before provenance was recorded -- carried through unabridged, unlike walkedFiles/fileContentHashes/failures: a fixed-size object, not one that grows with file count. */
+	readonly provenance?: IntelligenceProvenance;
+	/** Per-language authorities included when provenance is polyglot -- see provenance's own note on why this rides along unabridged. */
+	readonly sources?: readonly IntelligenceProvenance[];
+}
+
 export type WorkspaceCacheStatus =
 	| { readonly status: "not-cached"; readonly reason: "no-completed-generation" | "bounds-changed" | "source-changed" }
 	| { readonly status: "caching"; readonly jobId: string }
 	/** The job is running but its own populateSymbolGraph call is queued waiting for a warm-index slot reserved for foreground work, not actually walking files -- distinct from "caching" so a caller can tell "genuinely working" from "waiting its turn behind interactive queries". */
 	| { readonly status: "waiting-for-resources"; readonly jobId: string }
-	| { readonly status: "partial"; readonly generation: SymbolGraphGeneration }
-	| { readonly status: "cached"; readonly generation: SymbolGraphGeneration };
+	| { readonly status: "partial"; readonly generation: CacheGenerationSummary }
+	| { readonly status: "cached"; readonly generation: CacheGenerationSummary };

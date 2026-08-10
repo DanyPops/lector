@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { JobSnapshot, PopulateSymbolGraphResult } from "@danypops/lector";
+import type { CacheGenerationSummary, JobSnapshot, PopulateSymbolGraphResult } from "@danypops/lector";
 import {
 	cacheContextMessage,
 	describeCacheState,
@@ -10,6 +10,34 @@ import {
 
 function runningJob(id = "job-1"): JobSnapshot<PopulateSymbolGraphResult> {
 	return { id, operation: "workspace.populateSymbolGraph", priority: "local", submittedAt: 1, startedAt: 2, status: "running" };
+}
+
+/** Builds the compact wire-level generation shape workspace.cacheStatus actually returns, from a full raw PopulateSymbolGraphResult -- test fixtures build the raw result once and derive this, mirroring what summarizeCacheGeneration does server-side. */
+function cacheGeneration(result: PopulateSymbolGraphResult): CacheGenerationSummary {
+	return {
+		completedAt: 1,
+		maxFiles: 10,
+		maxSymbolsPerFile: 10,
+		walkedFileCount: result.filesProcessed,
+		result: {
+			completeness: result.completeness,
+			filesAttempted: result.filesAttempted,
+			filesProcessed: result.filesProcessed,
+			filesFailed: result.filesFailed,
+			symbolsProcessed: result.symbolsProcessed,
+			nodesAdded: result.nodesAdded,
+			edgesAdded: result.edgesAdded,
+			failureCount: result.failureCount,
+			failureSummary: result.failures.map((failure) => ({
+				path: failure.path,
+				operation: failure.operation,
+				code: failure.code,
+				message: failure.message,
+				count: 1,
+			})),
+			failureSummaryTruncated: result.failuresTruncated,
+		},
+	};
 }
 
 function succeededJob(id = "job-1"): JobSnapshot<PopulateSymbolGraphResult> & { status: "succeeded" } {
@@ -247,7 +275,7 @@ describe("monitorWorkspaceCache", () => {
 			status: () =>
 				Promise.resolve({
 					status: "cached",
-					generation: { sourceFingerprint: "x", maxFiles: 10, maxSymbolsPerFile: 10, completedAt: 1, result: succeededJob().result },
+					generation: cacheGeneration(succeededJob().result),
 				}),
 			submit: () => {
 				submissions++;
@@ -297,7 +325,7 @@ describe("monitorWorkspaceCache", () => {
 			status: () =>
 				Promise.resolve({
 					status: "partial",
-					generation: { sourceFingerprint: "x", maxFiles: 10, maxSymbolsPerFile: 10, completedAt: 1, result: job.result },
+					generation: cacheGeneration(job.result),
 				}),
 			submit: () => {
 				submissions++;
@@ -370,11 +398,7 @@ describe("monitorWorkspaceCache", () => {
 		const operations: WorkspaceCacheOperations = {
 			status: () => {
 				statusCalls++;
-				return Promise.resolve(
-					statusCalls === 1
-						? { status: "caching", jobId: "job-1" }
-						: { status: "cached", generation: { sourceFingerprint: "x", maxFiles: 10, maxSymbolsPerFile: 10, completedAt: 1, result: job.result } },
-				);
+				return Promise.resolve(statusCalls === 1 ? { status: "caching", jobId: "job-1" } : { status: "cached", generation: cacheGeneration(job.result) });
 			},
 			submit: () => Promise.resolve(runningJob()),
 			// The watch itself never observes the terminal transition -- only the fresh status() call does, simulating
@@ -402,11 +426,7 @@ describe("monitorWorkspaceCache", () => {
 		const operations: WorkspaceCacheOperations = {
 			status: () => {
 				statusCalls++;
-				return Promise.resolve(
-					statusCalls === 1
-						? { status: "caching", jobId: "job-1" }
-						: { status: "partial", generation: { sourceFingerprint: "x", maxFiles: 10, maxSymbolsPerFile: 10, completedAt: 1, result: job.result } },
-				);
+				return Promise.resolve(statusCalls === 1 ? { status: "caching", jobId: "job-1" } : { status: "partial", generation: cacheGeneration(job.result) });
 			},
 			submit: () => Promise.resolve(runningJob()),
 			jobStatus: () =>
@@ -458,9 +478,7 @@ describe("monitorWorkspaceCache", () => {
 			status: () => {
 				statusCalls++;
 				return Promise.resolve(
-					statusCalls === 1
-						? { status: "caching", jobId: "job-1" }
-						: { status: "cached", generation: { sourceFingerprint: "x", maxFiles: 10, maxSymbolsPerFile: 10, completedAt: 1, result: succeededJob().result } },
+					statusCalls === 1 ? { status: "caching", jobId: "job-1" } : { status: "cached", generation: cacheGeneration(succeededJob().result) },
 				);
 			},
 			submit: () => Promise.resolve(runningJob()),
