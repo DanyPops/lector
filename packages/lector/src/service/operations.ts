@@ -27,6 +27,7 @@ import type { EditOutcome, ExpectedHashEdit } from "../workspace/exact-edit.ts";
 import type { LineEdit, LineEditOutcome } from "../workspace/line-edit.ts";
 import type { DirectoryListing } from "../workspace/list-directory.ts";
 import type { RawRead } from "../workspace/raw-read.ts";
+import type { WorkspaceResolutionRequest } from "../workspace/resolve-workspace-path.ts";
 import type { ResponseFormat } from "../workspace/response-format.ts";
 import type { RenameRange } from "../workspace/workspace-edit.ts";
 import type { WorkspaceMapResult } from "../workspace/workspace-map.ts";
@@ -43,6 +44,7 @@ export type OperationName =
 	| "workspace.mutationHistory"
 	| "workspace.revertMutation"
 	| "workspace.registerPath"
+	| "workspace.resolvePath"
 	| "workspace.release"
 	| "workspace.findSymbols"
 	| "workspace.goToDefinition"
@@ -112,6 +114,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.mutationHistory",
 	"workspace.revertMutation",
 	"workspace.registerPath",
+	"workspace.resolvePath",
 	"workspace.release",
 	"workspace.findSymbols",
 	"workspace.goToDefinition",
@@ -190,6 +193,16 @@ export interface OperationInputs {
 	"workspace.mutationHistory": { workspaceId: WorkspaceId; path: string; maxResults: number };
 	"workspace.revertMutation": { workspaceId: WorkspaceId; entryId: string };
 	"workspace.registerPath": { path: string };
+	/**
+	 * The single, canonical "which workspace does this path belong to" decision, shared by every
+	 * caller that previously reimplemented its own walk-up-the-filesystem algorithm client-side
+	 * (pi-lector's own former nearest-workspace-root.ts) -- see resolveWorkspacePath's own doc
+	 * comment for the full strategy/fallback mapping. `path` may be a file or a directory for
+	 * "path-or-directory" (the daemon checks); every other strategy treats it as the directory to
+	 * start walking upward FROM (a caller holding a file path computes its own dirname() first --
+	 * pure string parsing, not real domain logic worth a round trip to avoid).
+	 */
+	"workspace.resolvePath": WorkspaceResolutionRequest;
 	"workspace.release": { workspaceId: WorkspaceId };
 	"workspace.listDirectory": { workspaceId: WorkspaceId; path: string };
 	"workspace.createDirectory": { workspaceId: WorkspaceId; path: string };
@@ -303,6 +316,10 @@ export interface OperationOutputs {
 	/** newHash is null when the reverted-to state is "the file doesn't exist" -- reverting a create back to nonexistence, or reverting a delete when the file has stayed deleted since. */
 	"workspace.revertMutation": { path: string; newHash: ContentHash | null };
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
+	/** found is false only for "declared-monorepo-root" (the one strategy with no directory-itself/filesystem-root fallback) -- every other strategy always resolves to something. */
+	"workspace.resolvePath":
+		| { readonly found: true; readonly workspaceId: WorkspaceId; readonly root: string; readonly created: boolean }
+		| { readonly found: false };
 	/** closedIndexes/closedGraph/closedWatch each report only what this call itself actually tore down -- a workspace that was never warmed, populated, or watched legitimately reports zero/false across the board without that being an error. */
 	"workspace.release": { workspaceId: WorkspaceId; closedIndexes: number; closedGraph: boolean; closedWatch: boolean };
 	"workspace.listDirectory": DirectoryListing;

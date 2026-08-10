@@ -72,6 +72,7 @@ import { LineEditRace, LineEditRejected } from "./workspace/line-edit.ts";
 import { LocalFilesystemWorkspace } from "./workspace/local-filesystem-workspace.ts";
 import type { WorkspacePort } from "./workspace/port.ts";
 import { WorkspaceEntryNotFound } from "./workspace/raw-read.ts";
+import { resolveWorkspacePath } from "./workspace/resolve-workspace-path.ts";
 
 export interface LectorService {
 	readonly operations: readonly OperationName[];
@@ -179,6 +180,18 @@ export interface LectorServiceOptions {
 type OperationHandlers = {
 	[Name in OperationName]: (registry: MutableRegistry, input: OperationInputs[Name]) => Promise<OperationOutputs[Name]>;
 };
+
+async function resolvePathHandler(
+	registry: MutableRegistry,
+	input: OperationInputs["workspace.resolvePath"],
+): Promise<OperationOutputs["workspace.resolvePath"]> {
+	// Same rejection as registerPath -- a daemon has no caller-relative cwd of its own.
+	assertAbsolutePath(input.path);
+	const outcome = resolveWorkspacePath({ ...input, path: resolve(input.path) });
+	if (!outcome.found) return { found: false };
+	const { workspaceId, created } = await registerPath(registry, { path: outcome.root });
+	return { found: true, workspaceId, root: outcome.root, created };
+}
 
 async function registerPath(registry: MutableRegistry, input: OperationInputs["workspace.registerPath"]): Promise<OperationOutputs["workspace.registerPath"]> {
 	// Rejected outright, not resolved -- a daemon has no caller-relative "current directory" of
@@ -409,6 +422,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const handlers: OperationHandlers = {
 		...workspaceFileHandlers,
 		"workspace.registerPath": registerPath,
+		"workspace.resolvePath": resolvePathHandler,
 		...workspaceLifecycleHandlers,
 		...codeIntelligenceHandlers,
 		...symbolGraphHandlers.handlers,

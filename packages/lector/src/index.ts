@@ -368,6 +368,7 @@ export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, Work
 export { raceWorkspaceQuery } from "./workspace/race-workspace-query.ts";
 export { type RawRead, rawRead, WorkspaceEntryNotFound } from "./workspace/raw-read.ts";
 export { ReadOnlyWorkspace, WorkspaceIsReadOnly } from "./workspace/read-only-workspace.ts";
+export type { WorkspaceResolutionFallback, WorkspaceResolutionOutcome, WorkspaceResolutionRequest } from "./workspace/resolve-workspace-path.ts";
 export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./workspace/response-format.ts";
 export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./workspace/response-format.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./workspace/source-manifest.ts";
