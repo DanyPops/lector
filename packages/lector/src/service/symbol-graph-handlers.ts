@@ -1,5 +1,6 @@
 import { extname } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
+import { boundList, boundListFromStart, jsonByteSize } from "../bounds/bound-list.ts";
 import type { DocumentSymbolEntry } from "../code-intelligence/document-symbol.ts";
 import { documentSymbols as documentSymbolsQuery } from "../code-intelligence/document-symbols.ts";
 import { findReferences as findReferencesQuery } from "../code-intelligence/find-references.ts";
@@ -18,8 +19,8 @@ import { shouldRefetchFromRemote } from "../repo-fetcher/remote-cache-freshness.
 import { computeUpdatedFileContentHashes } from "../symbol-graph/compute-updated-file-content-hashes.ts";
 import { findDependentFiles } from "../symbol-graph/find-dependent-files.ts";
 import { mergePopulationResult } from "../symbol-graph/merge-population-result.ts";
-import { paginateWithByteBudget } from "../symbol-graph/paginate-cache-generation-detail.ts";
 import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "../symbol-graph/populate-symbol-graph.ts";
+import type { SymbolNode } from "../symbol-graph/port.ts";
 import { purgeFilesNoLongerWalked } from "../symbol-graph/purge-stale-graph-entries.ts";
 import { reachableSymbolsFrom } from "../symbol-graph/reachable-symbols-from.ts";
 import { diffFileHashes } from "../symbol-graph/select-files-to-reprocess.ts";
@@ -32,7 +33,17 @@ import { applyWorkspaceEdit, collectTouchedPaths } from "../workspace/apply-work
 import { WorkspaceEntryNotFound } from "../workspace/raw-read.ts";
 import { deriveSourceManifest } from "../workspace/source-manifest.ts";
 import type { ParsedWorkspaceEdit } from "../workspace/workspace-edit.ts";
-import { MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP, MAX_INITIAL_JOB_WAIT_MS, MAX_SOURCE_MANIFEST_BYTES, POPULATION_CONCURRENCY } from "./bounds.ts";
+import {
+	DEFAULT_GRAPH_QUERY_BYTES,
+	DEFAULT_GRAPH_QUERY_RESULTS,
+	MAX_GRAPH_QUERY_BYTES,
+	MAX_GRAPH_QUERY_RESULTS,
+	MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP,
+	MAX_INITIAL_JOB_WAIT_MS,
+	MAX_SOURCE_MANIFEST_BYTES,
+	POPULATION_CONCURRENCY,
+	resolveBound,
+} from "./bounds.ts";
 import { requireCodeIntelligence } from "./code-intelligence-handlers.ts";
 import {
 	CodeIntelligenceUnavailable,
@@ -388,7 +399,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		input: OperationInputs["workspace.cacheWalkedFiles"],
 	): Promise<OperationOutputs["workspace.cacheWalkedFiles"]> {
 		const generation = await requireCompletedGeneration(input.workspaceId);
-		const { page, totalCount, truncated } = paginateWithByteBudget(generation.walkedFiles ?? [], input.offset, input.maxResults, input.maxBytes, (path) =>
+		const { page, totalCount, truncated } = boundList(generation.walkedFiles ?? [], input.offset, input.maxResults, input.maxBytes, (path) =>
 			Buffer.byteLength(path, "utf8"),
 		);
 		return { files: page, totalCount, truncated };
@@ -399,7 +410,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		input: OperationInputs["workspace.cacheFailures"],
 	): Promise<OperationOutputs["workspace.cacheFailures"]> {
 		const generation = await requireCompletedGeneration(input.workspaceId);
-		const { page, totalCount, truncated } = paginateWithByteBudget(generation.result.failures, input.offset, input.maxResults, input.maxBytes, (failure) =>
+		const { page, totalCount, truncated } = boundList(generation.result.failures, input.offset, input.maxResults, input.maxBytes, (failure) =>
 			Buffer.byteLength(failure.message, "utf8"),
 		);
 		return { failures: page, totalCount, truncated: truncated || generation.result.failuresTruncated };
@@ -622,6 +633,13 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		return Promise.resolve({ watchId: jobWatchIdFor(jobId), topic: jobTopicFor(jobId) });
 	}
 
+	function boundedSymbolNodes(symbols: readonly SymbolNode[], input: { maxResults?: number; maxBytes?: number }): OperationOutputs["workspace.reachableFrom"] {
+		const maxResults = resolveBound(input.maxResults, DEFAULT_GRAPH_QUERY_RESULTS, MAX_GRAPH_QUERY_RESULTS, "maxResults");
+		const maxBytes = resolveBound(input.maxBytes, DEFAULT_GRAPH_QUERY_BYTES, MAX_GRAPH_QUERY_BYTES, "maxBytes");
+		const { page, truncated } = boundListFromStart(symbols, maxResults, maxBytes, jsonByteSize);
+		return { symbols: page, truncated };
+	}
+
 	async function reachableFromHandler(
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.reachableFrom"],
@@ -629,7 +647,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		const graph = ensureSymbolGraph(input.workspaceId);
 		const id = deriveSymbolNodeId({ path: input.path, line: input.line, character: input.character });
 		const symbols = await reachableSymbolsFrom(graph, id, { maxDepth: input.maxDepth, kind: input.kind });
-		return { symbols };
+		return boundedSymbolNodes(symbols, input);
 	}
 
 	async function symbolEdgesFromHandler(
@@ -639,7 +657,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		const graph = ensureSymbolGraph(input.workspaceId);
 		const id = deriveSymbolNodeId({ path: input.path, line: input.line, character: input.character });
 		const symbols = await symbolEdgesFrom(graph, id, input.kind);
-		return { symbols };
+		return boundedSymbolNodes(symbols, input);
 	}
 
 	async function symbolEdgesToHandler(
@@ -649,7 +667,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		const graph = ensureSymbolGraph(input.workspaceId);
 		const id = deriveSymbolNodeId({ path: input.path, line: input.line, character: input.character });
 		const symbols = await symbolEdgesTo(graph, id, input.kind);
-		return { symbols };
+		return boundedSymbolNodes(symbols, input);
 	}
 
 	return {

@@ -196,19 +196,19 @@ export interface OperationInputs {
 	"workspace.renamePath": { workspaceId: WorkspaceId; oldPath: string; newPath: string };
 	"workspace.deleteDirectory": { workspaceId: WorkspaceId; path: string };
 	"workspace.findSymbols": { workspaceId: WorkspaceId; query: string; seedFile?: string; maxResults?: number; responseFormat?: ResponseFormat };
-	"workspace.goToDefinition": WorkspacePosition;
-	"workspace.goToImplementation": WorkspacePosition;
-	"workspace.findReferences": WorkspacePosition & { includeDeclaration: boolean; responseFormat?: ResponseFormat };
-	"workspace.hover": WorkspacePosition;
-	"workspace.documentSymbols": { workspaceId: WorkspaceId; path: string };
-	"workspace.diagnostics": { workspaceId: WorkspaceId; path: string };
+	"workspace.goToDefinition": WorkspacePosition & { maxResults?: number; maxBytes?: number };
+	"workspace.goToImplementation": WorkspacePosition & { maxResults?: number; maxBytes?: number };
+	"workspace.findReferences": WorkspacePosition & { includeDeclaration: boolean; responseFormat?: ResponseFormat; maxResults?: number; maxBytes?: number };
+	"workspace.hover": WorkspacePosition & { maxBytes?: number };
+	"workspace.documentSymbols": { workspaceId: WorkspaceId; path: string; maxResults?: number; maxBytes?: number };
+	"workspace.diagnostics": { workspaceId: WorkspaceId; path: string; maxResults?: number; maxBytes?: number };
 	"workspace.prepareCallHierarchy": WorkspacePosition;
-	"workspace.incomingCalls": WorkspacePosition;
-	"workspace.outgoingCalls": WorkspacePosition;
+	"workspace.incomingCalls": WorkspacePosition & { maxResults?: number; maxBytes?: number };
+	"workspace.outgoingCalls": WorkspacePosition & { maxResults?: number; maxBytes?: number };
 	"workspace.populateSymbolGraph": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
-	"workspace.reachableFrom": WorkspacePosition & { maxDepth: number; kind?: SymbolEdgeKind };
-	"workspace.symbolEdgesFrom": WorkspacePosition & { kind?: SymbolEdgeKind };
-	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind };
+	"workspace.reachableFrom": WorkspacePosition & { maxDepth: number; kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
+	"workspace.symbolEdgesFrom": WorkspacePosition & { kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
+	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
 	"workspace.hasWarmIndex": { workspaceId: WorkspaceId; path?: string };
 	"workspace.cacheStatus": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
 	/** Paginated raw detail behind cacheStatus's own compact summary -- the workspace's last completed generation regardless of whether it is still fresh (this is inspection, not a freshness check). Throws NoCompletedGeneration if none exists yet. */
@@ -254,7 +254,8 @@ export interface OperationInputs {
 	 * entirely different, concurrent Pi session registered, not just this caller's own. A caller
 	 * that means "my own current projects" must say so explicitly.
 	 */
-	"search.symbols": { query: string; workspaceIds?: readonly WorkspaceId[]; timeoutMs?: number };
+	/** maxResults, when given, is applied per workspace (the same way a direct workspace.findSymbols call would apply it) -- a caller asking for at most 10 results is asking that of each workspace searched, not 10 total across every one of them. */
+	"search.symbols": { query: string; workspaceIds?: readonly WorkspaceId[]; timeoutMs?: number; maxResults?: number };
 	"search.text": { query: string; maxMatches: number; maxBytes: number; workspaceIds?: readonly WorkspaceId[]; timeoutMs?: number };
 	"job.submit": {
 		operation: "workspace.populateSymbolGraph";
@@ -309,19 +310,20 @@ export interface OperationOutputs {
 	"workspace.renamePath": { oldPath: string; newPath: string };
 	"workspace.deleteDirectory": { path: string };
 	"workspace.findSymbols": SymbolSearchResult;
-	"workspace.goToDefinition": Provenanced<{ locations: readonly WorkspaceLocation[] }>;
-	"workspace.goToImplementation": Provenanced<{ locations: readonly WorkspaceLocation[] }>;
-	"workspace.findReferences": Provenanced<{ locations: readonly WorkspaceLocation[] }>;
-	"workspace.hover": Provenanced<{ hover: Hover | undefined }>;
-	"workspace.documentSymbols": Provenanced<{ symbols: readonly DocumentSymbolEntry[] }>;
-	"workspace.diagnostics": Provenanced<{ diagnostics: readonly Diagnostic[] }>;
+	"workspace.goToDefinition": Provenanced<{ locations: readonly WorkspaceLocation[]; truncated: boolean }>;
+	"workspace.goToImplementation": Provenanced<{ locations: readonly WorkspaceLocation[]; truncated: boolean }>;
+	"workspace.findReferences": Provenanced<{ locations: readonly WorkspaceLocation[]; truncated: boolean }>;
+	/** truncated is true only when hover text itself was cut by maxBytes -- absent entirely (undefined hover) is not truncation. */
+	"workspace.hover": Provenanced<{ hover: Hover | undefined; truncated: boolean }>;
+	"workspace.documentSymbols": Provenanced<{ symbols: readonly DocumentSymbolEntry[]; truncated: boolean }>;
+	"workspace.diagnostics": Provenanced<{ diagnostics: readonly Diagnostic[]; truncated: boolean }>;
 	"workspace.prepareCallHierarchy": Provenanced<{ items: readonly CallHierarchyEntry[] }>;
-	"workspace.incomingCalls": Provenanced<{ calls: readonly IncomingCall[] }>;
-	"workspace.outgoingCalls": Provenanced<{ calls: readonly OutgoingCall[] }>;
+	"workspace.incomingCalls": Provenanced<{ calls: readonly IncomingCall[]; truncated: boolean }>;
+	"workspace.outgoingCalls": Provenanced<{ calls: readonly OutgoingCall[]; truncated: boolean }>;
 	"workspace.populateSymbolGraph": PopulateSymbolGraphResult;
-	"workspace.reachableFrom": { symbols: readonly SymbolNode[] };
-	"workspace.symbolEdgesFrom": { symbols: readonly SymbolNode[] };
-	"workspace.symbolEdgesTo": { symbols: readonly SymbolNode[] };
+	"workspace.reachableFrom": { symbols: readonly SymbolNode[]; truncated: boolean };
+	"workspace.symbolEdgesFrom": { symbols: readonly SymbolNode[]; truncated: boolean };
+	"workspace.symbolEdgesTo": { symbols: readonly SymbolNode[]; truncated: boolean };
 	"workspace.hasWarmIndex": { warm: boolean };
 	"workspace.cacheStatus": WorkspaceCacheStatus;
 	"workspace.cacheWalkedFiles": { files: readonly string[]; totalCount: number; truncated: boolean };

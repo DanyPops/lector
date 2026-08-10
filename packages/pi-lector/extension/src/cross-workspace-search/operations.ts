@@ -10,7 +10,13 @@ import { forgetWorkspaceId, lectorClient, type ResolvedWorkspace, workspaceForPr
  * required, same "no implicit fallback" convention as find_symbols/search_code.
  */
 export interface CrossWorkspaceSearchOperations {
-	findSymbols(query: string, directories: readonly string[], timeoutMs?: number): Promise<readonly CrossWorkspaceOutcome<SymbolSearchResult>[]>;
+	/** maxResults, when given, applies per project (see workspace.cacheStatus's own OperationInputs note on search.symbols) -- omitted falls back to the daemon's own conservative default, never an unbounded per-project search.symbols call fanned out across every requested directory at once. */
+	findSymbols(
+		query: string,
+		directories: readonly string[],
+		timeoutMs?: number,
+		maxResults?: number,
+	): Promise<readonly CrossWorkspaceOutcome<SymbolSearchResult>[]>;
 	searchText(
 		query: string,
 		directories: readonly string[],
@@ -126,11 +132,11 @@ async function withCrossWorkspaceRestartRecovery<T>(
 
 export function createLectorCrossWorkspaceSearchOperations(): CrossWorkspaceSearchOperations {
 	return {
-		findSymbols(query, directories, timeoutMs) {
+		findSymbols(query, directories, timeoutMs, maxResults) {
 			return withCrossWorkspaceRestartRecovery(directories, async (resolved) => {
 				const workspaceIds = resolved.map((r) => r.workspaceId);
 				const client = await lectorClient();
-				const { results } = await client.call("search.symbols", { query, workspaceIds, timeoutMs });
+				const { results } = await client.call("search.symbols", { query, workspaceIds, timeoutMs, ...(maxResults !== undefined ? { maxResults } : {}) });
 				return zipOutcomes(directories, workspaceIds, results);
 			});
 		},

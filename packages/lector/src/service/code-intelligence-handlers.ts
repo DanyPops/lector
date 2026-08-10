@@ -1,3 +1,5 @@
+import { boundListFromStart, jsonByteSize } from "../bounds/bound-list.ts";
+import { truncateUtf8 } from "../bounds/truncate-utf8.ts";
 import { diagnostics as diagnosticsQuery } from "../code-intelligence/diagnostics.ts";
 import { documentSymbols as documentSymbolsQuery } from "../code-intelligence/document-symbols.ts";
 import { findReferences as findReferencesQuery } from "../code-intelligence/find-references.ts";
@@ -14,7 +16,25 @@ import { prepareCallHierarchy as prepareCallHierarchyQuery } from "../symbol-gra
 import { findWorkspaceSymbols } from "../workspace/find-workspace-symbols.ts";
 import { normalizeSymbolSearchResult } from "../workspace/normalize-symbol-search-result.ts";
 import { formatProvenanced, formatSymbolSearchResult } from "../workspace/response-format.ts";
-import { MAX_SYMBOL_RESULTS, SYMBOL_SEARCH_OVERFETCH_MULTIPLIER } from "./bounds.ts";
+import {
+	DEFAULT_DIAGNOSTIC_BYTES,
+	DEFAULT_DIAGNOSTIC_RESULTS,
+	DEFAULT_DOCUMENT_SYMBOL_BYTES,
+	DEFAULT_DOCUMENT_SYMBOL_RESULTS,
+	DEFAULT_HOVER_BYTES,
+	DEFAULT_LOCATION_BYTES,
+	DEFAULT_LOCATION_RESULTS,
+	MAX_DIAGNOSTIC_BYTES,
+	MAX_DIAGNOSTIC_RESULTS,
+	MAX_DOCUMENT_SYMBOL_BYTES,
+	MAX_DOCUMENT_SYMBOL_RESULTS,
+	MAX_HOVER_BYTES,
+	MAX_LOCATION_BYTES,
+	MAX_LOCATION_RESULTS,
+	MAX_SYMBOL_RESULTS,
+	resolveBound,
+	SYMBOL_SEARCH_OVERFETCH_MULTIPLIER,
+} from "./bounds.ts";
 import { CodeIntelligenceUnavailable, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
 import type { OperationInputs, OperationOutputs } from "./operations.ts";
 import { supportsCodeIntelligence, type WarmIndexLease, type WarmIndexRegistry } from "./warm-index-registry.ts";
@@ -117,12 +137,18 @@ export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps
 		async "workspace.goToDefinition"(_registry, input) {
 			await using lease = await requireCodeIntelligence(warmIndexes, input);
 			const locations = await goToDefinitionQuery(lease.value.index, { path: input.path, line: input.line, character: input.character });
-			return { locations, provenance: lease.value.index.provenance };
+			const maxResults = resolveBound(input.maxResults, DEFAULT_LOCATION_RESULTS, MAX_LOCATION_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_LOCATION_BYTES, MAX_LOCATION_BYTES, "maxBytes");
+			const { page, truncated } = boundListFromStart(locations, maxResults, maxBytes, jsonByteSize);
+			return { locations: page, truncated, provenance: lease.value.index.provenance };
 		},
 		async "workspace.goToImplementation"(_registry, input) {
 			await using lease = await requireCodeIntelligence(warmIndexes, input);
 			const locations = await goToImplementationQuery(lease.value.index, { path: input.path, line: input.line, character: input.character });
-			return { locations, provenance: lease.value.index.provenance };
+			const maxResults = resolveBound(input.maxResults, DEFAULT_LOCATION_RESULTS, MAX_LOCATION_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_LOCATION_BYTES, MAX_LOCATION_BYTES, "maxBytes");
+			const { page, truncated } = boundListFromStart(locations, maxResults, maxBytes, jsonByteSize);
+			return { locations: page, truncated, provenance: lease.value.index.provenance };
 		},
 		async "workspace.findReferences"(_registry, input) {
 			await using lease = await requireCodeIntelligence(warmIndexes, input);
@@ -131,27 +157,39 @@ export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps
 				{ path: input.path, line: input.line, character: input.character },
 				input.includeDeclaration,
 			);
+			const maxResults = resolveBound(input.maxResults, DEFAULT_LOCATION_RESULTS, MAX_LOCATION_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_LOCATION_BYTES, MAX_LOCATION_BYTES, "maxBytes");
+			const { page, truncated } = boundListFromStart(locations, maxResults, maxBytes, jsonByteSize);
 			// See workspace.findSymbols' identical note on the concise/detailed type-vs-runtime tradeoff.
 			// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 			return formatProvenanced(
-				{ locations, provenance: lease.value.index.provenance },
+				{ locations: page, truncated, provenance: lease.value.index.provenance },
 				input.responseFormat ?? "detailed",
 			) as OperationOutputs["workspace.findReferences"];
 		},
 		async "workspace.hover"(_registry, input) {
 			await using lease = await requireCodeIntelligence(warmIndexes, input);
 			const hover = await hoverAt(lease.value.index, { path: input.path, line: input.line, character: input.character });
-			return { hover, provenance: lease.value.index.provenance };
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_HOVER_BYTES, MAX_HOVER_BYTES, "maxBytes");
+			if (!hover) return { hover, truncated: false, provenance: lease.value.index.provenance };
+			const bounded = truncateUtf8(hover.contents, maxBytes);
+			return { hover: { ...hover, contents: bounded.value }, truncated: bounded.truncated, provenance: lease.value.index.provenance };
 		},
 		async "workspace.documentSymbols"(_registry, input) {
 			await using lease = await requireCodeIntelligence(warmIndexes, input);
 			const symbols = await documentSymbolsQuery(lease.value.index, input.path);
-			return { symbols, provenance: lease.value.index.provenance };
+			const maxResults = resolveBound(input.maxResults, DEFAULT_DOCUMENT_SYMBOL_RESULTS, MAX_DOCUMENT_SYMBOL_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_DOCUMENT_SYMBOL_BYTES, MAX_DOCUMENT_SYMBOL_BYTES, "maxBytes");
+			const { page, truncated } = boundListFromStart(symbols, maxResults, maxBytes, jsonByteSize);
+			return { symbols: page, truncated, provenance: lease.value.index.provenance };
 		},
 		async "workspace.diagnostics"(_registry, input) {
 			await using lease = await requireCodeIntelligence(warmIndexes, input);
 			const diagnostics = await diagnosticsQuery(lease.value.index, input.path);
-			return { diagnostics, provenance: lease.value.index.provenance };
+			const maxResults = resolveBound(input.maxResults, DEFAULT_DIAGNOSTIC_RESULTS, MAX_DIAGNOSTIC_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_DIAGNOSTIC_BYTES, MAX_DIAGNOSTIC_BYTES, "maxBytes");
+			const { page, truncated } = boundListFromStart(diagnostics, maxResults, maxBytes, jsonByteSize);
+			return { diagnostics: page, truncated, provenance: lease.value.index.provenance };
 		},
 		async "workspace.prepareCallHierarchy"(_registry, input) {
 			await using lease = await requireCodeIntelligence(warmIndexes, input);
@@ -161,12 +199,18 @@ export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps
 		async "workspace.incomingCalls"(_registry, input) {
 			await using lease = await requireCodeIntelligence(warmIndexes, input);
 			const calls = await incomingCallsQuery(lease.value.index, { path: input.path, line: input.line, character: input.character });
-			return { calls, provenance: lease.value.index.provenance };
+			const maxResults = resolveBound(input.maxResults, DEFAULT_LOCATION_RESULTS, MAX_LOCATION_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_LOCATION_BYTES, MAX_LOCATION_BYTES, "maxBytes");
+			const { page, truncated } = boundListFromStart(calls, maxResults, maxBytes, jsonByteSize);
+			return { calls: page, truncated, provenance: lease.value.index.provenance };
 		},
 		async "workspace.outgoingCalls"(_registry, input) {
 			await using lease = await requireCodeIntelligence(warmIndexes, input);
 			const calls = await outgoingCallsQuery(lease.value.index, { path: input.path, line: input.line, character: input.character });
-			return { calls, provenance: lease.value.index.provenance };
+			const maxResults = resolveBound(input.maxResults, DEFAULT_LOCATION_RESULTS, MAX_LOCATION_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_LOCATION_BYTES, MAX_LOCATION_BYTES, "maxBytes");
+			const { page, truncated } = boundListFromStart(calls, maxResults, maxBytes, jsonByteSize);
+			return { calls: page, truncated, provenance: lease.value.index.provenance };
 		},
 		// Never spawns -- a caller deciding whether to enrich a result with LSP-backed info must not
 		// pay a cold-start cost just to check. With a path, checks that file's own language; without

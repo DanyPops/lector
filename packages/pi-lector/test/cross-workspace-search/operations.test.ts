@@ -89,6 +89,25 @@ function buildUnmarkedSiblings(): { dirA: string; dirB: string } {
 }
 
 describe("Lector-backed cross-workspace search operations", () => {
+	it("threads maxResults through to search.symbols when given, and omits it entirely otherwise", async () => {
+		const recordedInputs: OperationInputs["search.symbols"][] = [];
+		const client = scriptedClient({
+			"search.symbols": (input: OperationInputs["search.symbols"]) => {
+				recordedInputs.push(input);
+				return { results: input.workspaceIds?.map((workspaceId) => ({ workspaceId, status: "ready", result: { symbols: [], truncated: false } })) ?? [] };
+			},
+		});
+		setLectorClientConnectorForTests(() => Promise.resolve(client));
+		const dirA = buildDir("a.txt", "hello\n");
+
+		const ops = createLectorCrossWorkspaceSearchOperations();
+		await ops.findSymbols("found", [dirA], undefined, 7);
+		await ops.findSymbols("found", [dirA]);
+
+		expect(recordedInputs[0]?.maxResults).toBe(7);
+		expect(recordedInputs[1]).not.toHaveProperty("maxResults");
+	});
+
 	it("searchText finds real matches independently in each explicitly-named directory", async () => {
 		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;

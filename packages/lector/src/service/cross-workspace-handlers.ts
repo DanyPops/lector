@@ -74,7 +74,7 @@ export function createCrossWorkspaceHandlers(deps: CrossWorkspaceHandlerDeps): {
 			const results = await fanOut(
 				targets,
 				timeoutMs,
-				(workspaceId) => deps.findSymbols({ workspaceId, query: input.query }),
+				(workspaceId) => deps.findSymbols({ workspaceId, query: input.query, ...(input.maxResults !== undefined ? { maxResults: input.maxResults } : {}) }),
 				"this workspace's symbol index is still warming up (a cold-starting language server) -- its data may exist once it finishes; retry shortly",
 			);
 			return { results };

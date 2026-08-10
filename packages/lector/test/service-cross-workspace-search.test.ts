@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { SymbolSearchBounds } from "../src/code-intelligence/intelligence-provenance.ts";
 import type { ClosableSymbolIndex, LectorService } from "../src/service.ts";
 import { createLectorService } from "../src/service.ts";
 import type { WorkspaceQueryOutcome } from "../src/workspace/workspace-query-outcome.ts";
@@ -54,7 +55,37 @@ class NeverSettlesSymbolIndex implements ClosableSymbolIndex {
 	async close(): Promise<void> {}
 }
 
+class RecordingSymbolIndex implements ClosableSymbolIndex {
+	readonly provenance = TEST_SEMANTIC_PROVENANCE;
+	readonly recordedBounds: (SymbolSearchBounds | undefined)[] = [];
+	constructor(private readonly symbol: WorkspaceSymbol) {}
+	async findSymbols(_query: string, bounds?: SymbolSearchBounds) {
+		this.recordedBounds.push(bounds);
+		return symbolSearchResult([this.symbol]);
+	}
+	async close(): Promise<void> {}
+}
+
 describe("createLectorService's search.symbols (cross-workspace fan-out)", () => {
+	it("threads its own maxResults through to each workspace's own findSymbols, not just the per-workspace default", async () => {
+		const dirA = buildDir("a.ts", "export function found() {}");
+		let recorder: RecordingSymbolIndex | undefined;
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolIndex: (rootPath) => {
+				recorder = new RecordingSymbolIndex({ name: "found", kind: "function", location: { path: join(rootPath, "a.ts"), line: 1, character: 1 } });
+				return recorder;
+			},
+		});
+		await service.dispatch("workspace.registerPath", { path: dirA });
+
+		await service.dispatch("search.symbols", { query: "found", maxResults: 1 });
+		await service.dispatch("search.symbols", { query: "found" });
+
+		expect(recorder?.recordedBounds[0]?.maxResults).toBe(5); // maxResults 1 * SYMBOL_SEARCH_OVERFETCH_MULTIPLIER 5
+		expect(recorder?.recordedBounds[1]?.maxResults).not.toBe(5); // the omitted case uses findSymbols' own much larger default overfetch instead
+	});
+
 	it("returns a ready outcome with real results for every fast workspace", async () => {
 		const dirA = buildDir("a.ts", "export function found() {}");
 		const dirB = buildDir("b.ts", "export function found() {}");

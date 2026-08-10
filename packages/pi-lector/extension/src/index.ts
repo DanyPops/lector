@@ -1816,10 +1816,13 @@ export default function (pi: ExtensionAPI) {
 				directories: Type.Array(Type.String(), { description: "Project directories to search, each absolute or relative to the current working directory" }),
 				query: Type.String({ description: "Symbol name (or substring) to search for" }),
 				timeoutMs: Type.Optional(Type.Number({ description: "How long to wait per project before reporting it as still-loading; defaults to 3000" })),
+				maxResults: Type.Optional(
+					Type.Number({ description: "Maximum matches to return per project (not total across every project); defaults to a conservative per-project bound" }),
+				),
 			}),
 			async execute(_toolCallId, params) {
 				const directories = params.directories.map((directory) => resolve(cwd, directory));
-				const results = await crossWorkspaceSearchOperations.findSymbols(params.query, directories, params.timeoutMs);
+				const results = await crossWorkspaceSearchOperations.findSymbols(params.query, directories, params.timeoutMs, params.maxResults);
 				return { content: [{ type: "text", text: JSON.stringify(results) }], details: { results } };
 			},
 			renderCall(args, theme, context) {

@@ -24,3 +24,43 @@ export const POPULATION_CONCURRENCY = 8;
  * reprocessing every file instead, never by risking a silently dropped cross-file edge.
  */
 export const MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP = 200_000;
+
+/**
+ * Shared defaults/ceilings for every code-intelligence operation whose result is a list a real
+ * workspace can make arbitrarily large -- goToDefinition/goToImplementation/findReferences/
+ * incomingCalls/outgoingCalls all return WorkspaceLocation-shaped entries of comparable size.
+ * Live evidence: an unbounded call-hierarchy query against a real project returned dozens of
+ * framework/stdlib entries with no way for a caller to ask for fewer.
+ */
+export const DEFAULT_LOCATION_RESULTS = 200;
+export const MAX_LOCATION_RESULTS = 2_000;
+export const DEFAULT_LOCATION_BYTES = 256 * 1024;
+export const MAX_LOCATION_BYTES = 2 * 1024 * 1024;
+
+/** documentSymbols can legitimately enumerate thousands of entries for one large generated/vendored file -- a higher ceiling than the location-shaped operations above, which are usually a handful of cross-file hits. */
+export const DEFAULT_DOCUMENT_SYMBOL_RESULTS = 2_000;
+export const MAX_DOCUMENT_SYMBOL_RESULTS = 20_000;
+export const DEFAULT_DOCUMENT_SYMBOL_BYTES = 1024 * 1024;
+export const MAX_DOCUMENT_SYMBOL_BYTES = 8 * 1024 * 1024;
+
+export const DEFAULT_DIAGNOSTIC_RESULTS = 500;
+export const MAX_DIAGNOSTIC_RESULTS = 5_000;
+export const DEFAULT_DIAGNOSTIC_BYTES = 256 * 1024;
+export const MAX_DIAGNOSTIC_BYTES = 2 * 1024 * 1024;
+
+/** hover text is one string, not a list -- bounded by bytes only, via truncateUtf8. */
+export const DEFAULT_HOVER_BYTES = 16 * 1024;
+export const MAX_HOVER_BYTES = 256 * 1024;
+
+/** workspace.reachableFrom/symbolEdgesFrom/symbolEdgesTo already bound traversal depth (maxDepth/kind) -- this bounds the resulting symbol list's own size, which depth alone does not cap in a densely-connected graph. */
+export const DEFAULT_GRAPH_QUERY_RESULTS = 500;
+export const MAX_GRAPH_QUERY_RESULTS = 5_000;
+export const DEFAULT_GRAPH_QUERY_BYTES = 512 * 1024;
+export const MAX_GRAPH_QUERY_BYTES = 4 * 1024 * 1024;
+
+/** Validates an optional caller-supplied bound against its own ceiling, defaulting when omitted -- the one place every bounded code-intelligence operation resolves "how many/how much" so the same invalid-input contract (TypeError, not a silent clamp) applies everywhere. */
+export function resolveBound(explicit: number | undefined, defaultValue: number, max: number, name: string): number {
+	const value = explicit ?? defaultValue;
+	if (!Number.isSafeInteger(value) || value < 1 || value > max) throw new TypeError(`${name} must be a positive safe integer no greater than ${max}`);
+	return value;
+}
