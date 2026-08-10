@@ -64,7 +64,7 @@ describe("LspSymbolIndex workspace readiness", () => {
 		expect(index.latestProgress.get("initial-index")).toEqual({ kind: "end" });
 	}, 10_000);
 
-	it("waits for active work-done progress before prepareCallHierarchy, and therefore before incomingCalls/outgoingCalls which share the same raw request", async () => {
+	it("waits for active work-done progress before prepareCallHierarchy -- the shared first hop incomingCalls/outgoingCalls both start with (their own second hop is covered separately below, since it is a genuinely distinct request that can race its own, later background work)", async () => {
 		root = mkdtempSync(join(tmpdir(), "lector-progress-gated-"));
 		const seed = join(root, "seed.ts");
 		writeFileSync(seed, "export function readySymbol() {}\n");
@@ -73,6 +73,38 @@ describe("LspSymbolIndex workspace readiness", () => {
 		const items = await index.prepareCallHierarchy({ path: seed, line: 1, character: 17 });
 
 		expect(items).toHaveLength(1);
+		expect(index.latestProgress.get("initial-index")).toEqual({ kind: "end" });
+	}, 10_000);
+
+	it("waits for a SECOND, independent progress episode before callHierarchy/outgoingCalls's own request -- prepareCallHierarchy resolving is not enough, the raw call-hierarchy request itself must also wait", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-progress-gated-"));
+		const seed = join(root, "seed.ts");
+		writeFileSync(seed, "export function readySymbol() {}\n");
+		const descriptor: LanguageServerDescriptor = {
+			...PROGRESS_GATED_DESCRIPTOR,
+			args: [PROGRESS_GATED_SERVER, "--restart-indexing-after-call-hierarchy"],
+		};
+		index = new LspSymbolIndex(root, descriptor, "seed.ts");
+
+		const outgoing = await index.outgoingCalls({ path: seed, line: 1, character: 17 });
+
+		expect(outgoing.map((call) => call.to.name)).toEqual(["realCallee"]);
+		expect(index.latestProgress.get("initial-index")).toEqual({ kind: "end" });
+	}, 10_000);
+
+	it("waits for a SECOND, independent progress episode before callHierarchy/incomingCalls's own request", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-progress-gated-"));
+		const seed = join(root, "seed.ts");
+		writeFileSync(seed, "export function readySymbol() {}\n");
+		const descriptor: LanguageServerDescriptor = {
+			...PROGRESS_GATED_DESCRIPTOR,
+			args: [PROGRESS_GATED_SERVER, "--restart-indexing-after-call-hierarchy"],
+		};
+		index = new LspSymbolIndex(root, descriptor, "seed.ts");
+
+		const incoming = await index.incomingCalls({ path: seed, line: 1, character: 17 });
+
+		expect(incoming.map((call) => call.from.name)).toEqual(["realCaller"]);
 		expect(index.latestProgress.get("initial-index")).toEqual({ kind: "end" });
 	}, 10_000);
 

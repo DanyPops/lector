@@ -360,6 +360,20 @@ function normalizeHoverContents(contents: LspHover["contents"]): string {
 	return contents.value;
 }
 
+/**
+ * True for gopls' own "<name> is not a function" error -- observed both from
+ * textDocument/prepareCallHierarchy (a Go func-TYPE declaration, e.g. `type Handler
+ * func(int) int`, is reported by gopls' documentSymbols with SymbolKind.Function, the
+ * same kind a real function declaration gets, so nothing at the documentSymbols layer
+ * can tell the two apart) and from callHierarchy/outgoingCalls (one of a real root's
+ * own callees is a function-TYPED value rather than a directly declared function gopls
+ * can resolve to). A confirmed, deterministic backend limitation, not a race -- the
+ * whole response is lost either way, so returning empty is the only honest option.
+ */
+function isCallHierarchyRootNotCallableError(error: unknown): boolean {
+	return error instanceof Error && /is not a function$/i.test(error.message);
+}
+
 function normalizeCallHierarchyItem(item: LspCallHierarchyItem): CallHierarchyEntry {
 	const path = fileURLToPath(item.uri);
 	return {
@@ -1109,9 +1123,18 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 
 	async incomingCalls(at: WorkspaceLocation): Promise<IncomingCall[]> {
 		const proc = await this.ensureInitialized(at.path);
-		const root = (await this.prepareCallHierarchyRaw(proc, at))[0];
+		let root: LspCallHierarchyItem | undefined;
+		try {
+			root = (await this.prepareCallHierarchyRaw(proc, at))[0];
+		} catch (error) {
+			if (isCallHierarchyRootNotCallableError(error)) return [];
+			throw error;
+		}
 		if (!root) return [];
-		const results = (await proc.request<LspCallHierarchyIncomingCall[] | null>("callHierarchy/incomingCalls", { item: root })) ?? [];
+		// A separate request from prepareCallHierarchy, not merely its continuation -- background
+		// server work can restart between the two round trips, so this must wait again through the
+		// same seam, not assume prepareCallHierarchy's own wait already covers it.
+		const results = (await this.requestWhenReady<LspCallHierarchyIncomingCall[] | null>(proc, "callHierarchy/incomingCalls", { item: root })) ?? [];
 		return results.map((result) => ({
 			from: normalizeCallHierarchyItem(result.from),
 			fromRanges: result.fromRanges.map((range) => toCodeRange(fileURLToPath(result.from.uri), range)),
@@ -1120,9 +1143,30 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 
 	async outgoingCalls(at: WorkspaceLocation, options?: { settleMs?: number }): Promise<OutgoingCall[]> {
 		const proc = await this.ensureInitialized(at.path);
-		const root = (await this.prepareCallHierarchyRaw(proc, at, options?.settleMs))[0];
-		if (!root) return [];
-		const results = (await proc.request<LspCallHierarchyOutgoingCall[] | null>("callHierarchy/outgoingCalls", { item: root })) ?? [];
+		let root: LspCallHierarchyItem | undefined;
+		let results: LspCallHierarchyOutgoingCall[];
+		try {
+			root = (await this.prepareCallHierarchyRaw(proc, at, options?.settleMs))[0];
+			if (!root) return [];
+			// A separate request from prepareCallHierarchy, not merely its continuation -- see
+			// incomingCalls's own comment above for why this must wait through the same seam again.
+			results = (await this.requestWhenReady<LspCallHierarchyOutgoingCall[] | null>(proc, "callHierarchy/outgoingCalls", { item: root })) ?? [];
+		} catch (error) {
+			// A confirmed, deterministic gopls-internal limitation, not a race, observed at both
+			// possible failure points: textDocument/prepareCallHierarchy itself throws this for a Go
+			// func-TYPE declaration (e.g. `type Handler func(int) int`), because gopls' own
+			// documentSymbols reports it with SymbolKind.Function (the same kind a real function
+			// declaration gets) even though it is not one -- populateSymbolGraph's own CALLABLE_KINDS
+			// filter has no way to tell the two apart from the symbol kind alone. Separately,
+			// callHierarchy/outgoingCalls itself can throw the same shape when one of a real root's
+			// own callees is a function-TYPED value (a parameter/field/variable holding a func, not a
+			// directly declared one) rather than a real function-value target it can resolve to. Either
+			// way there is no partial result to salvage -- the only honest degradation is treating this
+			// root's outgoing calls as unextractable (empty), not surfacing an error for a symbol the
+			// caller never asked about.
+			if (isCallHierarchyRootNotCallableError(error)) return [];
+			throw error;
+		}
 		// fromRanges here are relative to `root` (the item passed to the request), per spec -- not `to`.
 		const rootPath = fileURLToPath(root.uri);
 		return results.map((result) => ({

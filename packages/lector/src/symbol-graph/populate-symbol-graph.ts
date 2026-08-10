@@ -13,16 +13,17 @@ const MAX_FAILURE_MESSAGE_LENGTH = 500;
 
 /**
  * Known transient "this file hasn't been attached to a project yet" error messages --
- * observed live from typescript-language-server/tsserver specifically under
+ * observed live from typescript-language-server/tsserver and gopls specifically under
  * population's own reduced settle time and concurrency: a fast documentSymbols or
- * outgoingCalls request can race tsserver's own asynchronous project-file-set
- * attachment, especially for a large node_modules-nested package where project
- * discovery itself takes longer. Never a permanent property of the file -- a
- * different file in the same generation succeeds, and the same file succeeds
- * outright on a later generation -- so exactly one bounded retry is safe here in a
- * way it would not be for a genuine application error.
+ * outgoingCalls request can race the server's own asynchronous project/package-file-set
+ * attachment, especially for a large package where project discovery itself takes
+ * longer. Never a permanent property of the file -- a different file in the same
+ * generation succeeds, and the same file succeeds outright on a later generation --
+ * so exactly one bounded retry is safe here in a way it would not be for a genuine
+ * application error. gopls' own "no package metadata" phrasing is deliberately
+ * matched loosely (no anchors) since it's reported inline with the offending path.
  */
-const TRANSIENT_PROJECT_ATTACHMENT_PATTERNS: readonly RegExp[] = [/^No Project\.?$/i, /Could not find source file/i];
+const TRANSIENT_PROJECT_ATTACHMENT_PATTERNS: readonly RegExp[] = [/^No Project\.?$/i, /Could not find source file/i, /no package metadata/i];
 
 function isTransientProjectAttachmentError(error: unknown): boolean {
 	return error instanceof Error && TRANSIENT_PROJECT_ATTACHMENT_PATTERNS.some((pattern) => pattern.test(error.message));

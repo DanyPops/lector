@@ -197,6 +197,39 @@ describe("populateSymbolGraph", () => {
 		expect(result).toMatchObject({ completeness: "complete", filesProcessed: 1, filesFailed: 0, failureCount: 0 });
 	});
 
+	it("retries a transient gopls 'no package metadata' documentSymbols failure once, without recording a failure", async () => {
+		let calls = 0;
+		const flaky: CodeIntelligencePort = {
+			provenance: {
+				fidelity: "semantic",
+				backend: "flaky-test-server",
+				languageId: "test",
+				authority: "language-server",
+				freshness: "live-process",
+				limitations: [],
+			},
+			goToDefinition: async () => [],
+			goToImplementation: async () => [],
+			findReferences: async () => [],
+			hover: async () => undefined,
+			documentSymbols: async () => {
+				calls++;
+				if (calls === 1) throw new Error("no package metadata for file /repo/file.test");
+				return [];
+			},
+			diagnostics: async () => [],
+			prepareCallHierarchy: async () => [],
+			incomingCalls: async () => [],
+			outgoingCalls: async () => [],
+		};
+		graph = new InMemorySymbolGraph();
+
+		const result = await populateSymbolGraph(flaky, graph, ["/repo/file.test"], 10);
+
+		expect(calls).toBe(2);
+		expect(result).toMatchObject({ completeness: "complete", filesProcessed: 1, filesFailed: 0, failureCount: 0 });
+	});
+
 	it("still records a failure when a transient-shaped error persists across the one bounded retry -- never an infinite or unbounded retry loop", async () => {
 		let calls = 0;
 		const stillFlaky: CodeIntelligencePort = {

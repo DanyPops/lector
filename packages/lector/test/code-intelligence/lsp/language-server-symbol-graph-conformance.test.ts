@@ -56,6 +56,23 @@ describe("populateSymbolGraph across languages", () => {
 		expect(await findSymbolGraphInvariantViolations(graph, allNodeIds)).toEqual([]);
 	}, 30_000);
 
+	it("degrades gracefully, not as a recorded failure, when a Go function calls through a function-typed parameter -- the real live finding: gopls' own outgoingCalls throws '<name> is not a function' for the whole response rather than omitting just that one callee", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-go-higher-order-fixture-"));
+		fixtureRoot = root;
+		writeFileSync(join(root, "go.mod"), "module fixture\n\ngo 1.22\n");
+		const mainFile = join(root, "main.go");
+		writeFileSync(
+			mainFile,
+			"package main\n\ntype Handler func(int) int\n\nfunc double(x int) int {\n\treturn x * 2\n}\n\nfunc dispatch(h Handler, x int) int {\n\treturn h(x)\n}\n\nfunc run() int {\n\treturn dispatch(double, 5)\n}\n",
+		);
+		index = new LspSymbolIndex(root, GO_DESCRIPTOR, "main.go");
+		graph = new InMemorySymbolGraph();
+
+		const result = await populateSymbolGraph(index, graph, [mainFile], 50);
+
+		expect(result).toMatchObject({ completeness: "complete", filesProcessed: 1, failureCount: 0 });
+	}, 30_000);
+
 	it("builds a real Rust 'calls' chain with no structural invariant violations", async () => {
 		const root = mkdtempSync(join(tmpdir(), "lector-rust-graph-fixture-"));
 		fixtureRoot = root;

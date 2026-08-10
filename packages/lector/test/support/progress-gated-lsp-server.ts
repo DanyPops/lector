@@ -86,9 +86,19 @@ function handle(message: JsonRpcMessage): void {
 		return;
 	}
 	if (message.method === "textDocument/prepareCallHierarchy") {
+		// Only under --restart-indexing-after-call-hierarchy: simulates a second, independent
+		// background episode starting right as the call-hierarchy root resolves -- proves whether
+		// a caller's own second request (callHierarchy/outgoingCalls/incomingCalls) waits for THIS
+		// new episode too, not just the one already gating prepareCallHierarchy itself. Started
+		// (and its "begin" notification written) BEFORE this response, so a client reading this
+		// same ordered stream is guaranteed to have already seen "begin" by the time it processes
+		// the response and immediately checks readiness for its own next request -- no notification-
+		// vs-response race to land on either side of that check.
+		const wasIndexing = indexing;
+		if (!wasIndexing && process.argv.includes("--restart-indexing-after-call-hierarchy")) startIndexing();
 		respond(
 			message.id,
-			indexing
+			wasIndexing
 				? null
 				: [
 						{
@@ -97,6 +107,46 @@ function handle(message: JsonRpcMessage): void {
 							uri: pathToFileURL(join(process.cwd(), "seed.ts")).href,
 							range: { start: { line: 0, character: 16 }, end: { line: 0, character: 27 } },
 							selectionRange: { start: { line: 0, character: 16 }, end: { line: 0, character: 27 } },
+						},
+					],
+		);
+		return;
+	}
+	if (message.method === "callHierarchy/outgoingCalls") {
+		respond(
+			message.id,
+			indexing
+				? null
+				: [
+						{
+							to: {
+								name: "realCallee",
+								kind: 12,
+								uri: pathToFileURL(join(process.cwd(), "seed.ts")).href,
+								range: { start: { line: 0, character: 16 }, end: { line: 0, character: 27 } },
+								selectionRange: { start: { line: 0, character: 16 }, end: { line: 0, character: 27 } },
+							},
+							fromRanges: [{ start: { line: 0, character: 16 }, end: { line: 0, character: 27 } }],
+						},
+					],
+		);
+		return;
+	}
+	if (message.method === "callHierarchy/incomingCalls") {
+		respond(
+			message.id,
+			indexing
+				? null
+				: [
+						{
+							from: {
+								name: "realCaller",
+								kind: 12,
+								uri: pathToFileURL(join(process.cwd(), "seed.ts")).href,
+								range: { start: { line: 0, character: 16 }, end: { line: 0, character: 27 } },
+								selectionRange: { start: { line: 0, character: 16 }, end: { line: 0, character: 27 } },
+							},
+							fromRanges: [{ start: { line: 0, character: 16 }, end: { line: 0, character: 27 } }],
 						},
 					],
 		);
