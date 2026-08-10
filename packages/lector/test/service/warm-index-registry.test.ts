@@ -103,6 +103,60 @@ describe("WarmIndexRegistry", () => {
 		expect(registry.hasWarmIndex("workspace-b")).toBe(true);
 	});
 
+	it("closeForRootMarkerChange force-closes only the warm index whose own descriptor names the changed file as a root marker", async () => {
+		const closed: string[] = [];
+		const RUST: LanguageServerDescriptor = { ...TYPESCRIPT, languageId: "rust", backendId: "rust-fixture", extensions: [".rs"], rootMarkers: ["Cargo.toml"] };
+		const registry = new WarmIndexRegistry({
+			descriptors: [TYPESCRIPT, RUST],
+			resolveRoot: () => "/workspace",
+			createIndex: (_root, descriptor) => fakeIndex(descriptor.languageId, closed, []),
+		});
+		const tsLease = await registry.leaseWarmIndex({ workspaceId: "workspace-a", path: "src/index.ts" });
+		const rustLease = await registry.leaseWarmIndex({ workspaceId: "workspace-a", path: "src/main.rs" });
+		await tsLease[Symbol.asyncDispose]();
+		await rustLease[Symbol.asyncDispose]();
+
+		await registry.closeForRootMarkerChange("workspace-a", "Cargo.toml");
+
+		expect(closed).toEqual(["rust"]);
+		expect(registry.hasWarmIndex("workspace-a")).toBe(true); // typescript's own warm index is untouched
+	});
+
+	it("closeForRootMarkerChange is a no-op when the changed path matches no descriptor's own root markers", async () => {
+		const closed: string[] = [];
+		const registry = new WarmIndexRegistry({
+			descriptors: [TYPESCRIPT],
+			resolveRoot: () => "/workspace",
+			createIndex: (_root, descriptor) => fakeIndex(descriptor.languageId, closed, []),
+		});
+		const lease = await registry.leaseWarmIndex({ workspaceId: "workspace-a", path: "src/index.ts" });
+		await lease[Symbol.asyncDispose]();
+
+		await registry.closeForRootMarkerChange("workspace-a", "README.md");
+
+		expect(closed).toEqual([]);
+		expect(registry.hasWarmIndex("workspace-a")).toBe(true);
+	});
+
+	it("closeForRootMarkerChange never touches a different workspace's own warm index, even for the same root marker basename", async () => {
+		const closed: string[] = [];
+		const RUST: LanguageServerDescriptor = { ...TYPESCRIPT, languageId: "rust", backendId: "rust-fixture", extensions: [".rs"], rootMarkers: ["Cargo.toml"] };
+		const registry = new WarmIndexRegistry({
+			descriptors: [RUST],
+			resolveRoot: (workspaceId) => `/${workspaceId}`,
+			createIndex: (_root, descriptor) => fakeIndex(descriptor.languageId, closed, []),
+		});
+		const leaseA = await registry.leaseWarmIndex({ workspaceId: "workspace-a", path: "src/main.rs" });
+		const leaseB = await registry.leaseWarmIndex({ workspaceId: "workspace-b", path: "src/main.rs" });
+		await leaseA[Symbol.asyncDispose]();
+		await leaseB[Symbol.asyncDispose]();
+
+		await registry.closeForRootMarkerChange("workspace-a", "Cargo.toml");
+
+		expect(registry.hasWarmIndex("workspace-a")).toBe(false);
+		expect(registry.hasWarmIndex("workspace-b")).toBe(true);
+	});
+
 	it("releaseWorkspaceIfIdle closes only the idle workspace's own entries, leaving another workspace warm", async () => {
 		const closed: string[] = [];
 		const registry = new WarmIndexRegistry({

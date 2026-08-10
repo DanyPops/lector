@@ -715,8 +715,16 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		if (!proc) return;
 		const patterns = this.dynamicCapabilities.watchedFilePatterns;
 		if (patterns.length === 0) return;
-		if (!patterns.some((pattern) => picomatch(pattern.globPattern)(event.path))) return;
+		// FileChangeEvent.path is documented as workspace-relative (see file-change-event.ts) --
+		// exactly what a real OS watcher delivers. Matching against that relative form alone silently
+		// drops every registration a real server makes with a fully-qualified absolute glob (confirmed
+		// live: rust-analyzer registers e.g. `${cwd}/Cargo.toml`, not a relative `**/Cargo.toml`) --
+		// the notification was never sent at all, leaving the server's own project state stale
+		// indefinitely. Absolute matches both shapes correctly: a `**/*.ext`-anchored pattern still
+		// matches an absolute path (`**` matches leading segments too), and a fully-qualified pattern
+		// only ever matches the absolute form in the first place.
 		const absolutePath = resolve(this.cwd, event.path);
+		if (!patterns.some((pattern) => picomatch(pattern.globPattern)(absolutePath))) return;
 		proc.notify("workspace/didChangeWatchedFiles", {
 			changes: [{ uri: pathToFileURL(absolutePath).href, type: toLspFileChangeType(event.kind) }],
 		});

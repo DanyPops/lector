@@ -601,6 +601,32 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 	}
 
 	/**
+	 * Force-closes only the one warm index (if any) whose own descriptor names `changedPath`'s
+	 * basename as a rootMarker -- Cargo.toml for Rust, go.mod/go.work for Go, tsconfig.json/
+	 * jsconfig.json/package.json for TypeScript, and so on for any future descriptor. A real
+	 * project-manifest change can restructure a workspace's own crate/module/project graph in a
+	 * way a live workspace/didChangeWatchedFiles notification does not reliably make the server
+	 * pick up (confirmed live: rust-analyzer keeps serving its pre-change crate graph after
+	 * adding a `[lib]` target to a Cargo.toml that previously had none, even after the
+	 * notification is correctly delivered and its own background work goes idle again -- a fresh
+	 * process against the same directory sees the new target immediately). Never touches a warm
+	 * index for a different language sharing this same polyglot workspace -- a Cargo.toml change
+	 * has no bearing on an already-warm TypeScript index here. Unconditional, like closeWorkspace
+	 * above and for the same reason: a process serving a stale, structurally wrong project graph
+	 * is strictly worse than the cost of a fresh respawn, lease or not.
+	 */
+	async closeForRootMarkerChange(workspaceId: WorkspaceKey, changedPath: string): Promise<void> {
+		const basename = changedPath.split("/").pop() ?? changedPath;
+		const stale = Array.from(this.entries.entries()).filter(([, entry]) => {
+			if (entry.workspaceId !== workspaceId) return false;
+			const descriptor = this.options.descriptors.find((candidate) => candidate.languageId === entry.languageId);
+			return descriptor?.rootMarkers.includes(basename) ?? false;
+		});
+		for (const [key] of stale) this.entries.delete(key);
+		await Promise.all(stale.map(([, entry]) => entry.index.close()));
+	}
+
+	/**
 	 * The safe sibling of closeWorkspace: refuses (does not evict anything) while any of this
 	 * workspace's warm indexes has an active lease, instead of closeWorkspace's own unconditional
 	 * force-close (which exists for the very different case of a remote directory swapped out

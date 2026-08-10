@@ -92,6 +92,30 @@ describe("LspSymbolIndex.notifyFileChanged", () => {
 		expect(received.map((entry) => (entry as { changes: Array<{ type: number }> }).changes[0]?.type)).toEqual([1, 2, 3]);
 	});
 
+	it("sends workspace/didChangeWatchedFiles for a FileChangeEvent's own workspace-relative path even when the server registered a fully-qualified absolute glob pattern -- the real live finding: rust-analyzer registers Cargo.toml watching this way, not with a relative **/*.ext pattern", async () => {
+		cwd = mkdtempSync(join(tmpdir(), "lector-watched-files-"));
+		const cargoPath = join(cwd, "Cargo.toml");
+		writeFileSync(cargoPath, "[package]\n");
+		writeFileSync(join(cwd, "file.ts"), "const x = 1;\n"); // gives the mock server a real file to seed against
+		const previousEnv = process.env.WATCH_ABSOLUTE_PATTERN;
+		process.env.WATCH_ABSOLUTE_PATTERN = "1";
+		try {
+			index = new LspSymbolIndex(cwd, WATCHED_FILES_DESCRIPTOR);
+			await index.documentSymbols(join(cwd, "file.ts"));
+			await new Promise((resolve) => setTimeout(resolve, 50));
+
+			// FileChangeEvent.path is documented as workspace-relative -- exactly what a real OS
+			// watcher (WorkspaceWatchHandlers) delivers, never the absolute form.
+			index.notifyFileChanged({ path: "Cargo.toml", kind: "modified" });
+
+			const received = await waitForReceived(cwd, 1);
+			expect(received).toEqual([{ changes: [{ uri: pathToFileURL(cargoPath).href, type: 2 }] }]);
+		} finally {
+			if (previousEnv === undefined) delete process.env.WATCH_ABSOLUTE_PATTERN;
+			else process.env.WATCH_ABSOLUTE_PATTERN = previousEnv;
+		}
+	});
+
 	it("never notifies for a path that matches no dynamically registered pattern", async () => {
 		cwd = mkdtempSync(join(tmpdir(), "lector-watched-files-"));
 		const filePath = join(cwd, "file.ts");

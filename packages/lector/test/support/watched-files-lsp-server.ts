@@ -38,9 +38,13 @@ function handle(message: JsonRpcMessage): void {
 	if (message.method === "initialize") {
 		respond(message.id, { capabilities: {} });
 		// Registers interest in *.ts files only, so the test can prove a non-matching path is
-		// correctly never forwarded.
+		// correctly never forwarded. Under WATCH_ABSOLUTE_PATTERN, registers a fully-qualified
+		// absolute glob rooted at this server's own cwd instead -- real servers (confirmed live:
+		// rust-analyzer) register exactly this shape for a fixed file like Cargo.toml, not just a
+		// relative **/*.ext pattern.
+		const globPattern = process.env.WATCH_ABSOLUTE_PATTERN ? join(process.cwd(), "Cargo.toml") : "**/*.ts";
 		request("watch-reg-1", "client/registerCapability", {
-			registrations: [{ id: "watch-reg-1", method: "workspace/didChangeWatchedFiles", registerOptions: { watchers: [{ globPattern: "**/*.ts" }] } }],
+			registrations: [{ id: "watch-reg-1", method: "workspace/didChangeWatchedFiles", registerOptions: { watchers: [{ globPattern }] } }],
 		});
 		return;
 	}

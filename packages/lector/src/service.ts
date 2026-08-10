@@ -358,6 +358,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		createWatcher: createFileWatcher,
 		publish,
 		notifyWarmIndexes: (workspaceId, event) => warmIndexes.notifyFileChanged(workspaceId, event),
+		closeWarmIndexForRootMarkerChange: (workspaceId, changedPath) => warmIndexes.closeForRootMarkerChange(workspaceId, changedPath),
 		isGraphWatched: (workspaceId) => graphRefresh.isWatched(workspaceId),
 		scheduleGraphRefresh: (workspaceId) => {
 			graphRefresh.schedule(workspaceId, () => symbolGraphHandlers.scheduleGraphRefresh(workspaceId));

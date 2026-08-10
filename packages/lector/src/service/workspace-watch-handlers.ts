@@ -12,6 +12,7 @@ export interface WorkspaceWatchHandlerDeps {
 	readonly createWatcher: () => FileWatcherPort;
 	readonly publish: (topic: string, payload: unknown) => void;
 	readonly notifyWarmIndexes: (workspaceId: WorkspaceId, event: FileChangeEvent) => void;
+	readonly closeWarmIndexForRootMarkerChange: (workspaceId: WorkspaceId, changedPath: string) => Promise<void>;
 	readonly isGraphWatched: (workspaceId: WorkspaceId) => boolean;
 	readonly scheduleGraphRefresh: (workspaceId: WorkspaceId) => void;
 }
@@ -38,6 +39,13 @@ export class WorkspaceWatchHandlers {
 		for (const registration of this.registrations.registrationsFor(workspaceId)) {
 			if (picomatch(registration.pattern)(event.path)) this.deps.publish(registration.topic, event);
 		}
+		// A real project-manifest change (Cargo.toml, go.mod, tsconfig.json, ...) forces a fresh
+		// respawn of just that language's own warm index rather than relying on a live
+		// workspace/didChangeWatchedFiles notification alone -- see closeForRootMarkerChange's own
+		// doc comment for the confirmed live gap this closes. Fire-and-forget: this handler is a
+		// synchronous OS-watcher callback, and the next query against this workspace/language pays
+		// the respawn cost transparently either way.
+		void this.deps.closeWarmIndexForRootMarkerChange(workspaceId, event.path);
 		this.deps.notifyWarmIndexes(workspaceId, event);
 		const isGitInternal = event.path === ".git" || event.path.startsWith(".git/");
 		if (!isGitInternal && this.deps.isGraphWatched(workspaceId)) this.deps.scheduleGraphRefresh(workspaceId);
