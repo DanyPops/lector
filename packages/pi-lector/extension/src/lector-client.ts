@@ -214,6 +214,16 @@ export async function withWorkspace<T>(resolve: () => Promise<ResolvedWorkspace>
 	throw new Error("Lector workspace resolution retry exhausted");
 }
 
+/**
+ * Drops one root's cached workspaceId without retrying anything itself -- the batch sibling of
+ * withWorkspace's own single-workspace `workspaceIdByRoot.delete(resolved.root)` recovery, for a
+ * caller (cross-workspace search's fan-out) that resolves many roots at once and needs to evict
+ * only the specific ones a daemon restart actually invalidated, not the whole cache.
+ */
+export function forgetWorkspaceId(root: string): void {
+	workspaceIdByRoot.delete(root);
+}
+
 export function setLectorClientConnectorForTests(value: ClientConnector): void {
 	retryingClient.reset();
 	workspaceIdByRoot.clear();

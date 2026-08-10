@@ -156,6 +156,41 @@ describe("createLectorService's search.symbols (cross-workspace fan-out)", () =>
 		expect(unknownOutcome?.status).toBe("error");
 		if (unknownOutcome?.status === "error") expect(unknownOutcome.message).toContain("never-registered");
 	});
+
+	it("preserves the caller's exact input order, including an unregistered id in its own original position -- a client correlating by array position (not workspaceId) mislabels every result after the first bad id otherwise", async () => {
+		const dirA = buildDir("a.ts", "export function found() {}");
+		const dirC = buildDir("c.ts", "export function found() {}");
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolIndex: () => new InstantSymbolIndex({ name: "found", kind: "function", location: { path: "x", line: 1, character: 1 } }),
+		});
+		const { workspaceId: idA } = await service.dispatch("workspace.registerPath", { path: dirA });
+		const { workspaceId: idC } = await service.dispatch("workspace.registerPath", { path: dirC });
+
+		const { results } = await service.dispatch("search.symbols", { query: "found", workspaceIds: [idA, "never-registered", idC] });
+
+		expect(results.map((r) => r.workspaceId)).toEqual([idA, "never-registered", idC]);
+		expect(results[0]?.status).toBe("ready");
+		expect(results[1]?.status).toBe("error");
+		expect(results[2]?.status).toBe("ready");
+	});
+
+	it("preserves exact input order for search.text too", async () => {
+		const dirA = buildDir("a.txt", "hello world\n");
+		const dirC = buildDir("c.txt", "hello world\n");
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		const { workspaceId: idA } = await service.dispatch("workspace.registerPath", { path: dirA });
+		const { workspaceId: idC } = await service.dispatch("workspace.registerPath", { path: dirC });
+
+		const { results } = await service.dispatch("search.text", {
+			query: "hello",
+			maxMatches: 10,
+			maxBytes: 1000,
+			workspaceIds: [idA, "never-registered", idC],
+		});
+
+		expect(results.map((r) => r.workspaceId)).toEqual([idA, "never-registered", idC]);
+	});
 });
 
 describe("createLectorService's search.text (cross-workspace fan-out)", () => {
