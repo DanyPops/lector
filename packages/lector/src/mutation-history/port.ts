@@ -7,6 +7,7 @@ export interface RecordMutationInput {
 	readonly beforeContent: string | null;
 	readonly beforeHash: ContentHash | null;
 	readonly afterHash: ContentHash | null;
+	readonly transactionId: string | null;
 }
 
 /**
@@ -22,4 +23,6 @@ export interface MutationHistoryPort {
 	/** Newest first, bounded by maxResults. */
 	listForPath(path: string, maxResults: number): Promise<readonly MutationHistoryEntry[]>;
 	get(id: string): Promise<MutationHistoryEntry | undefined>;
+	/** Every entry recorded under one rename/multi-file transaction, in the order they were recorded -- empty when the id names no transaction (never recorded, or every member already evicted). */
+	listByTransaction(transactionId: string): Promise<readonly MutationHistoryEntry[]>;
 }

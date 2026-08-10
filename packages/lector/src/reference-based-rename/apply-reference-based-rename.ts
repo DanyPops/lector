@@ -2,10 +2,18 @@ import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { WorkspacePort } from "../workspace/port.ts";
 import type { ReferenceBasedRenamePlan } from "./reference-based-rename.ts";
 
+/** One real change this rename made -- exactly what a caller needs to record a grouped mutation-history transaction, in application order. */
+export interface AppliedReferenceBasedRenameStep {
+	readonly path: string;
+	readonly beforeContent: string | null;
+	readonly afterHash: ContentHash | null;
+}
+
 export interface ReferenceBasedRenameOutcome {
 	readonly movedTo: string;
 	readonly filesUpdated: readonly string[];
 	readonly caveats: readonly string[];
+	readonly steps: readonly AppliedReferenceBasedRenameStep[];
 }
 
 interface AppliedStep {
@@ -50,7 +58,17 @@ export async function applyReferenceBasedRename(workspace: WorkspacePort, plan: 
 
 		await workspace.deleteEntry(plan.move.fromPath, plan.move.expectedHash);
 
-		return { movedTo: plan.move.toPath, filesUpdated: plan.importRewrites.map((rewrite) => rewrite.path), caveats: plan.caveats };
+		const steps: AppliedReferenceBasedRenameStep[] = [
+			{ path: plan.move.toPath, beforeContent: null, afterHash: created.newHash },
+			...plan.importRewrites.map((rewrite, index) => ({
+				path: rewrite.path,
+				beforeContent: applied[index + 1]?.undoContent ?? null,
+				afterHash: applied[index + 1]?.currentHash ?? null,
+			})),
+			{ path: plan.move.fromPath, beforeContent: plan.move.content, afterHash: null },
+		];
+
+		return { movedTo: plan.move.toPath, filesUpdated: plan.importRewrites.map((rewrite) => rewrite.path), caveats: plan.caveats, steps };
 	} catch (error) {
 		await rollback();
 		throw error;

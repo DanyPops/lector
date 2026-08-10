@@ -243,6 +243,26 @@ export class MutationRevertStale extends Error {
 	}
 }
 
+export class MutationTransactionNotFound extends Error {
+	constructor(readonly transactionId: string) {
+		super(
+			`no mutation transaction "${transactionId}" -- it was never recorded, already evicted (bounded per-file history), or belongs to a different workspace`,
+		);
+		this.name = "MutationTransactionNotFound";
+	}
+}
+
+/** Mirrors MutationRevertStale, but for a whole rename/multi-file transaction: even one stale member refuses the entire revert, never a partial one. */
+export class MutationTransactionRevertStale extends Error {
+	constructor(
+		readonly transactionId: string,
+		readonly path: string,
+	) {
+		super(`"${path}" has changed since transaction "${transactionId}" was applied -- refusing to revert any part of it over a change it never knew about`);
+		this.name = "MutationTransactionRevertStale";
+	}
+}
+
 /** A partial multi-file change scores worse than no change at all -- CodeScaleBench's own finding. Refuses to touch anything rather than rename against a symbol graph that doesn't honestly know every reference yet. */
 export class ReferenceBasedRenameRequiresFreshGraph extends Error {
 	constructor(

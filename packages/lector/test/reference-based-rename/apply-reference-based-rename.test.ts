@@ -28,7 +28,16 @@ describe("applyReferenceBasedRename", () => {
 
 		const outcome = await applyReferenceBasedRename(workspace, plan);
 
-		expect(outcome).toEqual({ movedTo: "arithmetic.ts", filesUpdated: ["consumer.ts"], caveats: ["a caveat"] });
+		expect(outcome).toEqual({
+			movedTo: "arithmetic.ts",
+			filesUpdated: ["consumer.ts"],
+			caveats: ["a caveat"],
+			steps: [
+				{ path: "arithmetic.ts", beforeContent: null, afterHash: contentHashOf(movedContent) },
+				{ path: "consumer.ts", beforeContent: referencingContent, afterHash: contentHashOf('import { add } from "./arithmetic";\n') },
+				{ path: "math.ts", beforeContent: movedContent, afterHash: null },
+			],
+		});
 		await expect(workspace.readEntry("math.ts")).resolves.toEqual({ exists: false });
 		await expect(workspace.readEntry("arithmetic.ts")).resolves.toEqual({ exists: true, content: movedContent });
 		await expect(workspace.readEntry("consumer.ts")).resolves.toEqual({ exists: true, content: 'import { add } from "./arithmetic";\n' });

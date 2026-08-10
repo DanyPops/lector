@@ -71,6 +71,8 @@ const USAGE = `Usage:
     recorded, oldest entries evicted once the per-file bound is exceeded (not durable across a
     daemon restart)
   lector workspace revert-mutation <workspace-id> <entry-id> [--json]
+  lector workspace mutation-transaction <workspace-id> <transaction-id> [--json]
+  lector workspace revert-mutation-transaction <workspace-id> <transaction-id> [--json]
     restores the file to its exact content immediately before that entry's own mutation --
     refuses if the file has changed since (a real, further-revertible mutation itself, not a
     special case: reverting a revert works)
@@ -1550,6 +1552,28 @@ async function runWorkspaceRevertMutation(workspaceId: string | undefined, entry
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.path} reverted -> ${result.newHash ?? "(deleted)"}`);
 }
 
+async function runWorkspaceMutationTransaction(workspaceId: string | undefined, transactionId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !transactionId) fail(USAGE);
+	const client = await connectLectorClient();
+	const { entries } = await client.call("workspace.mutationTransaction", { workspaceId, transactionId });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(entries));
+		return;
+	}
+	for (const entry of entries) console.log(`${entry.path}  ${entry.id}  ${new Date(entry.timestamp).toISOString()}`);
+}
+
+async function runWorkspaceRevertMutationTransaction(workspaceId: string | undefined, transactionId: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !transactionId) fail(USAGE);
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.revertMutationTransaction", { workspaceId, transactionId });
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	for (const entry of result.reverted) console.log(`${entry.path} reverted -> ${entry.newHash ?? "(deleted)"}`);
+}
+
 /**
  * Login/boot persistence lifecycle (`install|start|stop|restart|status`) for a
  * persistent Lector daemon. `install` always runs `serve --dynamic-workspaces`:
@@ -1744,6 +1768,14 @@ const WORKSPACE_ACTIONS: Record<string, ActionHandler> = {
 	"revert-mutation": (actionArgs) => {
 		const [workspaceId, path, ...flags] = actionArgs;
 		return runWorkspaceRevertMutation(workspaceId, path, flags);
+	},
+	"mutation-transaction": (actionArgs) => {
+		const [workspaceId, transactionId, ...flags] = actionArgs;
+		return runWorkspaceMutationTransaction(workspaceId, transactionId, flags);
+	},
+	"revert-mutation-transaction": (actionArgs) => {
+		const [workspaceId, transactionId, ...flags] = actionArgs;
+		return runWorkspaceRevertMutationTransaction(workspaceId, transactionId, flags);
 	},
 	watch: (actionArgs) => {
 		const [workspaceId] = actionArgs;

@@ -43,4 +43,8 @@ export class InMemoryMutationHistory implements MutationHistoryPort {
 	async get(id: string): Promise<MutationHistoryEntry | undefined> {
 		return this.byId.get(id);
 	}
+
+	async listByTransaction(transactionId: string): Promise<readonly MutationHistoryEntry[]> {
+		return [...this.byId.values()].filter((entry) => entry.transactionId === transactionId);
+	}
 }

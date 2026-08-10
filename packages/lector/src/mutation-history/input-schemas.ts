@@ -18,6 +18,11 @@ export interface RevertMutationInput {
 	readonly entryId: string;
 }
 
+export interface MutationTransactionInput {
+	readonly workspaceId: string;
+	readonly transactionId: string;
+}
+
 function notAnObject(): { readonly success: false; readonly issues: readonly VehicleSchemaIssue[] } {
 	return { success: false, issues: [{ path: [], message: "input must be an object" }] };
 }
@@ -67,5 +72,20 @@ export const revertMutationInputSchema: VehicleSchemaCodec<RevertMutationInput> 
 		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
 		if (!isNonEmptyString(value.entryId)) return issue("entryId", "entryId must be a non-empty string");
 		return { success: true, value: { workspaceId: value.workspaceId, entryId: value.entryId } };
+	},
+});
+
+export const mutationTransactionInputSchema: VehicleSchemaCodec<MutationTransactionInput> = defineVehicleSchema({
+	jsonSchema: {
+		type: "object",
+		properties: { workspaceId: { type: "string" }, transactionId: { type: "string" } },
+		required: ["workspaceId", "transactionId"],
+		additionalProperties: false,
+	},
+	safeParse(value) {
+		if (!isPlainObject(value)) return notAnObject();
+		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.transactionId)) return issue("transactionId", "transactionId must be a non-empty string");
+		return { success: true, value: { workspaceId: value.workspaceId, transactionId: value.transactionId } };
 	},
 });

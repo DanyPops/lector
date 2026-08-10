@@ -12,6 +12,7 @@ function entry(overrides: Partial<MutationHistoryEntry> = {}): MutationHistoryEn
 		beforeHash: contentHashOf("before"),
 		afterHash: contentHashOf("after"),
 		timestamp: 0,
+		transactionId: null,
 		...overrides,
 	};
 }

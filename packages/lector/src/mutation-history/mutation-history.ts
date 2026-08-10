@@ -1,7 +1,12 @@
 import type { ContentHash } from "../content-identity/content-hash.ts";
 
-/** Which write operation produced this entry -- "revert" is itself a real, further-revertible mutation, not special-cased, matching Neovim's own "U undoes U". */
-export type MutationOperation = "exactEdit" | "lineEdit" | "applyPatch" | "revert" | "delete";
+/**
+ * Which write operation produced this entry -- "revert" is itself a real, further-revertible
+ * mutation, not special-cased, matching Neovim's own "U undoes U". "rename" covers both semantic
+ * rename (workspace.rename's own multi-file WorkspaceEdit) and reference-based file rename --
+ * both produce several entries sharing one transactionId, never a lone untagged entry.
+ */
+export type MutationOperation = "exactEdit" | "lineEdit" | "applyPatch" | "revert" | "delete" | "rename";
 
 /**
  * One entry in a file's append-only mutation history. Never mutated or deleted once recorded --
@@ -21,6 +26,8 @@ export interface MutationHistoryEntry {
 	/** Null when this mutation's own result was "the file no longer exists" -- reverting a create back to nonexistence is itself a real, valid revert (a delete), matching Neovim's own "u" past the first insert. */
 	readonly afterHash: ContentHash | null;
 	readonly timestamp: number;
+	/** Non-null groups this entry with every other entry recorded in the same rename/multi-file transaction -- null for an ordinary single-file write. */
+	readonly transactionId: string | null;
 }
 
 export interface CanRevertMutationInputs {

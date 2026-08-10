@@ -9,8 +9,16 @@ export class OverlappingWorkspaceEdits extends Error {
 	}
 }
 
+/** One real change applyWorkspaceEdit made -- exactly what a caller needs to record a grouped mutation-history transaction, in application order. A no-op operation (e.g. create with ignoreIfExists against an already-existing path) produces no step. */
+export interface AppliedWorkspaceEditStep {
+	readonly path: string;
+	readonly beforeContent: string | null;
+	readonly afterHash: ContentHash | null;
+}
+
 export interface ApplyWorkspaceEditOutcome {
 	readonly touchedPaths: readonly string[];
+	readonly steps: readonly AppliedWorkspaceEditStep[];
 }
 
 interface Position {
@@ -83,6 +91,7 @@ export async function applyWorkspaceEdit(
 	expectedHashes: ReadonlyMap<string, ContentHash | null>,
 ): Promise<ApplyWorkspaceEditOutcome> {
 	const undos: Undo[] = [];
+	const steps: AppliedWorkspaceEditStep[] = [];
 	const touched = new Set<string>();
 	// Tracks what THIS edit believes each path currently holds, seeded from the caller's
 	// snapshot and updated as each operation applies -- so a path touched more than once within
@@ -111,6 +120,7 @@ export async function applyWorkspaceEdit(
 			const newContent = applyTextEdits(beforeContent, op.path, op.edits);
 			const written = await workspace.writeEntry(op.path, expectedHash, newContent);
 			undos.push({ kind: "write", path: op.path, expectedHash: written.newHash, content: beforeContent });
+			steps.push({ path: op.path, beforeContent, afterHash: written.newHash });
 			believedHash.set(op.path, written.newHash);
 			touched.add(op.path);
 			return;
@@ -124,12 +134,15 @@ export async function applyWorkspaceEdit(
 				}
 				if (!op.overwrite) throw new Error(`cannot create "${op.path}": it already exists`);
 				const before = await workspace.readEntry(op.path);
+				const beforeContent = before.exists ? before.content : "";
 				const written = await workspace.writeEntry(op.path, expectedHash, "");
-				undos.push({ kind: "write", path: op.path, expectedHash: written.newHash, content: before.exists ? before.content : "" });
+				undos.push({ kind: "write", path: op.path, expectedHash: written.newHash, content: beforeContent });
+				steps.push({ path: op.path, beforeContent, afterHash: written.newHash });
 				believedHash.set(op.path, written.newHash);
 			} else {
 				const written = await workspace.writeEntry(op.path, null, "");
 				undos.push({ kind: "delete", path: op.path, currentHash: written.newHash });
+				steps.push({ path: op.path, beforeContent: null, afterHash: written.newHash });
 				believedHash.set(op.path, written.newHash);
 			}
 			touched.add(op.path);
@@ -154,9 +167,11 @@ export async function applyWorkspaceEdit(
 					? { kind: "write", path: op.toPath, expectedHash: written.newHash, content: targetBefore.content }
 					: { kind: "delete", path: op.toPath, currentHash: written.newHash },
 			);
+			steps.push({ path: op.toPath, beforeContent: targetBefore?.exists ? targetBefore.content : null, afterHash: written.newHash });
 			believedHash.set(op.toPath, written.newHash);
 			const deleted = await workspace.deleteEntry(op.fromPath, fromExpectedHash);
 			undos.push({ kind: "write", path: op.fromPath, expectedHash: null, content: beforeContent });
+			steps.push({ path: op.fromPath, beforeContent, afterHash: null });
 			believedHash.set(op.fromPath, null);
 			void deleted;
 			touched.add(op.fromPath);
@@ -173,13 +188,14 @@ export async function applyWorkspaceEdit(
 		const beforeContent = before.exists ? before.content : "";
 		await workspace.deleteEntry(op.path, expectedHash);
 		undos.push({ kind: "write", path: op.path, expectedHash: null, content: beforeContent });
+		steps.push({ path: op.path, beforeContent, afterHash: null });
 		believedHash.set(op.path, null);
 		touched.add(op.path);
 	}
 
 	try {
 		for (const op of edit.operations) await applyOne(op);
-		return { touchedPaths: [...touched] };
+		return { touchedPaths: [...touched], steps };
 	} catch (error) {
 		await rollback();
 		throw error;

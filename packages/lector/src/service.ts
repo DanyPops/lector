@@ -344,6 +344,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		logger,
 		renameMutationBarrier,
 		publish,
+		mutationHistory,
 		ensureOsWatcher: (workspaceId, rootPath) => ensureOsWatcher(workspaceId, rootPath),
 	});
 	const workspaceWatchHandlers = new WorkspaceWatchHandlers({
@@ -379,11 +380,18 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"repo.evictCache": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "repo.evictCache", 1, input, REPO_WRITE_PERMISSIONS),
 	};
 	registerMutationHistoryOperations(operationRegistry, registry, mutationHistory.handlers);
-	const registryMutationHistoryHandlers: Pick<OperationHandlers, "workspace.mutationHistory" | "workspace.revertMutation"> = {
+	const registryMutationHistoryHandlers: Pick<
+		OperationHandlers,
+		"workspace.mutationHistory" | "workspace.revertMutation" | "workspace.mutationTransaction" | "workspace.revertMutationTransaction"
+	> = {
 		"workspace.mutationHistory": (_registry, input) =>
 			dispatchThroughOperationRegistry(operationRegistry, "workspace.mutationHistory", 1, input, MUTATION_HISTORY_READ_PERMISSIONS),
 		"workspace.revertMutation": (_registry, input) =>
 			dispatchThroughOperationRegistry(operationRegistry, "workspace.revertMutation", 1, input, MUTATION_HISTORY_WRITE_PERMISSIONS),
+		"workspace.mutationTransaction": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.mutationTransaction", 1, input, MUTATION_HISTORY_READ_PERMISSIONS),
+		"workspace.revertMutationTransaction": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.revertMutationTransaction", 1, input, MUTATION_HISTORY_WRITE_PERMISSIONS),
 	};
 	registerAnnotationOperations(operationRegistry, registry, annotationHandlers);
 	type AnnotationOperationName =
@@ -494,6 +502,8 @@ export {
 	JobWaitTooLong,
 	MutationEntryNotFound,
 	MutationRevertStale,
+	MutationTransactionNotFound,
+	MutationTransactionRevertStale,
 	NotAGitRepository,
 	PackageSourceEntryInUse,
 	PackageSourceResolverNotConfigured,

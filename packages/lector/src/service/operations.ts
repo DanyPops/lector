@@ -43,6 +43,8 @@ export type OperationName =
 	| "workspace.applyPatch"
 	| "workspace.mutationHistory"
 	| "workspace.revertMutation"
+	| "workspace.mutationTransaction"
+	| "workspace.revertMutationTransaction"
 	| "workspace.registerPath"
 	| "workspace.resolvePath"
 	| "workspace.release"
@@ -113,6 +115,8 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.applyPatch",
 	"workspace.mutationHistory",
 	"workspace.revertMutation",
+	"workspace.mutationTransaction",
+	"workspace.revertMutationTransaction",
 	"workspace.registerPath",
 	"workspace.resolvePath",
 	"workspace.release",
@@ -192,6 +196,8 @@ export interface OperationInputs {
 	"workspace.applyPatch": { workspaceId: WorkspaceId; path: string; expectedHash: ContentHash; patchText: string };
 	"workspace.mutationHistory": { workspaceId: WorkspaceId; path: string; maxResults: number; maxBytes?: number };
 	"workspace.revertMutation": { workspaceId: WorkspaceId; entryId: string };
+	"workspace.mutationTransaction": { workspaceId: WorkspaceId; transactionId: string };
+	"workspace.revertMutationTransaction": { workspaceId: WorkspaceId; transactionId: string };
 	"workspace.registerPath": { path: string };
 	/**
 	 * The single, canonical "which workspace does this path belong to" decision, shared by every
@@ -315,6 +321,9 @@ export interface OperationOutputs {
 	"workspace.mutationHistory": { entries: readonly BoundedMutationHistoryEntry[]; truncated: boolean };
 	/** newHash is null when the reverted-to state is "the file doesn't exist" -- reverting a create back to nonexistence, or reverting a delete when the file has stayed deleted since. */
 	"workspace.revertMutation": { path: string; newHash: ContentHash | null };
+	"workspace.mutationTransaction": { transactionId: string; entries: readonly BoundedMutationHistoryEntry[]; truncated: boolean };
+	/** transactionId here is the REVERT's own new transaction id (itself further-revertible), not the one that was reverted. */
+	"workspace.revertMutationTransaction": { transactionId: string; reverted: readonly { path: string; newHash: ContentHash | null }[] };
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
 	/** found is false only for "declared-monorepo-root" (the one strategy with no directory-itself/filesystem-root fallback) -- every other strategy always resolves to something. */
 	"workspace.resolvePath":
@@ -345,7 +354,8 @@ export interface OperationOutputs {
 	"workspace.cacheStatus": WorkspaceCacheStatus;
 	"workspace.cacheWalkedFiles": { files: readonly string[]; totalCount: number; truncated: boolean };
 	"workspace.cacheFailures": { failures: readonly SymbolGraphPopulationFailure[]; totalCount: number; truncated: boolean };
-	"workspace.referenceBasedRename": ReferenceBasedRenameOutcome;
+	/** steps carries full before/after file content internally for mutation-history recording -- deliberately excluded from the wire response, which stays the small movedTo/filesUpdated/caveats summary every caller already expects. */
+	"workspace.referenceBasedRename": Omit<ReferenceBasedRenameOutcome, "steps">;
 	"workspace.prepareRename": Provenanced<{ range: RenameRange | null }>;
 	"workspace.rename": Provenanced<{ touchedPaths: readonly string[] }>;
 	"workspace.gitStatus": GitStatusSummary;

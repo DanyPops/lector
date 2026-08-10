@@ -61,6 +61,7 @@ import {
 	type WorkspaceId,
 } from "./errors.ts";
 import type { GraphRefreshCoordinator } from "./graph-refresh-coordinator.ts";
+import type { MutationHistoryCoordinator } from "./mutation-history-handlers.ts";
 import type { OperationInputs, OperationOutputs } from "./operations.ts";
 import { supportsCodeIntelligence, type WarmIndexRegistry } from "./warm-index-registry.ts";
 import type { MutableRegistry, RegisteredWorkspace } from "./workspace-registry.ts";
@@ -75,6 +76,7 @@ export interface SymbolGraphHandlerDeps {
 	readonly logger: Logger;
 	readonly renameMutationBarrier: SerialExecutionQueue;
 	readonly publish: (topic: string, payload: unknown) => void;
+	readonly mutationHistory: MutationHistoryCoordinator;
 	/** Late-bound: WorkspaceWatchHandlers and this factory are mutually dependent (this needs
 	 * ensureOsWatcher, WorkspaceWatchHandlers needs scheduleGraphRefresh below) -- the caller
 	 * passes an initially-no-op indirection and rebinds it once both objects exist. */
@@ -142,7 +144,8 @@ export interface SymbolGraphHandlerFactory {
  * closure state.
  */
 export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolGraphHandlerFactory {
-	const { registry, warmIndexes, graphRefresh, repoFetcher, createGitPort, jobs, logger, renameMutationBarrier, publish, ensureOsWatcher } = deps;
+	const { registry, warmIndexes, graphRefresh, repoFetcher, createGitPort, jobs, logger, renameMutationBarrier, publish, ensureOsWatcher, mutationHistory } =
+		deps;
 	const ensureSymbolGraph = (workspaceId: WorkspaceId) => graphRefresh.graph(workspaceId);
 
 	/**
@@ -478,7 +481,9 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 				referencingFiles,
 			});
 
-			return applyReferenceBasedRename(entry.port, plan);
+			const outcome = await applyReferenceBasedRename(entry.port, plan);
+			await mutationHistory.recordTransaction(input.workspaceId, "rename", outcome.steps);
+			return { movedTo: outcome.movedTo, filesUpdated: outcome.filesUpdated, caveats: outcome.caveats };
 		});
 	}
 
@@ -525,6 +530,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 			index.notifyFilesDidRename?.(renamePairs);
 			index.notifyFilesDidCreate?.(createPaths);
 			index.notifyFilesDidDelete?.(deletePaths);
+			if (outcome.steps.length > 0) await mutationHistory.recordTransaction(input.workspaceId, "rename", outcome.steps);
 
 			return { touchedPaths: outcome.touchedPaths, provenance: index.provenance };
 		});
