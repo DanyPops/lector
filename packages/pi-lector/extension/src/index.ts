@@ -77,7 +77,7 @@ import { createLectorEditOperations } from "./edit/operations.ts";
 import { openDirectoryExplorer } from "./editor/directory-explorer-operations.ts";
 import { ExplorerComponent, type ExplorerResult } from "./editor/explorer-component.ts";
 import { runExplorerFlow } from "./editor/explorer-flow.ts";
-import { NeovimEditorComponent, type NeovimEditorHost } from "./editor/neovim-editor-component.ts";
+import { ModalEditorComponent, type ModalEditorHost } from "./editor/modal-editor-component.ts";
 import { openEditorFile } from "./editor/operations.ts";
 import { createExternalSearchOperations } from "./external-search/operations.ts";
 import {
@@ -387,7 +387,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			await commandCtx.ui.custom<void>((tui, theme, _keybindings, done) => {
-				const host: NeovimEditorHost = {
+				const host: ModalEditorHost = {
 					filePath: absolutePath,
 					save: (text) => session.save(text),
 					hover: async (line, character) => {
@@ -395,7 +395,7 @@ export default function (pi: ExtensionAPI) {
 						return result.hover;
 					},
 				};
-				return new NeovimEditorComponent(tui, theme, host, session.content, () => done(undefined));
+				return new ModalEditorComponent(tui, theme, host, session.content, () => done(undefined));
 			}, editorOverlayOptions);
 		}
 
@@ -420,7 +420,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		pi.registerCommand("editor", {
-			description: "Open a file in a neovim-style modal code editor, or a filesystem explorer with no path",
+			description: "Open a file in a modal code editor, or a filesystem explorer with no path",
 			handler: async (args, commandCtx) => {
 				const target = args.trim();
 				if (!target) {

@@ -7,7 +7,7 @@ export type EditorAction = { kind: "save" } | { kind: "save-and-quit" } | { kind
 const BACKSPACE_KEYS = new Set(["\x7f", "\b"]);
 
 /**
- * Pure neovim-style modal editing state machine: mode transitions, cursor motion, and buffer
+ * Pure modal editing state machine: mode transitions, cursor motion, and buffer
  * edits, with no terminal/ANSI rendering and no I/O -- save/quit/hover requests surface as
  * `pendingAction` for the hosting Component to actually perform (reading/writing through
  * Lector's hash-guarded workspace operations lives outside this class entirely). Kept

@@ -1,5 +1,5 @@
 /**
- * Crash-safety coverage for NeovimEditorComponent's own fire-and-forget async dispatch (handleInput
+ * Crash-safety coverage for ModalEditorComponent's own fire-and-forget async dispatch (handleInput
  * -> performAction, and the constructor/render's own refreshHighlights trigger) -- the same defect
  * class found and fixed in ExplorerComponent (see explorer-crash-safety.test.ts): a host callback
  * (save/hover) rejecting must surface as a status message, never escape as an unhandled rejection
@@ -8,7 +8,7 @@
 import { describe, expect, it } from "bun:test";
 import type { TUI } from "@earendil-works/pi-tui";
 import type { EditorTheme } from "../../extension/src/editor/editor-theme.ts";
-import { NeovimEditorComponent } from "../../extension/src/editor/neovim-editor-component.ts";
+import { ModalEditorComponent } from "../../extension/src/editor/modal-editor-component.ts";
 
 const fakeTheme: EditorTheme = { fg: (_color, text) => text } as EditorTheme;
 
@@ -20,14 +20,14 @@ function tick(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-describe("NeovimEditorComponent crash safety", () => {
+describe("ModalEditorComponent crash safety", () => {
 	it("surfaces a failing hover as a status message instead of an unhandled rejection", async () => {
 		const unhandledRejections: unknown[] = [];
 		const onUnhandledRejection = (reason: unknown) => unhandledRejections.push(reason);
 		process.on("unhandledRejection", onUnhandledRejection);
 
 		try {
-			const component = new NeovimEditorComponent(
+			const component = new ModalEditorComponent(
 				fakeTui(),
 				fakeTheme,
 				{
@@ -59,7 +59,7 @@ describe("NeovimEditorComponent crash safety", () => {
 		process.on("unhandledRejection", onUnhandledRejection);
 
 		try {
-			const component = new NeovimEditorComponent(
+			const component = new ModalEditorComponent(
 				fakeTui(),
 				fakeTheme,
 				{

@@ -10,7 +10,7 @@ import type { EditorTheme } from "./editor-theme.ts";
 
 export type { EditorTheme } from "./editor-theme.ts";
 
-export interface NeovimEditorHost {
+export interface ModalEditorHost {
 	filePath: string;
 	/** Saves the buffer's current text through Lector's hash-guarded write. Throws (surfaced as a status message, not a crash) on a genuinely concurrent external change. */
 	save(text: string): Promise<void>;
@@ -28,16 +28,16 @@ const CAPTURE_COLOR: Record<string, ThemeColor> = {
 };
 
 /**
- * A real, full-file, neovim-style modal code editor Component -- not a CustomEditor subclass
+ * A real, full-file, modal code editor Component -- not a CustomEditor subclass
  * (that API replaces Pi's own chat input, not a full-file view; confirmed against
  * docs/tui.md's Pattern 7 and examples/extensions/modal-editor.ts). Renders as a `ctx.ui.custom`
  * overlay. Owns no authoritative state of its own past the open edit session: `EditorState`'s
  * LiveBuffer is the only in-memory copy, and every save round-trips through the host's
  * hash-guarded write -- never a second source of truth for the file's real disk content.
  */
-export class NeovimEditorComponent implements Component {
+export class ModalEditorComponent implements Component {
 	private readonly state: EditorState;
-	private readonly host: NeovimEditorHost;
+	private readonly host: ModalEditorHost;
 	private readonly tui: TUI;
 	private readonly theme: EditorTheme;
 	private readonly done: () => void;
@@ -47,7 +47,7 @@ export class NeovimEditorComponent implements Component {
 	private statusMessage = "";
 	private highlightCache: { text: string; spans: readonly HighlightSpan[] } | undefined;
 
-	constructor(tui: TUI, theme: EditorTheme, host: NeovimEditorHost, content: string, done: () => void) {
+	constructor(tui: TUI, theme: EditorTheme, host: ModalEditorHost, content: string, done: () => void) {
 		this.tui = tui;
 		this.theme = theme;
 		this.host = host;
