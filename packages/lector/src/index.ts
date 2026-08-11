@@ -2,9 +2,12 @@ export {
 	type ConnectLectorClientOptions,
 	connectLectorClient,
 	connectLectorClientAt,
+	createRetryingLectorClient,
 	type LectorClient,
 	LectorDaemonUnavailable,
 	type LectorDaemonUnavailableDetails,
+	type LectorRestartEvent,
+	type RetryingLectorClient,
 	remoteErrorIs,
 	resolveLectorDaemonConnection,
 } from "./client.ts";

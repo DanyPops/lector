@@ -1,5 +1,10 @@
 import { readFileSync } from "node:fs";
-import { isLikelyStaleConnectionError } from "@danypops/vehicle-client/daemon-client";
+import {
+	createRetryingClient,
+	type DaemonInstanceIdentity,
+	daemonInstanceIdentity,
+	isLikelyStaleConnectionError,
+} from "@danypops/vehicle-client/daemon-client";
 import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { type DaemonPaths, readDaemonHandle } from "@danypops/vehicle-server/paths";
 import { resolveLectorPaths } from "./constants.ts";
@@ -169,6 +174,66 @@ export async function connectLectorClient(options: ConnectLectorClientOptions = 
  * @danypops/vehicle-client in a consumer's own node_modules would otherwise be a
  * structurally distinct (if identical-looking) type.
  */
+export interface LectorRestartEvent {
+	/** The daemon instance identity (`pid:port`, or "unresolved" when no handle file was readable) observed before this change. */
+	readonly previousIdentity: string;
+	/** The identity observed after this change -- always different from previousIdentity. */
+	readonly currentIdentity: string;
+}
+
+export interface RetryingLectorClient {
+	call<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]>;
+	/** Like call(), but never retries the operation itself after a failure -- only the underlying connection resets. Use for a mutating/non-idempotent operation. */
+	callOnce<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]>;
+	/**
+	 * Fires whenever the daemon's own process identity changes (a real restart, detected from its
+	 * handle file's pid:port, re-read before every dispatch) -- never on the very first resolution.
+	 * Lets a consumer clear any process-local registration (e.g. a workspaceId) it cached against
+	 * the daemon instance that is now gone. Returns an unsubscribe function.
+	 */
+	onRestart(listener: (event: LectorRestartEvent) => void): () => void;
+	/** Drops any cached connection and identity, forcing the next call to reconnect and re-resolve. */
+	reset(): void;
+}
+
+function daemonIdentityFromHandle(paths: DaemonPaths): DaemonInstanceIdentity {
+	const handle = readDaemonHandle(paths.handle);
+	return daemonInstanceIdentity(handle ? `${handle.pid}:${handle.port}` : "unresolved");
+}
+
+/**
+ * Shared retrying, identity-aware Lector client every consumer (pi-lector, alignment-lector, and
+ * any future one) should build on rather than hand-rolling its own reconnect policy. A daemon
+ * binds a fresh random port on every restart; a naively-cached client would keep calling a dead
+ * port until something noticed. `@danypops/vehicle-client`'s createRetryingClient already solves
+ * that generically (retry-once-on-stale-connection) and ships resolveIdentity/onIdentityChange
+ * specifically so "consumers can clear process-local registrations" (its own doc comment) -- the
+ * exact shape of this house's repeated real bug: a workspaceId (or any other server-assigned id)
+ * cached against a daemon instance that has since restarted. onRestart surfaces that hook here so
+ * every Lector consumer gets it for free instead of reinventing it per package.
+ */
+export function createRetryingLectorClient(options: ConnectLectorClientOptions = {}): RetryingLectorClient {
+	const paths = options.paths ?? resolveLectorPaths();
+	const listeners = new Set<(event: LectorRestartEvent) => void>();
+	const retrying = createRetryingClient<LectorClient>(() => connectLectorClient({ paths }), {
+		label: "Lector",
+		isStaleConnectionError: (error) => error instanceof LectorDaemonUnavailable || isLikelyStaleConnectionError(error),
+		resolveIdentity: () => daemonIdentityFromHandle(paths),
+		onIdentityChange: (change) => {
+			for (const listener of listeners) listener({ previousIdentity: change.previous, currentIdentity: change.current });
+		},
+	});
+	return {
+		call: (operation, input) => retrying.call((client) => client.call(operation, input)),
+		callOnce: (operation, input) => retrying.callOnce((client) => client.call(operation, input)),
+		onRestart(listener) {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+		reset: () => retrying.reset(),
+	};
+}
+
 export function connectLectorClientAt(
 	baseUrl: string,
 	token: string,

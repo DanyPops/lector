@@ -13,8 +13,9 @@ import { remoteErrorIs } from "@danypops/lector/src/client.ts";
 import { GuardedLiveBuffer } from "@danypops/lector/src/live-buffer/guarded-live-buffer.ts";
 import { CALL_GRAPH_COMMANDS, createCallGraphContribution } from "./call-graph.js";
 import { createGitContribution, GIT_COMMANDS } from "./git-contribution.js";
-import { authenticatedLectorOperations, type LectorOperations } from "./lector-operations.js";
+import { authenticatedLectorOperations, type LectorOperations, withWorkspaceRecovery } from "./lector-operations.js";
 import { createSemanticNavigationContribution, SEMANTIC_COMMANDS } from "./semantic-navigation.js";
+import { createWorkspaceRootRegistry } from "./workspace-root-registry.js";
 
 const COMMANDS = [
 	{ id: "lector.workspace.open", title: "Open Workspace" },
@@ -117,7 +118,13 @@ function saveResourceInput(input: unknown): ContributionResourceReference | unde
 }
 
 export function createLectorAlignmentContribution(options: { operations?: LectorOperations } = {}): AlignmentContribution {
-	const operations = options.operations ?? authenticatedLectorOperations();
+	const workspaceRoots = createWorkspaceRootRegistry();
+	// Every contribution's own operations.call(...) funnels through this one wrapper, so a daemon
+	// restart that wipes Lector's in-memory workspace registry (by design, never persisted) is
+	// recovered transparently -- re-register the same root (a deterministic hash of the path always
+	// yields the identical workspaceId back) and retry the exact failed call once, instead of
+	// surfacing UnknownWorkspace to the user until they manually re-run lector.workspace.open.
+	const operations = withWorkspaceRecovery(options.operations ?? authenticatedLectorOperations(), workspaceRoots);
 	const semanticNavigation = createSemanticNavigationContribution(operations);
 	const callGraph = createCallGraphContribution(operations);
 	const git = createGitContribution(operations);
@@ -129,6 +136,7 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 		try {
 			const output = registerOutput(await operations.call("workspace.registerPath", { path: input.path }));
 			if (!output) return failure("invalid-response", "Lector returned an invalid workspace registration");
+			workspaceRoots.remember(output.workspaceId, input.path);
 			semanticNavigation.registerWorkspace(output.workspaceId, input.path);
 			callGraph.registerWorkspace(output.workspaceId, input.path);
 			git.registerWorkspace(output.workspaceId);
@@ -268,6 +276,7 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 			semanticNavigation.clear();
 			callGraph.clear();
 			git.clear();
+			workspaceRoots.forgetAll();
 		},
 	};
 }
