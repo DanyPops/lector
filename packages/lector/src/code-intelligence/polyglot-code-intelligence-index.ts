@@ -1,5 +1,6 @@
 import { extname } from "node:path";
 import type { Diagnostic } from "../code-intelligence/diagnostic.ts";
+import type { DocumentHighlight } from "../code-intelligence/document-highlight.ts";
 import type { DocumentSymbolEntry } from "../code-intelligence/document-symbol.ts";
 import type { Hover } from "../code-intelligence/hover.ts";
 import type { IntelligenceProvenance, IntelligenceSourceOutcome, SymbolSearchBounds } from "../code-intelligence/intelligence-provenance.ts";
@@ -140,6 +141,12 @@ export class PolyglotCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 
 	releaseFile(path: string): Promise<void> {
 		return this.indexForPath(path).releaseFile?.(path) ?? Promise.resolve();
+	}
+
+	// Same live gap fixed in FallbackCodeIntelligenceIndex -- this second CodeIntelligencePort
+	// wrapper also predates documentHighlights and must forward it explicitly.
+	documentHighlights(at: WorkspaceLocation): Promise<DocumentHighlight[]> {
+		return this.indexForPath(at.path).documentHighlights?.(at) ?? Promise.resolve([]);
 	}
 
 	prepareRename(at: WorkspaceLocation): Promise<RenameRange | null> {

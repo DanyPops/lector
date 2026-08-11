@@ -1,4 +1,5 @@
 import type { Diagnostic } from "../code-intelligence/diagnostic.ts";
+import type { DocumentHighlight } from "../code-intelligence/document-highlight.ts";
 import type { DocumentSymbolEntry } from "../code-intelligence/document-symbol.ts";
 import type { Hover } from "../code-intelligence/hover.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../code-intelligence/intelligence-provenance.ts";
@@ -82,6 +83,14 @@ export class FallbackCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 	}
 	notifyFileChanged(event: FileChangeEvent): void {
 		this.primary.notifyFileChanged?.(event);
+	}
+	// Degrades to an empty list, not a thrown error, matching prepareRename's own precedent below --
+	// a wrapper predating a newly-added optional CodeIntelligencePort member must forward it
+	// explicitly (TypeScript's own optional-member typing lets this class satisfy the interface
+	// without declaring it at all, which is exactly how this one was missed until a live call
+	// against a real fallback-wrapped workspace surfaced it).
+	documentHighlights(at: WorkspaceLocation): Promise<DocumentHighlight[]> {
+		return this.primary.documentHighlights?.(at) ?? Promise.resolve([]);
 	}
 	prepareRename(at: WorkspaceLocation): Promise<RenameRange | null> {
 		return this.primary.prepareRename?.(at) ?? Promise.resolve(null);

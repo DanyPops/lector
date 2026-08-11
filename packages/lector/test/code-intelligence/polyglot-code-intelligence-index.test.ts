@@ -94,4 +94,29 @@ describe("PolyglotCodeIntelligenceIndex", () => {
 
 		await expect(index.releaseFile("/repo/main.py")).resolves.toBeUndefined();
 	});
+
+	it("dispatches documentHighlights to the extension-matched backend, and degrades to an empty array for a backend that doesn't implement it -- the same live gap found and fixed in FallbackCodeIntelligenceIndex, checked here too since this is a second, separate CodeIntelligencePort wrapper predating the port method", async () => {
+		const highlight = { range: { path: "/repo/main.go", start: { line: 1, character: 1 }, end: { line: 1, character: 2 } }, kind: "read" as const };
+		const goIndex: SymbolIndexPort & CodeIntelligencePort = {
+			provenance: provenance("go", "gopls"),
+			findSymbols: async () => ({ symbols: [], truncated: false, provenance: provenance("go", "gopls") }),
+			goToDefinition: async () => [],
+			goToImplementation: async () => [],
+			findReferences: async () => [],
+			hover: async () => undefined,
+			documentSymbols: async () => [],
+			diagnostics: async () => [],
+			prepareCallHierarchy: async () => [],
+			incomingCalls: async () => [],
+			outgoingCalls: async () => [],
+			documentHighlights: async () => [highlight],
+		};
+		const go: PolyglotIndexEntry = { descriptor: GO_DESCRIPTOR, index: goIndex };
+		// python's stub deliberately has no documentHighlights at all -- a backend without the capability.
+		const python = stubEntry(PYTHON_DESCRIPTOR, async () => ({ symbols: [], truncated: false, provenance: provenance("python", "pyright") }));
+		const index = new PolyglotCodeIntelligenceIndex([go, python]);
+
+		await expect(index.documentHighlights?.({ path: "/repo/main.go", line: 1, character: 1 })).resolves.toEqual([highlight]);
+		await expect(index.documentHighlights?.({ path: "/repo/main.py", line: 1, character: 1 })).resolves.toEqual([]);
+	});
 });

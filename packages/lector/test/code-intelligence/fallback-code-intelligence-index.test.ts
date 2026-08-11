@@ -93,6 +93,22 @@ describe("FallbackCodeIntelligenceIndex notifyFileChanged delegation", () => {
 	});
 });
 
+describe("FallbackCodeIntelligenceIndex documentHighlights delegation", () => {
+	it("delegates documentHighlights to the primary when it implements it -- a real, live gap found and fixed after workspace.documentHighlights was added: this wrapper predates the port method and TypeScript's own optional-member typing let it silently satisfy CodeIntelligencePort without forwarding it", async () => {
+		const highlight = { range: { path: "a.ts", start: { line: 1, character: 1 }, end: { line: 1, character: 2 } }, kind: "read" as const };
+		const primary = { ...stubPrimary(), documentHighlights: async () => [highlight] };
+		const index = new FallbackCodeIntelligenceIndex(primary, []);
+
+		await expect(index.documentHighlights?.({ path: "a.ts", line: 1, character: 1 })).resolves.toEqual([highlight]);
+	});
+
+	it("resolves to an empty array when the primary does not implement documentHighlights, matching prepareRename's own degrade-not-throw precedent", async () => {
+		const index = new FallbackCodeIntelligenceIndex(stubPrimary(), []);
+
+		await expect(index.documentHighlights?.({ path: "a.ts", line: 1, character: 1 })).resolves.toEqual([]);
+	});
+});
+
 describe("FallbackCodeIntelligenceIndex rename delegation", () => {
 	it("delegates prepareRename to the primary when it implements it", async () => {
 		const primary = { ...stubPrimary(), prepareRename: async () => ({ range: undefined, placeholder: undefined }) };
