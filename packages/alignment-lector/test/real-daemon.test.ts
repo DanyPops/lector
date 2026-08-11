@@ -155,7 +155,9 @@ describe("Lector Alignment contribution against a real daemon", () => {
 		expect(() => readFileSync(join(root, "newdir"))).toThrow(); // it's a directory, not a file
 
 		// renamePath: the file moves for real.
-		const renamed = resourceValue(await requireCommand(host.commands, "lector.path.rename").execute({ workspaceId, oldPath: "new.txt", newPath: "renamed.txt" }));
+		const renamed = resourceValue(
+			await requireCommand(host.commands, "lector.path.rename").execute({ workspaceId, oldPath: "new.txt", newPath: "renamed.txt" }),
+		);
 		expect(renamed).toMatchObject({ kind: "text", readOnly: true });
 		expect(readFileSync(join(root, "renamed.txt"), "utf8")).toBe("");
 

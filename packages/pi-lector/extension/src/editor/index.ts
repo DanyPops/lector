@@ -28,14 +28,14 @@
  * openEditorFile either.
  */
 
+export type { DirectoryExplorerSession } from "./directory-explorer-operations.ts";
 export { type EditorAction, type EditorMode, EditorState } from "./editor-state.ts";
 export type { EditorTheme } from "./editor-theme.ts";
-export { ModalEditorComponent, type ModalEditorHost } from "./modal-editor-component.ts";
 export { ExplorerComponent, type ExplorerResult, joinExplorerPath } from "./explorer-component.ts";
-export type { DirectoryExplorerSession } from "./directory-explorer-operations.ts";
 // runExplorerFlow is pure orchestration over the two interfaces above (browse, open a file into
 // the real editor, return to the explorer at that file's own directory once it quits) -- exported
 // for the same reason ExplorerComponent/DirectoryExplorerSession are: any real host can drive this
 // exact, already-tested loop without re-deriving it, instead of only this package's own Pi
 // extension entry point being able to.
 export { type ExplorerFlowHost, runExplorerFlow } from "./explorer-flow.ts";
+export { ModalEditorComponent, type ModalEditorHost } from "./modal-editor-component.ts";
