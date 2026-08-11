@@ -12,6 +12,9 @@
 	"pi": {
 		"extensions": ["extension/src/index.ts"]
 	},
+	"exports": {
+		"./editor": "./extension/src/editor/index.ts"
+	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*",
