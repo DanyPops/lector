@@ -62,7 +62,7 @@ export class EditorState {
 	// ── Normal mode ──────────────────────────────────────────────────────────
 
 	private handleNormalKey(data: string): void {
-		// Two-key sequences: dd, gg, yy.
+		// Two-key sequences: dd, gg, yy, ZZ, ZQ.
 		if (this.normalPrefix) {
 			const prefix = this.normalPrefix;
 			this.normalPrefix = "";
@@ -76,6 +76,18 @@ export class EditorState {
 			}
 			if (prefix === "y" && data === "y") {
 				this.yankedLine = this.currentLineText;
+				return;
+			}
+			// Real vim's own close-on-demand mnemonics -- ZZ saves and quits (equivalent to :wq),
+			// ZQ quits without saving (equivalent to :q). Added so a host never needs to invent its
+			// own dismiss keybinding or reach into this class's internal mode/dirty state -- the
+			// editor decides its own exit paths, exactly like :q/:wq already do.
+			if (prefix === "Z" && data === "Z") {
+				this.pendingAction = { kind: "save-and-quit" };
+				return;
+			}
+			if (prefix === "Z" && data === "Q") {
+				this.pendingAction = { kind: "quit" };
 				return;
 			}
 			// Prefix didn't complete into a known sequence -- fall through and handle `data` fresh.
@@ -106,6 +118,7 @@ export class EditorState {
 			case "d":
 			case "g":
 			case "y":
+			case "Z":
 				this.normalPrefix = data;
 				return;
 			case "i":

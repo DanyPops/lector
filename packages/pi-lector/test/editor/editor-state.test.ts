@@ -212,6 +212,32 @@ describe("EditorState", () => {
 		});
 	});
 
+	describe("close-on-demand (ZZ/ZQ)", () => {
+		it("ZZ requests a save-and-quit action, same as :wq", () => {
+			const state = new EditorState("abc");
+			state.handleKey("Z");
+			state.handleKey("Z");
+			expect(state.pendingAction).toEqual({ kind: "save-and-quit" });
+			expect(state.mode).toBe("normal");
+		});
+
+		it("ZQ requests a quit action, same as :q", () => {
+			const state = new EditorState("abc");
+			state.handleKey("Z");
+			state.handleKey("Q");
+			expect(state.pendingAction).toEqual({ kind: "quit" });
+			expect(state.mode).toBe("normal");
+		});
+
+		it("a lone Z (not followed by Z or Q) falls through and is handled fresh, not treated as an exit", () => {
+			const state = new EditorState("abc");
+			state.handleKey("Z");
+			state.handleKey("i"); // fall-through key: enters insert mode, same as a bare "i" would
+			expect(state.pendingAction).toBeUndefined();
+			expect(state.mode).toBe("insert");
+		});
+	});
+
 	describe("code intelligence", () => {
 		it("K requests a hover action", () => {
 			const state = new EditorState("abc");
