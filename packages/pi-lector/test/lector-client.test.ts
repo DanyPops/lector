@@ -9,6 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectLectorClient, type LectorClient, LectorDaemonUnavailable, resolveLectorPaths } from "@danypops/lector";
+import { MutationOutcomeUnknownError } from "@danypops/vehicle-client/daemon-client";
 import {
 	AnnotationPathDoesNotExist,
 	lectorClient,
@@ -437,7 +438,7 @@ describe("lectorClient.callOnce -- never transparently retries the operation its
 		} as unknown as LectorClient;
 	}
 
-	it("fails immediately on a stale connection, without retrying, unlike call()", async () => {
+	it("fails immediately on a stale connection, without retrying, unlike call() -- and honestly reports the outcome as unknown rather than implying the mutation definitely never reached the daemon", async () => {
 		let connectorCalls = 0;
 		setLectorClientConnectorForTests(() => {
 			connectorCalls++;
@@ -445,7 +446,12 @@ describe("lectorClient.callOnce -- never transparently retries the operation its
 		});
 
 		const client = await lectorClient();
-		await expect(client.callOnce("workspace.registerPath", { path: "/tmp" })).rejects.toThrow(TypeError);
+		// A plain, code-less TypeError (this fixture's own shape) is not provably a pre-dispatch
+		// failure to @danypops/vehicle-client's own isDefinitelyPreDispatchConnectionError (it only
+		// trusts a real ECONNREFUSED-shaped .code) -- so callOnce correctly refuses to guess whether
+		// the mutation reached the daemon, surfacing MutationOutcomeUnknownError instead of a bare
+		// TypeError that would misleadingly imply "definitely never dispatched."
+		await expect(client.callOnce("workspace.registerPath", { path: "/tmp" })).rejects.toThrow(MutationOutcomeUnknownError);
 		// A single attempt, not two -- the defining difference from call()'s own retry-once policy.
 		expect(connectorCalls).toBe(1);
 	});
@@ -460,7 +466,7 @@ describe("lectorClient.callOnce -- never transparently retries the operation its
 
 		try {
 			const client = await lectorClient();
-			await expect(client.callOnce("workspace.registerPath", { path: "/tmp" })).rejects.toThrow(TypeError);
+			await expect(client.callOnce("workspace.registerPath", { path: "/tmp" })).rejects.toThrow(MutationOutcomeUnknownError);
 			expect(connectorCalls).toBe(1);
 
 			// The failed attempt reset the cached connection, so this second, separate callOnce()
@@ -508,7 +514,9 @@ describe("workspaceForPath registers via callOnce, not call", () => {
 			return Promise.resolve(fakeConnectionRefused());
 		});
 
-		await expect(workspaceForPath("/tmp/does-not-matter.txt")).rejects.toThrow(TypeError);
+		// See callOnce's own describe block above for why this is now MutationOutcomeUnknownError,
+		// not a bare TypeError.
+		await expect(workspaceForPath("/tmp/does-not-matter.txt")).rejects.toThrow(MutationOutcomeUnknownError);
 		expect(connectorCalls).toBe(1);
 	});
 });

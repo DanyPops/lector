@@ -20,7 +20,7 @@
 	},
 	"dependencies": {
 		"@codemirror/state": "^6.7.1",
-		"@danypops/vehicle-client": "^0.6.2",
+		"@danypops/vehicle-client": "^0.8.2",
 		"@danypops/vehicle-core": "^0.12.5",
 		"@danypops/vehicle-server": "^0.18.2",
 		"@yarnpkg/parsers": "^3.0.3",

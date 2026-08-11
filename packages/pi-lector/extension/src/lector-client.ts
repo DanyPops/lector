@@ -11,6 +11,7 @@ import {
 	type WorkspaceResolutionRequest,
 } from "@danypops/lector";
 import { createRetryingClient, isLikelyStaleConnectionError, type RetryingClient } from "@danypops/vehicle-client/daemon-client";
+import { logClientDiagnosticEvent } from "./client-diagnostics.ts";
 
 /**
  * Lazily connects to a running Lector daemon and caches, per resolution request, the
@@ -44,6 +45,9 @@ let connector: ClientConnector = () => connectLectorClient();
 const retryingClient: RetryingClient<LectorClient> = createRetryingClient(() => connector(), {
 	label: "Lector",
 	isStaleConnectionError: (error) => error instanceof LectorDaemonUnavailable || isLikelyStaleConnectionError(error),
+	// Purely observational, opt-in via LECTOR_CLIENT_DIAG -- see client-diagnostics.ts's own doc
+	// comment for the exact RCA gap this closes.
+	onEvent: logClientDiagnosticEvent,
 });
 
 /**
