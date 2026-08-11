@@ -26,6 +26,12 @@
  *                          and reports every textDocument/didOpen|didChange|didClose it actually
  *                          receives back via a test/syncNotificationReceived notification -- lets
  *                          a test assert none were sent, not just that nothing crashed.
+ *   outgoing-calls-unsupported   responds normally to everything except resolves
+ *                          textDocument/prepareCallHierarchy to one fake root, then answers
+ *                          callHierarchy/outgoingCalls with a real JSON-RPC "method not found"
+ *                          error -- the exact live shape confirmed against clangd 18.1.3 (Ubuntu
+ *                          24.04's own packaged version), deterministic here instead of depending
+ *                          on which clangd happens to be installed wherever a test runs.
  */
 import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/code-intelligence/lsp/json-rpc-stream.ts";
 
@@ -34,6 +40,10 @@ const decoder = new JsonRpcStreamDecoder();
 
 function respond(id: number | string, result: unknown): void {
 	process.stdout.write(encodeJsonRpcMessage({ jsonrpc: "2.0", id, result }));
+}
+
+function respondError(id: number | string, code: number, message: string): void {
+	process.stdout.write(encodeJsonRpcMessage({ jsonrpc: "2.0", id, error: { code, message } }));
 }
 
 function notify(method: string, params: unknown): void {
@@ -149,6 +159,24 @@ function handle(message: JsonRpcMessage): void {
 	if (mode === "oversized-response") {
 		respond(message.id, "x".repeat(4_096));
 		return;
+	}
+	if (mode === "outgoing-calls-unsupported") {
+		if (message.method === "textDocument/prepareCallHierarchy") {
+			respond(message.id, [
+				{
+					name: "fakeRoot",
+					kind: 12, // SymbolKind.Function
+					uri: "file:///fake.cpp",
+					range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+					selectionRange: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+				},
+			]);
+			return;
+		}
+		if (message.method === "callHierarchy/outgoingCalls") {
+			respondError(message.id, -32601, "method not found");
+			return;
+		}
 	}
 	respond(message.id, []); // generic empty-array response -- good enough for workspace/symbol-shaped requests
 }

@@ -374,6 +374,21 @@ function isCallHierarchyRootNotCallableError(error: unknown): boolean {
 	return error instanceof Error && /is not a function$/i.test(error.message);
 }
 
+/**
+ * True for a server that never implements callHierarchy/outgoingCalls at all -- observed live
+ * against clangd 18.1.3 (Ubuntu 24.04's own packaged version, and so a real, currently-shipping
+ * install many users and this project's own CI get from a plain `apt-get install clangd`):
+ * every callable symbol's outgoingCalls request comes back JSON-RPC "method not found", even
+ * though textDocument/prepareCallHierarchy resolved a real root first and the server declared
+ * callHierarchyProvider at initialize time. Newer clangd (confirmed clean at 22.1.8) implements
+ * it. There is no partial result to salvage from a method the server never registered a handler
+ * for -- same honest-degradation shape as isCallHierarchyRootNotCallableError above, just a
+ * different root cause (missing server capability vs. an unresolvable root).
+ */
+function isCallHierarchyMethodUnsupportedError(error: unknown): boolean {
+	return error instanceof Error && /^method not found/i.test(error.message);
+}
+
 function normalizeCallHierarchyItem(item: LspCallHierarchyItem): CallHierarchyEntry {
 	const path = fileURLToPath(item.uri);
 	return {
@@ -1160,6 +1175,9 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			// incomingCalls's own comment above for why this must wait through the same seam again.
 			results = (await this.requestWhenReady<LspCallHierarchyOutgoingCall[] | null>(proc, "callHierarchy/outgoingCalls", { item: root })) ?? [];
 		} catch (error) {
+			// A server that never registered a callHierarchy/outgoingCalls handler at all (confirmed
+			// live against clangd 18.1.3) -- see isCallHierarchyMethodUnsupportedError's own doc comment.
+			if (isCallHierarchyMethodUnsupportedError(error)) return [];
 			// A confirmed, deterministic gopls-internal limitation, not a race, observed at both
 			// possible failure points: textDocument/prepareCallHierarchy itself throws this for a Go
 			// func-TYPE declaration (e.g. `type Handler func(int) int`), because gopls' own

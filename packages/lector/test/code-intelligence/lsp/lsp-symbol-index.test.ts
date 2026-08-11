@@ -187,6 +187,37 @@ describe("LspSymbolIndex managed spawn fallback", () => {
 	}, 20_000);
 });
 
+describe("LspSymbolIndex.outgoingCalls against a server that never implements the method", () => {
+	it("degrades to an empty result instead of throwing when callHierarchy/outgoingCalls itself comes back JSON-RPC 'method not found' -- the exact live shape confirmed against clangd 18.1.3, deterministic here via the evil mock instead of depending on whichever clangd happens to be installed", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-outgoing-calls-unsupported-"));
+		writeFileSync(join(root, "seed.cpp"), "int add(int a, int b) { return a + b; }\n");
+		const descriptor: LanguageServerDescriptor = {
+			languageId: "fixture",
+			backendId: "fixture-lsp",
+			extensions: [".cpp"],
+			launch: { kind: "system-binary", command: "bun" },
+			args: [EVIL_LSP_SERVER],
+			rootMarkers: [],
+			commonSeedCandidates: ["seed.cpp"],
+			settleMs: 0,
+		};
+		// LspSymbolIndex spawns its own subprocess internally and doesn't forward a per-instance
+		// env map, so the evil server's mode switch (an env var by design, mirroring how real LSP
+		// binaries take no such flag) has to be set process-wide around this one construction.
+		const previousMode = process.env.EVIL_LSP_MODE;
+		process.env.EVIL_LSP_MODE = "outgoing-calls-unsupported";
+		try {
+			index = new LspSymbolIndex(root, descriptor, "seed.cpp");
+			const callees = await outgoingCalls(index, { path: join(root, "seed.cpp"), line: 0, character: 4 });
+			expect(callees).toEqual([]);
+		} finally {
+			if (previousMode === undefined) delete process.env.EVIL_LSP_MODE;
+			else process.env.EVIL_LSP_MODE = previousMode;
+			rmSync(root, { recursive: true, force: true });
+		}
+	}, 20_000);
+});
+
 describe("LspSymbolIndex configured for TypeScript", () => {
 	it("finds a real, known symbol in Lector's own source via a live typescript-language-server", async () => {
 		index = new LspSymbolIndex(LECTOR_ROOT, TYPESCRIPT_DESCRIPTOR, "src/index.ts");
