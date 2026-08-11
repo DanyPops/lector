@@ -224,8 +224,20 @@ export interface OperationInputs {
 	"workspace.prepareCallHierarchy": WorkspacePosition;
 	"workspace.incomingCalls": WorkspacePosition & { maxResults?: number; maxBytes?: number };
 	"workspace.outgoingCalls": WorkspacePosition & { maxResults?: number; maxBytes?: number };
-	/** allowBroadRoot is an explicit, auditable opt-in past classifyAutoPopulationRoot's own refusal -- see BroadNonProjectRoot. */
-	"workspace.populateSymbolGraph": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number; allowBroadRoot?: boolean };
+	/**
+	 * allowBroadRoot is an explicit, auditable opt-in past classifyAutoPopulationRoot's own refusal
+	 * -- see BroadNonProjectRoot. retryTimeBudgetMs, when given, retries a WorkspaceChangedDuringPopulation
+	 * race (a file changed mid-population) within this many milliseconds of wall-clock time before
+	 * giving up and throwing that same error -- omitted/0 (the default) preserves today's exact
+	 * fail-fast behavior.
+	 */
+	"workspace.populateSymbolGraph": {
+		workspaceId: WorkspaceId;
+		maxFiles: number;
+		maxSymbolsPerFile: number;
+		allowBroadRoot?: boolean;
+		retryTimeBudgetMs?: number;
+	};
 	"workspace.reachableFrom": WorkspacePosition & { maxDepth: number; kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
 	"workspace.symbolEdgesFrom": WorkspacePosition & { kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
 	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
@@ -279,7 +291,8 @@ export interface OperationInputs {
 	"search.text": { query: string; maxMatches: number; maxBytes: number; workspaceIds?: readonly WorkspaceId[]; timeoutMs?: number };
 	"job.submit": {
 		operation: "workspace.populateSymbolGraph";
-		input: { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
+		/** retryTimeBudgetMs: see workspace.populateSymbolGraph's own doc comment -- same opt-in retry-on-race semantics, threaded through unchanged. */
+		input: { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number; retryTimeBudgetMs?: number };
 		/** Bounded wait before returning the current snapshot. Zero/omitted always returns immediately. */
 		waitMs?: number;
 	};

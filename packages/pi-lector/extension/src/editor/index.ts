@@ -16,6 +16,7 @@
  * implementation and its own ModalEditorHost backed by whatever it wants (a Lector daemon
  * client, a Vehicle operation, a plain filesystem call -- this package doesn't care).
  */
-export { ModalEditorComponent, type ModalEditorHost } from "./modal-editor-component.ts";
+
+export { type EditorAction, type EditorMode, EditorState } from "./editor-state.ts";
 export type { EditorTheme } from "./editor-theme.ts";
-export { EditorState, type EditorAction, type EditorMode } from "./editor-state.ts";
+export { ModalEditorComponent, type ModalEditorHost } from "./modal-editor-component.ts";

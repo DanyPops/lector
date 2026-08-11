@@ -76,3 +76,30 @@ export function resolveBound(explicit: number | undefined, defaultValue: number,
 	if (!Number.isSafeInteger(value) || value < 1 || value > max) throw new TypeError(`${name} must be a positive safe integer no greater than ${max}`);
 	return value;
 }
+
+/**
+ * How long workspace.populateSymbolGraph's own optional retry-on-race loop may keep retrying a
+ * WorkspaceChangedDuringPopulation failure before giving up and rethrowing it -- zero/omitted (the
+ * default, via resolveRetryBudgetMs) preserves today's exact fail-fast behavior; this is opt-in.
+ */
+export const MAX_POPULATE_RETRY_BUDGET_MS = 5 * 60_000;
+/**
+ * Fixed settle delay between retry attempts -- long enough for a burst of related file changes
+ * (e.g. one reference-based rename touching several files) to fully land before the next attempt
+ * re-derives its own source manifest, short enough not to waste a caller's own bounded budget
+ * purely on waiting.
+ */
+export const POPULATE_RETRY_SETTLE_MS = 500;
+
+/**
+ * Validates an optional non-negative retry budget -- distinct from resolveBound's "positive,
+ * defaulted" contract because 0/omitted is itself a meaningful, valid value here (retrying is
+ * opt-in; 0 means "never retry", not "use some positive default").
+ */
+export function resolveRetryBudgetMs(explicit: number | undefined, max: number): number {
+	if (explicit === undefined) return 0;
+	if (!Number.isSafeInteger(explicit) || explicit < 0 || explicit > max) {
+		throw new TypeError(`retryTimeBudgetMs must be a non-negative safe integer no greater than ${max}`);
+	}
+	return explicit;
+}

@@ -185,6 +185,105 @@ describe("createLectorService background jobs", () => {
 		});
 	});
 
+	it("retries once and succeeds once the interfering change has already settled by the next attempt -- retryTimeBudgetMs opt-in, distinct from today's fail-fast default", async () => {
+		const documents = deferred<readonly DocumentSymbolEntry[]>();
+		const populationStarted = deferred<void>();
+		let documentSymbolsCalls = 0;
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createJobExecutor: testExecutor,
+			createSymbolIndex: () =>
+				new DelayedCodeIndex(documents.promise, () => {
+					documentSymbolsCalls++;
+					populationStarted.resolve();
+				}),
+			// Instant in tests -- the real 500ms production settle delay would otherwise slow every run.
+			populateRetrySleep: async () => {},
+		});
+		const projectRoot = fixture();
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: projectRoot });
+		const { job } = await service.dispatch("job.submit", {
+			operation: "workspace.populateSymbolGraph",
+			input: { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10, retryTimeBudgetMs: 60_000 },
+			waitMs: 0,
+		});
+		await populationStarted.promise;
+		// Perturbs the workspace exactly once, during the first attempt's own population window --
+		// the exact live race (an in-flight reference-based rename) this retry is meant to absorb.
+		writeFileSync(join(projectRoot, "index.ts"), "export function changed() { return 99; }\n");
+		documents.resolve([]);
+
+		let final = await service.dispatch("job.status", { jobId: job.id });
+		for (let attempt = 0; attempt < 50 && final.job.status !== "succeeded" && final.job.status !== "failed"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			final = await service.dispatch("job.status", { jobId: job.id });
+		}
+		expect(final.job.status).toBe("succeeded");
+		// Two real attempts happened -- the first raced and recorded nothing, the second (against the
+		// now-settled file) succeeded and actually recorded a generation.
+		expect(documentSymbolsCalls).toBe(2);
+		expect(await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 })).toMatchObject({ status: "cached" });
+	});
+
+	it("still fails with WorkspaceChangedDuringPopulation once the retry budget is exhausted against a workspace that keeps changing every attempt", async () => {
+		let fakeNow = 0;
+		let attempts = 0;
+		const projectRootRef: { current: string | undefined } = { current: undefined };
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createJobExecutor: testExecutor,
+			createSymbolIndex: () =>
+				new DelayedCodeIndex(Promise.resolve([]), () => {
+					attempts++;
+					// Perturbs the workspace on every single attempt, during its own population window --
+					// a workspace under continuous active editing that never lets a population converge.
+					if (projectRootRef.current) writeFileSync(join(projectRootRef.current, "index.ts"), `export function v${attempts}() { return ${attempts}; }\n`);
+				}),
+			populateRetrySleep: async () => {},
+			// Advances 1000ms per call -- deterministic budget exhaustion with no real wall-clock wait.
+			populateRetryNow: () => {
+				const value = fakeNow;
+				fakeNow += 1000;
+				return value;
+			},
+		});
+		const projectRoot = fixture();
+		projectRootRef.current = projectRoot;
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: projectRoot });
+		const { job } = await service.dispatch("job.submit", {
+			operation: "workspace.populateSymbolGraph",
+			input: { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10, retryTimeBudgetMs: 3_000 },
+			waitMs: 0,
+		});
+
+		let final = await service.dispatch("job.status", { jobId: job.id });
+		for (let attempt = 0; attempt < 50 && final.job.status !== "failed"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			final = await service.dispatch("job.status", { jobId: job.id });
+		}
+		expect(final.job).toMatchObject({ status: "failed", error: { code: "WorkspaceChangedDuringPopulation" } });
+		// More than one attempt actually happened (the retry loop ran, not a single immediate throw),
+		// but it terminated once the injected clock exceeded the 3000ms budget rather than looping forever.
+		expect(attempts).toBeGreaterThan(1);
+		expect(await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 })).toEqual({
+			status: "not-cached",
+			reason: "no-completed-generation",
+		});
+	});
+
+	it("rejects an out-of-bound retryTimeBudgetMs on the direct (non-job) dispatch path before doing any real work", async () => {
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolIndex: () => new DelayedCodeIndex(Promise.resolve([])),
+		});
+		const projectRoot = fixture();
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: projectRoot });
+
+		await expect(
+			service.dispatch("workspace.populateSymbolGraph", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10, retryTimeBudgetMs: -1 }),
+		).rejects.toThrow(/retryTimeBudgetMs/);
+	});
+
 	it("bounded initial wait returns a completed fast job without forcing a poll", async () => {
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,

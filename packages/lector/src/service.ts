@@ -148,6 +148,10 @@ export interface LectorServiceOptions {
 	createMutationHistory?: (workspaceId: WorkspaceId) => MutationHistoryPort;
 	/** Injectable for tests -- classifyAutoPopulationRoot's own broad-non-project-root heuristic must never depend on the real host machine's actual home directory. Defaults to the real one via node:os. */
 	homeDir?: string;
+	/** Injectable for tests -- the settle delay populateSymbolGraph's own opt-in retry-on-race loop waits between attempts. Defaults to a real setTimeout-based wait. */
+	populateRetrySleep?: (ms: number) => Promise<void>;
+	/** Injectable for tests -- the clock populateSymbolGraph's own opt-in retry budget is measured against. Defaults to Date.now. */
+	populateRetryNow?: () => number;
 	/** Factory for the git port backing workspace.gitStatus/gitLog/gitDiff. Defaults to LocalGit, the real `git` CLI. Cheap to construct -- never cached, unlike symbol indexes. */
 	createGitPort?: (rootPath: string) => GitPort;
 	/** Factory for the port backing repo.fetch. No default -- unlike createSymbolGraph's safe in-memory fallback, fetching a real external repo always needs a real disk location only a host (daemon.ts) can supply. Called once at construction and reused, not per-call. */
@@ -352,6 +356,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		publish,
 		mutationHistory,
 		homeDir: options.homeDir,
+		sleep: options.populateRetrySleep,
+		now: options.populateRetryNow,
 		ensureOsWatcher: (workspaceId, rootPath) => ensureOsWatcher(workspaceId, rootPath),
 	});
 	const workspaceWatchHandlers = new WorkspaceWatchHandlers({

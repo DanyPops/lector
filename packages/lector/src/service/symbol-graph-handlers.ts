@@ -43,9 +43,12 @@ import {
 	MAX_GRAPH_QUERY_RESULTS,
 	MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP,
 	MAX_INITIAL_JOB_WAIT_MS,
+	MAX_POPULATE_RETRY_BUDGET_MS,
 	MAX_SOURCE_MANIFEST_BYTES,
+	POPULATE_RETRY_SETTLE_MS,
 	POPULATION_CONCURRENCY,
 	resolveBound,
+	resolveRetryBudgetMs,
 } from "./bounds.ts";
 import { requireCodeIntelligence } from "./code-intelligence-handlers.ts";
 import {
@@ -87,6 +90,10 @@ export interface SymbolGraphHandlerDeps {
 	readonly ensureOsWatcher: (workspaceId: WorkspaceId, rootPath: string) => void;
 	/** Injectable for tests -- classifyAutoPopulationRoot's own home-directory heuristic must never depend on the real host machine's actual home directory. Defaults to the real one via node:os. */
 	readonly homeDir?: string;
+	/** Injectable for tests -- the settle delay between populateSymbolGraphHandler's own retry-on-race attempts. Defaults to a real setTimeout-based wait. */
+	readonly sleep?: (ms: number) => Promise<void>;
+	/** Injectable for tests -- the clock populateSymbolGraphHandler's own retry budget is measured against. Defaults to Date.now. */
+	readonly now?: () => number;
 }
 
 export interface SymbolGraphHandlers {
@@ -153,6 +160,8 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 	const { registry, warmIndexes, graphRefresh, repoFetcher, createGitPort, jobs, logger, renameMutationBarrier, publish, ensureOsWatcher, mutationHistory } =
 		deps;
 	const homeDir = deps.homeDir ?? homedir();
+	const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	const now = deps.now ?? Date.now;
 	const ensureSymbolGraph = (workspaceId: WorkspaceId) => graphRefresh.graph(workspaceId);
 
 	/**
@@ -228,7 +237,36 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		await closeWarmIndexesForWorkspace(workspaceId);
 	}
 
+	/**
+	 * Public entry point: validates the optional retry budget, then retries populateSymbolGraphOnce
+	 * across a real WorkspaceChangedDuringPopulation race (a file changed mid-population, so no
+	 * generation was recorded) until either an attempt succeeds or the budget is exhausted, at which
+	 * point the same error propagates unchanged. Omitted/0 retryTimeBudgetMs (the default) makes this
+	 * behave exactly like a single populateSymbolGraphOnce call -- today's fail-fast contract,
+	 * unchanged for any caller that doesn't opt in.
+	 *
+	 * Safe to retry: populateSymbolGraphOnce's own writes (ensureNode/addEdge, and the purge step) are
+	 * idempotent against the graph's current state, and a failed attempt never calls setGeneration, so
+	 * previousGeneration for the next attempt is whatever the last genuinely completed generation was
+	 * -- identical delta-selection behavior to a fresh, independent call.
+	 */
 	async function populateSymbolGraphHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.populateSymbolGraph"],
+	): Promise<OperationOutputs["workspace.populateSymbolGraph"]> {
+		const retryBudgetMs = resolveRetryBudgetMs(input.retryTimeBudgetMs, MAX_POPULATE_RETRY_BUDGET_MS);
+		const deadline = retryBudgetMs > 0 ? now() + retryBudgetMs : undefined;
+		for (;;) {
+			try {
+				return await populateSymbolGraphOnce(_registry, input);
+			} catch (error) {
+				if (!(error instanceof WorkspaceChangedDuringPopulation) || deadline === undefined || now() >= deadline) throw error;
+				await sleep(POPULATE_RETRY_SETTLE_MS);
+			}
+		}
+	}
+
+	async function populateSymbolGraphOnce(
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.populateSymbolGraph"],
 	): Promise<OperationOutputs["workspace.populateSymbolGraph"]> {
@@ -606,6 +644,16 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		if (waitMs > MAX_INITIAL_JOB_WAIT_MS) throw new JobWaitTooLong(waitMs, MAX_INITIAL_JOB_WAIT_MS);
 		const rawAllowBroadRoot = rawInput.allowBroadRoot;
 		if (rawAllowBroadRoot !== undefined && typeof rawAllowBroadRoot !== "boolean") throw new InvalidJobInput("allowBroadRoot must be a boolean when given");
+		const rawRetryTimeBudgetMs = rawInput.retryTimeBudgetMs;
+		const retryTimeBudgetMs = rawRetryTimeBudgetMs ?? 0;
+		if (
+			typeof retryTimeBudgetMs !== "number" ||
+			!Number.isSafeInteger(retryTimeBudgetMs) ||
+			retryTimeBudgetMs < 0 ||
+			retryTimeBudgetMs > MAX_POPULATE_RETRY_BUDGET_MS
+		) {
+			throw new InvalidJobInput(`retryTimeBudgetMs must be a non-negative safe integer no greater than ${MAX_POPULATE_RETRY_BUDGET_MS}`);
+		}
 		const workspace = registry.get(workspaceId);
 		if (!workspace) throw new UnknownWorkspace(workspaceId);
 		const existingJobId = graphRefresh.activeJob(workspaceId);
@@ -616,7 +664,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 			}
 			graphRefresh.clearActiveJob(workspaceId);
 		}
-		const input = { workspaceId, maxFiles, maxSymbolsPerFile, allowBroadRoot: rawAllowBroadRoot };
+		const input = { workspaceId, maxFiles, maxSymbolsPerFile, allowBroadRoot: rawAllowBroadRoot, retryTimeBudgetMs };
 		let submittedJobId = "";
 		const submitted = jobs.submit({
 			operation,

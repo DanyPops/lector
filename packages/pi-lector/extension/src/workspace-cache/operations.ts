@@ -15,9 +15,26 @@ export interface JobWatchHandle {
 
 export type JobWatchOutcome = { readonly status: "subscribed"; readonly handle: JobWatchHandle } | { readonly status: "unavailable" };
 
+/**
+ * The daemon's own default (0/omitted -- fail fast on a WorkspaceChangedDuringPopulation race)
+ * would surface a live-editing/rename race straight to this tool's own caller as an opaque
+ * error. This tool's whole point is "make this converge for me" -- a bounded background retry
+ * costs the caller nothing extra (it runs inside the job the caller is already waiting on or
+ * polling, not as additional synchronous tool-call latency), so it defaults on here specifically,
+ * unlike the raw daemon operation which stays fail-fast by default for programmatic callers that
+ * want today's exact contract.
+ */
+const DEFAULT_POPULATE_RETRY_TIME_BUDGET_MS = 60_000;
+
 export interface WorkspaceCacheOperations {
 	status(directory: string, maxFiles: number, maxSymbolsPerFile: number): Promise<WorkspaceCacheStatus>;
-	submit(directory: string, maxFiles: number, maxSymbolsPerFile: number, waitMs?: number): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
+	submit(
+		directory: string,
+		maxFiles: number,
+		maxSymbolsPerFile: number,
+		waitMs?: number,
+		retryTimeBudgetMs?: number,
+	): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
 	jobStatus(jobId: string): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
 	watchJob?(jobId: string, onJob: (job: JobSnapshot<PopulateSymbolGraphResult>) => void): Promise<JobWatchOutcome>;
 }
@@ -33,14 +50,14 @@ export function createWorkspaceCacheOperations(): WorkspaceCacheOperations {
 				},
 			);
 		},
-		submit(directory, maxFiles, maxSymbolsPerFile, waitMs = 0) {
+		submit(directory, maxFiles, maxSymbolsPerFile, waitMs = 0, retryTimeBudgetMs = DEFAULT_POPULATE_RETRY_TIME_BUDGET_MS) {
 			return withWorkspace(
 				() => workspaceForProjectDirectory(directory),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					const { job } = await client.callOnce("job.submit", {
 						operation: "workspace.populateSymbolGraph",
-						input: { workspaceId, maxFiles, maxSymbolsPerFile },
+						input: { workspaceId, maxFiles, maxSymbolsPerFile, retryTimeBudgetMs },
 						waitMs,
 					});
 					return job;
