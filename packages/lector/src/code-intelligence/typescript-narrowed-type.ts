@@ -32,6 +32,29 @@ const DEFAULT_COMPILER_OPTIONS: ts.CompilerOptions = {
 	skipLibCheck: true,
 };
 
+/**
+ * Whether `line`/`character` (1-indexed) is a real position within `sourceFile` -- checked before
+ * ever calling `getPositionOfLineAndCharacter`, which asserts internally (`Debug Failure: False
+ * expression`, an unhandled internal TypeScript compiler crash, not a clean thrown Error) rather
+ * than validating its own bounds. Confirmed live: an out-of-range character on an otherwise
+ * perfectly ordinary short line reproduces this exact crash -- a real, plausible caller mistake
+ * (a stale cached line length, an off-by-one), not a contrived edge case.
+ */
+function isWithinSourceFile(sourceFile: ts.SourceFile, line: number, character: number): boolean {
+	const lineIndex = line - 1;
+	const characterIndex = character - 1;
+	if (lineIndex < 0 || characterIndex < 0) return false;
+	const lineStarts = sourceFile.getLineStarts();
+	const lineStart = lineStarts[lineIndex];
+	if (lineStart === undefined) return false;
+	// The next line's own start (or the file's end, for the last line) bounds this line's own
+	// length -- a position is valid anywhere up to and including that bound (the end of the line
+	// itself is a legal position, e.g. right after the last character).
+	const nextLineStart = lineStarts[lineIndex + 1];
+	const lineEnd = nextLineStart ?? sourceFile.text.length;
+	return lineStart + characterIndex <= lineEnd;
+}
+
 /** The innermost node whose span contains `position` -- the same "touching token" technique tsserver itself uses to resolve a raw offset to a real AST node. */
 function nodeAtPosition(sourceFile: ts.SourceFile, position: number): ts.Node | undefined {
 	let found: ts.Node | undefined;
@@ -62,8 +85,11 @@ function nodeAtPosition(sourceFile: ts.SourceFile, position: number): ts.Node | 
  * about cross-file correctness the way CodeIntelligencePort's own LSP-backed queries can.
  *
  * Returns undefined when no identifier exists at the given position -- not every position is
- * inside a nameable expression. Throws on a genuinely missing/unreadable file, matching
- * `readFileSync`'s own honest behavior rather than degrading a real filesystem error to undefined.
+ * inside a nameable expression -- and also when `line`/`character` doesn't even fall within the
+ * file's own real bounds (e.g. a stale line/character pair from before an edit), rather than
+ * letting TypeScript's own internal position-computation assertion crash the caller. Throws on a
+ * genuinely missing/unreadable file, matching `readFileSync`'s own honest behavior rather than
+ * degrading a real filesystem error to undefined.
  */
 export async function narrowedTypeAtPosition(path: string, line: number, character: number): Promise<NarrowedType | undefined> {
 	// Read once up front so createProgram's own default CompilerHost sees the exact bytes this
@@ -82,6 +108,7 @@ export async function narrowedTypeAtPosition(path: string, line: number, charact
 	});
 	const sourceFile = program.getSourceFile(path);
 	if (!sourceFile) return undefined;
+	if (!isWithinSourceFile(sourceFile, line, character)) return undefined;
 
 	const position = sourceFile.getPositionOfLineAndCharacter(line - 1, character - 1);
 	const node = nodeAtPosition(sourceFile, position);

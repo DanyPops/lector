@@ -100,4 +100,38 @@ describe("narrowedTypeAtPosition", () => {
 		root = mkdtempSync(join(tmpdir(), "lector-narrowed-type-missing-"));
 		await expect(narrowedTypeAtPosition(join(root, "missing.ts"), 1, 1)).rejects.toThrow();
 	});
+
+	it("returns undefined for a character past the end of a real, short line -- a live-confirmed bug: TypeScript's own getPositionOfLineAndCharacter asserts internally ('Debug Failure: False expression', an unhandled crash, not a thrown Error) rather than validating its own bounds, reproduced directly against a real query before this bounds check existed", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-narrowed-type-oob-character-"));
+		const path = join(root, "short.ts");
+		writeFileSync(path, "const x = 1;\n");
+
+		await expect(narrowedTypeAtPosition(path, 1, 500)).resolves.toBeUndefined();
+	});
+
+	it("returns undefined for a line past the end of the file entirely", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-narrowed-type-oob-line-"));
+		const path = join(root, "short.ts");
+		writeFileSync(path, "const x = 1;\n");
+
+		await expect(narrowedTypeAtPosition(path, 500, 1)).resolves.toBeUndefined();
+	});
+
+	it("reports a real early-return narrowing (unknown -> Error past a negated instanceof guard), not just typeof/reassignment narrowing -- the exact live case that first surfaced the out-of-range bug above, now passing at the correct position", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-narrowed-type-early-return-"));
+		const source = [
+			"export function isMissingRevision(error: unknown): boolean {",
+			"\tif (!(error instanceof Error)) return false;",
+			"\treturn /bad revision/i.test(error.message);",
+			"}",
+			"",
+		].join("\n");
+		const path = join(root, "guard.ts");
+		writeFileSync(path, source);
+
+		const afterEarlyReturn = positionOf(source, "error.message", "error");
+		const result = await narrowedTypeAtPosition(path, afterEarlyReturn.line, afterEarlyReturn.character);
+
+		expect(result).toEqual({ declaredType: "unknown", narrowedType: "Error", narrowed: true });
+	});
 });
