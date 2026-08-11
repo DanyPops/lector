@@ -18,6 +18,17 @@
 		"serve": "bun src/cli.ts serve",
 		"bench:cold-start": "bun benchmarks/language-server-cold-start.ts"
 	},
+	"packed": {
+		"daemonService": {
+			"name": "lector",
+			"displayName": "Lector filesystem & code-intelligence service",
+			"binPath": "src/cli.ts",
+			"args": ["serve"],
+			"handleFilename": "handle.json",
+			"restartOnFailure": true,
+			"restartSec": 2
+		}
+	},
 	"dependencies": {
 		"@codemirror/state": "^6.7.1",
 		"@danypops/vehicle-client": "^0.8.2",
