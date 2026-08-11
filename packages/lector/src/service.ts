@@ -13,6 +13,7 @@ import { SerialExecutionQueue } from "./concurrency/serial-execution-queue.ts";
 import { InMemoryContentCache } from "./content-cache/in-memory-content-cache.ts";
 import type { ContentCachePort } from "./content-cache/port.ts";
 import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "./external-search/external-search-result.ts";
+import { EXTERNAL_SEARCH_PERMISSIONS, registerExternalSearchOperations } from "./external-search/operation-registration.ts";
 import { InMemoryExternalSearchCache } from "./external-search-cache/in-memory-external-search-cache.ts";
 import type { ExternalSearchCachePort } from "./external-search-cache/port.ts";
 import { NodeFsFileWatcher } from "./file-watcher/node-fs-file-watcher.ts";
@@ -436,6 +437,15 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		npmSearchCache,
 		sourcegraphSearchCache,
 	});
+	registerExternalSearchOperations(operationRegistry, registry, externalSearchHandlers);
+	const registryExternalSearchHandlers: Pick<OperationHandlers, "search.githubRepos" | "search.npmPackages" | "search.sourcegraphCode"> = {
+		"search.githubRepos": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "search.githubRepos", 1, input, EXTERNAL_SEARCH_PERMISSIONS),
+		"search.npmPackages": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "search.npmPackages", 1, input, EXTERNAL_SEARCH_PERMISSIONS),
+		"search.sourcegraphCode": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "search.sourcegraphCode", 1, input, EXTERNAL_SEARCH_PERMISSIONS),
+	};
 	const codeIntelligenceHandlers = createCodeIntelligenceHandlers({ warmIndexes });
 	const workspaceFileHandlers = createWorkspaceFileHandlers({ contentCache, mutationHistory, warmIndexes, textSearch, searchCache });
 	const crossWorkspaceHandlers = createCrossWorkspaceHandlers({
@@ -462,7 +472,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...registryMutationHistoryHandlers,
 		...annotationHandlers.handlers,
 		...registryAnnotationHandlers,
-		...externalSearchHandlers,
+		...registryExternalSearchHandlers,
 		...crossWorkspaceHandlers,
 		...workspaceWatchHandlers.handlers,
 		"workspace.map": workspaceMapHandler,

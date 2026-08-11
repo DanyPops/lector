@@ -6,6 +6,7 @@
  * test/npm-registry/npm-registry-client.test.ts's own search() tests.
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import { isVehicleError } from "@danypops/vehicle-core";
 import type {
 	ExternalSearchBounds,
 	GithubRepoSearchResult,
@@ -109,12 +110,23 @@ describe("createLectorService's external search operations", () => {
 		expect(githubSearch.calls).toBe(3);
 	});
 
-	it("rejects maxResults outside the service's own bound before ever calling the port", async () => {
+	it("rejects maxResults outside the service's own bound with a structured VehicleError before ever calling the port", async () => {
 		const githubSearch = new CountingGithubSearch();
 		service = createLectorService(new Map(), { allowDynamicOnly: true, createGithubSearch: () => githubSearch });
 
-		await expect(service.dispatch("search.githubRepos", { query: "widgets", maxResults: 0 })).rejects.toBeInstanceOf(TypeError);
-		await expect(service.dispatch("search.githubRepos", { query: "widgets", maxResults: 10_000 })).rejects.toBeInstanceOf(TypeError);
+		// A malformed maxResults now fails at VehicleRegistry.invoke()'s own input-schema validation --
+		// before the operation registry ever routes to the handler -- matching every other migrated
+		// operation's own bound-violation shape (repo.fetch, workspace.gitStatus, ...), not a raw
+		// TypeError thrown from inside the handler.
+		const tooSmall = await service.dispatch("search.githubRepos", { query: "widgets", maxResults: 0 }).catch((caught: unknown) => caught);
+		expect(isVehicleError(tooSmall)).toBe(true);
+		expect((tooSmall as import("@danypops/vehicle-core").VehicleError).code).toBe("invalid-input");
+		expect((tooSmall as import("@danypops/vehicle-core").VehicleError).category).toBe("validation");
+
+		const tooLarge = await service.dispatch("search.githubRepos", { query: "widgets", maxResults: 10_000 }).catch((caught: unknown) => caught);
+		expect(isVehicleError(tooLarge)).toBe(true);
+		expect((tooLarge as import("@danypops/vehicle-core").VehicleError).code).toBe("invalid-input");
+
 		expect(githubSearch.calls).toBe(0);
 	});
 
