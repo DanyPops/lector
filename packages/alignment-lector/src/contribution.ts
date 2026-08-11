@@ -21,6 +21,11 @@ const COMMANDS = [
 	{ id: "lector.workspace.open", title: "Open Workspace" },
 	{ id: "lector.file.open", title: "Open File" },
 	{ id: "lector.file.save", title: "Save File" },
+	{ id: "lector.file.create", title: "Create File" },
+	{ id: "lector.file.delete", title: "Delete File" },
+	{ id: "lector.directory.create", title: "Create Directory" },
+	{ id: "lector.directory.delete", title: "Delete Directory" },
+	{ id: "lector.path.rename", title: "Rename Path" },
 ] as const;
 
 interface RegisterOutput {
@@ -111,6 +116,15 @@ function validFileInput(input: unknown): input is { workspaceId: string; path: s
 	);
 }
 
+function validRenameInput(input: unknown): input is { workspaceId: string; oldPath: string; newPath: string; kind?: "workspace" | "text" } {
+	const value = record(input);
+	if (!value || typeof value.workspaceId !== "string" || value.workspaceId.length === 0) return false;
+	if (typeof value.oldPath !== "string" || value.oldPath.length === 0 || isAbsolute(value.oldPath)) return false;
+	if (typeof value.newPath !== "string" || value.newPath.length === 0 || isAbsolute(value.newPath)) return false;
+	if (value.kind !== undefined && value.kind !== "workspace" && value.kind !== "text") return false;
+	return true;
+}
+
 function saveResourceInput(input: unknown): ContributionResourceReference | undefined {
 	const value = record(input);
 	const parsed = ContributionResourceReferenceSchema.safeParse(value?.resource);
@@ -195,6 +209,83 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 		}
 	}
 
+	/** Same expectedHash:null convention lector.file.save's own workspace.exactEdit call would reject as a create-over-existing -- this is genuinely a create, not a guarded overwrite. */
+	async function createFile(input: unknown): Promise<ContributionOutcome<ContributionResourceReference>> {
+		if (!validFileInput(input)) return failure("invalid-input", "File create requires explicit workspaceId and a relative path");
+		try {
+			const output = exactEditOutput(
+				await operations.call("workspace.exactEdit", { workspaceId: input.workspaceId, path: input.path, expectedHash: null, content: "" }),
+			);
+			if (!output || output.path !== input.path) return failure("invalid-response", "Lector returned an invalid file create outcome");
+			const resource = reference("text", input.workspaceId, output.path, basename(output.path));
+			editors.set(resource.uri, new GuardedLiveBuffer({ workspaceId: input.workspaceId, path: output.path }, "", output.newHash));
+			return { ok: true, value: resource };
+		} catch (error) {
+			return failure("lector-error", error instanceof Error ? error.message : "Lector file create failed");
+		}
+	}
+
+	async function createDirectory(input: unknown): Promise<ContributionOutcome<ContributionResourceReference>> {
+		if (!validFileInput(input)) return failure("invalid-input", "Directory create requires explicit workspaceId and a relative path");
+		try {
+			await operations.call("workspace.createDirectory", { workspaceId: input.workspaceId, path: input.path });
+			return { ok: true, value: reference("workspace", input.workspaceId, input.path, basename(input.path) || input.path) };
+		} catch (error) {
+			return failure("lector-error", error instanceof Error ? error.message : "Lector directory create failed");
+		}
+	}
+
+	/**
+	 * `kind` is accepted purely to shape the returned resource reference ("workspace" vs "text") --
+	 * the daemon's own workspace.renamePath has no notion of file-vs-directory, it just moves
+	 * whatever is at oldPath. Defaults to "text" (the common case) when the caller doesn't know or
+	 * care, matching how a plain file rename is the overwhelmingly common oil.nvim-style edit.
+	 */
+	async function renamePath(input: unknown): Promise<ContributionOutcome<ContributionResourceReference>> {
+		if (!validRenameInput(input)) return failure("invalid-input", "Rename requires explicit workspaceId, oldPath, and newPath");
+		try {
+			await operations.call("workspace.renamePath", { workspaceId: input.workspaceId, oldPath: input.oldPath, newPath: input.newPath });
+			const kind = input.kind ?? "text";
+			// The old path's own guarded-buffer identity (hash, dirty state) no longer refers to anything
+			// real -- drop it rather than let a stale editor linger under a URI that no longer resolves.
+			editors.delete(reference(kind, input.workspaceId, input.oldPath, basename(input.oldPath)).uri);
+			return { ok: true, value: reference(kind, input.workspaceId, input.newPath, basename(input.newPath) || input.newPath) };
+		} catch (error) {
+			return failure("lector-error", error instanceof Error ? error.message : "Lector rename failed");
+		}
+	}
+
+	/**
+	 * Not a thin pass-through, matching pi-lector's own openDirectoryExplorer: workspace.deleteEntry
+	 * is hash-guarded and this contribution only ever has a directory *listing* (no content hash) for
+	 * the entry a caller wants deleted, so it reads the file's current hash immediately before
+	 * deleting it -- an extra round trip, acceptable for an infrequent interactive action.
+	 */
+	async function deleteFile(input: unknown): Promise<ContributionOutcome<ContributionResourceReference>> {
+		if (!validFileInput(input)) return failure("invalid-input", "File delete requires explicit workspaceId and a relative path");
+		try {
+			const current = rawReadOutput(await operations.call("workspace.rawRead", { workspaceId: input.workspaceId, path: input.path }));
+			if (!current) return failure("invalid-response", "Lector returned an invalid file read before delete");
+			await operations.call("workspace.deleteEntry", { workspaceId: input.workspaceId, path: input.path, expectedHash: current.hash });
+			const resource = reference("text", input.workspaceId, input.path, basename(input.path));
+			editors.delete(resource.uri);
+			return { ok: true, value: resource };
+		} catch (error) {
+			if (remoteErrorIs(error, "StaleExpectedHash")) return failure("stale-write", "File changed outside this editor; delete was not applied");
+			return failure("lector-error", error instanceof Error ? error.message : "Lector file delete failed");
+		}
+	}
+
+	async function deleteDirectory(input: unknown): Promise<ContributionOutcome<ContributionResourceReference>> {
+		if (!validFileInput(input)) return failure("invalid-input", "Directory delete requires explicit workspaceId and a relative path");
+		try {
+			await operations.call("workspace.deleteDirectory", { workspaceId: input.workspaceId, path: input.path });
+			return { ok: true, value: reference("workspace", input.workspaceId, input.path, basename(input.path) || input.path) };
+		} catch (error) {
+			return failure("lector-error", error instanceof Error ? error.message : "Lector directory delete failed");
+		}
+	}
+
 	async function readResource(resource: ContributionResourceReference, bounds: ContributionReadBounds): Promise<ContributionOutcome<unknown>> {
 		const bounded = ContributionReadBoundsSchema.safeParse(bounds);
 		if (!bounded.success) return failure("invalid-bounds", "Resource read bounds are invalid");
@@ -264,6 +355,11 @@ export function createLectorAlignmentContribution(options: { operations?: Lector
 				host.registerCommand({ ...COMMANDS[0], execute: openWorkspace }),
 				host.registerCommand({ ...COMMANDS[1], execute: openFile }),
 				host.registerCommand({ ...COMMANDS[2], execute: saveFile }),
+				host.registerCommand({ ...COMMANDS[3], execute: createFile }),
+				host.registerCommand({ ...COMMANDS[4], execute: deleteFile }),
+				host.registerCommand({ ...COMMANDS[5], execute: createDirectory }),
+				host.registerCommand({ ...COMMANDS[6], execute: deleteDirectory }),
+				host.registerCommand({ ...COMMANDS[7], execute: renamePath }),
 				...semanticNavigation.commands.map((command) => host.registerCommand(command)),
 				...callGraph.commands.map((command) => host.registerCommand(command)),
 				...git.commands.map((command) => host.registerCommand(command)),

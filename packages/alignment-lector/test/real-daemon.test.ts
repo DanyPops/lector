@@ -133,6 +133,43 @@ describe("Lector Alignment contribution against a real daemon", () => {
 		expect(editor.dirty).toBe(true);
 	});
 
+	it("creates, renames, and deletes real files/directories on disk through the daemon", async () => {
+		const daemon = await startIsolatedDaemon();
+		stop = daemon.stop;
+		workspaceRoot = mkdtempSync(join(tmpdir(), "alignment-lector-mutations-"));
+		const root = workspaceRoot;
+
+		const host = capturingHost();
+		const contribution = createLectorAlignmentContribution({ operations: lectorOperationsFromClient(daemon.client) });
+		await contribution.activate(host.api);
+		const workspace = resourceValue(await requireCommand(host.commands, "lector.workspace.open").execute({ path: root }));
+		const workspaceId = decodeURIComponent(new URL(workspace.uri).pathname.slice(1));
+
+		// createFile: a real, empty file lands on disk and is immediately editable.
+		const created = resourceValue(await requireCommand(host.commands, "lector.file.create").execute({ workspaceId, path: "new.txt" }));
+		expect(created).toMatchObject({ kind: "text", readOnly: true });
+		expect(readFileSync(join(root, "new.txt"), "utf8")).toBe("");
+
+		// createDirectory: a real directory lands on disk.
+		await requireCommand(host.commands, "lector.directory.create").execute({ workspaceId, path: "newdir" });
+		expect(() => readFileSync(join(root, "newdir"))).toThrow(); // it's a directory, not a file
+
+		// renamePath: the file moves for real.
+		const renamed = resourceValue(await requireCommand(host.commands, "lector.path.rename").execute({ workspaceId, oldPath: "new.txt", newPath: "renamed.txt" }));
+		expect(renamed).toMatchObject({ kind: "text", readOnly: true });
+		expect(readFileSync(join(root, "renamed.txt"), "utf8")).toBe("");
+
+		// deleteFile: reads the real current hash first, then deletes for real.
+		writeFileSync(join(root, "renamed.txt"), "content to delete");
+		await requireCommand(host.commands, "lector.file.delete").execute({ workspaceId, path: "renamed.txt" });
+		expect(() => readFileSync(join(root, "renamed.txt"))).toThrow();
+
+		// deleteDirectory: removes the real directory (and its contents).
+		writeFileSync(join(root, "newdir", "inner.txt"), "x");
+		await requireCommand(host.commands, "lector.directory.delete").execute({ workspaceId, path: "newdir" });
+		expect(() => readFileSync(join(root, "newdir", "inner.txt"))).toThrow();
+	});
+
 	it("preserves explicit workspace identity instead of guessing another root", async () => {
 		const daemon = await startIsolatedDaemon();
 		stop = daemon.stop;
