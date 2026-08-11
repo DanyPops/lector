@@ -1,3 +1,7 @@
+import { boundListFromStart, jsonByteSize } from "../bounds/bound-list.ts";
+import { truncateUtf8 } from "../bounds/truncate-utf8.ts";
+import { dataFlowHintsForFile } from "../code-intelligence/data-flow-hints-for-file.ts";
+import { narrowedTypeAtPosition } from "../code-intelligence/typescript-narrowed-type.ts";
 import type { ContentCachePort } from "../content-cache/port.ts";
 import type { SearchCachePort } from "../search-cache/port.ts";
 import { findFiles as findFilesQuery } from "../text-search/find-files.ts";
@@ -8,6 +12,15 @@ import { exactEdit } from "../workspace/exact-edit.ts";
 import { lineEdit } from "../workspace/line-edit.ts";
 import { listDirectory } from "../workspace/list-directory.ts";
 import { rawRead } from "../workspace/raw-read.ts";
+import {
+	DEFAULT_HOVER_BYTES,
+	DEFAULT_LOCATION_BYTES,
+	DEFAULT_LOCATION_RESULTS,
+	MAX_HOVER_BYTES,
+	MAX_LOCATION_BYTES,
+	MAX_LOCATION_RESULTS,
+	resolveBound,
+} from "./bounds.ts";
 import { SymbolQueryUnavailable, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
 import type { MutationHistoryCoordinator } from "./mutation-history-handlers.ts";
 import type { OperationInputs, OperationOutputs } from "./operations.ts";
@@ -43,6 +56,14 @@ export interface WorkspaceFileHandlers {
 	"workspace.applyPatch": (registry: MutableRegistry, input: OperationInputs["workspace.applyPatch"]) => Promise<OperationOutputs["workspace.applyPatch"]>;
 	"workspace.searchText": (registry: MutableRegistry, input: OperationInputs["workspace.searchText"]) => Promise<OperationOutputs["workspace.searchText"]>;
 	"workspace.findFiles": (registry: MutableRegistry, input: OperationInputs["workspace.findFiles"]) => Promise<OperationOutputs["workspace.findFiles"]>;
+	"workspace.dataFlowHints": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.dataFlowHints"],
+	) => Promise<OperationOutputs["workspace.dataFlowHints"]>;
+	"workspace.narrowedType": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.narrowedType"],
+	) => Promise<OperationOutputs["workspace.narrowedType"]>;
 }
 
 /**
@@ -75,6 +96,32 @@ export function createWorkspaceFileHandlers(deps: WorkspaceFileHandlerDeps): Wor
 			const read = await rawRead(resolveWorkspace(registry, input.workspaceId), input.path);
 			await contentCache.putRawContent(read.hash, read.content);
 			return read;
+		},
+		// Pure tree-sitter/syntactic -- no warm LSP index, no IntelligenceProvenance: see
+		// DataFlowHint's own doc comment for why this is a heuristic, not a real dataflow graph.
+		async "workspace.dataFlowHints"(registry, input) {
+			const hints = await dataFlowHintsForFile(resolveWorkspace(registry, input.workspaceId), input.path);
+			const maxResults = resolveBound(input.maxResults, DEFAULT_LOCATION_RESULTS, MAX_LOCATION_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_LOCATION_BYTES, MAX_LOCATION_BYTES, "maxBytes");
+			const { page, truncated } = boundListFromStart(hints, maxResults, maxBytes, jsonByteSize);
+			return { hints: page, truncated };
+		},
+		// Real TypeScript-compiler-API flow narrowing (see typescript-narrowed-type.ts's own doc
+		// comment) -- also no warm LSP index and no IntelligenceProvenance: a genuinely different
+		// backend (a fresh single-file ts.Program per call, not the shared warm tsserver process
+		// code-intelligence-handlers.ts's operations lease).
+		async "workspace.narrowedType"(registry, input) {
+			const workspace = resolveWorkspace(registry, input.workspaceId);
+			const absolutePath = workspace.resolvePath(input.path);
+			const type = await narrowedTypeAtPosition(absolutePath, input.line, input.character);
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_HOVER_BYTES, MAX_HOVER_BYTES, "maxBytes");
+			if (!type) return { type: undefined, truncated: false };
+			const boundedDeclared = truncateUtf8(type.declaredType, maxBytes);
+			const boundedNarrowed = truncateUtf8(type.narrowedType, maxBytes);
+			return {
+				type: { declaredType: boundedDeclared.value, narrowedType: boundedNarrowed.value, narrowed: type.narrowed },
+				truncated: boundedDeclared.truncated || boundedNarrowed.truncated,
+			};
 		},
 		async "workspace.exactEdit"(registry, input) {
 			const { workspaceId, ...edit } = input;

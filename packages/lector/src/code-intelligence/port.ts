@@ -3,6 +3,7 @@ import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../symbol-g
 import type { ParsedWorkspaceEdit, RenameRange } from "../workspace/workspace-edit.ts";
 import type { WorkspaceLocation } from "../workspace/workspace-symbol.ts";
 import type { Diagnostic } from "./diagnostic.ts";
+import type { DocumentHighlight } from "./document-highlight.ts";
 import type { DocumentSymbolEntry } from "./document-symbol.ts";
 import type { Hover } from "./hover.ts";
 import type { IntelligenceProvenance } from "./intelligence-provenance.ts";
@@ -28,6 +29,8 @@ export interface CodeIntelligencePort {
 	goToImplementation(at: WorkspaceLocation): Promise<WorkspaceLocation[]>;
 	/** Every project-wide usage of the symbol at `at`. */
 	findReferences(at: WorkspaceLocation, includeDeclaration: boolean): Promise<WorkspaceLocation[]>;
+	/** Optional: only implemented by a backend that can honestly answer LSP's textDocument/documentHighlight (an LSP-backed index always implements this method regardless of what the negotiated server itself declared -- an unsupporting server's own null/error response degrades to an empty list, matching prepareRename's identical pattern; a tree-sitter/compiler-API fallback with no such request to make simply omits the method). Every other same-symbol occurrence within the single already-open document containing `at`, classified read/write/text -- see DocumentHighlight's own doc comment for why this is scoped to one document rather than merged into findReferences. */
+	documentHighlights?(at: WorkspaceLocation): Promise<DocumentHighlight[]>;
 	/** Type/doc information for the symbol at `at`, or undefined when the server has none. */
 	hover(at: WorkspaceLocation): Promise<Hover | undefined>;
 	/**

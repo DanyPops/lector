@@ -9,6 +9,7 @@ describe("parseServerCapabilities", () => {
 				textDocumentSyncKind: "none",
 				renameProvider: false,
 				prepareRenameProvider: false,
+				documentHighlightProvider: false,
 				workspaceFileOperations: { willRename: false, didRename: false, willDelete: false, didDelete: false, willCreate: false, didCreate: false },
 				diagnosticProvider: undefined,
 			});
@@ -34,6 +35,13 @@ describe("parseServerCapabilities", () => {
 		expect(parseServerCapabilities({ renameProvider: { prepareProvider: true } }).renameProvider).toBe(true);
 		expect(parseServerCapabilities({ renameProvider: { prepareProvider: true } }).prepareRenameProvider).toBe(true);
 		expect(parseServerCapabilities({ renameProvider: false }).renameProvider).toBe(false);
+	});
+
+	it("treats documentHighlightProvider true or an options object as supported", () => {
+		expect(parseServerCapabilities({ documentHighlightProvider: true }).documentHighlightProvider).toBe(true);
+		expect(parseServerCapabilities({ documentHighlightProvider: {} }).documentHighlightProvider).toBe(true);
+		expect(parseServerCapabilities({ documentHighlightProvider: false }).documentHighlightProvider).toBe(false);
+		expect(parseServerCapabilities({}).documentHighlightProvider).toBe(false);
 	});
 
 	it("reads workspace file-operation capabilities by presence, not by their (often empty) options object", () => {

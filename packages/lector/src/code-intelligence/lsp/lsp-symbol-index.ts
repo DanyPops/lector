@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import picomatch from "picomatch";
 import { type Diagnostic, type DiagnosticSeverity, mergeDiagnostics } from "../../code-intelligence/diagnostic.ts";
+import type { DocumentHighlight, DocumentHighlightKind } from "../../code-intelligence/document-highlight.ts";
 import type { DocumentSymbolEntry } from "../../code-intelligence/document-symbol.ts";
 import type { Hover } from "../../code-intelligence/hover.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../../code-intelligence/intelligence-provenance.ts";
@@ -185,6 +186,18 @@ interface LspLocationLink {
 interface LspHover {
 	contents: string | { language: string; value: string } | Array<string | { language: string; value: string }> | { kind: string; value: string };
 	range?: LspRange;
+}
+
+interface LspDocumentHighlight {
+	range: LspRange;
+	/** LSP DocumentHighlightKind: 1=Text, 2=Read, 3=Write. Absent means the server declined to classify it -- treated the same as Text. */
+	kind?: number;
+}
+
+function toDocumentHighlightKind(kind: number | undefined): DocumentHighlightKind {
+	if (kind === 2) return "read";
+	if (kind === 3) return "write";
+	return "text";
 }
 
 interface LspDocumentSymbol {
@@ -987,6 +1000,31 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				context: { includeDeclaration },
 			})) ?? [];
 		return results.map((location) => toWorkspaceLocation(location.uri, location.range.start));
+	}
+
+	/**
+	 * SCIP's own ReadAccess/WriteAccess SymbolRole precedent, surfaced here via LSP's
+	 * textDocument/documentHighlight rather than a bespoke analysis -- see DocumentHighlight's own
+	 * doc comment for why this stays scoped to the single document containing `at` rather than
+	 * folded into findReferences' cross-file result. Degrades to an empty list rather than
+	 * throwing when the negotiated server has nothing to say here (declined to declare the
+	 * capability, or responds with a JSON-RPC error instead of null -- typescript-language-server's
+	 * own prepareRename does exactly this for its own "nothing renameable here" case), matching
+	 * this file's identical prepareRename try/catch pattern.
+	 */
+	async documentHighlights(at: WorkspaceLocation): Promise<DocumentHighlight[]> {
+		const proc = await this.ensureInitialized(at.path);
+		await this.ensureFileOpen(proc, at.path);
+		let results: LspDocumentHighlight[] | null;
+		try {
+			results = await this.requestWhenReady<LspDocumentHighlight[] | null>(proc, "textDocument/documentHighlight", {
+				textDocument: { uri: pathToFileURL(at.path).href },
+				position: toLspPosition(at.line, at.character),
+			});
+		} catch {
+			return [];
+		}
+		return (results ?? []).map((item) => ({ range: toCodeRange(at.path, item.range), kind: toDocumentHighlightKind(item.kind) }));
 	}
 
 	async hover(at: WorkspaceLocation): Promise<Hover | undefined> {

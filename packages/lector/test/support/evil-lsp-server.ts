@@ -160,6 +160,17 @@ function handle(message: JsonRpcMessage): void {
 		respond(message.id, "x".repeat(4_096));
 		return;
 	}
+	if (mode === "document-highlight-classified") {
+		if (message.method === "textDocument/documentHighlight") {
+			respond(message.id, [
+				{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, kind: 1 },
+				{ range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } }, kind: 2 },
+				{ range: { start: { line: 2, character: 0 }, end: { line: 2, character: 1 } }, kind: 3 },
+				{ range: { start: { line: 3, character: 0 }, end: { line: 3, character: 1 } } }, // no kind at all -- must degrade to "text"
+			]);
+			return;
+		}
+	}
 	if (mode === "outgoing-calls-unsupported") {
 		if (message.method === "textDocument/prepareCallHierarchy") {
 			respond(message.id, [

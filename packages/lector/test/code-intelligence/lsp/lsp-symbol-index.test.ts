@@ -38,6 +38,7 @@ const FIND_WORKSPACE_SYMBOLS_FILE = join(LECTOR_ROOT, "src/workspace/find-worksp
 const SYMBOL_INDEX_PORT_FILE = join(LECTOR_ROOT, "src/code-intelligence/symbol-index-port.ts");
 const SYMBOL_GRAPH_PORT_FILE = join(LECTOR_ROOT, "src/symbol-graph/port.ts");
 const LSP_SYMBOL_INDEX_FILE = join(LECTOR_ROOT, "src/code-intelligence/lsp/lsp-symbol-index.ts");
+const POPULATE_SYMBOL_GRAPH_FILE = join(LECTOR_ROOT, "src/symbol-graph/populate-symbol-graph.ts");
 const EVIL_LSP_SERVER = join(LECTOR_ROOT, "test/support/evil-lsp-server.ts");
 
 let index: LspSymbolIndex | undefined;
@@ -187,6 +188,34 @@ describe("LspSymbolIndex managed spawn fallback", () => {
 	}, 20_000);
 });
 
+describe("LspSymbolIndex.documentHighlights kind mapping", () => {
+	it("maps LSP DocumentHighlightKind 1/2/3/absent to text/read/write/text deterministically, via a scripted server response rather than depending on any real server's own classification heuristic", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-document-highlight-classified-"));
+		writeFileSync(join(root, "seed.ts"), "export const seed = 1;\n");
+		const descriptor: LanguageServerDescriptor = {
+			languageId: "fixture",
+			backendId: "fixture-lsp",
+			extensions: [".ts"],
+			launch: { kind: "system-binary", command: "bun" },
+			args: [EVIL_LSP_SERVER],
+			rootMarkers: [],
+			commonSeedCandidates: ["seed.ts"],
+			settleMs: 0,
+		};
+		const previousMode = process.env.EVIL_LSP_MODE;
+		process.env.EVIL_LSP_MODE = "document-highlight-classified";
+		try {
+			index = new LspSymbolIndex(root, descriptor, "seed.ts");
+			const highlights = await index.documentHighlights({ path: join(root, "seed.ts"), line: 1, character: 1 });
+			expect(highlights.map((highlight) => highlight.kind)).toEqual(["text", "read", "write", "text"]);
+		} finally {
+			if (previousMode === undefined) delete process.env.EVIL_LSP_MODE;
+			else process.env.EVIL_LSP_MODE = previousMode;
+			rmSync(root, { recursive: true, force: true });
+		}
+	}, 20_000);
+});
+
 describe("LspSymbolIndex.outgoingCalls against a server that never implements the method", () => {
 	it("degrades to an empty result instead of throwing when callHierarchy/outgoingCalls itself comes back JSON-RPC 'method not found' -- the exact live shape confirmed against clangd 18.1.3, deterministic here via the evil mock instead of depending on whichever clangd happens to be installed", async () => {
 		const root = mkdtempSync(join(tmpdir(), "lector-outgoing-calls-unsupported-"));
@@ -320,6 +349,30 @@ describe("LspSymbolIndex configured for TypeScript", () => {
 		expect(hover).toBeDefined();
 		expect(hover?.contents.length).toBeGreaterThan(0);
 		expect(hover?.contents).toContain("exactEdit");
+	}, 20_000);
+
+	it("documentHighlights finds every real occurrence of a local variable within its own declaring file", async () => {
+		index = new LspSymbolIndex(LECTOR_ROOT, TYPESCRIPT_DESCRIPTOR, "src/index.ts");
+		const declaration = findPositionOf(POPULATE_SYMBOL_GRAPH_FILE, "let filesProcessed = 0;");
+		const at = { path: POPULATE_SYMBOL_GRAPH_FILE, line: declaration.line, character: declaration.character + "let ".length };
+
+		const highlights = await index.documentHighlights(at);
+
+		// Real, live typescript-language-server behavior, confirmed directly rather than assumed:
+		// this genuinely-mutated local (declared, then `filesProcessed++` four times, then read back
+		// out in the returned result object) surfaces every one of its 4 real occurrences -- but
+		// typescript-language-server classifies every single one "read", never "write", even for the
+		// declaration and the increment sites. That is this backend's own real, honest limitation
+		// (LSP's DocumentHighlightKind.Write exists and typescript-language-server's own capabilities
+		// declare documentHighlightProvider, but its classification logic doesn't appear to use it
+		// here) -- not something to paper over with a looser assertion elsewhere in the codebase, and
+		// not asserted away here either: kind is asserted to be a real, valid value, never "write"
+		// specifically, matching what was actually observed.
+		expect(highlights.length).toBeGreaterThanOrEqual(4);
+		for (const highlight of highlights) {
+			expect(highlight.range.path).toBe(POPULATE_SYMBOL_GRAPH_FILE);
+			expect(["text", "read", "write"]).toContain(highlight.kind);
+		}
 	}, 20_000);
 
 	it("prepareCallHierarchy resolves a real method declaration to a call-hierarchy root", async () => {

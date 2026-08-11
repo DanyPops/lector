@@ -63,6 +63,16 @@ export class RenameNotSupported extends Error {
 	}
 }
 
+/** Raised when the negotiated backend has no documentHighlights support at all (e.g. a tree-sitter/compiler-API fallback with no such LSP request to make). */
+export class DocumentHighlightsNotSupported extends Error {
+	constructor(readonly workspaceId: WorkspaceId) {
+		super(
+			`workspace "${workspaceId}"'s symbol index does not support documentHighlights -- the negotiated backend has no textDocument/documentHighlight request to make`,
+		);
+		this.name = "DocumentHighlightsNotSupported";
+	}
+}
+
 /** Raised when a git operation targets a workspace whose root is not inside a git repository -- a real, expected case, not every registered workspace is one. */
 export class NotAGitRepository extends Error {
 	constructor(readonly workspaceId: WorkspaceId) {

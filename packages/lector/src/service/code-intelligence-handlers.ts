@@ -1,6 +1,7 @@
 import { boundListFromStart, jsonByteSize } from "../bounds/bound-list.ts";
 import { truncateUtf8 } from "../bounds/truncate-utf8.ts";
 import { diagnostics as diagnosticsQuery } from "../code-intelligence/diagnostics.ts";
+import { documentHighlights as documentHighlightsQuery } from "../code-intelligence/document-highlights.ts";
 import { documentSymbols as documentSymbolsQuery } from "../code-intelligence/document-symbols.ts";
 import { findReferences as findReferencesQuery } from "../code-intelligence/find-references.ts";
 import { goToDefinition as goToDefinitionQuery } from "../code-intelligence/go-to-definition.ts";
@@ -35,7 +36,7 @@ import {
 	resolveBound,
 	SYMBOL_SEARCH_OVERFETCH_MULTIPLIER,
 } from "./bounds.ts";
-import { CodeIntelligenceUnavailable, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
+import { CodeIntelligenceUnavailable, DocumentHighlightsNotSupported, UnknownWorkspace, type WorkspaceId } from "./errors.ts";
 import type { OperationInputs, OperationOutputs } from "./operations.ts";
 import { supportsCodeIntelligence, type WarmIndexLease, type WarmIndexRegistry } from "./warm-index-registry.ts";
 import type { MutableRegistry } from "./workspace-registry.ts";
@@ -58,6 +59,10 @@ export interface CodeIntelligenceHandlers {
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.findReferences"],
 	) => Promise<OperationOutputs["workspace.findReferences"]>;
+	"workspace.documentHighlights": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.documentHighlights"],
+	) => Promise<OperationOutputs["workspace.documentHighlights"]>;
 	"workspace.hover": (registry: MutableRegistry, input: OperationInputs["workspace.hover"]) => Promise<OperationOutputs["workspace.hover"]>;
 	"workspace.documentSymbols": (
 		registry: MutableRegistry,
@@ -173,6 +178,17 @@ export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps
 				{ locations: page, truncated, provenance: lease.value.index.provenance },
 				input.responseFormat ?? "detailed",
 			) as OperationOutputs["workspace.findReferences"];
+		},
+		async "workspace.documentHighlights"(_registry, input) {
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			if (!lease.value.index.documentHighlights) throw new DocumentHighlightsNotSupported(input.workspaceId);
+			const highlights = await documentHighlightsQuery(lease.value.index, { path: input.path, line: input.line, character: input.character });
+			const maxResults = resolveBound(input.maxResults, DEFAULT_LOCATION_RESULTS, MAX_LOCATION_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_LOCATION_BYTES, MAX_LOCATION_BYTES, "maxBytes");
+			// documentHighlightsQuery only returns undefined when index.documentHighlights is absent,
+			// already ruled out above.
+			const { page, truncated } = boundListFromStart(highlights ?? [], maxResults, maxBytes, jsonByteSize);
+			return { highlights: page, truncated, provenance: lease.value.index.provenance };
 		},
 		async "workspace.hover"(_registry, input) {
 			await using lease = await requireCodeIntelligence(warmIndexes, input);

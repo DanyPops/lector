@@ -14,7 +14,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
+import type { CodeIntelligencePort } from "../src/code-intelligence/port.ts";
 import { TreeSitterSymbolIndex } from "../src/code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { DocumentHighlightsNotSupported } from "../src/service/errors.ts";
 import { type ClosableSymbolIndex, CodeIntelligenceUnavailable, createLectorService, type LectorService } from "../src/service.ts";
 
 let fixtureRoot: string | undefined;
@@ -61,12 +63,50 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 		await expect(service.dispatch("workspace.goToDefinition", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.goToImplementation", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.findReferences", { ...at, includeDeclaration: true })).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
+		await expect(service.dispatch("workspace.documentHighlights", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.hover", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.documentSymbols", { workspaceId, path: at.path })).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.diagnostics", { workspaceId, path: at.path })).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.prepareCallHierarchy", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.incomingCalls", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.outgoingCalls", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
+	}, 20_000);
+
+	it("rejects workspace.documentHighlights with DocumentHighlightsNotSupported when the negotiated backend implements code intelligence but not documentHighlights itself", async () => {
+		fixtureRoot = buildFixture();
+		const provenance = {
+			fidelity: "semantic",
+			backend: "fixture",
+			languageId: "typescript",
+			authority: "language-server",
+			freshness: "live-process",
+			limitations: [],
+		} as const;
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			// A minimal real CodeIntelligencePort implementer that deliberately omits
+			// documentHighlights -- the exact shape of a backend that supports code intelligence
+			// (goToDefinition et al.) but has nothing to say for this one optional capability, e.g. a
+			// future non-LSP CodeIntelligencePort backend that never sends a real LSP request at all.
+			createSymbolIndex: (): ClosableSymbolIndex & CodeIntelligencePort => ({
+				provenance,
+				findSymbols: async () => ({ symbols: [], truncated: false, provenance }),
+				goToDefinition: async () => [],
+				goToImplementation: async () => [],
+				findReferences: async () => [],
+				hover: async () => undefined,
+				documentSymbols: async () => [],
+				diagnostics: async () => [],
+				prepareCallHierarchy: async () => [],
+				incomingCalls: async () => [],
+				outgoingCalls: async () => [],
+				close: async () => {},
+			}),
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		const at = { workspaceId, path: join(fixtureRoot, "src/math.ts"), line: 1, character: 17 };
+
+		await expect(service.dispatch("workspace.documentHighlights", at)).rejects.toBeInstanceOf(DocumentHighlightsNotSupported);
 	}, 20_000);
 
 	it("waits for real pushed diagnostics after each edit through the error-and-clear loop", async () => {

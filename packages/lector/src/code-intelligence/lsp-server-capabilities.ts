@@ -24,6 +24,7 @@ export interface ParsedServerCapabilities {
 	readonly textDocumentSyncKind: TextDocumentSyncKind;
 	readonly renameProvider: boolean;
 	readonly prepareRenameProvider: boolean;
+	readonly documentHighlightProvider: boolean;
 	readonly workspaceFileOperations: WorkspaceFileOperationCapabilities;
 	/** undefined means the server never declared pull-model diagnostics at all -- distinct from declaring it with both flags false. */
 	readonly diagnosticProvider: DiagnosticProviderCapabilities | undefined;
@@ -51,6 +52,9 @@ export function parseServerCapabilities(raw: unknown): ParsedServerCapabilities 
 	const renameProvider = renameProviderValue === true || isRecord(renameProviderValue);
 	const prepareRenameProvider = isRecord(renameProviderValue) && renameProviderValue.prepareProvider === true;
 
+	const documentHighlightProviderValue = capabilities.documentHighlightProvider;
+	const documentHighlightProvider = documentHighlightProviderValue === true || isRecord(documentHighlightProviderValue);
+
 	const workspace = isRecord(capabilities.workspace) ? capabilities.workspace : {};
 	const fileOperations = isRecord(workspace.fileOperations) ? workspace.fileOperations : {};
 	const workspaceFileOperations: WorkspaceFileOperationCapabilities = {
@@ -76,7 +80,15 @@ export function parseServerCapabilities(raw: unknown): ParsedServerCapabilities 
 			}
 		: undefined;
 
-	return { positionEncoding, textDocumentSyncKind, renameProvider, prepareRenameProvider, workspaceFileOperations, diagnosticProvider };
+	return {
+		positionEncoding,
+		textDocumentSyncKind,
+		renameProvider,
+		prepareRenameProvider,
+		documentHighlightProvider,
+		workspaceFileOperations,
+		diagnosticProvider,
+	};
 }
 
 function parseTextDocumentSyncKind(value: unknown): TextDocumentSyncKind {

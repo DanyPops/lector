@@ -1,8 +1,11 @@
 import type { SymbolComparisonStatus } from "../code-intelligence/compare-symbol-declarations.ts";
 import type { Diagnostic } from "../code-intelligence/diagnostic.ts";
+import type { DocumentHighlight } from "../code-intelligence/document-highlight.ts";
 import type { DocumentSymbolEntry } from "../code-intelligence/document-symbol.ts";
 import type { Hover } from "../code-intelligence/hover.ts";
 import type { IntelligenceProvenance } from "../code-intelligence/intelligence-provenance.ts";
+import type { DataFlowHint } from "../code-intelligence/tree-sitter/data-flow-hints.ts";
+import type { NarrowedType } from "../code-intelligence/typescript-narrowed-type.ts";
 import type { JobSnapshot } from "../concurrency/bounded-job-executor.ts";
 import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../external-search/external-search-result.ts";
@@ -52,6 +55,9 @@ export type OperationName =
 	| "workspace.goToDefinition"
 	| "workspace.goToImplementation"
 	| "workspace.findReferences"
+	| "workspace.documentHighlights"
+	| "workspace.dataFlowHints"
+	| "workspace.narrowedType"
 	| "workspace.hover"
 	| "workspace.documentSymbols"
 	| "workspace.diagnostics"
@@ -124,6 +130,9 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.goToDefinition",
 	"workspace.goToImplementation",
 	"workspace.findReferences",
+	"workspace.documentHighlights",
+	"workspace.dataFlowHints",
+	"workspace.narrowedType",
 	"workspace.hover",
 	"workspace.documentSymbols",
 	"workspace.diagnostics",
@@ -218,6 +227,9 @@ export interface OperationInputs {
 	"workspace.goToDefinition": WorkspacePosition & { maxResults?: number; maxBytes?: number };
 	"workspace.goToImplementation": WorkspacePosition & { maxResults?: number; maxBytes?: number };
 	"workspace.findReferences": WorkspacePosition & { includeDeclaration: boolean; responseFormat?: ResponseFormat; maxResults?: number; maxBytes?: number };
+	"workspace.documentHighlights": WorkspacePosition & { maxResults?: number; maxBytes?: number };
+	"workspace.dataFlowHints": { workspaceId: WorkspaceId; path: string; maxResults?: number; maxBytes?: number };
+	"workspace.narrowedType": WorkspacePosition & { maxBytes?: number };
 	"workspace.hover": WorkspacePosition & { maxBytes?: number };
 	"workspace.documentSymbols": { workspaceId: WorkspaceId; path: string; maxResults?: number; maxBytes?: number };
 	"workspace.diagnostics": { workspaceId: WorkspaceId; path: string; maxResults?: number; maxBytes?: number };
@@ -376,6 +388,9 @@ export interface OperationOutputs {
 	"workspace.goToDefinition": Provenanced<{ locations: readonly WorkspaceLocation[]; truncated: boolean }>;
 	"workspace.goToImplementation": Provenanced<{ locations: readonly WorkspaceLocation[]; truncated: boolean }>;
 	"workspace.findReferences": Provenanced<{ locations: readonly WorkspaceLocation[]; truncated: boolean }>;
+	"workspace.documentHighlights": Provenanced<{ highlights: readonly DocumentHighlight[]; truncated: boolean }>;
+	"workspace.dataFlowHints": { hints: readonly DataFlowHint[]; truncated: boolean };
+	"workspace.narrowedType": { type: NarrowedType | undefined; truncated: boolean };
 	/** truncated is true only when hover text itself was cut by maxBytes -- absent entirely (undefined hover) is not truncation. */
 	"workspace.hover": Provenanced<{ hover: Hover | undefined; truncated: boolean }>;
 	"workspace.documentSymbols": Provenanced<{ symbols: readonly DocumentSymbolEntry[]; truncated: boolean }>;
