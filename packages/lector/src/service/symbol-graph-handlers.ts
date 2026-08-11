@@ -488,11 +488,34 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 			// the symbol graph is fully "cached" for these exact bounds -- a "partial" or "not-cached"
 			// graph cannot honestly enumerate every reference, and CodeScaleBench's own finding is that a
 			// partial multi-file change scores WORSE than no change at all.
-			const status = await cacheStatusHandler(registry, {
+			let status = await cacheStatusHandler(registry, {
 				workspaceId: input.workspaceId,
 				maxFiles: input.maxFiles,
 				maxSymbolsPerFile: input.maxSymbolsPerFile,
 			});
+			// "not-cached" (no generation yet, or one recorded at different bounds/against now-stale
+			// source) is the only status safe to recover from automatically -- there is no
+			// partial/incomplete data to distrust, only an absent one. Opt-in via autoPopulate (see
+			// workspace.referenceBasedRename's own doc comment for why this workspace is not always the
+			// caller's correct final scope). "partial" (real per-file failures that already survived
+			// populateSymbolGraph's own internal transient retry) and "caching"/"waiting-for-resources"
+			// (another population already in flight) are never recovered from regardless of this flag --
+			// blindly retrying the former would likely reproduce the same failures, and safely waiting on
+			// the latter from inside this synchronous call is its own separate, more carefully-scoped
+			// concern.
+			if (input.autoPopulate && status.status === "not-cached") {
+				await populateSymbolGraphHandler(_registry, {
+					workspaceId: input.workspaceId,
+					maxFiles: input.maxFiles,
+					maxSymbolsPerFile: input.maxSymbolsPerFile,
+					retryTimeBudgetMs: MAX_POPULATE_RETRY_BUDGET_MS,
+				});
+				status = await cacheStatusHandler(registry, {
+					workspaceId: input.workspaceId,
+					maxFiles: input.maxFiles,
+					maxSymbolsPerFile: input.maxSymbolsPerFile,
+				});
+			}
 			if (status.status !== "cached") throw new ReferenceBasedRenameRequiresFreshGraph(input.workspaceId, status.status);
 
 			const fromPath = entry.port.resolvePath(input.fromPath);

@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { resetLectorClientForTests, setLectorClientConnectorForTests } from "../../extension/src/lector-client.ts";
 import { createReferenceBasedRenameOperations } from "../../extension/src/reference-based-rename/operations.ts";
 import { createWorkspaceCacheOperations } from "../../extension/src/workspace-cache/operations.ts";
+import { buildCrossPackageTypeScriptMonorepoFixture } from "../support/cross-package-typescript-monorepo.ts";
 import { startIsolatedLectorDaemon } from "../support/isolated-lector-daemon.ts";
 import { buildNestedTypeScriptMonorepoFixture } from "../support/nested-typescript-monorepo.ts";
 
@@ -87,5 +88,42 @@ describe("Lector-backed reference-based rename operations", () => {
 		expect(outcome.movedTo).toBe(toPath);
 		expect(outcome.filesUpdated).toEqual([fixture.consumerFile]);
 		expect(readFileSync(fixture.consumerFile, "utf8")).toContain('from "./arithmetic"');
+	}, 20_000);
+
+	it("still finds a genuinely cross-package reference in a sibling package -- Lector's own server-side auto-populate-on-not-cached (a separate improvement) must never short-circuit this client-side widen-to-declared-root fallback at too narrow a scope", async () => {
+		// Real risk this guards against: if the narrow per-file project's OWN graph were ever
+		// auto-populated and used directly (skipping the widen-to-declared-root fallback below),
+		// the rename would "succeed" while silently missing this real cross-package importer --
+		// worse than refusing, per CodeScaleBench's own finding, since it leaves a broken import
+		// specifier behind with no error to signal it. declarationFile and consumerFile deliberately
+		// sit in two SEPARATE sibling packages (unlike buildNestedTypeScriptMonorepoFixture's
+		// co-located pair above, which can't distinguish the two code paths) connected only via the
+		// shared root tsconfig's own path mapping -- the narrow library package's own project can
+		// never see this reference no matter how fresh its own graph is.
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const fixture = buildCrossPackageTypeScriptMonorepoFixture("pi-lector-reference-based-rename-cross-package-");
+		projectDir = fixture.root;
+		const toPath = join(fixture.libraryRoot, "src", "arithmetic.ts");
+
+		const cache = createWorkspaceCacheOperations();
+		const submitted = await cache.submit(fixture.root, 20, 20);
+		let completed = submitted;
+		for (let attempt = 0; attempt < 200 && completed.status !== "succeeded" && completed.status !== "failed"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			completed = await cache.jobStatus(submitted.id);
+		}
+		expect(completed.status).toBe("succeeded");
+		// The declaration's own nearest (narrow) project was never separately populated -- confirms
+		// this exercises the widen-to-declared-root fallback, not a coincidence.
+		expect((await cache.status(fixture.libraryRoot, 20, 20)).status).toBe("not-cached");
+
+		const ops = createReferenceBasedRenameOperations();
+		const outcome = await ops.rename(fixture.declarationFile, toPath, 20, 20);
+
+		expect(outcome.movedTo).toBe(toPath);
+		expect(outcome.filesUpdated).toEqual([fixture.consumerFile]);
+		expect(readFileSync(fixture.consumerFile, "utf8")).toContain('from "../../library/src/arithmetic"');
 	}, 20_000);
 });

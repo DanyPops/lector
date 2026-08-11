@@ -11,6 +11,13 @@ import { join } from "node:path";
 import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
 import { createLectorService, type LectorService, ReferenceBasedRenameRequiresFreshGraph } from "../src/service.ts";
 
+/**
+ * autoPopulate is opt-in and false by default: this workspace is not always the caller's correct
+ * final scope for a monorepo member (see workspace.referenceBasedRename's own doc comment) --
+ * auto-populating the wrong, too-narrow scope by default could make a rename "succeed" while
+ * silently missing a real cross-package reference a wider scope would have caught.
+ */
+
 let fixtureRoot: string | undefined;
 let service: LectorService | undefined;
 
@@ -44,7 +51,7 @@ async function buildService(): Promise<{ service: LectorService; workspaceId: st
 }
 
 describe("createLectorService's workspace.referenceBasedRename", () => {
-	it("refuses outright when the symbol graph has never been populated -- no-completed-generation counts as not fully cached", async () => {
+	it("refuses outright by default when the symbol graph has never been populated -- no-completed-generation counts as not fully cached, autoPopulate defaults off", async () => {
 		fixtureRoot = buildFixture();
 		const built = await buildService();
 		service = built.service;
@@ -58,6 +65,24 @@ describe("createLectorService's workspace.referenceBasedRename", () => {
 		});
 
 		await expect(attempt).rejects.toBeInstanceOf(ReferenceBasedRenameRequiresFreshGraph);
+	}, 20_000);
+
+	it("autoPopulate: true auto-populates and succeeds in one call when the symbol graph has never been populated", async () => {
+		fixtureRoot = buildFixture();
+		const built = await buildService();
+		service = built.service;
+
+		const outcome = await service.dispatch("workspace.referenceBasedRename", {
+			workspaceId: built.workspaceId,
+			fromPath: join(fixtureRoot, "src", "math.ts"),
+			toPath: join(fixtureRoot, "src", "arithmetic.ts"),
+			maxFiles: 10,
+			maxSymbolsPerFile: 10,
+			autoPopulate: true,
+		});
+
+		expect(outcome.movedTo).toBe(join(fixtureRoot, "src", "arithmetic.ts"));
+		expect(outcome.filesUpdated).toEqual([join(fixtureRoot, "src", "consumer.ts")]);
 	}, 20_000);
 
 	it("moves the file and rewrites the real importing file's specifier, leaving an unrelated file untouched", async () => {
@@ -84,7 +109,7 @@ describe("createLectorService's workspace.referenceBasedRename", () => {
 		expect(readFileSync(join(fixtureRoot, "src", "unrelated.ts"), "utf8")).toBe("export const unrelated = true;\n");
 	}, 20_000);
 
-	it("refuses outright when queried against different bounds than the graph was actually populated with -- shares the exact same not-cached guard as never-populated", async () => {
+	it("refuses outright by default when queried against different bounds than the graph was actually populated with -- shares the exact same not-cached guard as never-populated", async () => {
 		fixtureRoot = buildFixture();
 		const built = await buildService();
 		service = built.service;
@@ -103,5 +128,52 @@ describe("createLectorService's workspace.referenceBasedRename", () => {
 		});
 
 		await expect(attempt).rejects.toBeInstanceOf(ReferenceBasedRenameRequiresFreshGraph);
+	}, 20_000);
+
+	it("autoPopulate: true recovers when queried against different bounds than the graph was actually populated with -- shares the exact same not-cached recovery path as never-populated", async () => {
+		fixtureRoot = buildFixture();
+		const built = await buildService();
+		service = built.service;
+		await service.dispatch("workspace.populateSymbolGraph", { workspaceId: built.workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 });
+
+		const outcome = await service.dispatch("workspace.referenceBasedRename", {
+			workspaceId: built.workspaceId,
+			fromPath: join(fixtureRoot, "src", "math.ts"),
+			toPath: join(fixtureRoot, "src", "arithmetic.ts"),
+			maxFiles: 5,
+			maxSymbolsPerFile: 10,
+			autoPopulate: true,
+		});
+
+		expect(outcome.movedTo).toBe(join(fixtureRoot, "src", "arithmetic.ts"));
+	}, 20_000);
+
+	it("autoPopulate: true still refuses outright on a genuinely 'partial' graph -- a real per-file failure is never blindly retried", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-reference-based-rename-partial-"));
+		fixtureRoot = root;
+		mkdirSync(join(root, "worker"));
+		writeFileSync(join(root, "worker", "go.mod"), "module fixture/worker\n\ngo 1.22\n");
+		writeFileSync(
+			join(root, "worker", "main.go"),
+			"package worker\n\nfunc leaf(value int) int { return value }\n\nfunc only(a int, b int) int { return leaf(a + b) }\n",
+		);
+		// A Go file with no package metadata reachable from go.mod -- a real, deterministic
+		// per-file population failure (not a transient race populateSymbolGraph's own internal
+		// retry already absorbs), mirroring service-cache-status-compaction.test.ts's own fixture.
+		writeFileSync(join(root, "e2e_test.go"), "//go:build e2e\n\npackage fixture_test\n\nfunc TestOrphan() {}\n");
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
+
+		const attempt = service.dispatch("workspace.referenceBasedRename", {
+			workspaceId,
+			fromPath: join(root, "worker", "main.go"),
+			toPath: join(root, "worker", "arithmetic.go"),
+			maxFiles: 50,
+			maxSymbolsPerFile: 50,
+			autoPopulate: true,
+		});
+
+		await expect(attempt).rejects.toBeInstanceOf(ReferenceBasedRenameRequiresFreshGraph);
+		expect((await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 50, maxSymbolsPerFile: 50 })).status).toBe("partial");
 	}, 20_000);
 });

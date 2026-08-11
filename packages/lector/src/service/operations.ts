@@ -247,8 +247,26 @@ export interface OperationInputs {
 	"workspace.cacheWalkedFiles": { workspaceId: WorkspaceId; offset: number; maxResults: number; maxBytes: number };
 	/** Paginated raw (non-deduplicated) failures behind cacheStatus's own compact failureSummary -- see workspace.cacheWalkedFiles for the same completed-generation semantics. */
 	"workspace.cacheFailures": { workspaceId: WorkspaceId; offset: number; maxResults: number; maxBytes: number };
-	/** maxFiles/maxSymbolsPerFile gate the same freshness check cacheStatus uses -- this rename refuses outright unless the graph is fully "cached" (never "partial") for those exact bounds. */
-	"workspace.referenceBasedRename": { workspaceId: WorkspaceId; fromPath: string; toPath: string; maxFiles: number; maxSymbolsPerFile: number };
+	/**
+	 * maxFiles/maxSymbolsPerFile gate the same freshness check cacheStatus uses -- this rename
+	 * refuses outright unless the graph is fully "cached" (never "partial") for those exact bounds.
+	 * autoPopulate, when true, recovers automatically from a "not-cached" graph (populating once at
+	 * these exact bounds, then re-checking) instead of refusing -- opt-in and false by default,
+	 * since this workspace is not always the correct final scope for a caller with its own wider-
+	 * scope fallback logic (e.g. pi-lector's own widen-to-declared-monorepo-root retry): auto-
+	 * populating the wrong, too-narrow scope could make a rename "succeed" while silently missing a
+	 * real cross-package reference the wider scope would have caught -- worse than refusing. Never
+	 * recovers from "partial" (a real per-file failure, not merely absent data) or "caching"/
+	 * "waiting-for-resources" (another population already in flight) regardless of this flag.
+	 */
+	"workspace.referenceBasedRename": {
+		workspaceId: WorkspaceId;
+		fromPath: string;
+		toPath: string;
+		maxFiles: number;
+		maxSymbolsPerFile: number;
+		autoPopulate?: boolean;
+	};
 	"workspace.prepareRename": WorkspacePosition;
 	"workspace.rename": WorkspacePosition & { newName: string };
 	"workspace.gitStatus": { workspaceId: WorkspaceId };
