@@ -1,6 +1,6 @@
 {
   "name": "@danypops/alignment-lector",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Package-owned Lector contribution for Alignment workspace resources",
   "license": "MIT",
   "type": "module",
