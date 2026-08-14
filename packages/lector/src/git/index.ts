@@ -1,0 +1,9 @@
+export { assertSafeGitArgument, UnsafeGitArgument } from "./assert-safe-git-argument.ts";
+export type { GitDiffResult } from "./diff-result.ts";
+export { LocalGit } from "./local-git.ts";
+export type { GitLogEntry } from "./log-entry.ts";
+export type { GitPort } from "./port.ts";
+export { GitRevisionNotFound } from "./revision-not-found.ts";
+export type { GitStatusEntry, GitStatusSummary } from "./status.ts";
+export type { GitDiffFile, GitDiffFileStatus, GitDiffHunk } from "./unified-diff.ts";
+export { parseUnifiedGitDiff } from "./unified-diff.ts";
