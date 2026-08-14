@@ -79,4 +79,26 @@ describe("createRetryingLectorClient", () => {
 		// that as a stale connection and transparently retry against the newly discovered one.
 		await expect(client.call("workspace.registerPath", { path: workspaceRoot })).resolves.toBeDefined();
 	});
+
+	it("survives a real gap where the daemon is fully down, then comes back a moment later -- the exact production incident this closes", async () => {
+		// Real, live symptom: `read` failed three times in a row with "Lector daemon unavailable
+		// ... process exited ... Restart Lector" because the daemon had crashed and systemd's own
+		// Restart=on-failure hadn't finished bringing a replacement up yet by the time each of three
+		// separate tool calls tried and immediately gave up. This models that gap directly: no
+		// daemon is reachable for a real stretch of wall-clock time, then one appears -- call()
+		// (via connectRetry:true, on by default in createRetryingLectorClient) must wait it out
+		// rather than surfacing LectorDaemonUnavailable.
+		const { paths, workspaceRoot } = isolatedPaths();
+		const first = await bootDaemon(paths);
+		const client = createRetryingLectorClient({ paths });
+		await expect(client.call("workspace.registerPath", { path: workspaceRoot })).resolves.toBeDefined();
+
+		await first.stop();
+		activeStop = undefined;
+		const callDuringOutage = client.call("workspace.registerPath", { path: workspaceRoot });
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		await bootDaemon(paths);
+
+		await expect(callDuringOutage).resolves.toBeDefined();
+	});
 });

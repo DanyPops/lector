@@ -219,6 +219,10 @@ export function createRetryingLectorClient(options: ConnectLectorClientOptions =
 		label: "Lector",
 		isStaleConnectionError: (error) => error instanceof LectorDaemonUnavailable || isLikelyStaleConnectionError(error),
 		resolveIdentity: () => daemonIdentityFromHandle(paths),
+		// A daemon that crashed and is mid systemd-restart otherwise fails the very next call
+		// immediately ("process exited... restart Lector, re-register dynamic workspaces") even
+		// though it's already coming back up on its own -- see vehicle-client's DEFAULT_CONNECT_RETRY.
+		connectRetry: true,
 		onIdentityChange: (change) => {
 			for (const listener of listeners) listener({ previousIdentity: change.previous, currentIdentity: change.current });
 		},
