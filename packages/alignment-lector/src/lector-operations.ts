@@ -1,5 +1,5 @@
-import { createRetryingLectorClient, remoteErrorIs } from "@danypops/lector/src/client.ts";
-import type { OperationInputs, OperationName, OperationOutputs } from "@danypops/lector/src/service.ts";
+import { createRetryingLectorClient, remoteErrorIs } from "@danypops/lector/client";
+import type { OperationInputs, OperationName, OperationOutputs } from "@danypops/lector/service";
 import type { WorkspaceRootRegistry } from "./workspace-root-registry.js";
 
 export interface LectorOperations {

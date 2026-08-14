@@ -5,7 +5,7 @@
 // break for a Node-targeted consumer bundling this package (esbuild fails on typescript.js's
 // own dynamic `require("fs")` once it is reachable at all). Each deep path names its own real,
 // leaf-level module with no such transitive weight.
-export { GuardedLiveBuffer, type LiveBufferIdentity, type StaleBufferState } from "@danypops/lector/src/live-buffer/guarded-live-buffer.ts";
+export { GuardedLiveBuffer, type LiveBufferIdentity, type StaleBufferState } from "@danypops/lector/live-buffer/guarded";
 export type {
 	CallGraphDirection,
 	CallGraphEdgeProjection,

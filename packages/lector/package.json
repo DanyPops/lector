@@ -8,6 +8,8 @@
 	"types": "./src/index.ts",
 	"exports": {
 		".": "./src/index.ts",
+		"./client": "./src/client.ts",
+		"./service": "./src/service.ts",
 		"./code-intelligence": "./src/code-intelligence/index.ts",
 		"./concurrency": "./src/concurrency/index.ts",
 		"./content-cache": "./src/content-cache/index.ts",
@@ -19,6 +21,7 @@
 		"./github-search": "./src/github-search/index.ts",
 		"./installed-package-version-resolver": "./src/installed-package-version-resolver/index.ts",
 		"./live-buffer": "./src/live-buffer/index.ts",
+		"./live-buffer/guarded": "./src/live-buffer/guarded-live-buffer.ts",
 		"./lsp-provisioning": "./src/lsp-provisioning/index.ts",
 		"./mutation-history": "./src/mutation-history/index.ts",
 		"./npm-registry": "./src/npm-registry/index.ts",

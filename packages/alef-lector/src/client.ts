@@ -3,8 +3,8 @@
 // in limited to what a client genuinely needs. Operation types are type-only (erased before
 // bundling), so importing them from service.ts -- which does declare the daemon, but only as
 // types here -- costs nothing at runtime.
-import { connectLectorClient, type LectorClient, remoteErrorIs } from "@danypops/lector/src/client.ts";
-import type { OperationInputs, OperationName, OperationOutputs } from "@danypops/lector/src/service.ts";
+import { connectLectorClient, type LectorClient, remoteErrorIs } from "@danypops/lector/client";
+import type { OperationInputs, OperationName, OperationOutputs } from "@danypops/lector/service";
 
 /**
  * Lazily connects to a running Lector daemon and caches the connection for the process

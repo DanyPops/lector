@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import type { ContributionCommand, ContributionOutcome, ContributionReadBounds, ContributionResourceReference } from "@alignment/surface-protocol";
 // Deep imports, not the "@danypops/lector" barrel -- see index.ts's own doc comment on why.
-import { remoteErrorIs } from "@danypops/lector/src/client.ts";
-import { type GitDiffFile, type GitDiffHunk, parseUnifiedGitDiff } from "@danypops/lector/src/git/unified-diff.ts";
+import { remoteErrorIs } from "@danypops/lector/client";
+import { type GitDiffFile, type GitDiffHunk, parseUnifiedGitDiff } from "@danypops/lector/git";
 import type { LectorOperations } from "./lector-operations.js";
 
 export const GIT_COMMANDS = [
