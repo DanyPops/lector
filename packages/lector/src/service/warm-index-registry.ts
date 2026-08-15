@@ -1,7 +1,7 @@
 import type { IntelligenceProvenance } from "../code-intelligence/intelligence-provenance.ts";
 import type { LanguageServerDescriptor } from "../code-intelligence/language-server-descriptor.ts";
 import { discoverWorkspaceDescriptor, discoverWorkspaceDescriptors } from "../code-intelligence/lsp/discover-seed-file.ts";
-import { PolyglotCodeIntelligenceIndex } from "../code-intelligence/polyglot-code-intelligence-index.ts";
+import { PolyglotCodeIntelligenceIndex, type PolyglotIndexEntry } from "../code-intelligence/polyglot-code-intelligence-index.ts";
 import type { CodeIntelligencePort } from "../code-intelligence/port.ts";
 import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts";
 import type { WarmIndexResourcePolicy, WarmIndexResourceStatus } from "../code-intelligence/warm-index-resource-policy.ts";
@@ -80,6 +80,8 @@ export interface WarmIndexRegistryOptions<WorkspaceKey extends string> {
 	readonly maxQueuedBackgroundAdmissions?: number;
 	/** Fed one real (languageId, pid) pair per active entry on calibrateProcessCosts() -- optional, since a caller without a resource policy has nothing for calibration to improve. */
 	readonly processCostCalibrator?: WarmIndexProcessCostRecorder;
+	/** Strategy for combining several per-language indexes into the single SymbolIndexPort a multi-language workspace lease returns. Defaults to PolyglotCodeIntelligenceIndex -- injected so a caller can test or extend composition without pulling in that concrete class. */
+	readonly composeIndexes?: (indexes: readonly PolyglotIndexEntry[]) => SymbolIndexPort;
 }
 
 interface WarmIndexEntry<WorkspaceKey extends string> {
@@ -454,7 +456,8 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			return { descriptor: source.descriptor, index: entry.index };
 		});
 		const first = indexes[0];
-		const index: SymbolIndexPort = indexes.length === 1 && first ? first.index : new PolyglotCodeIntelligenceIndex(indexes);
+		const composeIndexes = this.options.composeIndexes ?? ((entries: readonly PolyglotIndexEntry[]) => new PolyglotCodeIntelligenceIndex(entries));
+		const index: SymbolIndexPort = indexes.length === 1 && first ? first.index : composeIndexes(indexes);
 		return this.lease(
 			{ index, descriptors: discovered.map(({ descriptor }) => descriptor), sources: entries.map(({ index: source }) => source.provenance) },
 			entries,
