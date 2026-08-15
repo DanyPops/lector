@@ -1,5 +1,3 @@
-import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { FallbackCodeIntelligenceIndex } from "./code-intelligence/fallback-code-intelligence-index.ts";
@@ -39,7 +37,7 @@ import { dispatchThroughOperationRegistry } from "./operation-dispatch/dispatch-
 import { InMemoryPackageSourceIndex } from "./package-source/in-memory-package-source-index.ts";
 import type { PackageSourceIndexPort } from "./package-source/index-port.ts";
 import type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
-import { assertAbsolutePath, RelativeWorkspacePath } from "./path-safety/assert-absolute-path.ts";
+import { RelativeWorkspacePath } from "./path-safety/assert-absolute-path.ts";
 import { REPO_LIST_CACHE_PERMISSIONS, REPO_WRITE_PERMISSIONS, registerRepoFetchOperations } from "./repo-fetcher/operation-registration.ts";
 import type { RepoFetcherPort } from "./repo-fetcher/port.ts";
 import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
@@ -75,10 +73,9 @@ import { lectorVersion } from "./version.ts";
 import { PatchRejected } from "./workspace/apply-patch.ts";
 import { StaleExpectedHash } from "./workspace/exact-edit.ts";
 import { LineEditRace, LineEditRejected } from "./workspace/line-edit.ts";
-import { LocalFilesystemWorkspace } from "./workspace/local-filesystem-workspace.ts";
+
 import type { WorkspacePort } from "./workspace/port.ts";
 import { WorkspaceEntryNotFound } from "./workspace/raw-read.ts";
-import { resolveWorkspacePath } from "./workspace/resolve-workspace-path.ts";
 
 export interface LectorService {
 	readonly operations: readonly OperationName[];
@@ -194,43 +191,6 @@ export interface LectorServiceOptions {
 type OperationHandlers = {
 	[Name in OperationName]: (registry: MutableRegistry, input: OperationInputs[Name]) => Promise<OperationOutputs[Name]>;
 };
-
-async function resolvePathHandler(
-	registry: MutableRegistry,
-	input: OperationInputs["workspace.resolvePath"],
-): Promise<OperationOutputs["workspace.resolvePath"]> {
-	// Same rejection as registerPath -- a daemon has no caller-relative cwd of its own.
-	assertAbsolutePath(input.path);
-	const outcome = resolveWorkspacePath({ ...input, path: resolve(input.path) });
-	if (!outcome.found) return { found: false, reason: outcome.reason };
-	const { workspaceId, created } = await registerPath(registry, { path: outcome.root });
-	return { found: true, workspaceId, root: outcome.root, created };
-}
-
-async function registerPath(registry: MutableRegistry, input: OperationInputs["workspace.registerPath"]): Promise<OperationOutputs["workspace.registerPath"]> {
-	// Rejected outright, not resolved -- a daemon has no caller-relative "current directory" of
-	// its own; resolve() on a relative path would silently use this PROCESS's own cwd (e.g. a
-	// systemd unit's fixed WorkingDirectory), not whatever the real caller actually meant.
-	assertAbsolutePath(input.path);
-	const absolutePath = resolve(input.path);
-	const workspaceId = deriveWorkspaceId(absolutePath);
-	if (registry.has(workspaceId)) {
-		return { workspaceId, created: false };
-	}
-
-	let stats: Awaited<ReturnType<typeof stat>>;
-	try {
-		stats = await stat(absolutePath);
-	} catch {
-		throw new InvalidWorkspaceRoot(absolutePath, "path does not exist or is not accessible");
-	}
-	if (!stats.isDirectory()) {
-		throw new InvalidWorkspaceRoot(absolutePath, "path is not a directory");
-	}
-
-	registry.set(workspaceId, { port: new LocalFilesystemWorkspace(absolutePath), rootPath: absolutePath, origin: "local" });
-	return { workspaceId, created: true };
-}
 
 const NOOP_LOGGER: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 
@@ -464,8 +424,6 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 
 	const handlers: OperationHandlers = {
 		...workspaceFileHandlers,
-		"workspace.registerPath": registerPath,
-		"workspace.resolvePath": resolvePathHandler,
 		...workspaceLifecycleHandlers,
 		...codeIntelligenceHandlers,
 		...symbolGraphHandlers.handlers,

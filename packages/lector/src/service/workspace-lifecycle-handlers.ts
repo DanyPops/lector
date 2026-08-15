@@ -1,4 +1,9 @@
-import { UnknownWorkspace, type WorkspaceId, WorkspaceReleaseBlocked } from "./errors.ts";
+import { stat } from "node:fs/promises";
+import { resolve } from "node:path";
+import { assertAbsolutePath } from "../path-safety/assert-absolute-path.ts";
+import { LocalFilesystemWorkspace } from "../workspace/local-filesystem-workspace.ts";
+import { resolveWorkspacePath } from "../workspace/resolve-workspace-path.ts";
+import { deriveWorkspaceId, InvalidWorkspaceRoot, UnknownWorkspace, type WorkspaceId, WorkspaceReleaseBlocked } from "./errors.ts";
 import { GraphRefreshJobActive } from "./graph-refresh-coordinator.ts";
 import type { OperationInputs, OperationOutputs } from "./operations.ts";
 import { WarmIndexInUse, type WarmIndexRegistry } from "./warm-index-registry.ts";
@@ -18,6 +23,45 @@ export interface WorkspaceLifecycleHandlerDeps {
 
 export interface WorkspaceLifecycleHandlers {
 	"workspace.release": (registry: MutableRegistry, input: OperationInputs["workspace.release"]) => Promise<OperationOutputs["workspace.release"]>;
+	"workspace.registerPath": (registry: MutableRegistry, input: OperationInputs["workspace.registerPath"]) => Promise<OperationOutputs["workspace.registerPath"]>;
+	"workspace.resolvePath": (registry: MutableRegistry, input: OperationInputs["workspace.resolvePath"]) => Promise<OperationOutputs["workspace.resolvePath"]>;
+}
+
+async function resolvePathHandler(
+	registry: MutableRegistry,
+	input: OperationInputs["workspace.resolvePath"],
+): Promise<OperationOutputs["workspace.resolvePath"]> {
+	// Same rejection as registerPath -- a daemon has no caller-relative cwd of its own.
+	assertAbsolutePath(input.path);
+	const outcome = resolveWorkspacePath({ ...input, path: resolve(input.path) });
+	if (!outcome.found) return { found: false, reason: outcome.reason };
+	const { workspaceId, created } = await registerPath(registry, { path: outcome.root });
+	return { found: true, workspaceId, root: outcome.root, created };
+}
+
+async function registerPath(registry: MutableRegistry, input: OperationInputs["workspace.registerPath"]): Promise<OperationOutputs["workspace.registerPath"]> {
+	// Rejected outright, not resolved -- a daemon has no caller-relative "current directory" of
+	// its own; resolve() on a relative path would silently use this PROCESS's own cwd (e.g. a
+	// systemd unit's fixed WorkingDirectory), not whatever the real caller actually meant.
+	assertAbsolutePath(input.path);
+	const absolutePath = resolve(input.path);
+	const workspaceId = deriveWorkspaceId(absolutePath);
+	if (registry.has(workspaceId)) {
+		return { workspaceId, created: false };
+	}
+
+	let stats: Awaited<ReturnType<typeof stat>>;
+	try {
+		stats = await stat(absolutePath);
+	} catch {
+		throw new InvalidWorkspaceRoot(absolutePath, "path does not exist or is not accessible");
+	}
+	if (!stats.isDirectory()) {
+		throw new InvalidWorkspaceRoot(absolutePath, "path is not a directory");
+	}
+
+	registry.set(workspaceId, { port: new LocalFilesystemWorkspace(absolutePath), rootPath: absolutePath, origin: "local" });
+	return { workspaceId, created: true };
 }
 
 /**
@@ -56,5 +100,7 @@ export function createWorkspaceLifecycleHandlers(deps: WorkspaceLifecycleHandler
 			registry.delete(input.workspaceId);
 			return { workspaceId: input.workspaceId, closedIndexes, closedGraph, closedWatch };
 		},
+		"workspace.registerPath": registerPath,
+		"workspace.resolvePath": resolvePathHandler,
 	};
 }
