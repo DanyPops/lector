@@ -10,19 +10,23 @@ import { LAUNCH_PROVENANCE_ENV_VAR } from "@danypops/vehicle-server/daemon";
 import { generateSystemdUnit } from "@danypops/vehicle-server/service";
 import { lectorServiceCli, lectorServiceSpec } from "../src/cli.ts";
 
+// The real value never matters to these assertions -- only the real one cli.ts computes from its
+// own import.meta.url is load-bearing for the systemd unit lector service install actually writes.
+const FIXTURE_ENTRYPOINT_PATH = "/fixture/cli.ts";
+
 describe("Lector systemd service", () => {
 	it("targets Armada's native service rather than the obsolete legacy unit", () => {
-		expect(lectorServiceCli().unitName).toBe("armada-lector.service");
+		expect(lectorServiceCli(FIXTURE_ENTRYPOINT_PATH).unitName).toBe("armada-lector.service");
 	});
 
 	it("runs in dynamic-workspaces mode -- a persistent background daemon cannot know upfront which project(s) will attach to it", () => {
-		const unit = generateSystemdUnit(lectorServiceSpec());
+		const unit = generateSystemdUnit(lectorServiceSpec(FIXTURE_ENTRYPOINT_PATH));
 		expect(unit).toContain("serve");
 		expect(unit).toContain("--dynamic-workspaces");
 	});
 
 	it('declares "service" launch provenance and restartOnFailure -- Lector\'s own client never auto-spawns, so systemd is its only recovery path', () => {
-		const unit = generateSystemdUnit(lectorServiceSpec());
+		const unit = generateSystemdUnit(lectorServiceSpec(FIXTURE_ENTRYPOINT_PATH));
 		// vehicle-server 0.3.2 quotes/escapes every Environment= value -- this asserts
 		// the quoted form, not the bare one, since that's now the real generated output.
 		expect(unit).toContain(`Environment="${LAUNCH_PROVENANCE_ENV_VAR}=service"`);
