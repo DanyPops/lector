@@ -6,26 +6,47 @@ import { createLogger } from "@danypops/vehicle-server/logging";
 import { createServiceCli, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { connectLectorClient, resolveLectorDaemonConnection } from "./client.ts";
 import type { JobSnapshot } from "./concurrency/bounded-job-executor.ts";
+import type { PopulateSymbolGraphResult } from "./symbol-graph/populate-symbol-graph.ts";
+import {
+	fail,
+	flagValue,
+	hasFlag,
+	collectFlagValues,
+	nonNegativeIntegerFlag,
+	parseAnchorFlag,
+	parseEcosystemFlag,
+	parsePosition,
+	parseRepoSpec,
+	parseResponseFormat,
+	parseSymbolEdgeKind,
+	parseWorkspacePathFlag,
+	positiveIntegerFlag,
+	requireAnnotationFields,
+	requireEcosystem,
+	requiredIntFlag,
+} from "./cli/flags.ts";
+import {
+	formatAnnotation,
+	formatCacheGenerationSummaryResult,
+	formatCallHierarchyEntry,
+	formatIntelligenceSource,
+	formatJobSnapshot,
+	formatPackageSourceListEntry,
+	formatPackageSourceResult,
+	formatPopulationResult,
+	formatSymbolNode,
+	formatSymbolSources,
+} from "./cli/format.ts";
 import { resolveLectorPaths } from "./constants.ts";
 import type { ContentHash } from "./content-identity/content-hash.ts";
 import { serveMain } from "./daemon.ts";
 import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS } from "./external-search/external-search-result.ts";
-import {
-	DEFAULT_PACKAGE_SOURCE_BOUNDS,
-	PACKAGE_ECOSYSTEMS,
-	type PackageEcosystem,
-	type PackageSourceOperationResult,
-} from "./package-source/package-source.ts";
+import { DEFAULT_PACKAGE_SOURCE_BOUNDS } from "./package-source/package-source.ts";
 import type { WorkspaceId } from "./service.ts";
-import type { SymbolAnnotation } from "./symbol-annotation/symbol-annotation.ts";
-import type { PopulateSymbolGraphResult } from "./symbol-graph/populate-symbol-graph.ts";
-import type { CacheGenerationResultSummary } from "./symbol-graph/symbol-graph-generation.ts";
 import { lectorVersion } from "./version.ts";
 import { InMemoryWorkspace } from "./workspace/in-memory-workspace.ts";
 import { LocalFilesystemWorkspace } from "./workspace/local-filesystem-workspace.ts";
 import type { WorkspacePort } from "./workspace/port.ts";
-import type { ResponseFormat } from "./workspace/response-format.ts";
-import type { SymbolSearchResult } from "./workspace/workspace-symbol.ts";
 
 const USAGE = `Usage:
   lector serve [--workspace <id>]... [--workspace-path <id>=<dir>]... [--dynamic-workspaces]
@@ -197,56 +218,6 @@ const USAGE = `Usage:
     silently omitted and not blocking every other workspace's real results
 `;
 
-function fail(message: string): never {
-	console.error(message);
-	process.exit(1);
-}
-
-function collectFlagValues(args: string[], flag: string): string[] {
-	const values: string[] = [];
-	for (let index = 0; index < args.length; index++) {
-		if (args[index] === flag) {
-			const value = args[index + 1];
-			if (value === undefined) fail(`${flag} requires a value`);
-			values.push(value);
-			index++;
-		}
-	}
-	return values;
-}
-
-function flagValue(args: string[], flag: string): string | undefined {
-	return collectFlagValues(args, flag).at(-1);
-}
-
-function hasFlag(args: string[], flag: string): boolean {
-	return args.includes(flag);
-}
-
-function positiveIntegerFlag(args: string[], flag: string, environmentValue?: string): number | undefined {
-	const raw = flagValue(args, flag) ?? environmentValue;
-	if (raw === undefined) return undefined;
-	const value = Number(raw);
-	if (!Number.isSafeInteger(value) || value < 1) fail(`${flag} must be a positive safe integer`);
-	return value;
-}
-
-function nonNegativeIntegerFlag(args: string[], flag: string, environmentValue?: string): number | undefined {
-	const raw = flagValue(args, flag) ?? environmentValue;
-	if (raw === undefined) return undefined;
-	const value = Number(raw);
-	if (!Number.isSafeInteger(value) || value < 0) fail(`${flag} must be a non-negative safe integer`);
-	return value;
-}
-
-function parseWorkspacePathFlag(raw: string): { id: string; dir: string } {
-	const separatorIndex = raw.indexOf("=");
-	if (separatorIndex <= 0 || separatorIndex === raw.length - 1) {
-		fail(`--workspace-path expects <id>=<dir>, got "${raw}"`);
-	}
-	return { id: raw.slice(0, separatorIndex), dir: raw.slice(separatorIndex + 1) };
-}
-
 async function runServe(args: string[]): Promise<void> {
 	const memoryIds = collectFlagValues(args, "--workspace");
 	const pathEntries = collectFlagValues(args, "--workspace-path").map(parseWorkspacePathFlag);
@@ -297,21 +268,6 @@ async function runWorkspaceRegister(dir: string | undefined, flags: string[]): P
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : `${result.workspaceId} (${result.created ? "created" : "already registered"})`);
 }
 
-function formatSymbolSources(result: SymbolSearchResult): readonly string[] {
-	return (result.sources ?? []).map((source) => {
-		const identity = `${source.provenance.languageId}: ${source.status} via ${source.provenance.backend}`;
-		if (source.status === "failed") return source.error ? `${identity} [${source.error.code}] ${source.error.message}` : identity;
-		return `${identity} (${source.symbolCount} symbol${source.symbolCount === 1 ? "" : "s"}${source.truncated ? ", truncated" : ""})`;
-	});
-}
-
-function parseResponseFormat(flags: string[]): ResponseFormat | undefined {
-	const value = flagValue(flags, "--response-format");
-	if (value === undefined) return undefined;
-	if (value !== "concise" && value !== "detailed") fail(`--response-format must be "concise" or "detailed", got "${value}"`);
-	return value;
-}
-
 async function runWorkspaceSymbols(workspaceId: string | undefined, query: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !query) fail(USAGE);
 	const seedFile = flagValue(flags, "--seed-file"); // omit to auto-discover one
@@ -334,18 +290,6 @@ async function runWorkspaceSymbols(workspaceId: string | undefined, query: strin
 	}
 }
 
-function parsePosition(line: string | undefined, character: string | undefined): { line: number; character: number } {
-	const parsedLine = Number(line);
-	const parsedCharacter = Number(character);
-	if (!line || !character || !Number.isInteger(parsedLine) || !Number.isInteger(parsedCharacter)) {
-		fail(USAGE);
-	}
-	return { line: parsedLine, character: parsedCharacter };
-}
-
-function formatIntelligenceSource(provenance: { fidelity: string; backend: string }): string {
-	return `${provenance.fidelity} via ${provenance.backend}`;
-}
 
 async function runWorkspaceDefinition(workspaceId: string | undefined, path: string | undefined, rest: string[]): Promise<void> {
 	if (!workspaceId || !path) fail(USAGE);
@@ -462,10 +406,6 @@ async function runWorkspaceDiagnostics(workspaceId: string | undefined, path: st
 	}
 }
 
-function formatCallHierarchyEntry(entry: { kind: string; name: string; location: { path: string; line: number; character: number } }): string {
-	return `${entry.kind} ${entry.name} -- ${entry.location.path}:${entry.location.line}:${entry.location.character}`;
-}
-
 async function runWorkspaceCallHierarchy(
 	subcommand: string | undefined,
 	workspaceId: string | undefined,
@@ -525,39 +465,6 @@ async function runWorkspaceCallHierarchy(
 	fail(USAGE);
 }
 
-function formatSymbolNode(node: { kind: string; name: string; location: { path: string; line: number; character: number } }): string {
-	return `${node.kind} ${node.name} -- ${node.location.path}:${node.location.line}:${node.location.character}`;
-}
-
-function requiredIntFlag(flags: string[], flag: string): number {
-	const raw = flagValue(flags, flag);
-	const parsed = Number(raw);
-	if (raw === undefined || !Number.isInteger(parsed)) fail(`${flag} <n> is required`);
-	return parsed;
-}
-
-function formatPopulationResult(result: PopulateSymbolGraphResult): string {
-	const counts = `${result.filesProcessed}/${result.filesAttempted} files, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`;
-	if (result.completeness === "complete") return counts;
-	const first = result.failures[0];
-	const failure = first ? `; first failure: ${first.path} [${first.code} via ${first.provenance.backend}] ${first.message}` : "";
-	return `partial -- ${counts}, ${result.filesFailed} failed files (${result.failureCount} failed operations)${failure}`;
-}
-
-function formatCacheGenerationSummaryResult(result: CacheGenerationResultSummary): string {
-	const counts = `${result.filesProcessed}/${result.filesAttempted} files, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`;
-	if (result.completeness === "complete") return counts;
-	const first = result.failureSummary[0];
-	const failure = first ? `; first failure: ${first.path} [${first.code}] ${first.message}` : "";
-	return `partial -- ${counts}, ${result.filesFailed} failed files (${result.failureCount} failed operations)${failure}`;
-}
-
-function formatJobSnapshot(job: JobSnapshot<PopulateSymbolGraphResult>): string {
-	if (job.status === "queued") return `${job.id}: queued (${job.operation}); wait with: lector job wait ${job.id}`;
-	if (job.status === "running") return `${job.id}: still running (${job.operation}); wait with: lector job wait ${job.id}`;
-	if (job.status === "failed") return `${job.id}: failed [${job.error.code}] -- ${job.error.message}`;
-	return `${job.id}: succeeded -- ${formatPopulationResult(job.result)}`;
-}
 
 async function runWorkspacePopulateSymbolGraph(workspaceId: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId) fail(USAGE);
@@ -824,14 +731,6 @@ async function runWorkspaceCompareSymbol(workspaceId: string | undefined, flags:
 	if (result.truncated) console.log("... (truncated)");
 }
 
-/** Parses "owner/repo[@ref]" into the explicit fields repo.fetch expects; --host overrides the "github.com" default. */
-function parseRepoSpec(spec: string, host: string): { host: string; owner: string; repo: string; ref: string | null } {
-	const [ownerRepo, ref] = spec.split("@");
-	const [owner, repo] = (ownerRepo ?? "").split("/");
-	if (!owner || !repo) fail(`repo spec must be "<owner>/<repo>[@ref]", got "${spec}"`);
-	return { host, owner, repo, ref: ref ?? null };
-}
-
 async function runWorkspaceRepoFetch(spec: string | undefined, flags: string[]): Promise<void> {
 	if (!spec) fail(USAGE);
 	const host = flagValue(flags, "--host") ?? "github.com";
@@ -887,28 +786,6 @@ async function runWorkspaceRepoCacheList(flags: string[]): Promise<void> {
 	if (page.nextCursor) console.log(`--cursor ${page.nextCursor} for more`);
 }
 
-function formatPackageSourceResult(result: PackageSourceOperationResult): string {
-	const { outcome } = result;
-	switch (outcome.status) {
-		case "verified":
-			return `${result.workspaceId ?? "unregistered"} ${outcome.coordinate.name}@${outcome.coordinate.resolvedVersion} -- ${outcome.workspace.cachePath}\n${outcome.repository.url ?? "local source"}@${outcome.repository.resolvedRef ?? "local"} ${outcome.repository.commit ?? outcome.verification.integrity}`;
-		case "ambiguous":
-			return `ambiguous [${outcome.code}] -- ${outcome.candidates.map((candidate) => `${candidate.version} (${candidate.source})`).join(", ")}${outcome.truncated ? ", …" : ""}`;
-		case "unauthenticated":
-			return `unauthenticated [${outcome.code}] -- configure ${outcome.requiredCredentialNames.join(", ")}`;
-		case "oversized":
-			return `oversized [${outcome.code}] -- ${outcome.resource} exceeded ${outcome.limit}`;
-		case "mismatched":
-			return `mismatched [${outcome.code}] -- expected ${outcome.expected}, got ${outcome.actual}`;
-		case "unavailable":
-			return `unavailable [${outcome.code}]`;
-		default: {
-			const exhaustive: never = outcome;
-			throw new Error(`unhandled package source outcome status: ${JSON.stringify(exhaustive)}`);
-		}
-	}
-}
-
 async function runPackageSource(projectDir: string | undefined, packageName: string | undefined, flags: string[]): Promise<void> {
 	if (!projectDir || !packageName) fail(USAGE);
 	const client = await connectLectorClient();
@@ -925,35 +802,6 @@ async function runPackageSource(projectDir: string | undefined, packageName: str
 		bounds: DEFAULT_PACKAGE_SOURCE_BOUNDS,
 	});
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(result) : formatPackageSourceResult(result));
-}
-
-// A real type guard, not an assertion -- widens the allowed-values array to readonly string[]
-// so .includes() itself needs no cast, then lets TS narrow `value` for free at every call site.
-function isPackageEcosystem(value: string): value is PackageEcosystem {
-	return (PACKAGE_ECOSYSTEMS as readonly string[]).includes(value);
-}
-
-function parseEcosystemFlag(flags: string[]): PackageEcosystem | undefined {
-	const raw = flagValue(flags, "--ecosystem");
-	if (raw === undefined) return undefined;
-	if (!isPackageEcosystem(raw)) fail(`--ecosystem must be one of ${PACKAGE_ECOSYSTEMS.join(", ")}; got "${raw}"`);
-	return raw;
-}
-
-function requireEcosystem(value: string | undefined): PackageEcosystem {
-	if (value === undefined || !isPackageEcosystem(value)) fail(`ecosystem must be one of ${PACKAGE_ECOSYSTEMS.join(", ")}; got "${value ?? ""}"`);
-	return value;
-}
-
-function formatPackageSourceListEntry(entry: {
-	name: string;
-	resolvedVersion: string;
-	workspaceId: string;
-	cachePath: string;
-	cacheSizeBytes: number | null;
-}): string {
-	const bytes = entry.cacheSizeBytes === null ? "" : ` (${entry.cacheSizeBytes} bytes)`;
-	return `${entry.name}@${entry.resolvedVersion} -- ${entry.workspaceId} -- ${entry.cachePath}${bytes}`;
 }
 
 async function runPackageListSources(flags: string[]): Promise<void> {
@@ -1178,13 +1026,6 @@ async function runSearchSourcegraphCode(query: string | undefined, flags: string
 	}
 }
 
-function parseSymbolEdgeKind(flags: string[]): "calls" | "references" | "contains" | undefined {
-	const raw = flagValue(flags, "--kind");
-	if (raw === undefined) return undefined;
-	if (raw !== "calls" && raw !== "references" && raw !== "contains") fail(`--kind must be calls, references, or contains; got "${raw}"`);
-	return raw;
-}
-
 async function runWorkspaceSymbolGraphQuery(
 	subcommand: string | undefined,
 	workspaceId: string | undefined,
@@ -1226,36 +1067,6 @@ async function runWorkspaceSymbolGraphQuery(
 		return;
 	}
 	fail(USAGE);
-}
-
-/** "<path>:<line>:<character>" -- split from the right so a path containing colons (e.g. a Windows drive letter) is never misparsed as part of the position. */
-function parseAnchorFlag(value: string): { path: string; line: number; character: number } {
-	const lastColon = value.lastIndexOf(":");
-	const secondLastColon = lastColon === -1 ? -1 : value.lastIndexOf(":", lastColon - 1);
-	const path = secondLastColon === -1 ? "" : value.slice(0, secondLastColon);
-	const line = secondLastColon === -1 ? Number.NaN : Number(value.slice(secondLastColon + 1, lastColon));
-	const character = lastColon === -1 ? Number.NaN : Number(value.slice(lastColon + 1));
-	if (!path || !Number.isInteger(line) || !Number.isInteger(character)) fail(`invalid --anchor value "${value}"; expected <path>:<line>:<character>`);
-	return { path, line, character };
-}
-
-function formatAnnotation(annotation: SymbolAnnotation): string {
-	const anchorLines = annotation.anchors.map((anchor) => `  - ${anchor.symbolNodeId}`).join("\n");
-	return `[${annotation.status}] ${annotation.title} (${annotation.subtype}) [${annotation.id}]\n${annotation.body}\nAnchors:\n${anchorLines}`;
-}
-
-function requireAnnotationFields(flags: string[]): {
-	subtype: string;
-	title: string;
-	body: string;
-	anchors: { path: string; line: number; character: number }[];
-} {
-	const subtype = flagValue(flags, "--subtype");
-	const title = flagValue(flags, "--title");
-	const body = flagValue(flags, "--body");
-	if (!subtype || !title || body === undefined) fail("requires --subtype, --title, and --body");
-	const anchors = collectFlagValues(flags, "--anchor").map(parseAnchorFlag);
-	return { subtype, title, body, anchors };
 }
 
 async function runWorkspaceAnnotationCreate(workspaceId: string | undefined, flags: string[]): Promise<void> {
