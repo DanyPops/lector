@@ -1,24 +1,10 @@
-import { createHash } from "node:crypto";
 import { LANGUAGE_SERVER_DESCRIPTORS } from "../code-intelligence/language-server-descriptor.ts";
+import { deriveWorkspaceId, type WorkspaceId } from "../workspace/workspace-id.ts";
 
-/**
- * Identifies which registered workspace an operation targets. There is no
- * default/implicit workspace: an operation must always name one explicitly.
- * (Locus LCS-BUG-97/LCS-BUG-88 class -- an operation given no explicit
- * target must never fall back to "whatever was registered/used last".)
- */
-export type WorkspaceId = string;
-
-/**
- * Deterministically derive a workspaceId from a resolved absolute path, so the same
- * directory always yields the same id -- across repeat calls AND across a daemon
- * restart, since nothing about this derivation depends on runtime/in-memory state.
- * A shorter digest than ContentHash's is deliberate: this identifies a workspace root
- * for addressing/logging, not a content value needing full collision resistance.
- */
-export function deriveWorkspaceId(absolutePath: string): WorkspaceId {
-	return createHash("sha256").update(absolutePath).digest("hex").slice(0, 16);
-}
+// Re-exported for import-path stability -- WorkspaceId/deriveWorkspaceId moved to
+// workspace/workspace-id.ts (a real branded value-object type, matching ContentHash/SymbolNodeId),
+// out of this error-catalog file which was never their real domain home.
+export { deriveWorkspaceId, type WorkspaceId };
 
 /** Raised when an operation names a workspaceId nothing was registered under. */
 export class UnknownWorkspace extends Error {
