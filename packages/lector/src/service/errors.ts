@@ -335,3 +335,48 @@ export class JobWaitTooLong extends Error {
 		this.name = "JobWaitTooLong";
 	}
 }
+
+export class WarmIndexCapacityExceeded extends Error {
+	constructor(
+		readonly languageId: string,
+		readonly maxActive: number,
+		readonly languageLimit: number,
+	) {
+		super(
+			`no idle code-intelligence server can be evicted to admit "${languageId}" within global capacity ${maxActive} and language capacity ${languageLimit}`,
+		);
+		this.name = "WarmIndexCapacityExceeded";
+	}
+}
+
+/** Raised by releaseWorkspaceIfIdle when a warm index for this workspace still has an active lease -- the caller must let the in-flight query finish and retry, never force-closed out from under it. */
+export class WarmIndexInUse extends Error {
+	constructor(readonly workspaceId: string) {
+		super(`cannot release workspace "${workspaceId}": a warm code-intelligence index for it still has an active lease`);
+		this.name = "WarmIndexInUse";
+	}
+}
+
+/** Raised when background admission is already waiting at maxQueuedBackgroundAdmissions -- fails fast rather than growing the wait queue without bound. */
+export class WarmIndexAdmissionQueueFull extends Error {
+	constructor(
+		readonly languageId: string,
+		readonly maxQueued: number,
+	) {
+		super(`background admission for language "${languageId}" is already waiting at capacity (${maxQueued} queued); retry later`);
+		this.name = "WarmIndexAdmissionQueueFull";
+	}
+}
+
+/** Raised when background admission waited backgroundAdmissionQueueTimeoutMs for a slot reserved for foreground work and none appeared -- a bounded, cancellable wait, not an indefinite one. */
+export class WarmIndexAdmissionQueueTimedOut extends Error {
+	constructor(
+		readonly languageId: string,
+		readonly timeoutMs: number,
+	) {
+		super(
+			`background admission for language "${languageId}" waited ${timeoutMs}ms for a warm-index slot and gave up -- foreground demand is holding every admittable slot`,
+		);
+		this.name = "WarmIndexAdmissionQueueTimedOut";
+	}
+}

@@ -6,6 +6,12 @@ import type { CodeIntelligencePort } from "../code-intelligence/port.ts";
 import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts";
 import type { WarmIndexResourcePolicy, WarmIndexResourceStatus } from "../code-intelligence/warm-index-resource-policy.ts";
 import type { FileChangeEvent } from "../file-watcher/file-change-event.ts";
+import { WarmIndexAdmissionQueueFull, WarmIndexAdmissionQueueTimedOut, WarmIndexCapacityExceeded, WarmIndexInUse } from "./errors.ts";
+
+// Re-exported for import-path stability -- these 4 errors moved to errors.ts (the established
+// home for every other service-layer error), but every existing call site importing them from
+// this module keeps working unchanged.
+export { WarmIndexAdmissionQueueFull, WarmIndexAdmissionQueueTimedOut, WarmIndexCapacityExceeded, WarmIndexInUse };
 
 /** A SymbolIndexPort the registry can shut down when its workspace goes cold. processId, when present, names the real subprocess process-cost calibration may sample -- undefined for backends with no subprocess of their own (tree-sitter, the TypeScript compiler API). */
 export type ClosableSymbolIndex = SymbolIndexPort & { close(): Promise<void>; isAlive?(): boolean; readonly processId?: number };
@@ -24,27 +30,6 @@ const DEFAULT_MAX_ACTIVE = 3;
 const DEFAULT_ABSOLUTE_MAX_ACTIVE = 32;
 const DEFAULT_LANGUAGE_LIMITS: Readonly<Record<string, number>> = Object.freeze({ c: 1, cpp: 1, typescript: 2 });
 
-export class WarmIndexCapacityExceeded extends Error {
-	constructor(
-		readonly languageId: string,
-		readonly maxActive: number,
-		readonly languageLimit: number,
-	) {
-		super(
-			`no idle code-intelligence server can be evicted to admit "${languageId}" within global capacity ${maxActive} and language capacity ${languageLimit}`,
-		);
-		this.name = "WarmIndexCapacityExceeded";
-	}
-}
-
-/** Raised by releaseWorkspaceIfIdle when a warm index for this workspace still has an active lease -- the caller must let the in-flight query finish and retry, never force-closed out from under it. */
-export class WarmIndexInUse extends Error {
-	constructor(readonly workspaceId: string) {
-		super(`cannot release workspace "${workspaceId}": a warm code-intelligence index for it still has an active lease`);
-		this.name = "WarmIndexInUse";
-	}
-}
-
 /**
  * Distinguishes an interactive human/agent-facing request (findSymbols, goToDefinition, rename,
  * cross-project search) from a self-scheduled background one (populateSymbolGraph). Foreground
@@ -53,30 +38,6 @@ export class WarmIndexInUse extends Error {
  * caller that never opts in keeps today's exact behavior.
  */
 export type WarmIndexWorkKind = "foreground" | "background";
-
-/** Raised when background admission is already waiting at maxQueuedBackgroundAdmissions -- fails fast rather than growing the wait queue without bound. */
-export class WarmIndexAdmissionQueueFull extends Error {
-	constructor(
-		readonly languageId: string,
-		readonly maxQueued: number,
-	) {
-		super(`background admission for language "${languageId}" is already waiting at capacity (${maxQueued} queued); retry later`);
-		this.name = "WarmIndexAdmissionQueueFull";
-	}
-}
-
-/** Raised when background admission waited backgroundAdmissionQueueTimeoutMs for a slot reserved for foreground work and none appeared -- a bounded, cancellable wait, not an indefinite one. */
-export class WarmIndexAdmissionQueueTimedOut extends Error {
-	constructor(
-		readonly languageId: string,
-		readonly timeoutMs: number,
-	) {
-		super(
-			`background admission for language "${languageId}" waited ${timeoutMs}ms for a warm-index slot and gave up -- foreground demand is holding every admittable slot`,
-		);
-		this.name = "WarmIndexAdmissionQueueTimedOut";
-	}
-}
 
 /**
  * Internal signal only: admit() throws this to tell acquireLanguageIndex "release the serialized
