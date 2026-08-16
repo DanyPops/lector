@@ -80,6 +80,15 @@ import { WorkspaceEntryNotFound } from "./workspace/raw-read.ts";
 export interface LectorService {
 	readonly operations: readonly OperationName[];
 	dispatch<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]>;
+	/**
+	 * The real VehicleRegistry backing the subset of `operations` already migrated onto
+	 * defineVehicleOperation/bindVehicleOperation (git, repo cache, mutation-history,
+	 * annotations, external-search -- see dispatch-through-registry.ts). Exposed so daemon.ts
+	 * can mount @danypops/vehicle-server/http's createVehicleHttpApp under /vehicle/*,
+	 * additive alongside the existing /api/v1/ops dispatch -- the same seam Papyrus's own
+	 * `service.vehicle` already serves createApp()'s /vehicle/* merge.
+	 */
+	readonly operationRegistry: VehicleRegistry;
 	/** Stops every warm symbol-index subprocess this service spawned. Idempotent. */
 	close(): Promise<void>;
 	/**
@@ -444,6 +453,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 
 	return {
 		operations: OPERATION_NAMES,
+		operationRegistry,
 		// Declared `async` deliberately, not just typed `Promise<...>`: a handler (e.g.
 		// resolveWorkspace's UnknownWorkspace) can throw synchronously, and only an `async`
 		// function body converts a synchronous throw into a rejected promise automatically.

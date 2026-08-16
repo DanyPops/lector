@@ -4,6 +4,7 @@ import type { Logger } from "@danypops/vehicle-server/logging";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
+import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { LanguageServerCostCalibrator } from "./code-intelligence/language-server-cost-calibrator.ts";
 import { createLinuxCgroupWarmIndexResourceSnapshot } from "./code-intelligence/linux-cgroup-warm-index-resources.ts";
 import { BoundedProcTreeCostObserver, type LanguageServerProcessCostObserverPort } from "./code-intelligence/lsp/language-server-process-cost-observer.ts";
@@ -31,13 +32,26 @@ import { SqliteSymbolGraph } from "./symbol-graph/sqlite-symbol-graph.ts";
 import { lectorVersion } from "./version.ts";
 import type { WorkspacePort } from "./workspace/port.ts";
 
-/** The Lector daemon's HTTP surface: Bearer-auth, health/ready, and the ops dispatch endpoint. */
-export function buildLectorApp(service: LectorService, token: string): { fetch(request: Request): Promise<Response> } {
+/**
+ * The Lector daemon's HTTP surface: Bearer-auth, health/ready, the legacy ops dispatch
+ * endpoint, and (additively) the real Vehicle wire protocol under /vehicle/* --
+ * @danypops/vehicle-server/http's createVehicleHttpApp mounted against the same
+ * `service.operationRegistry` dispatch-through-registry.ts already routes the 22
+ * already-migrated operations through server-side. Same merge shape Papyrus's own
+ * createApp() uses for `service.vehicle`. /api/v1/ops keeps serving every operation
+ * (migrated or not) exactly as before -- this is purely additive, no wire-format break
+ * for any existing LectorClient.
+ */
+export function buildLectorApp(service: LectorService, token: string, logger?: Logger): { fetch(request: Request): Promise<Response> } {
+	const vehicleApp = createVehicleHttpApp({ registry: service.operationRegistry, token, logger });
 	return {
 		async fetch(request: Request): Promise<Response> {
 			if (!requireBearerToken(request, token)) return errorResponse("unauthorized", 401);
 			const url = new URL(request.url);
 
+			if (url.pathname.startsWith("/vehicle/")) {
+				return vehicleApp.fetch(request);
+			}
 			if (request.method === "GET" && url.pathname === "/health") {
 				return healthResponse(lectorVersion());
 			}
@@ -256,7 +270,7 @@ function prepare(options: LectorDaemonOptions): {
 	// for indexes that go idle long before the daemon itself ever restarts.
 	return {
 		paths,
-		app: buildLectorApp(service, token),
+		app: buildLectorApp(service, token, options.logger),
 		pushChannel,
 		onShutdown: () => service.close(),
 		idleBudgetMs: options.idleBudgetMs,
