@@ -907,30 +907,43 @@ export default function (pi: ExtensionAPI) {
 				rootId: Type.Optional(Type.String({ description: "The subtree's root annotation id -- required for tree" })),
 				maxDepth: Type.Optional(Type.Number({ description: "Maximum containment hops from rootId to include -- required for tree" })),
 			}),
-			async execute(_toolCallId, params) {
+			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const path = resolve(cwd, params.path);
+				const vehicleCall: LectorVehicleCall = {
+					toolName: "symbol_annotations",
+					toolCallId,
+					signal,
+					onUpdate: onUpdate as LectorVehicleCall["onUpdate"],
+					context: ctx,
+				};
 				const details: SymbolAnnotationToolDetails = {};
 				let text: string;
 				if (params.action === "create") {
 					if (!params.subtype || !params.title || params.body === undefined || !params.anchors || params.anchors.length === 0) {
 						throw new Error("symbol_annotations create requires subtype, title, body, and at least one anchor");
 					}
-					const { annotation } = await symbolAnnotationOperations.create(path, params.subtype, params.title, params.body, resolveAnchorInputs(params.anchors));
+					const { annotation } = await symbolAnnotationOperations.create(
+						path,
+						params.subtype,
+						params.title,
+						params.body,
+						resolveAnchorInputs(params.anchors),
+						vehicleCall,
+					);
 					details.annotation = annotation;
 					text = formatAnnotationDetail(annotation);
 				} else if (params.action === "get") {
 					if (!params.id) throw new Error("symbol_annotations get requires id");
-					const { annotation } = await symbolAnnotationOperations.get(path, params.id);
+					const { annotation } = await symbolAnnotationOperations.get(path, params.id, vehicleCall);
 					details.annotation = annotation;
 					text = annotation ? formatAnnotationDetail(annotation) : `no annotation "${params.id}"`;
 				} else if (params.action === "list") {
 					const status = params.listStatus === "fresh" || params.listStatus === "stale" || params.listStatus === "scrubbed" ? params.listStatus : undefined;
-					const { annotations } = await symbolAnnotationOperations.list(path, {
-						subtype: params.listSubtype,
-						status,
-						maxResults: params.maxResults,
-						query: params.listQuery,
-					});
+					const { annotations } = await symbolAnnotationOperations.list(
+						path,
+						{ subtype: params.listSubtype, status, maxResults: params.maxResults, query: params.listQuery },
+						vehicleCall,
+					);
 					details.annotations = annotations;
 					text = annotations.length === 0 ? "no annotations" : annotations.map(formatAnnotationDetail).join("\n\n");
 				} else if (params.action === "refresh") {
@@ -944,32 +957,33 @@ export default function (pi: ExtensionAPI) {
 						params.title,
 						params.body,
 						resolveAnchorInputs(params.anchors),
+						vehicleCall,
 					);
 					details.annotation = annotation;
 					text = annotation ? formatAnnotationDetail(annotation) : `no annotation "${params.id}"`;
 				} else if (params.action === "scrub") {
 					if (!params.id) throw new Error("symbol_annotations scrub requires id");
-					const { scrubbed } = await symbolAnnotationOperations.scrub(path, params.id);
+					const { scrubbed } = await symbolAnnotationOperations.scrub(path, params.id, vehicleCall);
 					details.scrubbed = scrubbed;
 					text = scrubbed ? `scrubbed ${params.id}` : `"${params.id}" was already scrubbed or does not exist`;
 				} else if (params.action === "restore") {
 					if (!params.id) throw new Error("symbol_annotations restore requires id");
-					const { restored } = await symbolAnnotationOperations.restore(path, params.id);
+					const { restored } = await symbolAnnotationOperations.restore(path, params.id, vehicleCall);
 					details.restored = restored;
 					text = restored ? `restored ${params.id}` : `"${params.id}" was not scrubbed or does not exist`;
 				} else if (params.action === "contain") {
 					if (!params.parentId || !params.childId) throw new Error("symbol_annotations contain requires parentId and childId");
-					const { contained } = await symbolAnnotationOperations.contain(path, params.parentId, params.childId);
+					const { contained } = await symbolAnnotationOperations.contain(path, params.parentId, params.childId, vehicleCall);
 					details.contained = contained;
 					text = `"${params.parentId}" now contains "${params.childId}"`;
 				} else if (params.action === "uncontain") {
 					if (!params.parentId || !params.childId) throw new Error("symbol_annotations uncontain requires parentId and childId");
-					const { uncontained } = await symbolAnnotationOperations.uncontain(path, params.parentId, params.childId);
+					const { uncontained } = await symbolAnnotationOperations.uncontain(path, params.parentId, params.childId, vehicleCall);
 					details.uncontained = uncontained;
 					text = uncontained ? `"${params.parentId}" no longer contains "${params.childId}"` : `"${params.parentId}" did not contain "${params.childId}"`;
 				} else if (params.action === "tree") {
 					if (!params.rootId || params.maxDepth === undefined) throw new Error("symbol_annotations tree requires rootId and maxDepth");
-					const { annotations } = await symbolAnnotationOperations.tree(path, params.rootId, params.maxDepth);
+					const { annotations } = await symbolAnnotationOperations.tree(path, params.rootId, params.maxDepth, vehicleCall);
 					details.annotations = annotations;
 					text = annotations.length === 0 ? `no annotation "${params.rootId}"` : annotations.map(formatAnnotationDetail).join("\n\n");
 				} else {
