@@ -1,47 +1,57 @@
 import type { GitDiffResult, GitLogEntry, GitStatusSummary, OperationOutputs } from "@danypops/lector";
 import { lectorClient, withWorkspace, workspaceForDirectory } from "../lector-client.ts";
+import { invokeLectorVehicleOperation, type LectorVehicleCall } from "../vehicle-client.ts";
 
 type SymbolComparison = OperationOutputs["workspace.compareSymbolAcrossVersions"];
+
+/** Matches GIT_READ_PERMISSIONS' own declared value server-side (git/operation-registration.ts). */
+const GIT_READ_PERMISSIONS = ["workspace:read"];
 
 /**
  * Thin wrappers over Lector's read-only git operations. `directory` is
  * required, same convention as find_symbols -- no implicit "whatever the
  * session's cwd is" fallback.
+ *
+ * status/log/diff dispatch through invokeLectorVehicleOperation (the real VehicleRegistry-backed
+ * workspace.gitStatus/gitLog/gitDiff operations -- see Lector Phase 1/2 of the vehicle-client-pi
+ * adoption epic) instead of a bare lectorClient().call(), gaining activity broadcasting, the
+ * local /safety ask gate, and idempotency-key/correlationId derivation for free. compareSymbol
+ * (workspace.compareSymbolAcrossVersions) has not migrated onto VehicleRegistry server-side yet,
+ * so it stays on the legacy dispatch unchanged.
  */
 export interface GitOperations {
-	status(directory: string): Promise<GitStatusSummary>;
-	log(directory: string, maxCount: number): Promise<readonly GitLogEntry[]>;
-	diff(directory: string, ref: string | undefined, maxBytes: number): Promise<GitDiffResult>;
+	status(directory: string, call: LectorVehicleCall): Promise<GitStatusSummary>;
+	log(directory: string, maxCount: number, call: LectorVehicleCall): Promise<readonly GitLogEntry[]>;
+	diff(directory: string, ref: string | undefined, maxBytes: number, call: LectorVehicleCall): Promise<GitDiffResult>;
 	compareSymbol(directory: string, path: string, symbolName: string, fromRef: string, toRef: string | undefined, maxBytes: number): Promise<SymbolComparison>;
 }
 
 export function createLectorGitOperations(): GitOperations {
 	return {
-		async status(directory) {
+		async status(directory, call) {
 			return withWorkspace(
 				() => workspaceForDirectory(directory),
 				async ({ workspaceId }) => {
-					const client = await lectorClient();
-					return client.call("workspace.gitStatus", { workspaceId });
+					const result = await invokeLectorVehicleOperation("workspace.gitStatus", { workspaceId }, GIT_READ_PERMISSIONS, call);
+					return result.details.output as GitStatusSummary;
 				},
 			);
 		},
-		async log(directory, maxCount) {
+		async log(directory, maxCount, call) {
 			return withWorkspace(
 				() => workspaceForDirectory(directory),
 				async ({ workspaceId }) => {
-					const client = await lectorClient();
-					const { entries } = await client.call("workspace.gitLog", { workspaceId, maxCount });
-					return entries;
+					const result = await invokeLectorVehicleOperation("workspace.gitLog", { workspaceId, maxCount }, GIT_READ_PERMISSIONS, call);
+					return (result.details.output as { entries: readonly GitLogEntry[] }).entries;
 				},
 			);
 		},
-		async diff(directory, ref, maxBytes) {
+		async diff(directory, ref, maxBytes, call) {
 			return withWorkspace(
 				() => workspaceForDirectory(directory),
 				async ({ workspaceId }) => {
-					const client = await lectorClient();
-					return client.call("workspace.gitDiff", { workspaceId, ref, maxBytes });
+					const result = await invokeLectorVehicleOperation("workspace.gitDiff", { workspaceId, ref, maxBytes }, GIT_READ_PERMISSIONS, call);
+					return result.details.output as GitDiffResult;
 				},
 			);
 		},

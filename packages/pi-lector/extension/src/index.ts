@@ -91,6 +91,7 @@ import { formatFindFilesCall, formatFindFilesResult } from "./find-files/renderi
 import { createLectorFindSymbolsOperations } from "./find-symbols/operations.ts";
 import { describeFindSymbolSources, formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols/rendering.ts";
 import { createLectorGitOperations } from "./git/operations.ts";
+import type { LectorVehicleCall } from "./vehicle-client.ts";
 import { formatGitCall, formatGitResult, type GitToolDetails } from "./git/rendering.ts";
 import { nearestGitWorkspaceRoot, setNewWorkspaceObserver } from "./lector-client.ts";
 import { createLectorLineEditOperations } from "./line-edit/operations.ts";
@@ -1253,16 +1254,17 @@ export default function (pi: ExtensionAPI) {
 					Type.String({ description: "Git ref for the 'after' version; omit to compare against the current working tree -- action=compare-symbol only" }),
 				),
 			}),
-			async execute(_toolCallId, params) {
+			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const directory = resolve(cwd, params.directory);
+				const vehicleCall: LectorVehicleCall = { toolName: "git", toolCallId, signal, onUpdate: onUpdate as LectorVehicleCall["onUpdate"], context: ctx };
 				if (params.action === "status") {
-					const summary = await gitOperations.status(directory);
+					const summary = await gitOperations.status(directory, vehicleCall);
 					const details: GitToolDetails = { action: "status", summary };
 					return { content: [{ type: "text", text: JSON.stringify(summary) }], details };
 				}
 				if (params.action === "log") {
 					if (params.maxCount === undefined) throw new Error("git action=log requires maxCount");
-					const entries = await gitOperations.log(directory, params.maxCount);
+					const entries = await gitOperations.log(directory, params.maxCount, vehicleCall);
 					const text =
 						entries.length === 0 ? "No commits found." : entries.map((e) => `${e.sha.slice(0, 8)} ${e.authoredAt} ${e.authorName} -- ${e.message}`).join("\n");
 					const details: GitToolDetails = { action: "log", entries };
@@ -1270,7 +1272,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				if (params.action === "diff") {
 					if (params.maxBytes === undefined) throw new Error("git action=diff requires maxBytes");
-					const result = await gitOperations.diff(directory, params.ref, params.maxBytes);
+					const result = await gitOperations.diff(directory, params.ref, params.maxBytes, vehicleCall);
 					const details: GitToolDetails = { action: "diff", result };
 					return { content: [{ type: "text", text: result.diff.length === 0 ? "No differences." : result.diff }], details };
 				}

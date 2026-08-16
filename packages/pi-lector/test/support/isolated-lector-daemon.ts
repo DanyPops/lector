@@ -31,7 +31,7 @@ export async function startIsolatedLectorDaemon(
 		createGithubSearch?: () => GithubSearchPort;
 		createSourcegraphSearch?: () => SourcegraphSearchPort;
 	} = {},
-): Promise<{ client: LectorClient; stop: () => Promise<void> }> {
+): Promise<{ client: LectorClient; baseUrl: string; token: string; stop: () => Promise<void> }> {
 	const root = mkdtempSync(join(tmpdir(), "pi-lector-test-"));
 	const paths = resolveLectorPaths({
 		env: { XDG_DATA_HOME: root, XDG_STATE_HOME: root, XDG_RUNTIME_DIR: root, XDG_CONFIG_HOME: root },
@@ -46,10 +46,13 @@ export async function startIsolatedLectorDaemon(
 		createSourcegraphSearch: options.createSourcegraphSearch,
 	});
 	const token = readFileSync(paths.token, "utf8").trim();
-	const client = connectLectorClientAt(`http://${daemon.host}:${daemon.port}`, token);
+	const baseUrl = `http://${daemon.host}:${daemon.port}`;
+	const client = connectLectorClientAt(baseUrl, token);
 
 	return {
 		client,
+		baseUrl,
+		token,
 		stop: async () => {
 			await daemon.stop();
 			rmSync(root, { recursive: true, force: true });

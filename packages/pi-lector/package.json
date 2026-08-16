@@ -18,15 +18,18 @@
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*",
-		"typebox": "*"
+		"typebox": "*",
+		"@danypops/vehicle-client-pi": "^0.41.3"
 	},
 	"dependencies": {
-		"@danypops/vehicle-client": "^0.8.2",
-		"@danypops/lector": "^0.18.0",
+		"@danypops/vehicle-client": "^0.10.0",
+		"@danypops/vehicle-core": "^0.17.0",
+		"@danypops/lector": "^0.19.1",
 		"malevich-tui-components": "^0.25.0",
 		"picomatch": "^4.0.5"
 	},
 	"devDependencies": {
+		"@danypops/vehicle-client-pi": "^0.41.3",
 		"@danypops/pi-extension-harness": "^0.2.0",
 		"@danypops/pi-tui-harness": "^0.0.1",
 		"@earendil-works/pi-ai": "^0.81.1",
