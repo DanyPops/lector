@@ -1816,17 +1816,24 @@ export default function (pi: ExtensionAPI) {
 				}),
 				maxResults: Type.Optional(Type.Number({ description: "Maximum candidates to return (default 20)" })),
 			}),
-			async execute(_toolCallId, params): Promise<AgentToolResult<ExternalSearchToolDetails>> {
+			async execute(toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<ExternalSearchToolDetails>> {
 				const maxResults = params.maxResults ?? DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS;
+				const vehicleCall: LectorVehicleCall = {
+					toolName: "external_search",
+					toolCallId,
+					signal,
+					onUpdate: onUpdate as LectorVehicleCall["onUpdate"],
+					context: ctx,
+				};
 				if (params.action === "github_repos") {
-					const result = await externalSearchOperations.githubRepos(params.query, maxResults);
+					const result = await externalSearchOperations.githubRepos(params.query, maxResults, vehicleCall);
 					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "github_repos", result } };
 				}
 				if (params.action === "npm_packages") {
-					const result = await externalSearchOperations.npmPackages(params.query, maxResults);
+					const result = await externalSearchOperations.npmPackages(params.query, maxResults, vehicleCall);
 					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "npm_packages", result } };
 				}
-				const result = await externalSearchOperations.sourcegraphCode(params.query, maxResults);
+				const result = await externalSearchOperations.sourcegraphCode(params.query, maxResults, vehicleCall);
 				return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "sourcegraph_code", result } };
 			},
 			renderCall(args, theme, context) {
