@@ -20,7 +20,7 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@danypops/lector": "^0.18.21"
+		"@danypops/lector": "^0.19.0"
 	},
 	"devDependencies": {
 		"bun-types": "latest",

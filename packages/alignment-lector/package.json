@@ -11,7 +11,7 @@
   "scripts": { "test": "bun test", "typecheck": "tsc --noEmit" },
   "dependencies": {
     "@alignment/surface-protocol": "file:vendor/alignment-surface-protocol-0.0.1.tgz",
-    "@danypops/lector": "^0.18.0"
+    "@danypops/lector": "^0.19.0"
   },
   "devDependencies": { "bun-types": "latest", "typescript": "^5.9.3" },
   "repository": { "type": "git", "url": "git+https://github.com/DanyPops/lector.git", "directory": "packages/alignment-lector" },
