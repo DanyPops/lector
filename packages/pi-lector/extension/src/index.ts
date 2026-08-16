@@ -1727,15 +1727,23 @@ export default function (pi: ExtensionAPI) {
 				maxResults: Type.Optional(Type.Number({ description: "Required for action=list -- maximum entries to return in this page" })),
 				cursor: Type.Optional(Type.String({ description: "action=list only -- opaque cursor from a prior call's nextCursor, to fetch the next page" })),
 			}),
-			async execute(_toolCallId, params): Promise<AgentToolResult<RepoCacheToolDetails>> {
+			async execute(toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<RepoCacheToolDetails>> {
+				const vehicleCall: LectorVehicleCall = { toolName: "repo_cache", toolCallId, signal, onUpdate: onUpdate as LectorVehicleCall["onUpdate"], context: ctx };
 				if (params.action === "fetch") {
 					if (!params.owner || !params.repo) throw new Error("repo_cache action=fetch requires owner and repo");
-					const result = await repoFetchOperations.fetch(params.host ?? "github.com", params.owner, params.repo, params.ref ?? null, params.forceRefresh);
+					const result = await repoFetchOperations.fetch(
+						params.host ?? "github.com",
+						params.owner,
+						params.repo,
+						params.ref ?? null,
+						params.forceRefresh,
+						vehicleCall,
+					);
 					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "fetch", result } };
 				}
 				if (params.action === "evict") {
 					if (!params.owner || !params.repo) throw new Error("repo_cache action=evict requires owner and repo");
-					const result = await repoCacheEvictOperations.evict(params.host ?? "github.com", params.owner, params.repo, params.ref ?? null);
+					const result = await repoCacheEvictOperations.evict(params.host ?? "github.com", params.owner, params.repo, params.ref ?? null, vehicleCall);
 					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "evict", result } };
 				}
 				if (params.maxResults === undefined) throw new Error("repo_cache action=list requires maxResults");
@@ -1743,6 +1751,7 @@ export default function (pi: ExtensionAPI) {
 					{ text: params.text, host: params.host, owner: params.owner, repo: params.repo, ref: params.ref },
 					params.maxResults,
 					params.cursor,
+					vehicleCall,
 				);
 				return { content: [{ type: "text", text: JSON.stringify(page) }], details: { action: "list", page } };
 			},

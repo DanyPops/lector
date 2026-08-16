@@ -1,7 +1,8 @@
 /**
  * repo_cache_evict against a real local git repository standing in for "the remote", injected
  * via the daemon's own createRepoFetcher override -- no live network, same discipline
- * repo-fetch-operations.test.ts already uses.
+ * repo-fetch-operations.test.ts already uses. Dispatches through the daemon's real Vehicle
+ * protocol (/vehicle/manifest, /vehicle/invoke) -- see vehicle-client.ts.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
@@ -9,11 +10,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GitRepoFetcher } from "@danypops/lector";
-import { resetLectorClientForTests, setLectorClientConnectorForTests } from "../../extension/src/lector-client.ts";
+import { resetLectorClientForTests } from "../../extension/src/lector-client.ts";
 import { createRepoCacheEvictOperations } from "../../extension/src/repo-cache/evict-operations.ts";
 import { createLectorRepoFetchOperations } from "../../extension/src/repo-fetch/operations.ts";
-import { startIsolatedLectorDaemon } from "../support/isolated-lector-daemon.ts";
+import { resetLectorVehicleClientForTests } from "../../extension/src/vehicle-client.ts";
 import { requireDefined } from "../support/require-defined.ts";
+import { wireVehicleDaemon } from "../support/wire-vehicle-daemon.ts";
 
 let sourceRepo: string | undefined;
 let reposDir: string | undefined;
@@ -21,6 +23,7 @@ let stopDaemon: (() => Promise<void>) | undefined;
 
 afterEach(async () => {
 	resetLectorClientForTests();
+	resetLectorVehicleClientForTests();
 	await stopDaemon?.();
 	stopDaemon = undefined;
 	if (sourceRepo) rmSync(sourceRepo, { recursive: true, force: true });
@@ -48,29 +51,29 @@ describe("Lector-backed repo_cache_evict operations", () => {
 	it("returns evicted: false for a reference that was never fetched", async () => {
 		sourceRepo = buildSourceRepo();
 		reposDir = mkdtempSync(join(tmpdir(), "pi-lector-repo-cache-evict-cache-"));
-		const daemon = await startIsolatedLectorDaemon({
+		const daemon = await wireVehicleDaemon({
 			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
 		});
 		stopDaemon = daemon.stop;
-		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
 		const evictOps = createRepoCacheEvictOperations();
-		await expect(evictOps.evict("local-fixture", "acme", "widgets", null)).resolves.toEqual({ evicted: false });
+		await expect(evictOps.evict("local-fixture", "acme", "widgets", null, await daemon.call("repo_cache"))).resolves.toEqual({ evicted: false });
 	}, 20_000);
 
 	it("refuses to evict a currently-registered workspace, surfacing the real RepoCacheEntryInUse error", async () => {
 		sourceRepo = buildSourceRepo();
 		reposDir = mkdtempSync(join(tmpdir(), "pi-lector-repo-cache-evict-cache-"));
-		const daemon = await startIsolatedLectorDaemon({
+		const daemon = await wireVehicleDaemon({
 			createRepoFetcher: () => new GitRepoFetcher(requireDefined(reposDir, "reposDir"), { resolveCloneUrl: () => requireDefined(sourceRepo, "sourceRepo") }),
 		});
 		stopDaemon = daemon.stop;
-		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 
 		const fetchOps = createLectorRepoFetchOperations();
-		await fetchOps.fetch("local-fixture", "acme", "widgets", null);
+		await fetchOps.fetch("local-fixture", "acme", "widgets", null, undefined, await daemon.call("repo_cache"));
 
 		const evictOps = createRepoCacheEvictOperations();
-		await expect(evictOps.evict("local-fixture", "acme", "widgets", null)).rejects.toThrow(/RepoCacheEntryInUse|still registered/);
+		await expect(evictOps.evict("local-fixture", "acme", "widgets", null, await daemon.call("repo_cache"))).rejects.toThrow(
+			/RepoCacheEntryInUse|still registered/,
+		);
 	}, 20_000);
 });
