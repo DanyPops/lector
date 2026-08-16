@@ -1545,11 +1545,18 @@ export default function (pi: ExtensionAPI) {
 				maxResults: Type.Optional(Type.Number({ description: "Required for action=list -- maximum entries to return, newest first" })),
 				entryId: Type.Optional(Type.String({ description: "Required for action=revert -- an id returned by a prior action=list" })),
 			}),
-			async execute(_toolCallId, params): Promise<AgentToolResult<MutationHistoryToolDetails>> {
+			async execute(toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<MutationHistoryToolDetails>> {
 				const absolutePath = resolve(cwd, params.path);
+				const vehicleCall: LectorVehicleCall = {
+					toolName: "mutation_history",
+					toolCallId,
+					signal,
+					onUpdate: onUpdate as LectorVehicleCall["onUpdate"],
+					context: ctx,
+				};
 				if (params.action === "list") {
 					if (params.maxResults === undefined) throw new Error("mutation_history action=list requires maxResults");
-					const entries = await mutationHistoryOperations.list(absolutePath, params.maxResults);
+					const entries = await mutationHistoryOperations.list(absolutePath, params.maxResults, vehicleCall);
 					const text =
 						entries.length === 0
 							? "no recorded mutation history for this path"
@@ -1557,7 +1564,7 @@ export default function (pi: ExtensionAPI) {
 					return { content: [{ type: "text", text }], details: { action: "list", entries } };
 				}
 				if (params.entryId === undefined) throw new Error("mutation_history action=revert requires entryId");
-				const reverted = await mutationHistoryOperations.revert(absolutePath, params.entryId);
+				const reverted = await mutationHistoryOperations.revert(absolutePath, params.entryId, vehicleCall);
 				return {
 					content: [{ type: "text", text: `${reverted.path} reverted -> ${reverted.newHash ?? "(deleted)"}` }],
 					details: { action: "revert", reverted },

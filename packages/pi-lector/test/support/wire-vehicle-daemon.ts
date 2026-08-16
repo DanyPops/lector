@@ -6,6 +6,7 @@
  * via @danypops/pi-extension-harness for invokeVehicleOperation's own context param.
  */
 import { createExtensionHarness } from "@danypops/pi-extension-harness";
+import type { LectorClient } from "@danypops/lector";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { setLectorClientConnectorForTests } from "../../extension/src/lector-client.ts";
@@ -17,13 +18,19 @@ let nextToolCallId = 0;
 export async function wireVehicleDaemon(
 	options: Parameters<typeof startIsolatedLectorDaemon>[0] = {},
 	cwd: string = process.cwd(),
-): Promise<{ stop: () => Promise<void>; call: (toolName: string) => Promise<{ toolName: string; toolCallId: string; context: ExtensionContext }> }> {
+): Promise<{
+	stop: () => Promise<void>;
+	/** The legacy LectorClient, still needed for any not-yet-migrated operation (e.g. workspace.registerPath/exactEdit/rawRead). */
+	client: LectorClient;
+	call: (toolName: string) => Promise<{ toolName: string; toolCallId: string; context: ExtensionContext }>;
+}> {
 	const daemon = await startIsolatedLectorDaemon(options);
 	setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
 	setLectorVehicleClientConnectorForTests(() => Promise.resolve(new RemoteVehicleClient({ baseUrl: daemon.baseUrl, token: daemon.token })));
 
 	return {
 		stop: daemon.stop,
+		client: daemon.client,
 		call: async (toolName: string) => {
 			const h = createExtensionHarness(async () => {}, { cwd });
 			await h.boot();
