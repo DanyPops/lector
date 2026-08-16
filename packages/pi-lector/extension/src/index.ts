@@ -91,7 +91,6 @@ import { formatFindFilesCall, formatFindFilesResult } from "./find-files/renderi
 import { createLectorFindSymbolsOperations } from "./find-symbols/operations.ts";
 import { describeFindSymbolSources, formatFindSymbolsCall, formatFindSymbolsResult } from "./find-symbols/rendering.ts";
 import { createLectorGitOperations } from "./git/operations.ts";
-import type { LectorVehicleCall } from "./vehicle-client.ts";
 import { formatGitCall, formatGitResult, type GitToolDetails } from "./git/rendering.ts";
 import { nearestGitWorkspaceRoot, setNewWorkspaceObserver } from "./lector-client.ts";
 import { createLectorLineEditOperations } from "./line-edit/operations.ts";
@@ -129,6 +128,7 @@ import { createLectorSearchOperations } from "./search/operations.ts";
 import { formatSearchCall, formatSearchResult } from "./search/rendering.ts";
 import { type AnnotationAnchorInput, createLectorSymbolAnnotationOperations } from "./symbol-annotation/operations.ts";
 import { formatAnnotationDetail, formatAnnotationListSummary, formatAnnotationSummary } from "./symbol-annotation/rendering.ts";
+import type { LectorVehicleCall } from "./vehicle-client.ts";
 import {
 	type CachePresentationState,
 	cacheContextMessage,
@@ -907,13 +907,12 @@ export default function (pi: ExtensionAPI) {
 				rootId: Type.Optional(Type.String({ description: "The subtree's root annotation id -- required for tree" })),
 				maxDepth: Type.Optional(Type.Number({ description: "Maximum containment hops from rootId to include -- required for tree" })),
 			}),
-			async execute(toolCallId, params, signal, onUpdate, ctx) {
+			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<SymbolAnnotationToolDetails>> {
 				const path = resolve(cwd, params.path);
 				const vehicleCall: LectorVehicleCall = {
 					toolName: "symbol_annotations",
 					toolCallId,
 					signal,
-					onUpdate: onUpdate as LectorVehicleCall["onUpdate"],
 					context: ctx,
 				};
 				const details: SymbolAnnotationToolDetails = {};
@@ -1268,9 +1267,9 @@ export default function (pi: ExtensionAPI) {
 					Type.String({ description: "Git ref for the 'after' version; omit to compare against the current working tree -- action=compare-symbol only" }),
 				),
 			}),
-			async execute(toolCallId, params, signal, onUpdate, ctx) {
+			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<GitToolDetails>> {
 				const directory = resolve(cwd, params.directory);
-				const vehicleCall: LectorVehicleCall = { toolName: "git", toolCallId, signal, onUpdate: onUpdate as LectorVehicleCall["onUpdate"], context: ctx };
+				const vehicleCall: LectorVehicleCall = { toolName: "git", toolCallId, signal, context: ctx };
 				if (params.action === "status") {
 					const summary = await gitOperations.status(directory, vehicleCall);
 					const details: GitToolDetails = { action: "status", summary };
@@ -1545,13 +1544,12 @@ export default function (pi: ExtensionAPI) {
 				maxResults: Type.Optional(Type.Number({ description: "Required for action=list -- maximum entries to return, newest first" })),
 				entryId: Type.Optional(Type.String({ description: "Required for action=revert -- an id returned by a prior action=list" })),
 			}),
-			async execute(toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<MutationHistoryToolDetails>> {
+			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<MutationHistoryToolDetails>> {
 				const absolutePath = resolve(cwd, params.path);
 				const vehicleCall: LectorVehicleCall = {
 					toolName: "mutation_history",
 					toolCallId,
 					signal,
-					onUpdate: onUpdate as LectorVehicleCall["onUpdate"],
 					context: ctx,
 				};
 				if (params.action === "list") {
@@ -1734,8 +1732,13 @@ export default function (pi: ExtensionAPI) {
 				maxResults: Type.Optional(Type.Number({ description: "Required for action=list -- maximum entries to return in this page" })),
 				cursor: Type.Optional(Type.String({ description: "action=list only -- opaque cursor from a prior call's nextCursor, to fetch the next page" })),
 			}),
-			async execute(toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<RepoCacheToolDetails>> {
-				const vehicleCall: LectorVehicleCall = { toolName: "repo_cache", toolCallId, signal, onUpdate: onUpdate as LectorVehicleCall["onUpdate"], context: ctx };
+			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<RepoCacheToolDetails>> {
+				const vehicleCall: LectorVehicleCall = {
+					toolName: "repo_cache",
+					toolCallId,
+					signal,
+					context: ctx,
+				};
 				if (params.action === "fetch") {
 					if (!params.owner || !params.repo) throw new Error("repo_cache action=fetch requires owner and repo");
 					const result = await repoFetchOperations.fetch(
@@ -1823,13 +1826,12 @@ export default function (pi: ExtensionAPI) {
 				}),
 				maxResults: Type.Optional(Type.Number({ description: "Maximum candidates to return (default 20)" })),
 			}),
-			async execute(toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<ExternalSearchToolDetails>> {
+			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<ExternalSearchToolDetails>> {
 				const maxResults = params.maxResults ?? DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS;
 				const vehicleCall: LectorVehicleCall = {
 					toolName: "external_search",
 					toolCallId,
 					signal,
-					onUpdate: onUpdate as LectorVehicleCall["onUpdate"],
 					context: ctx,
 				};
 				if (params.action === "github_repos") {

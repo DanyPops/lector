@@ -24,9 +24,13 @@ export interface RepoFetchOperations {
 
 export function createLectorRepoFetchOperations(): RepoFetchOperations {
 	return {
-		async fetch(host, owner, repo, ref, forceRefresh, call) {
-			const result = await invokeLectorVehicleOperation("repo.fetch", { host, owner, repo, ref, forceRefresh }, REPO_WRITE_PERMISSIONS, call);
-			return result.details.output as RepoFetchResult & { workspaceId: string };
+		fetch(host, owner, repo, ref, forceRefresh, call) {
+			return invokeLectorVehicleOperation<RepoFetchResult & { workspaceId: string }>(
+				"repo.fetch",
+				{ host, owner, repo, ref, forceRefresh },
+				REPO_WRITE_PERMISSIONS,
+				call,
+			);
 		},
 	};
 }

@@ -57,107 +57,109 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 		async create(path, subtype, title, body, anchors, call) {
 			return withWorkspace(
 				() => workspaceForAnnotationPath(path),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation(
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<OperationOutputs["workspace.createAnnotation"]>(
 						"workspace.createAnnotation",
 						{ workspaceId, subtype, title, body, anchors },
 						ANNOTATION_WRITE_PERMISSIONS,
 						call,
-					);
-					return result.details.output as OperationOutputs["workspace.createAnnotation"];
-				},
+					),
 			);
 		},
 		async get(path, id, call) {
 			return withWorkspace(
 				() => workspaceForAnnotationPath(path),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation("workspace.getAnnotation", { workspaceId, id }, ANNOTATION_READ_PERMISSIONS, call);
-					return result.details.output as OperationOutputs["workspace.getAnnotation"];
-				},
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<OperationOutputs["workspace.getAnnotation"]>(
+						"workspace.getAnnotation",
+						{ workspaceId, id },
+						ANNOTATION_READ_PERMISSIONS,
+						call,
+					),
 			);
 		},
 		async list(path, options, call) {
 			return withWorkspace(
 				() => workspaceForAnnotationPath(path),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation(
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<OperationOutputs["workspace.listAnnotations"]>(
 						"workspace.listAnnotations",
 						{ workspaceId, subtype: options.subtype, status: options.status, maxResults: options.maxResults, query: options.query },
 						ANNOTATION_READ_PERMISSIONS,
 						call,
-					);
-					return result.details.output as OperationOutputs["workspace.listAnnotations"];
-				},
+					),
 			);
 		},
 		async refresh(path, id, subtype, title, body, anchors, call) {
 			return withWorkspace(
 				() => workspaceForAnnotationPath(path),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation(
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<OperationOutputs["workspace.refreshAnnotation"]>(
 						"workspace.refreshAnnotation",
 						{ workspaceId, id, subtype, title, body, anchors },
 						ANNOTATION_WRITE_PERMISSIONS,
 						call,
-					);
-					return result.details.output as OperationOutputs["workspace.refreshAnnotation"];
-				},
+					),
 			);
 		},
 		async scrub(path, id, call) {
 			return withWorkspace(
 				() => workspaceForAnnotationPath(path),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation("workspace.scrubAnnotation", { workspaceId, id }, ANNOTATION_WRITE_PERMISSIONS, call);
-					return result.details.output as OperationOutputs["workspace.scrubAnnotation"];
-				},
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<OperationOutputs["workspace.scrubAnnotation"]>(
+						"workspace.scrubAnnotation",
+						{ workspaceId, id },
+						ANNOTATION_WRITE_PERMISSIONS,
+						call,
+					),
 			);
 		},
 		async restore(path, id, call) {
 			return withWorkspace(
 				() => workspaceForAnnotationPath(path),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation("workspace.restoreAnnotation", { workspaceId, id }, ANNOTATION_WRITE_PERMISSIONS, call);
-					return result.details.output as OperationOutputs["workspace.restoreAnnotation"];
-				},
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<OperationOutputs["workspace.restoreAnnotation"]>(
+						"workspace.restoreAnnotation",
+						{ workspaceId, id },
+						ANNOTATION_WRITE_PERMISSIONS,
+						call,
+					),
 			);
 		},
 		async contain(path, parentId, childId, call) {
 			return withWorkspace(
 				() => workspaceForAnnotationPath(path),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation(
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<OperationOutputs["workspace.containAnnotation"]>(
 						"workspace.containAnnotation",
 						{ workspaceId, parentId, childId },
 						ANNOTATION_WRITE_PERMISSIONS,
 						call,
-					);
-					return result.details.output as OperationOutputs["workspace.containAnnotation"];
-				},
+					),
 			);
 		},
 		async uncontain(path, parentId, childId, call) {
 			return withWorkspace(
 				() => workspaceForAnnotationPath(path),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation(
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<OperationOutputs["workspace.uncontainAnnotation"]>(
 						"workspace.uncontainAnnotation",
 						{ workspaceId, parentId, childId },
 						ANNOTATION_WRITE_PERMISSIONS,
 						call,
-					);
-					return result.details.output as OperationOutputs["workspace.uncontainAnnotation"];
-				},
+					),
 			);
 		},
 		async tree(path, rootId, maxDepth, call) {
 			return withWorkspace(
 				() => workspaceForAnnotationPath(path),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation("workspace.annotationTree", { workspaceId, rootId, maxDepth }, ANNOTATION_READ_PERMISSIONS, call);
-					return result.details.output as OperationOutputs["workspace.annotationTree"];
-				},
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<OperationOutputs["workspace.annotationTree"]>(
+						"workspace.annotationTree",
+						{ workspaceId, rootId, maxDepth },
+						ANNOTATION_READ_PERMISSIONS,
+						call,
+					),
 			);
 		},
 	};

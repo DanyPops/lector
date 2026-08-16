@@ -31,28 +31,27 @@ export function createLectorGitOperations(): GitOperations {
 		async status(directory, call) {
 			return withWorkspace(
 				() => workspaceForDirectory(directory),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation("workspace.gitStatus", { workspaceId }, GIT_READ_PERMISSIONS, call);
-					return result.details.output as GitStatusSummary;
-				},
+				({ workspaceId }) => invokeLectorVehicleOperation<GitStatusSummary>("workspace.gitStatus", { workspaceId }, GIT_READ_PERMISSIONS, call),
 			);
 		},
 		async log(directory, maxCount, call) {
 			return withWorkspace(
 				() => workspaceForDirectory(directory),
 				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation("workspace.gitLog", { workspaceId, maxCount }, GIT_READ_PERMISSIONS, call);
-					return (result.details.output as { entries: readonly GitLogEntry[] }).entries;
+					const { entries } = await invokeLectorVehicleOperation<{ entries: readonly GitLogEntry[] }>(
+						"workspace.gitLog",
+						{ workspaceId, maxCount },
+						GIT_READ_PERMISSIONS,
+						call,
+					);
+					return entries;
 				},
 			);
 		},
 		async diff(directory, ref, maxBytes, call) {
 			return withWorkspace(
 				() => workspaceForDirectory(directory),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation("workspace.gitDiff", { workspaceId, ref, maxBytes }, GIT_READ_PERMISSIONS, call);
-					return result.details.output as GitDiffResult;
-				},
+				({ workspaceId }) => invokeLectorVehicleOperation<GitDiffResult>("workspace.gitDiff", { workspaceId, ref, maxBytes }, GIT_READ_PERMISSIONS, call),
 			);
 		},
 		async compareSymbol(directory, path, symbolName, fromRef, toRef, maxBytes) {

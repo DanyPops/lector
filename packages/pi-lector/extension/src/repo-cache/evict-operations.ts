@@ -15,9 +15,8 @@ export interface RepoCacheEvictOperations {
 
 export function createRepoCacheEvictOperations(): RepoCacheEvictOperations {
 	return {
-		async evict(host, owner, repo, ref, call) {
-			const result = await invokeLectorVehicleOperation("repo.evictCache", { host, owner, repo, ref }, REPO_WRITE_PERMISSIONS, call);
-			return result.details.output as { evicted: boolean };
+		evict(host, owner, repo, ref, call) {
+			return invokeLectorVehicleOperation<{ evicted: boolean }>("repo.evictCache", { host, owner, repo, ref }, REPO_WRITE_PERMISSIONS, call);
 		},
 	};
 }

@@ -17,17 +17,24 @@ export interface ExternalSearchOperations {
 
 export function createExternalSearchOperations(): ExternalSearchOperations {
 	return {
-		async githubRepos(query, maxResults, call) {
-			const result = await invokeLectorVehicleOperation("search.githubRepos", { query, maxResults }, EXTERNAL_SEARCH_PERMISSIONS, call);
-			return result.details.output as GithubRepoSearchResult;
+		githubRepos(query, maxResults, call) {
+			return invokeLectorVehicleOperation<GithubRepoSearchResult>("search.githubRepos", { query, maxResults }, EXTERNAL_SEARCH_PERMISSIONS, call);
 		},
-		async npmPackages(query, maxResults, call) {
-			const result = await invokeLectorVehicleOperation("search.npmPackages", { query, maxResults }, EXTERNAL_SEARCH_PERMISSIONS, call);
-			return result.details.output as { candidates: readonly NpmPackageCandidate[] };
+		npmPackages(query, maxResults, call) {
+			return invokeLectorVehicleOperation<{ candidates: readonly NpmPackageCandidate[] }>(
+				"search.npmPackages",
+				{ query, maxResults },
+				EXTERNAL_SEARCH_PERMISSIONS,
+				call,
+			);
 		},
-		async sourcegraphCode(query, maxResults, call) {
-			const result = await invokeLectorVehicleOperation("search.sourcegraphCode", { query, maxResults }, EXTERNAL_SEARCH_PERMISSIONS, call);
-			return result.details.output as { candidates: readonly SourcegraphCodeCandidate[] };
+		sourcegraphCode(query, maxResults, call) {
+			return invokeLectorVehicleOperation<{ candidates: readonly SourcegraphCodeCandidate[] }>(
+				"search.sourcegraphCode",
+				{ query, maxResults },
+				EXTERNAL_SEARCH_PERMISSIONS,
+				call,
+			);
 		},
 	};
 }

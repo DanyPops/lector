@@ -24,23 +24,26 @@ export function createMutationHistoryOperations(): MutationHistoryOperations {
 				() => workspaceForPath(absolutePath),
 				async ({ workspaceId, root }) => {
 					const path = toWorkspaceRelativePath(root, absolutePath);
-					const result = await invokeLectorVehicleOperation(
+					const { entries } = await invokeLectorVehicleOperation<{ entries: readonly MutationHistoryEntry[] }>(
 						"workspace.mutationHistory",
 						{ workspaceId, path, maxResults },
 						MUTATION_HISTORY_READ_PERMISSIONS,
 						call,
 					);
-					return (result.details.output as { entries: readonly MutationHistoryEntry[] }).entries;
+					return entries;
 				},
 			);
 		},
 		revert(absolutePath, entryId, call) {
 			return withWorkspace(
 				() => workspaceForPath(absolutePath),
-				async ({ workspaceId }) => {
-					const result = await invokeLectorVehicleOperation("workspace.revertMutation", { workspaceId, entryId }, MUTATION_HISTORY_WRITE_PERMISSIONS, call);
-					return result.details.output as { path: string; newHash: string | null };
-				},
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<{ path: string; newHash: string | null }>(
+						"workspace.revertMutation",
+						{ workspaceId, entryId },
+						MUTATION_HISTORY_WRITE_PERMISSIONS,
+						call,
+					),
 			);
 		},
 	};

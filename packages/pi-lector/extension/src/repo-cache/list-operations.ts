@@ -21,9 +21,8 @@ export interface RepoCacheListOperations {
 
 export function createRepoCacheListOperations(): RepoCacheListOperations {
 	return {
-		async list(filters, maxResults, cursor, call) {
-			const result = await invokeLectorVehicleOperation("repo.listCache", { ...filters, maxResults, cursor }, REPO_LIST_CACHE_PERMISSIONS, call);
-			return result.details.output as CachedRepositoryPage;
+		list(filters, maxResults, cursor, call) {
+			return invokeLectorVehicleOperation<CachedRepositoryPage>("repo.listCache", { ...filters, maxResults, cursor }, REPO_LIST_CACHE_PERMISSIONS, call);
 		},
 	};
 }

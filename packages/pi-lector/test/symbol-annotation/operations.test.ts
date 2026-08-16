@@ -21,8 +21,8 @@ import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createLectorCodeIntelligenceOperations } from "../../extension/src/code-intelligence/operations.ts";
 import { resetLectorClientForTests, setLectorClientConnectorForTests } from "../../extension/src/lector-client.ts";
-import { type LectorVehicleCall, resetLectorVehicleClientForTests, setLectorVehicleClientConnectorForTests } from "../../extension/src/vehicle-client.ts";
 import { createLectorSymbolAnnotationOperations } from "../../extension/src/symbol-annotation/operations.ts";
+import { type LectorVehicleCall, resetLectorVehicleClientForTests, setLectorVehicleClientConnectorForTests } from "../../extension/src/vehicle-client.ts";
 import { startIsolatedLectorDaemon } from "../support/isolated-lector-daemon.ts";
 
 let projectDir: string | undefined;

@@ -103,16 +103,19 @@ describe("Lector daemon's /vehicle/* surface (createVehicleHttpApp, additive alo
 			isolated.cleanup();
 		};
 
-		const legacyClient = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(
-			`http://${daemon.host}:${daemon.port}`,
-			token,
-			{ label: "Lector" },
-		);
+		const legacyClient = new AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>(`http://${daemon.host}:${daemon.port}`, token, {
+			label: "Lector",
+		});
 		const { workspaceId } = await legacyClient.call("workspace.registerPath", { path: root });
 		const legacyResult = await legacyClient.call("workspace.gitLog", { workspaceId, maxCount: 10 });
 
 		const vehicleClient = new RemoteVehicleClient({ baseUrl: `http://${daemon.host}:${daemon.port}`, token });
-		const vehicleResult = (await vehicleClient.invoke("workspace.gitLog", 1, { workspaceId, maxCount: 10 }, { permissions: ["workspace:read"] })) as typeof legacyResult;
+		const vehicleResult = (await vehicleClient.invoke(
+			"workspace.gitLog",
+			1,
+			{ workspaceId, maxCount: 10 },
+			{ permissions: ["workspace:read"] },
+		)) as typeof legacyResult;
 		expect(vehicleResult).toEqual(legacyResult);
 		expect(vehicleResult.entries[0]?.message).toBe("initial commit");
 

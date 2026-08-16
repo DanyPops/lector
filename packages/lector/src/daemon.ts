@@ -1,10 +1,10 @@
 import { dirname, join } from "node:path";
 import { type MaintenanceTask, type RunningDaemon, runDaemonProcess, startDaemon } from "@danypops/vehicle-server/daemon";
+import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
-import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { LanguageServerCostCalibrator } from "./code-intelligence/language-server-cost-calibrator.ts";
 import { createLinuxCgroupWarmIndexResourceSnapshot } from "./code-intelligence/linux-cgroup-warm-index-resources.ts";
 import { BoundedProcTreeCostObserver, type LanguageServerProcessCostObserverPort } from "./code-intelligence/lsp/language-server-process-cost-observer.ts";

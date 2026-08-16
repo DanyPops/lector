@@ -5,8 +5,9 @@
  * /vehicle/* on the exact same port/token as /api/v1/ops), and builds a real ExtensionContext
  * via @danypops/pi-extension-harness for invokeVehicleOperation's own context param.
  */
-import { createExtensionHarness } from "@danypops/pi-extension-harness";
+
 import type { LectorClient } from "@danypops/lector";
+import { createExtensionHarness } from "@danypops/pi-extension-harness";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { setLectorClientConnectorForTests } from "../../extension/src/lector-client.ts";
