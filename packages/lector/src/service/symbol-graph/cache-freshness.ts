@@ -17,11 +17,7 @@ export interface CacheFreshnessHelpers {
 	captureGitHeadShaIfClean(rootPath: string): Promise<string | undefined>;
 	isCacheFreshViaGit(rootPath: string, recordedHeadSha: string): Promise<boolean>;
 	closeWarmIndexesForWorkspace(workspaceId: WorkspaceId): Promise<void>;
-	refreshRemoteWorkspaceIfMoved(
-		workspaceId: WorkspaceId,
-		entry: RegisteredWorkspace,
-		previousGeneration: SymbolGraphGeneration | undefined,
-	): Promise<void>;
+	refreshRemoteWorkspaceIfMoved(workspaceId: WorkspaceId, entry: RegisteredWorkspace, previousGeneration: SymbolGraphGeneration | undefined): Promise<void>;
 }
 
 /**

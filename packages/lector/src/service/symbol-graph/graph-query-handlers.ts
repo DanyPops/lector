@@ -1,6 +1,6 @@
 import { boundListFromStart, jsonByteSize } from "../../bounds/bound-list.ts";
-import { reachableSymbolsFrom } from "../../symbol-graph/reachable-symbols-from.ts";
 import type { SymbolGraphPort, SymbolNode } from "../../symbol-graph/port.ts";
+import { reachableSymbolsFrom } from "../../symbol-graph/reachable-symbols-from.ts";
 import { symbolEdgesFrom } from "../../symbol-graph/symbol-edges-from.ts";
 import { symbolEdgesTo } from "../../symbol-graph/symbol-edges-to.ts";
 import { deriveSymbolNodeId } from "../../symbol-graph/symbol-node-id.ts";

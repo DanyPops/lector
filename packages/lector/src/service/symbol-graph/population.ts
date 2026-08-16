@@ -11,7 +11,14 @@ import { purgeFilesNoLongerWalked } from "../../symbol-graph/purge-stale-graph-e
 import { diffFileHashes } from "../../symbol-graph/select-files-to-reprocess.ts";
 import { classifyAutoPopulationRoot } from "../../workspace/classify-auto-population-root.ts";
 import { deriveSourceManifest } from "../../workspace/source-manifest.ts";
-import { MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP, MAX_POPULATE_RETRY_BUDGET_MS, MAX_SOURCE_MANIFEST_BYTES, POPULATE_RETRY_SETTLE_MS, POPULATION_CONCURRENCY, resolveRetryBudgetMs } from "../bounds.ts";
+import {
+	MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP,
+	MAX_POPULATE_RETRY_BUDGET_MS,
+	MAX_SOURCE_MANIFEST_BYTES,
+	POPULATE_RETRY_SETTLE_MS,
+	POPULATION_CONCURRENCY,
+	resolveRetryBudgetMs,
+} from "../bounds.ts";
 import { BroadNonProjectRoot, CodeIntelligenceUnavailable, SymbolQueryUnavailable, WorkspaceChangedDuringPopulation, type WorkspaceId } from "../errors.ts";
 import type { GraphRefreshCoordinator } from "../graph-refresh-coordinator.ts";
 import type { OperationInputs, OperationOutputs } from "../operations.ts";

@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { connectLectorClient } from "../../client.ts";
 import { DEFAULT_PACKAGE_SOURCE_BOUNDS } from "../../package-source/package-source.ts";
-import { fail, flagValue, hasFlag, parseEcosystemFlag, requireEcosystem, requiredIntFlag } from "../flags.ts";
+import { fail, flagValue, hasFlag, parseEcosystemFlag, requiredIntFlag, requireEcosystem } from "../flags.ts";
 import { formatPackageSourceListEntry, formatPackageSourceResult } from "../format.ts";
 import { USAGE } from "../usage.ts";
 import type { ActionHandler } from "./action-handler.ts";

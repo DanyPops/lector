@@ -4,7 +4,6 @@ import { formatCacheGenerationSummaryResult, formatIntelligenceSource, formatJob
 import { USAGE } from "../../usage.ts";
 import type { ActionHandler } from "../action-handler.ts";
 
-
 /** populateSymbolGraph/cacheStatus/referenceBasedRename/prepareRename/rename/reachableFrom+symbolEdgesFrom+symbolEdgesTo -- mirrors service/symbol-graph-handlers.ts's own scope. */
 
 export async function runWorkspacePopulateSymbolGraph(workspaceId: string | undefined, flags: string[]): Promise<void> {

@@ -5,7 +5,6 @@ import { collectFlagValues, fail, flagValue, hasFlag, requiredIntFlag } from "..
 import { USAGE } from "../../usage.ts";
 import type { ActionHandler } from "../action-handler.ts";
 
-
 /** Raw filesystem primitives -- register/read/edit/delete/list-directory/create-directory/rename-path/delete-directory/line-edit/apply-patch/watch/unwatch/search-text/find-files. Mirrors service/workspace-file-handlers.ts's own scope. */
 
 export async function runWorkspaceRegister(dir: string | undefined, flags: string[]): Promise<void> {

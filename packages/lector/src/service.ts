@@ -45,7 +45,7 @@ import type { SearchCachePort } from "./search-cache/port.ts";
 import { AnnotationHandlers } from "./service/annotation-handlers.ts";
 import { createCodeIntelligenceHandlers } from "./service/code-intelligence-handlers.ts";
 import { createCrossWorkspaceHandlers } from "./service/cross-workspace-handlers.ts";
-import { deriveWorkspaceId, InvalidWorkspaceRoot, SymbolQueryUnavailable, UnknownWorkspace, UnsupportedLanguage, type WorkspaceId } from "./service/errors.ts";
+import { SymbolQueryUnavailable, UnknownWorkspace, UnsupportedLanguage, type WorkspaceId } from "./service/errors.ts";
 import { createExternalSearchHandlers } from "./service/external-search-handlers.ts";
 import { createGitHandlers } from "./service/git-handlers.ts";
 import { GraphRefreshCoordinator } from "./service/graph-refresh-coordinator.ts";

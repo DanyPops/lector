@@ -14,7 +14,7 @@
       "name": "@danypops/alef-lector",
       "version": "0.1.0",
       "dependencies": {
-        "@danypops/lector": "^0.18.21",
+        "@danypops/lector": "^0.19.0",
       },
       "devDependencies": {
         "bun-types": "latest",
@@ -26,7 +26,7 @@
       "version": "0.0.2",
       "dependencies": {
         "@alignment/surface-protocol": "file:vendor/alignment-surface-protocol-0.0.1.tgz",
-        "@danypops/lector": "^0.18.0",
+        "@danypops/lector": "^0.19.0",
       },
       "devDependencies": {
         "bun-types": "latest",
@@ -35,7 +35,7 @@
     },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.19.0",
+      "version": "0.19.1",
       "bin": {
         "lector": "src/cli.ts",
       },
@@ -669,10 +669,6 @@
     "@aws-sdk/credential-provider-sso/@aws-sdk/token-providers": ["@aws-sdk/token-providers@3.1100.0", "", { "dependencies": { "@aws-sdk/core": "^3.977.4", "@aws-sdk/nested-clients": "^3.997.39", "@aws-sdk/types": "^3.974.2", "@smithy/core": "^3.31.1", "@smithy/types": "^4.16.1", "tslib": "^2.6.2" } }, "sha512-THf3MkgY3fNJZ3zdgSenLqR7gSE68KccCj1RCKretlG73Ppszvues02VpCUO9NlB/tZDC483FvGCld+AiPCkvg=="],
 
     "@aws-sdk/nested-clients/@smithy/node-http-handler": ["@smithy/node-http-handler@4.9.13", "", { "dependencies": { "@smithy/core": "^3.31.1", "@smithy/types": "^4.16.1", "tslib": "^2.6.2" } }, "sha512-Nmd/Nl35zfYrd+a6OO2cDJb3GPh9bgTjIUhcM+JFfjpp8/osCgboDV5nCT1I01Pv6R13eSKDKLSoVa5ZB6Zsfw=="],
-
-    "@danypops/alef-lector/@danypops/lector": ["@danypops/lector@0.18.21", "", { "dependencies": { "@codemirror/state": "^6.7.1", "@danypops/vehicle-client": "^0.10.0", "@danypops/vehicle-core": "^0.12.5", "@danypops/vehicle-server": "^0.24.1", "@yarnpkg/parsers": "^3.0.3", "diff": "^9.0.0", "eventsource-parser": "^3.1.0", "fetch-retry": "^6.0.0", "graphology": "^0.26.0", "graphology-metrics": "^2.4.0", "ignore": "^7.0.6", "jsonc-parser": "^3.3.1", "lru-cache": "^11.5.2", "picomatch": "^4.0.5", "pyright": "^1.1.411", "simple-git": "^3.36.0", "tree-sitter-wasms": "^0.1.13", "typescript": "^5.9.3", "typescript-language-server": "^5.3.0", "web-tree-sitter": "0.20.8", "yaml": "^2.9.0", "yaml-language-server": "^1.24.0" }, "bin": { "lector": "src/cli.ts" } }, "sha512-NeLGOJgt7F+M1FHtDzX65MusN/dYSRKA9BBbLc/eqYTzdnv8K/Z+0zlCwK0Hi/P9m2yhzI3ehOddoCEC2Yd3pQ=="],
-
-    "@danypops/alignment-lector/@danypops/lector": ["@danypops/lector@0.18.21", "", { "dependencies": { "@codemirror/state": "^6.7.1", "@danypops/vehicle-client": "^0.10.0", "@danypops/vehicle-core": "^0.12.5", "@danypops/vehicle-server": "^0.24.1", "@yarnpkg/parsers": "^3.0.3", "diff": "^9.0.0", "eventsource-parser": "^3.1.0", "fetch-retry": "^6.0.0", "graphology": "^0.26.0", "graphology-metrics": "^2.4.0", "ignore": "^7.0.6", "jsonc-parser": "^3.3.1", "lru-cache": "^11.5.2", "picomatch": "^4.0.5", "pyright": "^1.1.411", "simple-git": "^3.36.0", "tree-sitter-wasms": "^0.1.13", "typescript": "^5.9.3", "typescript-language-server": "^5.3.0", "web-tree-sitter": "0.20.8", "yaml": "^2.9.0", "yaml-language-server": "^1.24.0" }, "bin": { "lector": "src/cli.ts" } }, "sha512-NeLGOJgt7F+M1FHtDzX65MusN/dYSRKA9BBbLc/eqYTzdnv8K/Z+0zlCwK0Hi/P9m2yhzI3ehOddoCEC2Yd3pQ=="],
 
     "@danypops/pi-lector/@danypops/lector": ["@danypops/lector@0.18.21", "", { "dependencies": { "@codemirror/state": "^6.7.1", "@danypops/vehicle-client": "^0.10.0", "@danypops/vehicle-core": "^0.12.5", "@danypops/vehicle-server": "^0.24.1", "@yarnpkg/parsers": "^3.0.3", "diff": "^9.0.0", "eventsource-parser": "^3.1.0", "fetch-retry": "^6.0.0", "graphology": "^0.26.0", "graphology-metrics": "^2.4.0", "ignore": "^7.0.6", "jsonc-parser": "^3.3.1", "lru-cache": "^11.5.2", "picomatch": "^4.0.5", "pyright": "^1.1.411", "simple-git": "^3.36.0", "tree-sitter-wasms": "^0.1.13", "typescript": "^5.9.3", "typescript-language-server": "^5.3.0", "web-tree-sitter": "0.20.8", "yaml": "^2.9.0", "yaml-language-server": "^1.24.0" }, "bin": { "lector": "src/cli.ts" } }, "sha512-NeLGOJgt7F+M1FHtDzX65MusN/dYSRKA9BBbLc/eqYTzdnv8K/Z+0zlCwK0Hi/P9m2yhzI3ehOddoCEC2Yd3pQ=="],
 

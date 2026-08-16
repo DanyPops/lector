@@ -3,7 +3,6 @@ import { fail, flagValue, hasFlag, parseRepoSpec, requiredIntFlag } from "../../
 import { USAGE } from "../../usage.ts";
 import type { ActionHandler } from "../action-handler.ts";
 
-
 /** repo.fetch/evictCache/listCache -- mirrors service/repo-fetch-handlers.ts's own scope. */
 
 export async function runWorkspaceRepoFetch(spec: string | undefined, flags: string[]): Promise<void> {

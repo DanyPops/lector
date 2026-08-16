@@ -3,7 +3,6 @@ import { fail, hasFlag, requiredIntFlag } from "../../flags.ts";
 import { USAGE } from "../../usage.ts";
 import type { ActionHandler } from "../action-handler.ts";
 
-
 /** mutationHistory/revertMutation/mutationTransaction/revertMutationTransaction -- mirrors service/mutation-history-handlers.ts's own scope (the history/revert queries, distinct from workspace-file-handlers.ts's own raw edit/delete/apply-patch primitives). */
 
 export async function runWorkspaceMutationHistory(workspaceId: string | undefined, path: string | undefined, flags: string[]): Promise<void> {

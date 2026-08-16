@@ -3,7 +3,6 @@ import { fail, flagValue, hasFlag, requireAnnotationFields } from "../../flags.t
 import { formatAnnotation } from "../../format.ts";
 import { USAGE } from "../../usage.ts";
 
-
 /** createAnnotation/getAnnotation/listAnnotations/refreshAnnotation/scrubAnnotation/restoreAnnotation/containAnnotation/uncontainAnnotation/annotationTree -- mirrors service/annotation-handlers.ts's own scope. Its own subcommand dispatcher (WORKSPACE_ANNOTATION_ACTIONS) is one level deeper than every other workspace action -- `lector workspace annotation <subcommand> ...`, not `lector workspace <action> ...`. */
 
 export async function runWorkspaceAnnotationCreate(workspaceId: string | undefined, flags: string[]): Promise<void> {

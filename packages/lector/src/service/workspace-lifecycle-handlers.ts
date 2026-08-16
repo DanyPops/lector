@@ -23,7 +23,10 @@ export interface WorkspaceLifecycleHandlerDeps {
 
 export interface WorkspaceLifecycleHandlers {
 	"workspace.release": (registry: MutableRegistry, input: OperationInputs["workspace.release"]) => Promise<OperationOutputs["workspace.release"]>;
-	"workspace.registerPath": (registry: MutableRegistry, input: OperationInputs["workspace.registerPath"]) => Promise<OperationOutputs["workspace.registerPath"]>;
+	"workspace.registerPath": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.registerPath"],
+	) => Promise<OperationOutputs["workspace.registerPath"]>;
 	"workspace.resolvePath": (registry: MutableRegistry, input: OperationInputs["workspace.resolvePath"]) => Promise<OperationOutputs["workspace.resolvePath"]>;
 }
 

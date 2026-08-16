@@ -4,7 +4,6 @@ import { formatCallHierarchyEntry, formatIntelligenceSource, formatSymbolSources
 import { USAGE } from "../../usage.ts";
 import type { ActionHandler } from "../action-handler.ts";
 
-
 /** findSymbols/goToDefinition/goToImplementation/findReferences/hover/documentSymbols/diagnostics/callHierarchy/map/hasWarmIndex -- mirrors service/code-intelligence-handlers.ts + workspace-map-handler.ts's own scope. */
 
 export async function runWorkspaceSymbols(workspaceId: string | undefined, query: string | undefined, flags: string[]): Promise<void> {

@@ -3,7 +3,6 @@ import { fail, flagValue, hasFlag, requiredIntFlag } from "../../flags.ts";
 import { USAGE } from "../../usage.ts";
 import type { ActionHandler } from "../action-handler.ts";
 
-
 /** gitStatus/gitLog/gitDiff/compareSymbolAcrossVersions -- mirrors service/git-handlers.ts's own scope. */
 
 export async function runWorkspaceGitStatus(workspaceId: string | undefined, flags: string[]): Promise<void> {

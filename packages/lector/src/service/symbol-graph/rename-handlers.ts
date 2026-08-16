@@ -23,10 +23,7 @@ export interface RenameHandlerDeps {
 	readonly warmIndexes: WarmIndexRegistry<WorkspaceId>;
 	readonly renameMutationBarrier: SerialExecutionQueue;
 	readonly mutationHistory: MutationHistoryCoordinator;
-	readonly cacheStatus: (
-		registry: MutableRegistry,
-		input: OperationInputs["workspace.cacheStatus"],
-	) => Promise<OperationOutputs["workspace.cacheStatus"]>;
+	readonly cacheStatus: (registry: MutableRegistry, input: OperationInputs["workspace.cacheStatus"]) => Promise<OperationOutputs["workspace.cacheStatus"]>;
 	readonly populateSymbolGraph: (
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.populateSymbolGraph"],
