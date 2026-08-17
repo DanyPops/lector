@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/lector",
-	"version": "0.19.2",
+	"version": "0.19.3",
 	"description": "Platform-neutral filesystem & code-intelligence capability: core, service, and driven adapters",
 	"license": "MIT",
 	"type": "module",
@@ -63,9 +63,9 @@
 	},
 	"dependencies": {
 		"@codemirror/state": "^6.7.1",
-		"@danypops/vehicle-client": "^0.10.0",
-		"@danypops/vehicle-core": "^0.12.5",
-		"@danypops/vehicle-server": "^0.24.1",
+		"@danypops/vehicle-client": "^0.10.1",
+		"@danypops/vehicle-core": "^0.17.1",
+		"@danypops/vehicle-server": "^0.24.5",
 		"@yarnpkg/parsers": "^3.0.3",
 		"diff": "^9.0.0",
 		"eventsource-parser": "^3.1.0",
