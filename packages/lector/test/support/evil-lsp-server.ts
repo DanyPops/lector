@@ -32,6 +32,10 @@
  *                          error -- the exact live shape confirmed against clangd 18.1.3 (Ubuntu
  *                          24.04's own packaged version), deterministic here instead of depending
  *                          on which clangd happens to be installed wherever a test runs.
+ *   delayed-response       responds to initialize immediately, then delays every subsequent
+ *                          response by EVIL_LSP_DELAY_MS (default 50ms) before answering --
+ *                          deterministically exercises slow-but-successful request instrumentation
+ *                          without hanging past a real timeout.
  */
 import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/code-intelligence/lsp/json-rpc-stream.ts";
 
@@ -156,6 +160,12 @@ function handle(message: JsonRpcMessage): void {
 	}
 
 	if (mode === "hang-on-request") return;
+	if (mode === "delayed-response") {
+		const delayMs = Number(process.env.EVIL_LSP_DELAY_MS ?? "50");
+		const id = message.id;
+		setTimeout(() => respond(id, []), delayMs);
+		return;
+	}
 	if (mode === "oversized-response") {
 		respond(message.id, "x".repeat(4_096));
 		return;

@@ -225,10 +225,11 @@ describe("createLectorService background jobs", () => {
 		expect(await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 })).toMatchObject({ status: "cached" });
 	});
 
-	it("still fails with WorkspaceChangedDuringPopulation once the retry budget is exhausted against a workspace that keeps changing every attempt", async () => {
+	it("still fails with WorkspaceChangedDuringPopulation once the retry budget is exhausted against a workspace that keeps changing every attempt, and logs the exhaustion distinctly from a fail-fast single attempt", async () => {
 		let fakeNow = 0;
 		let attempts = 0;
 		const projectRootRef: { current: string | undefined } = { current: undefined };
+		const warnLogs: Array<{ msg: string; fields: Record<string, unknown> | undefined }> = [];
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
 			createJobExecutor: testExecutor,
@@ -246,6 +247,7 @@ describe("createLectorService background jobs", () => {
 				fakeNow += 1000;
 				return value;
 			},
+			logger: { debug() {}, info() {}, error() {}, warn: (msg, fields) => warnLogs.push({ msg, fields }) },
 		});
 		const projectRoot = fixture();
 		projectRootRef.current = projectRoot;
@@ -269,6 +271,11 @@ describe("createLectorService background jobs", () => {
 			status: "not-cached",
 			reason: "no-completed-generation",
 		});
+		// Carries attempts/elapsed/budget so a real churn-exhausted retry is distinguishable from a
+		// plain fail-fast single attempt from the log alone.
+		const exhaustionLog = warnLogs.find((entry) => entry.msg === "symbol graph population: retry budget exhausted under continuous workspace churn");
+		expect(exhaustionLog?.fields).toMatchObject({ workspaceId, attempts, retryBudgetMs: 3_000 });
+		expect(typeof exhaustionLog?.fields?.elapsedMs).toBe("number");
 	});
 
 	it("rejects an out-of-bound retryTimeBudgetMs on the direct (non-job) dispatch path before doing any real work", async () => {

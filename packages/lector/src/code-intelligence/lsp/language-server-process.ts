@@ -2,7 +2,19 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcMessageLimitExceeded, JsonRpcStreamDecoder } from "./json-rpc-stream.ts";
+
+const NOOP_LOGGER: Logger = { debug() {}, info() {}, warn() {}, error() {} };
+
+/**
+ * A request whose end-to-end latency meets or exceeds this is logged at warn even when it
+ * ultimately succeeds -- the only way to see queueing/contention building up BEFORE it actually
+ * trips DEFAULT_REQUEST_TIMEOUT_MS and gets recorded as an outright failure. Deliberately well
+ * under the 10s request timeout: a 3s response is already a strong contention signal for a
+ * single-request-at-a-time interactive operation, not just a batch population crawl.
+ */
+const SLOW_REQUEST_WARN_THRESHOLD_MS = 3_000;
 
 export interface LanguageServerProcessOptions {
 	command: string;
@@ -16,6 +28,24 @@ export interface LanguageServerProcessOptions {
 	maxPendingRequests?: number;
 	/** Maximum decoded server message size. Default 8 MiB. */
 	maxMessageBytes?: number;
+	/**
+	 * Structured request-latency/timeout logging and getRequestStats() accounting. Defaults to a
+	 * no-op -- every existing caller keeps today's exact (silent) behavior until it opts in.
+	 */
+	logger?: Logger;
+	/** Overrides SLOW_REQUEST_WARN_THRESHOLD_MS for this one process -- mainly for deterministic tests; production callers should generally leave this at its default. */
+	slowRequestWarnThresholdMs?: number;
+}
+
+/** Cumulative per-process request accounting -- getRequestStats()'s own return shape. */
+export interface LanguageServerRequestStats {
+	readonly requestCount: number;
+	readonly timeoutCount: number;
+	readonly totalDurationMs: number;
+	readonly maxDurationMs: number;
+	readonly averageDurationMs: number;
+	/** Requests currently awaiting a response -- the real-time concurrency/contention depth. */
+	readonly pending: number;
 }
 
 /** Raised when a request is sent (or was pending) after the server process already exited. */
@@ -113,10 +143,19 @@ export class LanguageServerProcess {
 	private readonly requestTimeoutMs: number;
 	private readonly maxPendingRequests: number;
 	private readonly maxMessageBytes: number;
+	private readonly logger: Logger;
+	private readonly label: string;
+	private readonly slowRequestWarnThresholdMs: number;
 	private nextId = 1;
 	private processExited = false;
 	private exitError: Error;
 	private temporaryDirectory: string | undefined;
+	// Cumulative request accounting for getRequestStats() -- cheap counters, no per-request
+	// allocation beyond what request() already does for its own promise/timer bookkeeping.
+	private requestCount = 0;
+	private timeoutCount = 0;
+	private totalDurationMs = 0;
+	private maxDurationMs = 0;
 
 	private constructor(
 		child: ChildProcessWithoutNullStreams,
@@ -125,12 +164,17 @@ export class LanguageServerProcess {
 		maxPendingRequests: number,
 		maxMessageBytes: number,
 		temporaryDirectory: string,
+		logger: Logger,
+		slowRequestWarnThresholdMs: number,
 	) {
 		this.child = child;
+		this.label = label;
 		this.requestTimeoutMs = requestTimeoutMs;
 		this.maxPendingRequests = maxPendingRequests;
 		this.maxMessageBytes = maxMessageBytes;
 		this.temporaryDirectory = temporaryDirectory;
+		this.logger = logger;
+		this.slowRequestWarnThresholdMs = slowRequestWarnThresholdMs;
 		this.decoder = new JsonRpcStreamDecoder({ maxMessageBytes });
 		this.exitError = new LanguageServerProcessExited(label);
 		this.child.stderr.resume();
@@ -195,7 +239,21 @@ export class LanguageServerProcess {
 			maxPendingRequests,
 			maxMessageBytes,
 			temporaryDirectory,
+			options.logger ?? NOOP_LOGGER,
+			options.slowRequestWarnThresholdMs ?? SLOW_REQUEST_WARN_THRESHOLD_MS,
 		);
+	}
+
+	/** A point-in-time snapshot -- cheap enough to call from a health/diagnostics operation on demand, not sampled/scraped on a timer. */
+	getRequestStats(): LanguageServerRequestStats {
+		return {
+			requestCount: this.requestCount,
+			timeoutCount: this.timeoutCount,
+			totalDurationMs: this.totalDurationMs,
+			maxDurationMs: this.maxDurationMs,
+			averageDurationMs: this.requestCount === 0 ? 0 : this.totalDurationMs / this.requestCount,
+			pending: this.pending.size,
+		};
 	}
 
 	private removeTemporaryDirectory(): void {
@@ -307,6 +365,12 @@ export class LanguageServerProcess {
 		const message = encodeJsonRpcMessage({ jsonrpc: "2.0", id, method, params });
 		if (message.byteLength > this.maxMessageBytes) throw new JsonRpcMessageLimitExceeded("message-bytes", this.maxMessageBytes, message.byteLength);
 		const timeoutMs = options.timeoutMs ?? this.requestTimeoutMs;
+		// Captured before this request is admitted to `pending` -- the real queue depth every OTHER
+		// in-flight request was competing against when this one was sent, the single most useful
+		// signal for telling "this request is intrinsically slow" apart from "this request queued
+		// behind a burst of concurrent siblings on the same process" after the fact.
+		const pendingAtSend = this.pending.size;
+		const sentAt = performance.now();
 		return new Promise<T>((resolve, reject) => {
 			const signal = options.signal;
 			const onAbort = () => {
@@ -318,12 +382,24 @@ export class LanguageServerProcess {
 			const timer = setTimeout(() => {
 				signal?.removeEventListener("abort", onAbort);
 				this.pending.delete(id);
+				this.timeoutCount++;
+				this.logger.warn("language server request timed out", {
+					component: "lsp",
+					operation: "request",
+					label: this.label,
+					method,
+					timeoutMs,
+					pendingAtSend,
+					pendingAtTimeout: this.pending.size,
+					maxPendingRequests: this.maxPendingRequests,
+				});
 				reject(new LanguageServerRequestTimedOut(method, timeoutMs));
 			}, timeoutMs);
 			signal?.addEventListener("abort", onAbort, { once: true });
 			this.pending.set(id, {
 				resolve: (result) => {
 					signal?.removeEventListener("abort", onAbort);
+					this.recordCompletion(method, sentAt, pendingAtSend);
 					// PendingRequest.resolve is necessarily typed `(result: unknown) => void` -- the
 					// pending map holds every in-flight request's callback in one shared collection,
 					// so it cannot carry each call's own generic T. The wire payload is genuinely
@@ -341,6 +417,25 @@ export class LanguageServerProcess {
 			});
 			this.child.stdin.write(message);
 		});
+	}
+
+	/** Shared by every successful reply path -- updates cumulative stats and warns once past SLOW_REQUEST_WARN_THRESHOLD_MS, before this same latency has a chance to become an outright timeout on some OTHER, less fortunate request queued behind it. */
+	private recordCompletion(method: string, sentAt: number, pendingAtSend: number): void {
+		const durationMs = performance.now() - sentAt;
+		this.requestCount++;
+		this.totalDurationMs += durationMs;
+		if (durationMs > this.maxDurationMs) this.maxDurationMs = durationMs;
+		if (durationMs >= this.slowRequestWarnThresholdMs) {
+			this.logger.warn("slow language server request", {
+				component: "lsp",
+				operation: "request",
+				label: this.label,
+				method,
+				durationMs: Math.round(durationMs),
+				pendingAtSend,
+				pendingNow: this.pending.size,
+			});
+		}
 	}
 
 	notify(method: string, params: unknown): void {

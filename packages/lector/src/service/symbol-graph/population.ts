@@ -51,7 +51,7 @@ export interface PopulationHandlers {
 	) => Promise<OperationOutputs["workspace.populateSymbolGraph"]>;
 }
 
-/** populateSymbolGraph's own lifecycle: delta selection against the previous generation, remote-refetch-if-moved, purge, re-walk, and recording a fresh generation -- the single biggest concern symbol-graph-handlers.ts used to bundle. */
+/** populateSymbolGraph's own lifecycle: delta selection against the previous generation, remote-refetch-if-moved, purge, re-walk, and recording a fresh generation. */
 export function createPopulationHandlers(deps: PopulationHandlerDeps): PopulationHandlers {
 	const { registry, warmIndexes, graphRefresh, createGitPort, repoFetcher, logger, cacheFreshness, ensureOsWatcher } = deps;
 	const homeDir = deps.homeDir ?? homedir();
@@ -77,12 +77,39 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 		input: OperationInputs["workspace.populateSymbolGraph"],
 	): Promise<OperationOutputs["workspace.populateSymbolGraph"]> {
 		const retryBudgetMs = resolveRetryBudgetMs(input.retryTimeBudgetMs, MAX_POPULATE_RETRY_BUDGET_MS);
-		const deadline = retryBudgetMs > 0 ? now() + retryBudgetMs : undefined;
+		const startedAt = now();
+		const deadline = retryBudgetMs > 0 ? startedAt + retryBudgetMs : undefined;
+		let attempt = 0;
 		for (;;) {
+			attempt++;
 			try {
 				return await populateSymbolGraphOnce(_registry, input);
 			} catch (error) {
-				if (!(error instanceof WorkspaceChangedDuringPopulation) || deadline === undefined || now() >= deadline) throw error;
+				if (!(error instanceof WorkspaceChangedDuringPopulation)) throw error;
+				const elapsedMs = now() - startedAt;
+				if (deadline === undefined || now() >= deadline) {
+					// Distinguishes "the workspace kept changing on every attempt until the budget ran
+					// out" from a single-attempt fail-fast call (retryTimeBudgetMs omitted/0) -- both
+					// otherwise surface as the same WorkspaceChangedDuringPopulation error with no way
+					// to tell how many attempts were actually made.
+					logger.warn("symbol graph population: retry budget exhausted under continuous workspace churn", {
+						module: "population",
+						operation: "workspace.populateSymbolGraph",
+						workspaceId: input.workspaceId,
+						attempts: attempt,
+						elapsedMs: Math.round(elapsedMs),
+						retryBudgetMs,
+					});
+					throw error;
+				}
+				logger.debug("symbol graph population: source changed mid-scan, retrying", {
+					module: "population",
+					operation: "workspace.populateSymbolGraph",
+					workspaceId: input.workspaceId,
+					attempt,
+					elapsedMs: Math.round(elapsedMs),
+					retryBudgetMs,
+				});
 				await sleep(POPULATE_RETRY_SETTLE_MS);
 			}
 		}
@@ -197,8 +224,8 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 		// the daemon's uptime -- the whole point of "keeps the symbol graph warm on disk changes".
 		// Gated on being a real git repository: a raw, non-git directory (workspaceForPath's own
 		// intentional fs-root/scratch-file fallback, or any other broad/ambiguous root) must never
-		// get an automatic, unbounded OS-level recursive watcher armed against it -- confirmed live
-		// as a real resource-exhaustion/runaway-process incident. populateSymbolGraph itself still
+		// get an automatic, unbounded OS-level recursive watcher armed against it -- a real risk of
+		// resource exhaustion/runaway watcher processes. populateSymbolGraph itself still
 		// honors an explicit, one-off request against any workspace; only the *automatic* rearm on
 		// every future file change requires git. A remote-origin workspace is always git-backed (it
 		// was cloned by GitRepoFetcher) -- skipping the redundant real `git` subprocess check for it

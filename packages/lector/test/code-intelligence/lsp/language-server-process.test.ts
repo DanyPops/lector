@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { JsonRpcMessageLimitExceeded } from "../../../src/code-intelligence/lsp/json-rpc-stream.ts";
 import {
 	DuplicateRequestHandler,
@@ -30,7 +31,11 @@ afterEach(async () => {
 	cwd = undefined;
 });
 
-function spawnEvil(mode: string, requestTimeoutMs?: number, bounds: { maxPendingRequests?: number; maxMessageBytes?: number } = {}): LanguageServerProcess {
+function spawnEvil(
+	mode: string,
+	requestTimeoutMs?: number,
+	bounds: { maxPendingRequests?: number; maxMessageBytes?: number; logger?: Logger; slowRequestWarnThresholdMs?: number } = {},
+): LanguageServerProcess {
 	cwd = mkdtempSync(join(tmpdir(), "lector-evil-lsp-"));
 	server = LanguageServerProcess.spawnProcess({
 		command: "bun",
@@ -41,6 +46,18 @@ function spawnEvil(mode: string, requestTimeoutMs?: number, bounds: { maxPending
 		...bounds,
 	});
 	return server;
+}
+
+interface CapturedLog {
+	readonly level: "debug" | "info" | "warn" | "error";
+	readonly msg: string;
+	readonly fields: Record<string, unknown> | undefined;
+}
+
+function createCapturingLogger(): { logger: Logger; entries: CapturedLog[] } {
+	const entries: CapturedLog[] = [];
+	const capture = (level: CapturedLog["level"]) => (msg: string, fields?: Record<string, unknown>) => entries.push({ level, msg, fields });
+	return { logger: { debug: capture("debug"), info: capture("info"), warn: capture("warn"), error: capture("error") }, entries };
 }
 
 describe("LanguageServerProcess against a well-behaved mock", () => {
@@ -296,13 +313,66 @@ describe("LanguageServerProcess against a hostile mock -- timeouts", () => {
 	});
 });
 
+describe("LanguageServerProcess request instrumentation", () => {
+	it("getRequestStats() starts at zero and accounts a real successful request", async () => {
+		const proc = spawnEvil("normal");
+		expect(proc.getRequestStats()).toEqual({ requestCount: 0, timeoutCount: 0, totalDurationMs: 0, maxDurationMs: 0, averageDurationMs: 0, pending: 0 });
+		await proc.request("initialize", {});
+		const stats = proc.getRequestStats();
+		expect(stats.requestCount).toBe(1);
+		expect(stats.timeoutCount).toBe(0);
+		expect(stats.pending).toBe(0);
+		expect(stats.averageDurationMs).toBeGreaterThanOrEqual(0);
+	});
+
+	it("a timeout increments timeoutCount and logs pending queue depth at send-time and at timeout, not just the bare method name", async () => {
+		const { logger, entries } = createCapturingLogger();
+		const proc = spawnEvil("hang-on-request", 10_000, { logger });
+		await proc.request("initialize", {});
+		// A second, unrelated in-flight request raises pendingAtSend for the one that actually times out.
+		const decoy = proc.request("workspace/symbol", { query: "decoy" }, { timeoutMs: 50_000 });
+		await expect(proc.request("workspace/symbol", { query: "x" }, { timeoutMs: 100 })).rejects.toBeInstanceOf(LanguageServerRequestTimedOut);
+
+		expect(proc.getRequestStats().timeoutCount).toBe(1);
+		const timeoutLog = entries.find((entry) => entry.msg === "language server request timed out");
+		expect(timeoutLog?.level).toBe("warn");
+		expect(timeoutLog?.fields).toMatchObject({ component: "lsp", method: "workspace/symbol", timeoutMs: 100, pendingAtSend: 1 });
+
+		// Clean up the still-pending decoy so afterEach's stop() doesn't wait on it.
+		await proc.stop();
+		await expect(decoy).rejects.toBeInstanceOf(LanguageServerProcessExited);
+	});
+
+	it("a request past the configured slow-request threshold logs a warning even though it succeeds, and records maxDurationMs", async () => {
+		const { logger, entries } = createCapturingLogger();
+		const proc = spawnEvil("delayed-response", undefined, { logger, slowRequestWarnThresholdMs: 10 });
+		await proc.request("initialize", {});
+		await proc.request("workspace/symbol", { query: "x" });
+
+		const stats = proc.getRequestStats();
+		expect(stats.requestCount).toBe(2);
+		expect(stats.timeoutCount).toBe(0);
+		expect(stats.maxDurationMs).toBeGreaterThanOrEqual(10);
+
+		const slowLog = entries.find((entry) => entry.msg === "slow language server request" && entry.fields?.method === "workspace/symbol");
+		expect(slowLog?.level).toBe("warn");
+		expect(slowLog?.fields).toMatchObject({ component: "lsp", method: "workspace/symbol" });
+		expect(typeof slowLog?.fields?.durationMs).toBe("number");
+	});
+
+	it("never logs anything when no logger is supplied -- the no-op default", async () => {
+		const proc = spawnEvil("delayed-response", undefined, { slowRequestWarnThresholdMs: 1 });
+		await proc.request("initialize", {});
+		// Would throw if the internal NOOP_LOGGER didn't satisfy the full Logger interface.
+		await expect(proc.request("workspace/symbol", { query: "x" })).resolves.toEqual([]);
+	});
+});
+
 describe("LanguageServerProcess resource bounds", () => {
 	it("rejects excess concurrent requests instead of growing the pending map without bound", async () => {
 		// A generous process-level timeout -- must not be what settles the initialize handshake, whose
 		// own real-world latency (subprocess cold start) is unrelated to and can exceed a tight budget
-		// (this exact coupling was a confirmed live flake: initialize itself sporadically timed out
-		// under load before the evil server got a chance to respond). Only the request meant to hang
-		// forever gets the tight per-call override.
+		// under load. Only the request meant to hang forever gets the tight per-call override.
 		const proc = spawnEvil("hang-on-request", 10_000, { maxPendingRequests: 1 });
 		await proc.request("initialize", {});
 		const pending = proc.request("workspace/symbol", {}, { timeoutMs: 100 });

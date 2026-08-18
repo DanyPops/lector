@@ -216,7 +216,7 @@ export default function (pi: ExtensionAPI) {
 	 * first touches. Refuses a bare filesystem root outright: workspaceForPath's own
 	 * intentional fallback for a raw read/write of a file outside any git repo can register
 	 * exactly this as a "new workspace", and auto-populating it would attempt a full
-	 * filesystem-wide symbol-graph scan -- confirmed live as a real, previously-shipped bug.
+	 * filesystem-wide symbol-graph scan.
 	 *
 	 * Also short-circuits a broad host directory (home directory, an XDG config/cache/data
 	 * root, a dotfile directory) the exact same way workspace.populateSymbolGraph's own
@@ -1697,7 +1697,17 @@ export default function (pi: ExtensionAPI) {
 				if (details?.action === "list") text.setText(formatPackageSourceListResult(details.page, theme));
 				else if (details?.action === "remove") text.setText(formatPackageSourceRemoveResult(details.result, theme));
 				else if (details?.action === "clean") text.setText(formatPackageSourceCleanResult(details.result, theme));
-				else text.setText(formatPackageSourceResult(details?.action === "resolve" ? details.result : undefined, expanded, theme));
+				else if (details?.action === "resolve") text.setText(formatPackageSourceResult(details.result, expanded, theme));
+				else {
+					// A malformed/unknown-shaped details blob (e.g. a transcript row predating this
+					// schema) has no recognized action -- fail closed to the model-facing content
+					// channel first, only falling to the generic message if that's empty too.
+					const contentText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					text.setText(contentText || formatPackageSourceResult(undefined, expanded, theme));
+				}
 				return text;
 			},
 		});

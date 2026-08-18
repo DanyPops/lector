@@ -629,6 +629,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				let proc = LanguageServerProcess.spawnProcess({
 					...resolveLanguageServerCommand(this.descriptor),
 					cwd: this.cwd,
+					logger: this.logger,
 				});
 				spawned = proc;
 				this.configureProcess(proc);
@@ -639,7 +640,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 					if (!isMissingExecutable(error) || this.descriptor.launch.kind !== "system-binary" || !this.descriptor.provisioning) throw error;
 					await proc.stop();
 					const installedCommand = await this.provisionMissingServer();
-					proc = LanguageServerProcess.spawnProcess({ command: installedCommand, args: [...this.descriptor.args], cwd: this.cwd });
+					proc = LanguageServerProcess.spawnProcess({ command: installedCommand, args: [...this.descriptor.args], cwd: this.cwd, logger: this.logger });
 					spawned = proc;
 					this.configureProcess(proc);
 					initializeResult = await this.requestInitialize(proc);
