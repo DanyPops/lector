@@ -13,7 +13,7 @@ import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { startDaemon } from "@danypops/vehicle-server/daemon";
 import { ensureAuthToken } from "@danypops/vehicle-server/paths";
-import { buildLectorApp } from "../src/daemon.ts";
+import { buildLectorApp, startLectorDaemon } from "../src/daemon.ts";
 import { createLectorService, type LectorService, type OperationInputs, type OperationName, type OperationOutputs } from "../src/service.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
@@ -123,5 +123,27 @@ describe("Lector daemon's /vehicle/* surface (createVehicleHttpApp, additive alo
 		// this endpoint addition is purely additive, no existing behavior moved.
 		const status = await legacyClient.call("workspace.gitStatus", { workspaceId });
 		expect(status.files).toEqual([]);
+	});
+
+	it("metrics.query/metrics.recordClientEvent are live on the real manifest (startLectorDaemon's own wiring, not buildLectorApp directly) and record a real invocation", async () => {
+		const isolated = isolatedLectorPaths();
+		root = isolated.root;
+		const daemon = await startLectorDaemon({ workspaces: new Map(), allowDynamicOnly: true, paths: isolated.paths });
+		stop = async () => {
+			await daemon.stop();
+		};
+
+		const token = ensureAuthToken(isolated.paths.token, "Lector");
+		const vehicleClient = new RemoteVehicleClient({ baseUrl: `http://${daemon.host}:${daemon.port}`, token });
+
+		const manifest = await vehicleClient.manifest();
+		const names = manifest.operations.map((op) => op.name);
+		expect(names).toContain("metrics.query");
+		expect(names).toContain("metrics.recordClientEvent");
+
+		await vehicleClient.invoke("repo.listCache", 1, { maxResults: 10 }, { permissions: ["workspace:read"] });
+
+		const rows = (await vehicleClient.invoke("metrics.query", 1, { toolName: "repo.listCache" }, { permissions: [] })) as { count: number }[];
+		expect(rows[0]?.count).toBe(1);
 	});
 });

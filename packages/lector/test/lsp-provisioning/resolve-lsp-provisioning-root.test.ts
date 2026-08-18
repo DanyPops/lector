@@ -8,6 +8,7 @@ describe("resolveLspProvisioningRoot", () => {
 			token: "/home/user/.local/state/lector/token",
 			handle: "/run/user/1000/lector/handle.json",
 			serviceDescriptor: "/home/user/.config/systemd/user/lector.service",
+			metrics: "/home/user/.local/share/lector/metrics.sqlite",
 		};
 		expect(resolveLspProvisioningRoot(paths)).toBe("/home/user/.local/share/lector/lsp-servers");
 	});

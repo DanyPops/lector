@@ -2,6 +2,9 @@ import { dirname, join } from "node:path";
 import { type MaintenanceTask, type RunningDaemon, runDaemonProcess, startDaemon } from "@danypops/vehicle-server/daemon";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import type { Logger } from "@danypops/vehicle-server/logging";
+import { openVehicleMetricsStore } from "@danypops/vehicle-server/metrics";
+import { createVehicleMetricsMiddleware } from "@danypops/vehicle-server/metrics-middleware";
+import { registerVehicleMetricsOperations } from "@danypops/vehicle-server/metrics-operations";
 import { type DaemonPaths, ensureAuthToken } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
@@ -202,6 +205,10 @@ function prepare(options: LectorDaemonOptions): {
 	// before createLectorService so its publish callback can close over the real channel instance.
 	const token = ensureAuthToken(paths.token, "Lector");
 	const pushChannel = new PushChannel({ token });
+	// Records how often each real operation is invoked (server-side, every caller) plus, via
+	// metrics.recordClientEvent, client-observed Vehicle Shell meta-tool calls -- see
+	// @danypops/vehicle-server's own metrics README section.
+	const vehicleMetrics = openVehicleMetricsStore(paths.metrics);
 	// createLectorService throws synchronously on an empty registry (unless allowDynamicOnly is
 	// explicitly set), before startDaemon/runDaemonProcess ever binds a listener or writes a
 	// handle file -- the daemon fails loudly at construction rather than starting and silently
@@ -263,6 +270,11 @@ function prepare(options: LectorDaemonOptions): {
 		createSearchCache: () => new TieredSearchCache(new InMemorySearchCache(), new SqliteSearchCache(join(dirname(paths.database), "search-cache.db"))),
 		publish: (topic, payload) => pushChannel.publish(topic, payload),
 	});
+	// Wired directly onto the same registry every real lector operation is already registered
+	// on, so it's discoverable through the exact same tools_list/tools_man path as any other
+	// operation.
+	service.operationRegistry.useExecutionMiddleware(createVehicleMetricsMiddleware(vehicleMetrics, "lector"));
+	registerVehicleMetricsOperations(service.operationRegistry, vehicleMetrics, "lector");
 	const idleTtlMs = options.symbolIndexIdleTtlMs ?? DEFAULT_SYMBOL_INDEX_IDLE_TTL_MS;
 	// service.close() stops every warm symbol-index (LSP) subprocess the service spawned --
 	// without this hook a daemon restart would leak one language server per workspace that
@@ -272,7 +284,10 @@ function prepare(options: LectorDaemonOptions): {
 		paths,
 		app: buildLectorApp(service, token, options.logger),
 		pushChannel,
-		onShutdown: () => service.close(),
+		onShutdown: async () => {
+			await service.close();
+			vehicleMetrics.close();
+		},
 		idleBudgetMs: options.idleBudgetMs,
 		idleTickMs: options.idleTickMs,
 		maintenanceTasks: [
