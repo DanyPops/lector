@@ -1,16 +1,16 @@
 import { basename, isAbsolute, posix } from "node:path";
+// Deep imports, not the "@danypops/lector" barrel -- see index.ts's own doc comment on why.
+import { remoteErrorIs } from "@danypops/lector/client";
+import { GuardedLiveBuffer } from "@danypops/lector/live-buffer/guarded";
 import {
-	type AlignmentContribution,
 	type ContributionHost,
 	type ContributionOutcome,
 	type ContributionReadBounds,
 	ContributionReadBoundsSchema,
 	type ContributionResourceReference,
 	ContributionResourceReferenceSchema,
-} from "@alignment/surface-protocol";
-// Deep imports, not the "@danypops/lector" barrel -- see index.ts's own doc comment on why.
-import { remoteErrorIs } from "@danypops/lector/client";
-import { GuardedLiveBuffer } from "@danypops/lector/live-buffer/guarded";
+	type ZodiacContribution,
+} from "@zodiac/protocol";
 import { CALL_GRAPH_COMMANDS, createCallGraphContribution } from "./call-graph.js";
 import { createGitContribution, GIT_COMMANDS } from "./git-contribution.js";
 import { authenticatedLectorOperations, type LectorOperations, withWorkspaceRecovery } from "./lector-operations.js";
@@ -131,7 +131,7 @@ function saveResourceInput(input: unknown): ContributionResourceReference | unde
 	return parsed.success && parsed.data.kind === "text" ? parsed.data : undefined;
 }
 
-export function createLectorAlignmentContribution(options: { operations?: LectorOperations } = {}): AlignmentContribution {
+export function createLectorZodiacContribution(options: { operations?: LectorOperations } = {}): ZodiacContribution {
 	const workspaceRoots = createWorkspaceRootRegistry();
 	// Every contribution's own operations.call(...) funnels through this one wrapper, so a daemon
 	// restart that wipes Lector's in-memory workspace registry (by design, never persisted) is

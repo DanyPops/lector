@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { resolve } from "node:path";
-import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@alignment/surface-protocol";
-import { createLectorAlignmentContribution, type LectorOperations, lectorOperationsFromClient } from "../src/index.js";
+import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@zodiac/protocol";
+import { createLectorZodiacContribution, type LectorOperations, lectorOperationsFromClient } from "../src/index.js";
 import { startIsolatedDaemon } from "./support/isolated-daemon.js";
 
 const FIXTURE_ROOT = resolve(import.meta.dir, "fixtures/call-graph");
@@ -66,7 +66,7 @@ function hierarchy(name: string, path: string, line: number, character: number) 
 	};
 }
 
-describe("Lector Alignment call graph", () => {
+describe("Lector Zodiac call graph", () => {
 	let stop: (() => Promise<void>) | undefined;
 
 	afterEach(async () => {
@@ -82,7 +82,7 @@ describe("Lector Alignment call graph", () => {
 		const daemon = await startIsolatedDaemon();
 		stop = daemon.stop;
 		const registered = host();
-		await createLectorAlignmentContribution({ operations: lectorOperationsFromClient(daemon.client) }).activate(registered.api);
+		await createLectorZodiacContribution({ operations: lectorOperationsFromClient(daemon.client) }).activate(registered.api);
 		const workspace = reference(await command(registered.commands, "lector.workspace.open").execute({ path: FIXTURE_ROOT }));
 		const workspaceId = decodeURIComponent(new URL(workspace.uri).pathname.slice(1));
 
@@ -236,7 +236,7 @@ describe("Lector Alignment call graph", () => {
 			},
 		};
 		const registered = host();
-		await createLectorAlignmentContribution({ operations }).activate(registered.api);
+		await createLectorZodiacContribution({ operations }).activate(registered.api);
 		await command(registered.commands, "lector.workspace.open").execute({ path: "/tmp/project" });
 
 		const partialRef = reference(

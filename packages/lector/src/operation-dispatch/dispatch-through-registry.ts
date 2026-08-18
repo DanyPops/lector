@@ -1,7 +1,7 @@
 /**
  * Invokes a registered VehicleRegistry operation, then unwraps VehicleError's own
  * "handler-failed" wrapping back to the original thrown error. VehicleRegistry.invoke() only
- * preserves a handler's typed error via Error.cause, so pi-lector/alignment-lector/this repo's
+ * preserves a handler's typed error via Error.cause, so pi-lector/zodiac-lector/this repo's
  * own `instanceof` checks on Lector's domain errors need this unwrap to keep working.
  * A VehicleError with no cause (permission-denied, not-found, deadline-exceeded, ...) is a new
  * failure mode and is surfaced as-is.

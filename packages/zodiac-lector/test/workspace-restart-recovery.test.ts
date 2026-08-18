@@ -3,9 +3,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ContributionCommand, ContributionResourceProvider } from "@alignment/surface-protocol";
 import { createRetryingLectorClient } from "@danypops/lector";
-import { createLectorAlignmentContribution, lectorOperationsFromClient } from "../src/index.js";
+import type { ContributionCommand, ContributionResourceProvider } from "@zodiac/protocol";
+import { createLectorZodiacContribution, lectorOperationsFromClient } from "../src/index.js";
 import { startRestartableDaemon } from "./support/restartable-daemon.js";
 
 function capturingHost() {
@@ -35,7 +35,7 @@ function requireCommand(commands: ReadonlyMap<string, ContributionCommand>, id: 
 	return command;
 }
 
-describe("Lector Alignment contribution recovers from a real daemon restart", () => {
+describe("Lector Zodiac contribution recovers from a real daemon restart", () => {
 	let stop: (() => Promise<void>) | undefined;
 	let workspaceRoot: string | undefined;
 
@@ -49,7 +49,7 @@ describe("Lector Alignment contribution recovers from a real daemon restart", ()
 	it("transparently recovers git status after the daemon restarts and forgets the workspaceId", async () => {
 		const daemon = await startRestartableDaemon();
 		stop = daemon.stop;
-		workspaceRoot = mkdtempSync(join(tmpdir(), "alignment-lector-restart-workspace-"));
+		workspaceRoot = mkdtempSync(join(tmpdir(), "zodiac-lector-restart-workspace-"));
 		execFileSync("git", ["init", "-q"], { cwd: workspaceRoot });
 		execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: workspaceRoot });
 		execFileSync("git", ["config", "user.name", "Test"], { cwd: workspaceRoot });
@@ -65,7 +65,7 @@ describe("Lector Alignment contribution recovers from a real daemon restart", ()
 		const operations = lectorOperationsFromClient({ call: (operation, input) => client.call(operation, input) });
 
 		const host = capturingHost();
-		const contribution = createLectorAlignmentContribution({ operations });
+		const contribution = createLectorZodiacContribution({ operations });
 		await contribution.activate(host.api);
 
 		const openWorkspace = requireCommand(host.commands, "lector.workspace.open");

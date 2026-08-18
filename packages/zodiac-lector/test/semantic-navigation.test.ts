@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { resolve } from "node:path";
-import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@alignment/surface-protocol";
-import { createLectorAlignmentContribution, type LectorOperations, lectorOperationsFromClient } from "../src/index.js";
+import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@zodiac/protocol";
+import { createLectorZodiacContribution, type LectorOperations, lectorOperationsFromClient } from "../src/index.js";
 import { startIsolatedDaemon } from "./support/isolated-daemon.js";
 
 const FIXTURE_ROOT = resolve(import.meta.dir, "../../lector/test/fixtures/typescript-reference");
@@ -47,7 +47,7 @@ async function read(provider: ContributionResourceProvider | undefined, resource
 	return outcome.value;
 }
 
-describe("Lector Alignment semantic navigation", () => {
+describe("Lector Zodiac semantic navigation", () => {
 	let stop: (() => Promise<void>) | undefined;
 
 	afterEach(async () => {
@@ -63,7 +63,7 @@ describe("Lector Alignment semantic navigation", () => {
 		const daemon = await startIsolatedDaemon();
 		stop = daemon.stop;
 		const registered = host();
-		const contribution = createLectorAlignmentContribution({ operations: lectorOperationsFromClient(daemon.client) });
+		const contribution = createLectorZodiacContribution({ operations: lectorOperationsFromClient(daemon.client) });
 		await contribution.activate(registered.api);
 		const workspace = reference(await command(registered.commands, "lector.workspace.open").execute({ path: FIXTURE_ROOT }));
 		const workspaceId = decodeURIComponent(new URL(workspace.uri).pathname.slice(1));
@@ -188,7 +188,7 @@ describe("Lector Alignment semantic navigation", () => {
 			},
 		};
 		const registered = host();
-		await createLectorAlignmentContribution({ operations }).activate(registered.api);
+		await createLectorZodiacContribution({ operations }).activate(registered.api);
 		await command(registered.commands, "lector.workspace.open").execute({ path: "/tmp/project" });
 		const degraded = reference(
 			await command(registered.commands, "lector.symbol.definition").execute({ workspaceId: "ws", path: "a.ts", line: 1, character: 1 }),

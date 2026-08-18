@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@alignment/surface-protocol";
-import { createLectorAlignmentContribution, GuardedLiveBuffer, lectorOperationsFromClient } from "../src/index.js";
+import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@zodiac/protocol";
+import { createLectorZodiacContribution, GuardedLiveBuffer, lectorOperationsFromClient } from "../src/index.js";
 import { startIsolatedDaemon } from "./support/isolated-daemon.js";
 
 function capturingHost() {
@@ -43,7 +43,7 @@ function resourceValue(outcome: Awaited<ReturnType<ContributionCommand["execute"
 	return outcome.value;
 }
 
-describe("Lector Alignment contribution against a real daemon", () => {
+describe("Lector Zodiac contribution against a real daemon", () => {
 	let stop: (() => Promise<void>) | undefined;
 	let workspaceRoot: string | undefined;
 
@@ -57,13 +57,13 @@ describe("Lector Alignment contribution against a real daemon", () => {
 	it("opens explicit workspace/tree/text resources and fails closed at read bounds", async () => {
 		const daemon = await startIsolatedDaemon();
 		stop = daemon.stop;
-		workspaceRoot = mkdtempSync(join(tmpdir(), "alignment-lector-workspace-"));
+		workspaceRoot = mkdtempSync(join(tmpdir(), "zodiac-lector-workspace-"));
 		mkdirSync(join(workspaceRoot, "src"));
 		writeFileSync(join(workspaceRoot, "src", "a.ts"), "hello");
 		writeFileSync(join(workspaceRoot, "README.md"), "readme");
 
 		const host = capturingHost();
-		const contribution = createLectorAlignmentContribution({ operations: lectorOperationsFromClient(daemon.client) });
+		const contribution = createLectorZodiacContribution({ operations: lectorOperationsFromClient(daemon.client) });
 		await contribution.activate(host.api);
 
 		const workspace = resourceValue(await requireCommand(host.commands, "lector.workspace.open").execute({ path: workspaceRoot }));
@@ -107,11 +107,11 @@ describe("Lector Alignment contribution against a real daemon", () => {
 	it("preserves local edits when a real external write makes guarded save stale", async () => {
 		const daemon = await startIsolatedDaemon();
 		stop = daemon.stop;
-		workspaceRoot = mkdtempSync(join(tmpdir(), "alignment-lector-stale-"));
+		workspaceRoot = mkdtempSync(join(tmpdir(), "zodiac-lector-stale-"));
 		writeFileSync(join(workspaceRoot, "note.txt"), "original");
 
 		const host = capturingHost();
-		const contribution = createLectorAlignmentContribution({ operations: lectorOperationsFromClient(daemon.client) });
+		const contribution = createLectorZodiacContribution({ operations: lectorOperationsFromClient(daemon.client) });
 		await contribution.activate(host.api);
 		const workspace = resourceValue(await requireCommand(host.commands, "lector.workspace.open").execute({ path: workspaceRoot }));
 		const workspaceId = decodeURIComponent(new URL(workspace.uri).pathname.slice(1));
@@ -136,11 +136,11 @@ describe("Lector Alignment contribution against a real daemon", () => {
 	it("creates, renames, and deletes real files/directories on disk through the daemon", async () => {
 		const daemon = await startIsolatedDaemon();
 		stop = daemon.stop;
-		workspaceRoot = mkdtempSync(join(tmpdir(), "alignment-lector-mutations-"));
+		workspaceRoot = mkdtempSync(join(tmpdir(), "zodiac-lector-mutations-"));
 		const root = workspaceRoot;
 
 		const host = capturingHost();
-		const contribution = createLectorAlignmentContribution({ operations: lectorOperationsFromClient(daemon.client) });
+		const contribution = createLectorZodiacContribution({ operations: lectorOperationsFromClient(daemon.client) });
 		await contribution.activate(host.api);
 		const workspace = resourceValue(await requireCommand(host.commands, "lector.workspace.open").execute({ path: root }));
 		const workspaceId = decodeURIComponent(new URL(workspace.uri).pathname.slice(1));
@@ -176,7 +176,7 @@ describe("Lector Alignment contribution against a real daemon", () => {
 		const daemon = await startIsolatedDaemon();
 		stop = daemon.stop;
 		const host = capturingHost();
-		const contribution = createLectorAlignmentContribution({ operations: lectorOperationsFromClient(daemon.client) });
+		const contribution = createLectorZodiacContribution({ operations: lectorOperationsFromClient(daemon.client) });
 		await contribution.activate(host.api);
 		expect(await requireCommand(host.commands, "lector.file.open").execute({ workspaceId: "not-registered", path: "a.ts" })).toMatchObject({
 			ok: false,

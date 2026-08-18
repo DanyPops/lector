@@ -14,7 +14,7 @@ export type {
 	CallGraphProjection,
 	CallGraphStatus,
 } from "./call-graph.js";
-export { createLectorAlignmentContribution } from "./contribution.js";
+export { createLectorZodiacContribution } from "./contribution.js";
 export type {
 	GitDiffFileProjection,
 	GitFileState,

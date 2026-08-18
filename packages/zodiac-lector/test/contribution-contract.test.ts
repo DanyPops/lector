@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@alignment/surface-protocol";
 import { contentHashOf, GuardedLiveBuffer } from "@danypops/lector";
-import { createLectorAlignmentContribution, type LectorOperations } from "../src/index.js";
+import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@zodiac/protocol";
+import { createLectorZodiacContribution, type LectorOperations } from "../src/index.js";
 
 function host() {
 	const commands = new Map<string, ContributionCommand>();
@@ -33,14 +33,14 @@ function resourceValue(outcome: Awaited<ReturnType<ContributionCommand["execute"
 	return outcome.value;
 }
 
-describe("Lector Alignment contribution contract", () => {
+describe("Lector Zodiac contribution contract", () => {
 	it("describes, activates, and disposes the narrow command/resource surface", async () => {
 		const operations: LectorOperations = {
 			call: async () => {
 				throw new Error("unused");
 			},
 		};
-		const contribution = createLectorAlignmentContribution({ operations });
+		const contribution = createLectorZodiacContribution({ operations });
 		expect(contribution.describe()).toEqual({
 			id: "lector",
 			title: "Lector",
@@ -113,7 +113,7 @@ describe("Lector Alignment contribution contract", () => {
 			},
 		};
 		const registered = host();
-		const contribution = createLectorAlignmentContribution({ operations });
+		const contribution = createLectorZodiacContribution({ operations });
 		await contribution.activate(registered.api);
 		expect(await requireCommand(registered.commands, "lector.workspace.open").execute({ path: "/tmp/project" })).toMatchObject({
 			ok: true,
@@ -143,7 +143,7 @@ describe("Lector Alignment contribution contract", () => {
 			},
 		};
 		const registered = host();
-		const contribution = createLectorAlignmentContribution({ operations });
+		const contribution = createLectorZodiacContribution({ operations });
 		await contribution.activate(registered.api);
 		const file = resourceValue(await requireCommand(registered.commands, "lector.file.open").execute({ workspaceId: "ws", path: "a.txt" }));
 		const provider = registered.providers.get("lector");
@@ -175,7 +175,7 @@ describe("Lector Alignment contribution contract", () => {
 			},
 		};
 		const registered = host();
-		const contribution = createLectorAlignmentContribution({ operations });
+		const contribution = createLectorZodiacContribution({ operations });
 		await contribution.activate(registered.api);
 		const created = await requireCommand(registered.commands, "lector.file.create").execute({ workspaceId: "ws", path: "new.ts" });
 		expect(created).toMatchObject({ ok: true, value: { kind: "text", readOnly: true } });
@@ -198,7 +198,7 @@ describe("Lector Alignment contribution contract", () => {
 			},
 		};
 		const registered = host();
-		const contribution = createLectorAlignmentContribution({ operations });
+		const contribution = createLectorZodiacContribution({ operations });
 		await contribution.activate(registered.api);
 		expect(await requireCommand(registered.commands, "lector.directory.create").execute({ workspaceId: "ws", path: "newdir" })).toMatchObject({
 			ok: true,
@@ -218,7 +218,7 @@ describe("Lector Alignment contribution contract", () => {
 			},
 		};
 		const registered = host();
-		const contribution = createLectorAlignmentContribution({ operations });
+		const contribution = createLectorZodiacContribution({ operations });
 		await contribution.activate(registered.api);
 		// Open the file first so there's a real editor entry under its old-path resource to evict.
 		const opened = resourceValue(await requireCommand(registered.commands, "lector.file.open").execute({ workspaceId: "ws", path: "old.ts" }));
@@ -247,7 +247,7 @@ describe("Lector Alignment contribution contract", () => {
 			},
 		};
 		const registered = host();
-		const contribution = createLectorAlignmentContribution({ operations });
+		const contribution = createLectorZodiacContribution({ operations });
 		await contribution.activate(registered.api);
 		expect(await requireCommand(registered.commands, "lector.file.delete").execute({ workspaceId: "ws", path: "gone.ts" })).toMatchObject({
 			ok: true,
@@ -268,7 +268,7 @@ describe("Lector Alignment contribution contract", () => {
 			},
 		};
 		const registered = host();
-		const contribution = createLectorAlignmentContribution({ operations });
+		const contribution = createLectorZodiacContribution({ operations });
 		await contribution.activate(registered.api);
 		expect(await requireCommand(registered.commands, "lector.file.delete").execute({ workspaceId: "ws", path: "gone.ts" })).toMatchObject({
 			ok: false,
@@ -286,7 +286,7 @@ describe("Lector Alignment contribution contract", () => {
 			},
 		};
 		const registered = host();
-		const contribution = createLectorAlignmentContribution({ operations });
+		const contribution = createLectorZodiacContribution({ operations });
 		await contribution.activate(registered.api);
 		expect(await requireCommand(registered.commands, "lector.directory.delete").execute({ workspaceId: "ws", path: "olddir" })).toMatchObject({
 			ok: true,
@@ -297,7 +297,7 @@ describe("Lector Alignment contribution contract", () => {
 
 	it("returns typed invalid-input failures for every new mutation command without calling Lector", async () => {
 		let called = false;
-		const contribution = createLectorAlignmentContribution({
+		const contribution = createLectorZodiacContribution({
 			operations: {
 				call: async () => {
 					called = true;
@@ -329,7 +329,7 @@ describe("Lector Alignment contribution contract", () => {
 
 	it("returns typed invalid-input failures without calling Lector", async () => {
 		let called = false;
-		const contribution = createLectorAlignmentContribution({
+		const contribution = createLectorZodiacContribution({
 			operations: {
 				call: async () => {
 					called = true;

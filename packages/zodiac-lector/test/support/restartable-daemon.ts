@@ -10,7 +10,7 @@ import { InMemoryWorkspace, resolveLectorPaths, startLectorDaemon } from "@danyp
  * one fixed host:port and can never rediscover a genuinely different one.
  */
 export async function startRestartableDaemon() {
-	const root = mkdtempSync(join(tmpdir(), "alignment-lector-restart-"));
+	const root = mkdtempSync(join(tmpdir(), "zodiac-lector-restart-"));
 	const paths = resolveLectorPaths({ env: { XDG_DATA_HOME: root, XDG_STATE_HOME: root, XDG_RUNTIME_DIR: root, XDG_CONFIG_HOME: root } });
 	let daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths });
 	return {

@@ -202,7 +202,7 @@ function daemonIdentityFromHandle(paths: DaemonPaths): DaemonInstanceIdentity {
 }
 
 /**
- * Shared retrying, identity-aware Lector client every consumer (pi-lector, alignment-lector, and
+ * Shared retrying, identity-aware Lector client every consumer (pi-lector, zodiac-lector, and
  * any future one) should build on rather than hand-rolling its own reconnect policy. A daemon
  * binds a fresh random port on every restart; a naively-cached client would keep calling a dead
  * port until something noticed. `@danypops/vehicle-client`'s createRetryingClient already solves

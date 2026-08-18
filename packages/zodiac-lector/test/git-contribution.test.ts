@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@alignment/surface-protocol";
-import { createLectorAlignmentContribution, lectorOperationsFromClient } from "../src/index.js";
+import type { ContributionCommand, ContributionResourceProvider, ContributionResourceReference } from "@zodiac/protocol";
+import { createLectorZodiacContribution, lectorOperationsFromClient } from "../src/index.js";
 import { startIsolatedDaemon } from "./support/isolated-daemon.js";
 
 type GitOpen = { commandId: string; input: { workspaceId: string; path: string; line: number; character: number } } | null;
@@ -14,10 +14,10 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 function createRepository(): string {
-	const root = mkdtempSync(join(tmpdir(), "alignment-lector-git-"));
+	const root = mkdtempSync(join(tmpdir(), "zodiac-lector-git-"));
 	git(root, "init", "-q");
 	git(root, "config", "user.email", "alignment@example.test");
-	git(root, "config", "user.name", "Alignment Fixture");
+	git(root, "config", "user.name", "Zodiac Fixture");
 	mkdirSync(join(root, "src"));
 	writeFileSync(join(root, "src/math.ts"), "export function answer() {\n\treturn 41;\n}\n");
 	writeFileSync(join(root, "rename-me.txt"), "rename\n");
@@ -71,7 +71,7 @@ async function read(
 	return outcome.value;
 }
 
-describe("Lector Alignment Git contribution", () => {
+describe("Lector Zodiac Git contribution", () => {
 	const roots: string[] = [];
 	let stop: (() => Promise<void>) | undefined;
 
@@ -94,7 +94,7 @@ describe("Lector Alignment Git contribution", () => {
 		const daemon = await startIsolatedDaemon();
 		stop = daemon.stop;
 		const registered = host();
-		await createLectorAlignmentContribution({ operations: lectorOperationsFromClient(daemon.client) }).activate(registered.api);
+		await createLectorZodiacContribution({ operations: lectorOperationsFromClient(daemon.client) }).activate(registered.api);
 		const workspace = reference(await command(registered.commands, "lector.workspace.open").execute({ path: root }));
 		const workspaceId = decodeURIComponent(new URL(workspace.uri).pathname.slice(1));
 
@@ -167,12 +167,12 @@ describe("Lector Alignment Git contribution", () => {
 		rmSync(join(root, "delete-me.txt"));
 		writeFileSync(join(root, "binary.bin"), Buffer.from([0, 9, 8, 7, 6]));
 
-		const plain = mkdtempSync(join(tmpdir(), "alignment-lector-not-git-"));
+		const plain = mkdtempSync(join(tmpdir(), "zodiac-lector-not-git-"));
 		roots.push(plain);
 		const daemon = await startIsolatedDaemon();
 		stop = daemon.stop;
 		const registered = host();
-		await createLectorAlignmentContribution({ operations: lectorOperationsFromClient(daemon.client) }).activate(registered.api);
+		await createLectorZodiacContribution({ operations: lectorOperationsFromClient(daemon.client) }).activate(registered.api);
 		const gitWorkspace = reference(await command(registered.commands, "lector.workspace.open").execute({ path: root }));
 		const workspaceId = decodeURIComponent(new URL(gitWorkspace.uri).pathname.slice(1));
 		const plainWorkspace = reference(await command(registered.commands, "lector.workspace.open").execute({ path: plain }));

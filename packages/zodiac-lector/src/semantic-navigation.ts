@@ -1,13 +1,13 @@
 import { isAbsolute, relative, resolve } from "node:path";
+// Deep import, not the "@danypops/lector" barrel -- see index.ts's own doc comment on why.
+import { remoteErrorIs } from "@danypops/lector/client";
 import {
 	type ContributionCommand,
 	type ContributionOutcome,
 	type ContributionReadBounds,
 	type ContributionResourceReference,
 	ContributionResourceReferenceSchema,
-} from "@alignment/surface-protocol";
-// Deep import, not the "@danypops/lector" barrel -- see index.ts's own doc comment on why.
-import { remoteErrorIs } from "@danypops/lector/client";
+} from "@zodiac/protocol";
 import type { LectorOperations } from "./lector-operations.js";
 
 const MAX_CACHED_RESOURCES = 128;

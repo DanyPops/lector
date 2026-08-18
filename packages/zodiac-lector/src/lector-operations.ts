@@ -46,7 +46,7 @@ function workspaceIdFromInput(input: unknown): string | undefined {
  * hash of the absolute root path, so re-registering the exact same path always yields the
  * identical id back. One re-register plus one retry of the exact original call, never more than
  * once, mirrors pi-lector's own proven withWorkspace recovery (extension/src/lector-client.ts) at
- * the one seam every alignment-lector contribution's call already funnels through.
+ * the one seam every zodiac-lector contribution's call already funnels through.
  */
 export function withWorkspaceRecovery(inner: LectorOperations, roots: WorkspaceRootRegistry): LectorOperations {
 	return {

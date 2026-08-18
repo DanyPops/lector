@@ -1,7 +1,7 @@
 {
-  "name": "@danypops/alignment-lector",
-  "version": "0.0.2",
-  "description": "Package-owned Lector contribution for Alignment workspace resources",
+  "name": "@danypops/zodiac-lector",
+  "version": "0.0.3",
+  "description": "Package-owned Lector contribution for Zodiac workspace resources",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
@@ -10,10 +10,10 @@
   "files": ["src", "vendor", "README.md", "LICENSE"],
   "scripts": { "test": "bun test", "typecheck": "tsc --noEmit" },
   "dependencies": {
-    "@alignment/surface-protocol": "file:vendor/alignment-surface-protocol-0.0.1.tgz",
+    "@zodiac/protocol": "file:vendor/zodiac-protocol-0.0.1.tgz",
     "@danypops/lector": "^0.19.0"
   },
   "devDependencies": { "bun-types": "latest", "typescript": "^5.9.3" },
-  "repository": { "type": "git", "url": "git+https://github.com/DanyPops/lector.git", "directory": "packages/alignment-lector" },
+  "repository": { "type": "git", "url": "git+https://github.com/DanyPops/lector.git", "directory": "packages/zodiac-lector" },
   "publishConfig": { "access": "public" }
 }

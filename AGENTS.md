@@ -5,7 +5,7 @@ Four packages: `lector` (the daemon -- code intelligence, workspace ops, symbol 
 `/api/v1/ops`), `pi-lector` (the Pi extension -- consolidated action-parameter tools like `git`,
 `symbol_annotations`, `repo_cache`, `external_search`, `mutation_history`, wired through
 `invokeVehicleOperation()` for the operations already migrated onto the registry), and two thin
-downstream consumers, `alef-lector`/`alignment-lector`. See `@danypops/vehicle`'s own AGENTS.md
+downstream consumers, `alef-lector`/`zodiac-lector`. See `@danypops/vehicle`'s own AGENTS.md
 for the shared substrate lector builds on.
 
 ## Conversational Style
@@ -67,7 +67,7 @@ for the shared substrate lector builds on.
 - Never commit an edit/write in the same tool call as the commit itself.
 - Release: bump `package.json` version (PATCH when every existing consumer's own declared floor
   already covers it, avoiding a cascade of dependency-range edits across
-  `pi-lector`/`alef-lector`/`alignment-lector`), typecheck + test + lint locally, commit, push,
+  `pi-lector`/`alef-lector`/`zodiac-lector`), typecheck + test + lint locally, commit, push,
   then tag and push the tag. `@danypops/lector` uses `lector-v<version>`, `@danypops/pi-lector`
   uses `pi-lector-v<version>` -- see `.github/workflows/publish.yml`. Push tags one at a time,
   never batched in a single `git push`.
