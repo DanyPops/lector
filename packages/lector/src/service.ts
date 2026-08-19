@@ -45,6 +45,7 @@ import type { RepoFetcherPort } from "./repo-fetcher/port.ts";
 import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
 import type { SearchCachePort } from "./search-cache/port.ts";
 import { AnnotationHandlers } from "./service/annotation-handlers.ts";
+import { DISPATCH_SLOW_WARN_THRESHOLD_MS } from "./service/bounds.ts";
 import { createCodeIntelligenceHandlers } from "./service/code-intelligence-handlers.ts";
 import { createCrossWorkspaceHandlers } from "./service/cross-workspace-handlers.ts";
 import { SymbolQueryUnavailable, UnknownWorkspace, UnsupportedLanguage, type WorkspaceId } from "./service/errors.ts";
@@ -200,6 +201,8 @@ export interface LectorServiceOptions {
 	createJobExecutor?: () => BoundedJobExecutor<PopulateSymbolGraphResult>;
 	/** Debounce window before a real file change under a graph-watched workspace triggers an automatic re-population. Default 1000ms; tests use a much smaller value for speed. */
 	graphRefreshDebounceMs?: number;
+	/** Overrides DISPATCH_SLOW_WARN_THRESHOLD_MS -- dispatch()'s own choke-point latency logging. Tests use a tiny value to make the slow-warn path deterministically reachable. */
+	dispatchSlowWarnThresholdMs?: number;
 }
 
 type OperationHandlers = {
@@ -226,6 +229,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	}
 	const registry: MutableRegistry = new Map(Array.from(workspaces, ([id, port]) => [id, { port, origin: "local" as const }]));
 	const logger = options.logger ?? NOOP_LOGGER;
+	const dispatchSlowWarnThresholdMs = options.dispatchSlowWarnThresholdMs ?? DISPATCH_SLOW_WARN_THRESHOLD_MS;
 	let nextJobId = 0;
 	const jobs =
 		options.createJobExecutor?.() ??
@@ -493,9 +497,34 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		// Without it, `dispatch` would sometimes throw and sometimes reject depending on
 		// which operation ran -- a broken contract for any in-process caller (standalone
 		// mode, a future Alef adapter) that isn't protected by the HTTP layer's try/catch.
+		//
+		// Also the one choke point every operation flows through regardless of whether it has
+		// migrated onto VehicleRegistry (which gets its own metrics middleware -- daemon.ts's
+		// createVehicleMetricsMiddleware -- entirely separately): timing and outcome are logged
+		// here unconditionally, so a legacy operation (findSymbols, populateSymbolGraph, rawRead,
+		// ...) is not flying blind just because it hasn't been migrated yet. A thrown/rejected
+		// error is logged then rethrown completely unchanged -- this must never itself become a
+		// second source of truth for what a caller sees, only for what an operator can observe.
 		async dispatch<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]> {
 			const handler = handlers[operation] as (registry: MutableRegistry, input: OperationInputs[Name]) => Promise<OperationOutputs[Name]>;
-			return handler(registry, input);
+			const startedAt = performance.now();
+			try {
+				const result = await handler(registry, input);
+				const durationMs = performance.now() - startedAt;
+				const fields = { component: "dispatch", operation, durationMs: Math.round(durationMs) };
+				if (durationMs >= dispatchSlowWarnThresholdMs) logger.warn("slow operation", fields);
+				else logger.debug("operation completed", fields);
+				return result;
+			} catch (error) {
+				const durationMs = performance.now() - startedAt;
+				logger.warn("operation failed", {
+					component: "dispatch",
+					operation,
+					durationMs: Math.round(durationMs),
+					code: error instanceof Error ? error.name || "Error" : "Error",
+				});
+				throw error;
+			}
 		},
 		async close(): Promise<void> {
 			jobs.close();

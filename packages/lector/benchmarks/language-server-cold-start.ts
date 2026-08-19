@@ -7,9 +7,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LspSymbolIndex } from "../src/adapters/lsp/lsp-symbol-index.ts";
-import { measureProcessTreeRssKb } from "../src/adapters/lsp/process-resource-usage.ts";
-import { documentSymbols } from "../src/domain/document-symbols.ts";
 import {
 	BASH_DESCRIPTOR,
 	CPP_DESCRIPTOR,
@@ -19,7 +16,9 @@ import {
 	RUST_DESCRIPTOR,
 	TYPESCRIPT_DESCRIPTOR,
 	YAML_DESCRIPTOR,
-} from "../src/domain/language-server-descriptor.ts";
+} from "../src/code-intelligence/language-server-descriptor.ts";
+import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
+import { measureProcessTreeRssKb } from "../src/code-intelligence/lsp/process-resource-usage.ts";
 
 interface BenchmarkCase {
 	readonly descriptor: LanguageServerDescriptor;
@@ -109,11 +108,11 @@ async function runOne(benchCase: BenchmarkCase): Promise<BenchmarkResult> {
 	const index = new LspSymbolIndex(root, benchCase.descriptor, benchCase.seedFile);
 	try {
 		const coldStart = performance.now();
-		await documentSymbols(index, mainFile);
+		await index.documentSymbols(mainFile);
 		const coldStartMs = performance.now() - coldStart;
 
 		const warmStart = performance.now();
-		await documentSymbols(index, mainFile);
+		await index.documentSymbols(mainFile);
 		const warmQueryMs = performance.now() - warmStart;
 
 		const pid = index.processId;

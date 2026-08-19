@@ -26,6 +26,19 @@ export const POPULATION_CONCURRENCY = 8;
 export const MAX_GRAPH_SIZE_FOR_DEPENDENT_LOOKUP = 200_000;
 
 /**
+ * dispatch()'s own choke-point instrumentation: an operation whose end-to-end duration meets or
+ * exceeds this is logged at warn even though it succeeded -- the same
+ * SLOW_REQUEST_WARN_THRESHOLD_MS pattern LanguageServerProcess already uses for individual LSP
+ * round trips, applied one layer up, to every operation (not just LSP ones) regardless of
+ * whether it happens to be VehicleRegistry-migrated. Deliberately more generous than a single
+ * interactive LSP request's own 3s threshold: a legitimate batch operation (populateSymbolGraph
+ * over a large workspace) can honestly take longer than any single request should, so this
+ * threshold exists to catch an INTERACTIVE operation quietly regressing toward batch-shaped
+ * latency, not to flag every long-running background job as a problem.
+ */
+export const DISPATCH_SLOW_WARN_THRESHOLD_MS = 5_000;
+
+/**
  * Shared defaults/ceilings for every code-intelligence operation whose result is a list a real
  * workspace can make arbitrarily large -- goToDefinition/goToImplementation/findReferences/
  * incomingCalls/outgoingCalls all return WorkspaceLocation-shaped entries of comparable size.
