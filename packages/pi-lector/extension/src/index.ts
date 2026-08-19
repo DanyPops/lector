@@ -1246,25 +1246,34 @@ export default function (pi: ExtensionAPI) {
 			name: "git",
 			label: "Git",
 			description:
-				"Working tree status, recent commit log, unified diff, one symbol's own declaration diff across two versions, and a real disposable checkout at another ref, for a real git repository, in one tool. Fails clearly if `directory` is not inside a git repository. ACTIONS: status (working tree state, ahead/behind tracking), log (recent commits, bounded by maxCount), diff (unified diff against `ref`, defaulting to HEAD, bounded by maxBytes), compare-symbol (a named symbol's own declaration text diffed between fromRef and toRef, or fromRef and the current working tree when toRef is omitted -- tree-sitter syntactic tier only, TypeScript/JavaScript files only, no project-aware cross-reference resolution), worktree-add (materializes `ref` as a real, read-only project via a detached git worktree and returns its own `directory` -- pass that straight to find_symbols/search_code/this tool itself for full semantic queries against another branch/commit, not just text), worktree-remove (releases and deletes a worktree-add-created checkout -- `directory` is that checkout's own returned directory, not the source repo's).",
-			promptSnippet: "Show a repository's status, log, diff, one symbol's diff across versions, or a real checkout at another ref",
+				"Working tree status, recent commit log, unified diff, one symbol's own declaration diff across two versions, ref-scoped blob/text/ancestry queries with no checkout, and a real disposable checkout at another ref, for a real git repository, in one tool. Fails clearly if `directory` is not inside a git repository. ACTIONS: status (working tree state, ahead/behind tracking), log (recent commits, bounded by maxCount), diff (unified diff against `ref`, defaulting to HEAD, bounded by maxBytes), compare-symbol (a named symbol's own declaration text diffed between fromRef and toRef, or fromRef and the current working tree when toRef is omitted -- tree-sitter syntactic tier only, TypeScript/JavaScript files only, no project-aware cross-reference resolution), show (a path's exact blob content at `ref`, no checkout), grep-ref (text search across `ref`'s own tree, no checkout -- the ref-scoped equivalent of search_code), ls-ref (every file path in `ref`'s own tree, no checkout), is-ancestor (is `ancestorRef` a real ancestor of, or the same commit as, `ref` -- the backport/reachability check \"was this fix ported to this branch\" actually needs), worktree-add (materializes `ref` as a real, read-only project via a detached git worktree and returns its own `directory` -- pass that straight to find_symbols/search_code/this tool itself for full semantic queries against another branch/commit, not just text), worktree-remove (releases and deletes a worktree-add-created checkout -- `directory` is that checkout's own returned directory, not the source repo's).",
+			promptSnippet:
+				"Show a repository's status, log, diff, one symbol's diff across versions, a ref-scoped blob/text/ancestry query, or a real checkout at another ref",
 			promptGuidelines: [
-				"maxCount is required for action=log; maxBytes is required for action=diff/compare-symbol -- every bounded query needs its bound stated explicitly, never defaulted silently.",
+				"maxCount is required for action=log; maxBytes is required for action=diff/compare-symbol/grep-ref -- every bounded query needs its bound stated explicitly, never defaulted silently.",
 				"path, symbol, and fromRef are required for action=compare-symbol; toRef is optional and means 'the current working tree' when omitted.",
 				"ref is required for action=worktree-add. A repeated worktree-add for the same (directory, ref) reuses the existing checkout unless forceRefresh is set -- use that when ref is a branch that may have moved.",
 				"action=worktree-remove's directory is worktree-add's own returned directory, never the source repo's -- always call it once done with a worktree to reclaim disk.",
+				"ref and path are required for action=show; ref and pattern (maxMatches, maxBytes) are required for action=grep-ref; ref (maxResults) is required for action=ls-ref; ancestorRef and ref are required for action=is-ancestor. None of the four checks anything out -- prefer them over worktree-add/find_symbols for a quick existence/text/ancestry answer.",
 			],
 			parameters: Type.Object({
-				action: Type.String({ description: "status | log | diff | compare-symbol | worktree-add | worktree-remove" }),
+				action: Type.String({ description: "status | log | diff | compare-symbol | show | grep-ref | ls-ref | is-ancestor | worktree-add | worktree-remove" }),
 				directory: Type.String({ description: "Directory inside the repository to check, absolute or relative to the current working directory" }),
 				maxCount: Type.Optional(Type.Number({ description: "Maximum number of commits to return, most recent first -- required for action=log" })),
 				ref: Type.Optional(
-					Type.String({ description: "Ref to diff against (defaults to HEAD) for action=diff, or to check out for action=worktree-add (required)" }),
+					Type.String({
+						description:
+							"Ref to diff against (defaults to HEAD) for action=diff, or to check out/query for action=worktree-add/show/grep-ref/ls-ref/is-ancestor (required for those)",
+					}),
 				),
 				maxBytes: Type.Optional(
-					Type.Number({ description: "Maximum diff/comparison size in bytes before truncating -- required for action=diff/compare-symbol" }),
+					Type.Number({
+						description: "Maximum diff/comparison/grep output size in bytes before truncating -- required for action=diff/compare-symbol/grep-ref",
+					}),
 				),
-				path: Type.Optional(Type.String({ description: "File path (relative to directory) containing the symbol -- required for action=compare-symbol" })),
+				path: Type.Optional(
+					Type.String({ description: "File path (relative to directory) containing the symbol, or to read -- required for action=compare-symbol/show" }),
+				),
 				symbol: Type.Optional(Type.String({ description: "Exact symbol name to compare -- required for action=compare-symbol" })),
 				fromRef: Type.Optional(Type.String({ description: "Git ref for the 'before' version -- required for action=compare-symbol" })),
 				toRef: Type.Optional(
@@ -1275,6 +1284,16 @@ export default function (pi: ExtensionAPI) {
 						description: "action=worktree-add only: recreate an already-reused worktree at ref's current tip instead of returning the existing one",
 					}),
 				),
+				pattern: Type.Optional(Type.String({ description: "Text pattern to search for -- required for action=grep-ref" })),
+				pathspecs: Type.Optional(
+					Type.Array(Type.String(), {
+						description:
+							'Narrows action=grep-ref (glob-based, e.g. "*.go") or action=ls-ref (prefix-based, e.g. "pkg/dpll"); omitted searches/lists the whole tree',
+					}),
+				),
+				maxMatches: Type.Optional(Type.Number({ description: "Maximum grep matches to return -- required for action=grep-ref" })),
+				maxResults: Type.Optional(Type.Number({ description: "Maximum file paths to return -- required for action=ls-ref" })),
+				ancestorRef: Type.Optional(Type.String({ description: "The candidate ancestor ref -- required for action=is-ancestor" })),
 			}),
 			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<GitToolDetails>> {
 				const directory = resolve(cwd, params.directory);
@@ -1315,6 +1334,32 @@ export default function (pi: ExtensionAPI) {
 					const worktreeRemove = await gitOperations.worktreeRemove(directory, vehicleCall);
 					const details: GitToolDetails = { action: "worktree-remove", worktreeRemove };
 					return { content: [{ type: "text", text: JSON.stringify(worktreeRemove) }], details };
+				}
+				if (params.action === "show") {
+					if (!params.ref || !params.path) throw new Error("git action=show requires ref and path");
+					const content = await gitOperations.showFile(directory, params.ref, params.path, vehicleCall);
+					const details: GitToolDetails = { action: "show", showFile: { ref: params.ref, path: params.path, content } };
+					return { content: [{ type: "text", text: content ?? `"${params.path}" does not exist at ${params.ref}` }], details };
+				}
+				if (params.action === "grep-ref") {
+					if (!params.ref || !params.pattern) throw new Error("git action=grep-ref requires ref and pattern");
+					if (params.maxMatches === undefined || params.maxBytes === undefined) throw new Error("git action=grep-ref requires maxMatches and maxBytes");
+					const grep = await gitOperations.grep(directory, params.ref, params.pattern, params.pathspecs, params.maxMatches, params.maxBytes, vehicleCall);
+					const details: GitToolDetails = { action: "grep-ref", grep };
+					return { content: [{ type: "text", text: JSON.stringify(grep) }], details };
+				}
+				if (params.action === "ls-ref") {
+					if (!params.ref) throw new Error("git action=ls-ref requires ref");
+					if (params.maxResults === undefined) throw new Error("git action=ls-ref requires maxResults");
+					const listFiles = await gitOperations.listFiles(directory, params.ref, params.pathspecs, params.maxResults, vehicleCall);
+					const details: GitToolDetails = { action: "ls-ref", listFiles };
+					return { content: [{ type: "text", text: JSON.stringify(listFiles) }], details };
+				}
+				if (params.action === "is-ancestor") {
+					if (!params.ancestorRef || !params.ref) throw new Error("git action=is-ancestor requires ancestorRef and ref");
+					const result = await gitOperations.isAncestor(directory, params.ancestorRef, params.ref, vehicleCall);
+					const details: GitToolDetails = { action: "is-ancestor", isAncestor: { ancestorRef: params.ancestorRef, ref: params.ref, result } };
+					return { content: [{ type: "text", text: JSON.stringify({ isAncestor: result }) }], details };
 				}
 				throw new Error(`unknown git action: ${String(params.action)}`);
 			},

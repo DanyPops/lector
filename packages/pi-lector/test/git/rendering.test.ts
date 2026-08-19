@@ -186,6 +186,71 @@ describe("formatGitResult -- worktree-remove", () => {
 	});
 });
 
+describe("formatGitResult -- show", () => {
+	it("shows a path's real content at a ref", () => {
+		const details: GitToolDetails = { action: "show", showFile: { ref: "HEAD", path: "a.txt", content: "hello\n" } };
+		expect(formatGitResult(details, false, theme)).toBe("hello\n");
+	});
+
+	it("reports a clear message when the path does not exist at that ref", () => {
+		const details: GitToolDetails = { action: "show", showFile: { ref: "HEAD", path: "missing.txt", content: undefined } };
+		expect(formatGitResult(details, false, theme)).toContain("does not exist at HEAD");
+	});
+});
+
+describe("formatGitResult -- grep-ref", () => {
+	it("shows a clear message when there are no matches", () => {
+		const details: GitToolDetails = { action: "grep-ref", grep: { matches: [], truncated: false } };
+		expect(formatGitResult(details, false, theme)).toContain("No matches");
+	});
+
+	it("shows path/line/text for each match", () => {
+		const details: GitToolDetails = {
+			action: "grep-ref",
+			grep: { matches: [{ path: "a.go", line: 12, text: "LocalHoldoverTimeout = 100" }], truncated: false },
+		};
+		const text = formatGitResult(details, false, theme);
+		expect(text).toContain("a.go:12");
+		expect(text).toContain("LocalHoldoverTimeout = 100");
+	});
+
+	it("notes truncation distinctly", () => {
+		const details: GitToolDetails = { action: "grep-ref", grep: { matches: [{ path: "a.go", line: 1, text: "x" }], truncated: true } };
+		expect(formatGitResult(details, false, theme)).toContain("bounded by maxMatches");
+	});
+});
+
+describe("formatGitResult -- ls-ref", () => {
+	it("shows a clear message when there are no files", () => {
+		const details: GitToolDetails = { action: "ls-ref", listFiles: { paths: [], truncated: false } };
+		expect(formatGitResult(details, false, theme)).toContain("No files");
+	});
+
+	it("lists every real path", () => {
+		const details: GitToolDetails = { action: "ls-ref", listFiles: { paths: ["a.go", "b.go"], truncated: false } };
+		const text = formatGitResult(details, false, theme);
+		expect(text).toContain("a.go");
+		expect(text).toContain("b.go");
+	});
+
+	it("notes truncation distinctly", () => {
+		const details: GitToolDetails = { action: "ls-ref", listFiles: { paths: ["a.go"], truncated: true } };
+		expect(formatGitResult(details, false, theme)).toContain("bounded by maxResults");
+	});
+});
+
+describe("formatGitResult -- is-ancestor", () => {
+	it("reports a real ancestor relationship", () => {
+		const details: GitToolDetails = { action: "is-ancestor", isAncestor: { ancestorRef: "main", ref: "release-4.20", result: true } };
+		expect(formatGitResult(details, false, theme)).toContain("main is an ancestor of release-4.20");
+	});
+
+	it("reports a real non-ancestor relationship", () => {
+		const details: GitToolDetails = { action: "is-ancestor", isAncestor: { ancestorRef: "release-4.20", ref: "main", result: false } };
+		expect(formatGitResult(details, false, theme)).toContain("release-4.20 is not an ancestor of main");
+	});
+});
+
 describe("formatGitResult -- no details", () => {
 	it("shows a placeholder when there's no result at all", () => {
 		expect(formatGitResult(undefined, false, theme)).toContain("No result");

@@ -10,6 +10,8 @@ import type { JobSnapshot } from "../concurrency/bounded-job-executor.ts";
 import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../external-search/external-search-result.ts";
 import type { GitDiffResult } from "../git/diff-result.ts";
+import type { GitGrepResult } from "../git/grep-result.ts";
+import type { GitListFilesResult } from "../git/list-files-result.ts";
 import type { GitLogEntry } from "../git/log-entry.ts";
 import type { GitStatusSummary } from "../git/status.ts";
 import type { BoundedMutationHistoryEntry } from "../mutation-history/bound-mutation-history-entries.ts";
@@ -78,6 +80,10 @@ export type OperationName =
 	| "workspace.gitStatus"
 	| "workspace.gitLog"
 	| "workspace.gitDiff"
+	| "workspace.gitShowFile"
+	| "workspace.gitGrep"
+	| "workspace.gitListFiles"
+	| "workspace.gitIsAncestor"
 	| "workspace.gitWorktreeAdd"
 	| "workspace.gitWorktreeRemove"
 	| "workspace.compareSymbolAcrossVersions"
@@ -155,6 +161,10 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.gitStatus",
 	"workspace.gitLog",
 	"workspace.gitDiff",
+	"workspace.gitShowFile",
+	"workspace.gitGrep",
+	"workspace.gitListFiles",
+	"workspace.gitIsAncestor",
 	"workspace.gitWorktreeAdd",
 	"workspace.gitWorktreeRemove",
 	"workspace.compareSymbolAcrossVersions",
@@ -288,6 +298,14 @@ export interface OperationInputs {
 	"workspace.gitStatus": { workspaceId: WorkspaceId };
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
+	/** A path's exact blob content at `ref`, exposed as its own real-time-verification operation (Tier 1) rather than only compareSymbolAcrossVersions' own internal use of the identical GitPort call. */
+	"workspace.gitShowFile": { workspaceId: WorkspaceId; ref: string; path: string };
+	/** Text search across `ref`'s own tree, no checkout -- the ref-scoped equivalent of workspace.searchText. pathspecs narrows the search (grep's own glob-based pathspec matching). */
+	"workspace.gitGrep": { workspaceId: WorkspaceId; ref: string; pattern: string; pathspecs?: readonly string[]; maxMatches: number; maxBytes: number };
+	/** Every file path in `ref`'s own tree, no checkout. pathspecs narrows the listing (ls-tree's own prefix-based pathspec matching, not glob-based like gitGrep's). */
+	"workspace.gitListFiles": { workspaceId: WorkspaceId; ref: string; pathspecs?: readonly string[]; maxResults: number };
+	/** True iff ancestorRef is a real ancestor of (or the exact same commit as) ref -- the backport/reachability check a "was this fix ported to release-X" question actually needs. */
+	"workspace.gitIsAncestor": { workspaceId: WorkspaceId; ancestorRef: string; ref: string };
 	/** forceRefresh recreates an already-reused worktree at ref's current tip instead of returning the existing one. */
 	"workspace.gitWorktreeAdd": { workspaceId: WorkspaceId; ref: string; forceRefresh?: boolean };
 	"workspace.gitWorktreeRemove": { workspaceId: WorkspaceId };
@@ -420,6 +438,11 @@ export interface OperationOutputs {
 	"workspace.gitStatus": GitStatusSummary;
 	"workspace.gitLog": { entries: readonly GitLogEntry[] };
 	"workspace.gitDiff": GitDiffResult;
+	/** Undefined content means path did not exist at ref -- a real, expected case, never an error. */
+	"workspace.gitShowFile": { content: string | undefined };
+	"workspace.gitGrep": GitGrepResult;
+	"workspace.gitListFiles": GitListFilesResult;
+	"workspace.gitIsAncestor": { isAncestor: boolean };
 	/**
 	 * A brand-new read-only workspace (own workspaceId, distinct from the source repo's) backed by
 	 * a real detached git worktree checked out to `ref` -- every other Lector operation

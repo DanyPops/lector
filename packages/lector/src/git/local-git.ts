@@ -3,6 +3,8 @@ import simpleGit from "simple-git";
 import { truncateUtf8 } from "../bounds/truncate-utf8.ts";
 import { assertSafeGitArgument } from "./assert-safe-git-argument.ts";
 import type { GitDiffResult } from "./diff-result.ts";
+import type { GitGrepMatch, GitGrepResult } from "./grep-result.ts";
+import type { GitListFilesResult } from "./list-files-result.ts";
 import type { GitLogEntry } from "./log-entry.ts";
 import type { GitPort } from "./port.ts";
 import { GitRevisionNotFound, gitErrorIsMissingRevision } from "./revision-not-found.ts";
@@ -136,5 +138,60 @@ export class LocalGit implements GitPort {
 			await rm(targetDir, { recursive: true, force: true }).catch(() => undefined);
 			await this.git.raw(["worktree", "prune"]).catch(() => undefined);
 		}
+	}
+
+	async grep(ref: string, pattern: string, pathspecs: readonly string[] | undefined, maxMatches: number, maxBytes: number): Promise<GitGrepResult> {
+		assertSafeGitArgument(ref);
+		// "-e" marks the following argument as the pattern itself, never reinterpreted as a flag by
+		// git even if it starts with "-" -- unlike ref/pathspecs, a search pattern legitimately can.
+		const args = ["grep", "-n", "-e", pattern, ref];
+		if (pathspecs && pathspecs.length > 0) args.push("--", ...pathspecs);
+		let raw: string;
+		try {
+			raw = await this.git.raw(args);
+		} catch (error) {
+			// A real "no matches" (exit 1, no stderr) resolves rather than throws -- see grep's own
+			// GitPort doc comment. Only a genuinely bad ref reaches this catch.
+			if (gitErrorIsMissingRevision(error)) throw new GitRevisionNotFound(ref);
+			throw error;
+		}
+		const bounded = truncateUtf8(raw, maxBytes);
+		// git echoes the literal ref string back as each line's own prefix when searching a tree
+		// rather than the working directory -- stripping it is exact, not a heuristic.
+		const prefix = `${ref}:`;
+		const lineShape = /^(.+?):(\d+):(.*)$/;
+		const matches: GitGrepMatch[] = [];
+		for (const line of bounded.value.split("\n")) {
+			if (line.length === 0 || !line.startsWith(prefix)) continue;
+			const parsed = lineShape.exec(line.slice(prefix.length));
+			if (!parsed) continue; // a byte-truncated partial line at the maxBytes boundary
+			const [, path, lineNumber, text] = parsed;
+			matches.push({ path: path ?? "", line: Number(lineNumber), text: text ?? "" });
+		}
+		return { matches: matches.slice(0, maxMatches), truncated: bounded.truncated || matches.length > maxMatches };
+	}
+
+	async listFiles(ref: string, pathspecs: readonly string[] | undefined, maxResults: number): Promise<GitListFilesResult> {
+		assertSafeGitArgument(ref);
+		const args = ["ls-tree", "-r", "--name-only", ref];
+		if (pathspecs && pathspecs.length > 0) args.push("--", ...pathspecs);
+		let raw: string;
+		try {
+			raw = await this.git.raw(args);
+		} catch (error) {
+			if (gitErrorIsMissingRevision(error)) throw new GitRevisionNotFound(ref);
+			throw error;
+		}
+		const allPaths = raw.split("\n").filter((line) => line.length > 0);
+		return { paths: allPaths.slice(0, maxResults), truncated: allPaths.length > maxResults };
+	}
+
+	async isAncestor(ancestorRef: string, ref: string): Promise<boolean> {
+		const [ancestorCommit, commit] = await Promise.all([this.resolveCommit(ancestorRef), this.resolveCommit(ref)]);
+		// Both sides are now real, already-validated commit shas -- merge-base's own output (a real
+		// sha on success, empty on genuinely unrelated histories) is what's compared, never an exit
+		// code simple-git doesn't reliably surface for this command (see isAncestor's own GitPort doc).
+		const mergeBase = (await this.git.raw(["merge-base", ancestorCommit, commit])).trim();
+		return mergeBase === ancestorCommit;
 	}
 }

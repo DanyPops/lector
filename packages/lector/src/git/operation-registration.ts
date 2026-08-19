@@ -9,7 +9,17 @@ import { NotAGitRepository, NotAWorktree, SymbolQueryUnavailable, WorkspaceRelea
 import type { GitHandlers } from "../service/git-handlers.ts";
 import type { GitWorktreeHandlers } from "../service/git-worktree-handlers.ts";
 import type { MutableRegistry } from "../service/workspace-registry.ts";
-import { gitDiffInputSchema, gitLogInputSchema, gitStatusInputSchema, gitWorktreeAddInputSchema, gitWorktreeRemoveInputSchema } from "./input-schemas.ts";
+import {
+	gitDiffInputSchema,
+	gitGrepInputSchema,
+	gitIsAncestorInputSchema,
+	gitListFilesInputSchema,
+	gitLogInputSchema,
+	gitShowFileInputSchema,
+	gitStatusInputSchema,
+	gitWorktreeAddInputSchema,
+	gitWorktreeRemoveInputSchema,
+} from "./input-schemas.ts";
 
 const OWNER = "lector-git";
 
@@ -26,6 +36,12 @@ const GIT_REPOSITORY_ERRORS = [
 	UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR,
 	{ code: "symbol-query-unavailable", description: "the workspace has no known root path (not registered from a real filesystem location)" },
 	{ code: "not-a-git-repository", description: "the workspace's root is not inside a git repository" },
+];
+/** Every failure a ref-scoped Tier 1 query (showFile/grep/listFiles/isAncestor) can actually throw beyond GIT_REPOSITORY_ERRORS -- a validated ref/ancestorRef that starts with "-", or one that simply doesn't resolve. */
+const TIER1_REF_ERRORS = [
+	...GIT_REPOSITORY_ERRORS,
+	{ code: "unsafe-git-argument", description: 'ref (or ancestorRef) starts with "-" (git argv-flag injection guard)' },
+	{ code: "git-revision-not-found", description: "ref (or ancestorRef) does not resolve in this repository" },
 ];
 const WORKTREE_ADD_ERRORS = [
 	...GIT_REPOSITORY_ERRORS,
@@ -45,6 +61,14 @@ const mapGitError = defineErrorMapping([
 	UNKNOWN_WORKSPACE_ERROR_MAPPING,
 	{ errorClass: SymbolQueryUnavailable, category: "unavailable", code: "symbol-query-unavailable" },
 	{ errorClass: NotAGitRepository, category: "validation", code: "not-a-git-repository" },
+]);
+/** Maps requireGitRepository's errors plus a ref-scoped Tier 1 query's own unsafe-argument/missing-revision failures. */
+const mapTier1RefError = defineErrorMapping([
+	UNKNOWN_WORKSPACE_ERROR_MAPPING,
+	{ errorClass: SymbolQueryUnavailable, category: "unavailable", code: "symbol-query-unavailable" },
+	{ errorClass: NotAGitRepository, category: "validation", code: "not-a-git-repository" },
+	{ errorClass: UnsafeGitArgument, category: "validation", code: "unsafe-git-argument" },
+	{ errorClass: GitRevisionNotFound, category: "validation", code: "git-revision-not-found" },
 ]);
 const mapWorktreeAddError = defineErrorMapping([
 	UNKNOWN_WORKSPACE_ERROR_MAPPING,
@@ -117,6 +141,79 @@ export function registerGitOperations(
 	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(gitDiff, () => (context) => mapGitError(() => handlers["workspace.gitDiff"](registry, context.input))),
+	);
+
+	const gitShowFile = defineVehicleOperation({
+		name: "workspace.gitShowFile",
+		version: 1,
+		description: "A path's exact blob content at `ref`, without checking anything out. Undefined content means the path did not exist at that ref.",
+		input: gitShowFileInputSchema,
+		output: passthroughVehicleSchema,
+		permissions: READ_PERMISSIONS,
+		effect: "read",
+		idempotency: { mode: "safe" },
+		limits: LIMITS,
+		errors: TIER1_REF_ERRORS,
+	});
+	operationRegistry.register(
+		OWNER,
+		bindVehicleOperation(gitShowFile, () => (context) => mapTier1RefError(() => handlers["workspace.gitShowFile"](registry, context.input))),
+	);
+
+	const gitGrep = defineVehicleOperation({
+		name: "workspace.gitGrep",
+		version: 1,
+		description:
+			"Text search across `ref`'s own tree, without checking anything out -- the ref-scoped equivalent of workspace.searchText. " +
+			"Optional pathspecs narrow the search (glob-based); bounded by maxMatches and maxBytes.",
+		input: gitGrepInputSchema,
+		output: passthroughVehicleSchema,
+		permissions: READ_PERMISSIONS,
+		effect: "read",
+		idempotency: { mode: "safe" },
+		limits: LIMITS,
+		errors: TIER1_REF_ERRORS,
+	});
+	operationRegistry.register(
+		OWNER,
+		bindVehicleOperation(gitGrep, () => (context) => mapTier1RefError(() => handlers["workspace.gitGrep"](registry, context.input))),
+	);
+
+	const gitListFiles = defineVehicleOperation({
+		name: "workspace.gitListFiles",
+		version: 1,
+		description:
+			"Every file path present in `ref`'s own tree, without checking anything out. Optional pathspecs narrow the listing " +
+			"(prefix-based, not glob-based like gitGrep's); bounded by maxResults.",
+		input: gitListFilesInputSchema,
+		output: passthroughVehicleSchema,
+		permissions: READ_PERMISSIONS,
+		effect: "read",
+		idempotency: { mode: "safe" },
+		limits: LIMITS,
+		errors: TIER1_REF_ERRORS,
+	});
+	operationRegistry.register(
+		OWNER,
+		bindVehicleOperation(gitListFiles, () => (context) => mapTier1RefError(() => handlers["workspace.gitListFiles"](registry, context.input))),
+	);
+
+	const gitIsAncestor = defineVehicleOperation({
+		name: "workspace.gitIsAncestor",
+		version: 1,
+		description:
+			'True iff ancestorRef is a real ancestor of (or the exact same commit as) ref -- the backport/reachability check for "was this commit ported to this branch".',
+		input: gitIsAncestorInputSchema,
+		output: passthroughVehicleSchema,
+		permissions: READ_PERMISSIONS,
+		effect: "read",
+		idempotency: { mode: "safe" },
+		limits: LIMITS,
+		errors: TIER1_REF_ERRORS,
+	});
+	operationRegistry.register(
+		OWNER,
+		bindVehicleOperation(gitIsAncestor, () => (context) => mapTier1RefError(() => handlers["workspace.gitIsAncestor"](registry, context.input))),
 	);
 
 	const gitWorktreeAdd = defineVehicleOperation({

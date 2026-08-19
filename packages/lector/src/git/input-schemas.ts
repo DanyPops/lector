@@ -33,6 +33,34 @@ export interface GitWorktreeRemoveInput {
 	readonly workspaceId: string;
 }
 
+export interface GitShowFileInput {
+	readonly workspaceId: string;
+	readonly ref: string;
+	readonly path: string;
+}
+
+export interface GitGrepInput {
+	readonly workspaceId: string;
+	readonly ref: string;
+	readonly pattern: string;
+	readonly pathspecs?: readonly string[];
+	readonly maxMatches: number;
+	readonly maxBytes: number;
+}
+
+export interface GitListFilesInput {
+	readonly workspaceId: string;
+	readonly ref: string;
+	readonly pathspecs?: readonly string[];
+	readonly maxResults: number;
+}
+
+export interface GitIsAncestorInput {
+	readonly workspaceId: string;
+	readonly ancestorRef: string;
+	readonly ref: string;
+}
+
 function notAnObject(): { readonly success: false; readonly issues: readonly VehicleSchemaIssue[] } {
 	return { success: false, issues: [{ path: [], message: "input must be an object" }] };
 }
@@ -51,6 +79,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isPositiveSafeInteger(value: unknown): value is number {
 	return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+}
+
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
 export const gitStatusInputSchema: VehicleSchemaCodec<GitStatusInput> = defineVehicleSchema({
@@ -115,5 +147,95 @@ export const gitWorktreeRemoveInputSchema: VehicleSchemaCodec<GitWorktreeRemoveI
 		if (!isPlainObject(value)) return notAnObject();
 		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
 		return { success: true, value: { workspaceId: value.workspaceId } };
+	},
+});
+
+export const gitShowFileInputSchema: VehicleSchemaCodec<GitShowFileInput> = defineVehicleSchema({
+	jsonSchema: {
+		type: "object",
+		properties: { workspaceId: { type: "string" }, ref: { type: "string" }, path: { type: "string" } },
+		required: ["workspaceId", "ref", "path"],
+		additionalProperties: false,
+	},
+	safeParse(value) {
+		if (!isPlainObject(value)) return notAnObject();
+		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.ref)) return issue("ref", "ref must be a non-empty string");
+		if (!isNonEmptyString(value.path)) return issue("path", "path must be a non-empty string");
+		return { success: true, value: { workspaceId: value.workspaceId, ref: value.ref, path: value.path } };
+	},
+});
+
+export const gitGrepInputSchema: VehicleSchemaCodec<GitGrepInput> = defineVehicleSchema({
+	jsonSchema: {
+		type: "object",
+		properties: {
+			workspaceId: { type: "string" },
+			ref: { type: "string" },
+			pattern: { type: "string" },
+			pathspecs: { type: "array", items: { type: "string" } },
+			maxMatches: { type: "number" },
+			maxBytes: { type: "number" },
+		},
+		required: ["workspaceId", "ref", "pattern", "maxMatches", "maxBytes"],
+		additionalProperties: false,
+	},
+	safeParse(value) {
+		if (!isPlainObject(value)) return notAnObject();
+		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.ref)) return issue("ref", "ref must be a non-empty string");
+		if (typeof value.pattern !== "string" || value.pattern.length === 0) return issue("pattern", "pattern must be a non-empty string");
+		if (value.pathspecs !== undefined && !isStringArray(value.pathspecs)) return issue("pathspecs", "pathspecs must be an array of strings when given");
+		if (!isPositiveSafeInteger(value.maxMatches)) return issue("maxMatches", "maxMatches must be a positive safe integer");
+		if (!isPositiveSafeInteger(value.maxBytes)) return issue("maxBytes", "maxBytes must be a positive safe integer");
+		return {
+			success: true,
+			value: {
+				workspaceId: value.workspaceId,
+				ref: value.ref,
+				pattern: value.pattern,
+				pathspecs: value.pathspecs,
+				maxMatches: value.maxMatches,
+				maxBytes: value.maxBytes,
+			},
+		};
+	},
+});
+
+export const gitListFilesInputSchema: VehicleSchemaCodec<GitListFilesInput> = defineVehicleSchema({
+	jsonSchema: {
+		type: "object",
+		properties: {
+			workspaceId: { type: "string" },
+			ref: { type: "string" },
+			pathspecs: { type: "array", items: { type: "string" } },
+			maxResults: { type: "number" },
+		},
+		required: ["workspaceId", "ref", "maxResults"],
+		additionalProperties: false,
+	},
+	safeParse(value) {
+		if (!isPlainObject(value)) return notAnObject();
+		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.ref)) return issue("ref", "ref must be a non-empty string");
+		if (value.pathspecs !== undefined && !isStringArray(value.pathspecs)) return issue("pathspecs", "pathspecs must be an array of strings when given");
+		if (!isPositiveSafeInteger(value.maxResults)) return issue("maxResults", "maxResults must be a positive safe integer");
+		return { success: true, value: { workspaceId: value.workspaceId, ref: value.ref, pathspecs: value.pathspecs, maxResults: value.maxResults } };
+	},
+});
+
+export const gitIsAncestorInputSchema: VehicleSchemaCodec<GitIsAncestorInput> = defineVehicleSchema({
+	jsonSchema: {
+		type: "object",
+		properties: { workspaceId: { type: "string" }, ancestorRef: { type: "string" }, ref: { type: "string" } },
+		required: ["workspaceId", "ancestorRef", "ref"],
+		additionalProperties: false,
+	},
+	safeParse(value) {
+		if (!isPlainObject(value)) return notAnObject();
+		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.ancestorRef)) return issue("ancestorRef", "ancestorRef must be a non-empty string");
+		if (!isNonEmptyString(value.ref)) return issue("ref", "ref must be a non-empty string");
+		return { success: true, value: { workspaceId: value.workspaceId, ancestorRef: value.ancestorRef, ref: value.ref } };
 	},
 });

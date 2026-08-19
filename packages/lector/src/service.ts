@@ -364,11 +364,25 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	registerGitOperations(operationRegistry, registry, gitHandlers, gitWorktreeHandlers);
 	const registryGitHandlers: Pick<
 		OperationHandlers,
-		"workspace.gitStatus" | "workspace.gitLog" | "workspace.gitDiff" | "workspace.gitWorktreeAdd" | "workspace.gitWorktreeRemove"
+		| "workspace.gitStatus"
+		| "workspace.gitLog"
+		| "workspace.gitDiff"
+		| "workspace.gitShowFile"
+		| "workspace.gitGrep"
+		| "workspace.gitListFiles"
+		| "workspace.gitIsAncestor"
+		| "workspace.gitWorktreeAdd"
+		| "workspace.gitWorktreeRemove"
 	> = {
 		"workspace.gitStatus": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitStatus", 1, input, GIT_READ_PERMISSIONS),
 		"workspace.gitLog": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitLog", 1, input, GIT_READ_PERMISSIONS),
 		"workspace.gitDiff": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitDiff", 1, input, GIT_READ_PERMISSIONS),
+		"workspace.gitShowFile": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitShowFile", 1, input, GIT_READ_PERMISSIONS),
+		"workspace.gitGrep": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitGrep", 1, input, GIT_READ_PERMISSIONS),
+		"workspace.gitListFiles": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.gitListFiles", 1, input, GIT_READ_PERMISSIONS),
+		"workspace.gitIsAncestor": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.gitIsAncestor", 1, input, GIT_READ_PERMISSIONS),
 		"workspace.gitWorktreeAdd": (_registry, input) =>
 			dispatchThroughOperationRegistry(operationRegistry, "workspace.gitWorktreeAdd", 1, input, GIT_WORKTREE_WRITE_PERMISSIONS),
 		"workspace.gitWorktreeRemove": (_registry, input) =>

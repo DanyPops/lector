@@ -1,4 +1,6 @@
 import type { GitDiffResult } from "./diff-result.ts";
+import type { GitGrepResult } from "./grep-result.ts";
+import type { GitListFilesResult } from "./list-files-result.ts";
 import type { GitLogEntry } from "./log-entry.ts";
 import type { GitStatusSummary } from "./status.ts";
 
@@ -42,4 +44,29 @@ export interface GitPort {
 	addWorktree(ref: string, targetDir: string): Promise<{ commit: string }>;
 	/** Removes a worktree previously created by addWorktree, deleting `targetDir` from disk and its entry from git's own worktree admin list. Safe to call even if `targetDir` was already removed from disk out-of-band -- git's own stale admin entry is pruned either way. */
 	removeWorktree(targetDir: string): Promise<void>;
+	/**
+	 * Text search across `ref`'s own tree, without checking anything out -- the ref-scoped
+	 * equivalent of workspace.searchText (Tier 1: a text/blob-level cross-branch query, no
+	 * checkout/registered workspace of its own, unlike workspace.gitWorktreeAdd's Tier 2). Scoped
+	 * to this GitPort's own workspace root the same way diff/showFile already are (git's own
+	 * default cwd-scoping, not extra logic here). `pathspecs` narrows the search (e.g. a single
+	 * `*.go` glob); omitted searches every file in the tree. Bounded by maxMatches and maxBytes.
+	 */
+	grep(ref: string, pattern: string, pathspecs: readonly string[] | undefined, maxMatches: number, maxBytes: number): Promise<GitGrepResult>;
+	/**
+	 * Every file path present in `ref`'s own tree, scoped to this GitPort's own workspace root
+	 * (same cwd-scoping as grep/diff/showFile). `pathspecs` narrows the listing; omitted lists the
+	 * whole tree. Bounded by maxResults. `ls-tree`'s own pathspec matching is prefix-based (e.g.
+	 * `"sub"` matches everything under it), not glob-based the way grep's pathspecs are -- git's
+	 * own distinction between the two commands, not something this adapter normalizes away.
+	 */
+	listFiles(ref: string, pathspecs: readonly string[] | undefined, maxResults: number): Promise<GitListFilesResult>;
+	/**
+	 * True iff `ancestorRef` is a real ancestor of (or the exact same commit as) `ref`. Resolves
+	 * both to real commits first and compares merge-base output directly, rather than relying on
+	 * `git merge-base --is-ancestor`'s own exit-code-only signal -- confirmed live: simple-git's
+	 * raw() resolves (does not throw) for that command regardless of its exit code, since it never
+	 * writes to stderr either way, making the exit code itself unobservable through this adapter.
+	 */
+	isAncestor(ancestorRef: string, ref: string): Promise<boolean>;
 }

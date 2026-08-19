@@ -19,13 +19,29 @@ export interface GitHandlers {
 	"workspace.gitStatus": (registry: MutableRegistry, input: OperationInputs["workspace.gitStatus"]) => Promise<OperationOutputs["workspace.gitStatus"]>;
 	"workspace.gitLog": (registry: MutableRegistry, input: OperationInputs["workspace.gitLog"]) => Promise<OperationOutputs["workspace.gitLog"]>;
 	"workspace.gitDiff": (registry: MutableRegistry, input: OperationInputs["workspace.gitDiff"]) => Promise<OperationOutputs["workspace.gitDiff"]>;
+	"workspace.gitShowFile": (registry: MutableRegistry, input: OperationInputs["workspace.gitShowFile"]) => Promise<OperationOutputs["workspace.gitShowFile"]>;
+	"workspace.gitGrep": (registry: MutableRegistry, input: OperationInputs["workspace.gitGrep"]) => Promise<OperationOutputs["workspace.gitGrep"]>;
+	"workspace.gitListFiles": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.gitListFiles"],
+	) => Promise<OperationOutputs["workspace.gitListFiles"]>;
+	"workspace.gitIsAncestor": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.gitIsAncestor"],
+	) => Promise<OperationOutputs["workspace.gitIsAncestor"]>;
 	"workspace.compareSymbolAcrossVersions": (
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.compareSymbolAcrossVersions"],
 	) => Promise<OperationOutputs["workspace.compareSymbolAcrossVersions"]>;
 }
 
-/** workspace.gitStatus/gitLog/gitDiff/compareSymbolAcrossVersions -- every real git query, backed by GitPort. */
+/**
+ * workspace.gitStatus/gitLog/gitDiff/gitShowFile/gitGrep/gitListFiles/gitIsAncestor/
+ * compareSymbolAcrossVersions -- every real git query, backed by GitPort. gitShowFile/gitGrep/
+ * gitListFiles/gitIsAncestor are Tier 1 of the cross-branch verification surface: real answers
+ * about another ref's own tree with no checkout and no registered workspace of its own, unlike
+ * gitWorktreeAdd's Tier 2 (a real, disposable project at that ref, for semantic queries).
+ */
 export function createGitHandlers(deps: GitHandlerDeps): GitHandlers {
 	async function runGitOperation<T>(operation: string, run: () => Promise<T>): Promise<T> {
 		try {
@@ -86,6 +102,30 @@ export function createGitHandlers(deps: GitHandlerDeps): GitHandlers {
 			return runGitOperation("workspace.gitDiff", async () => {
 				const git = await requireGitRepository(input.workspaceId);
 				return git.diff(input.ref, input.maxBytes);
+			});
+		},
+		"workspace.gitShowFile"(_registry, input) {
+			return runGitOperation("workspace.gitShowFile", async () => {
+				const git = await requireGitRepository(input.workspaceId);
+				return { content: await git.showFile(input.ref, input.path) };
+			});
+		},
+		"workspace.gitGrep"(_registry, input) {
+			return runGitOperation("workspace.gitGrep", async () => {
+				const git = await requireGitRepository(input.workspaceId);
+				return git.grep(input.ref, input.pattern, input.pathspecs, input.maxMatches, input.maxBytes);
+			});
+		},
+		"workspace.gitListFiles"(_registry, input) {
+			return runGitOperation("workspace.gitListFiles", async () => {
+				const git = await requireGitRepository(input.workspaceId);
+				return git.listFiles(input.ref, input.pathspecs, input.maxResults);
+			});
+		},
+		"workspace.gitIsAncestor"(_registry, input) {
+			return runGitOperation("workspace.gitIsAncestor", async () => {
+				const git = await requireGitRepository(input.workspaceId);
+				return { isAncestor: await git.isAncestor(input.ancestorRef, input.ref) };
 			});
 		},
 		/**

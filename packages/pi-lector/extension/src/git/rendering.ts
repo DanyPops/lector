@@ -11,11 +11,13 @@ const DEFAULT_VISIBLE_FILES = 20;
 const DEFAULT_VISIBLE_COMMITS = 10;
 const DEFAULT_VISIBLE_DIFF_LINES = 60;
 
-export type GitAction = "status" | "log" | "diff" | "compare-symbol" | "worktree-add" | "worktree-remove";
+export type GitAction = "status" | "log" | "diff" | "compare-symbol" | "worktree-add" | "worktree-remove" | "show" | "grep-ref" | "ls-ref" | "is-ancestor";
 
 type SymbolComparison = OperationOutputs["workspace.compareSymbolAcrossVersions"];
 type GitWorktreeAddResult = OperationOutputs["workspace.gitWorktreeAdd"];
 type GitWorktreeRemoveResult = OperationOutputs["workspace.gitWorktreeRemove"];
+type GitGrepResult = OperationOutputs["workspace.gitGrep"];
+type GitListFilesResult = OperationOutputs["workspace.gitListFiles"];
 
 export interface GitToolDetails {
 	readonly action: GitAction;
@@ -25,10 +27,24 @@ export interface GitToolDetails {
 	readonly comparison?: SymbolComparison;
 	readonly worktreeAdd?: GitWorktreeAddResult;
 	readonly worktreeRemove?: GitWorktreeRemoveResult;
+	readonly showFile?: { readonly ref: string; readonly path: string; readonly content: string | undefined };
+	readonly grep?: GitGrepResult;
+	readonly listFiles?: GitListFilesResult;
+	readonly isAncestor?: { readonly ancestorRef: string; readonly ref: string; readonly result: boolean };
 }
 
 export function formatGitCall(
-	args: { action?: unknown; directory?: unknown; ref?: unknown; path?: unknown; symbol?: unknown; fromRef?: unknown; toRef?: unknown },
+	args: {
+		action?: unknown;
+		directory?: unknown;
+		ref?: unknown;
+		path?: unknown;
+		symbol?: unknown;
+		fromRef?: unknown;
+		toRef?: unknown;
+		pattern?: unknown;
+		ancestorRef?: unknown;
+	},
 	theme: LectorTheme,
 ): string {
 	const action = typeof args.action === "string" ? args.action : "";
@@ -39,6 +55,21 @@ export function formatGitCall(
 		const fromRef = typeof args.fromRef === "string" ? args.fromRef : "";
 		const toRef = typeof args.toRef === "string" ? ` -> ${args.toRef}` : "";
 		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", `${directory}/${path}`)} (${symbol}) ${fromRef}${toRef}`;
+	}
+	if (action === "is-ancestor") {
+		const ancestorRef = typeof args.ancestorRef === "string" ? args.ancestorRef : "";
+		const ref = typeof args.ref === "string" ? args.ref : "";
+		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)} ${ancestorRef} -> ${ref}`;
+	}
+	if (action === "grep-ref") {
+		const ref = typeof args.ref === "string" ? args.ref : "";
+		const pattern = typeof args.pattern === "string" ? args.pattern : "";
+		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)} ${ref} "${pattern}"`;
+	}
+	if (action === "show") {
+		const ref = typeof args.ref === "string" ? args.ref : "";
+		const path = typeof args.path === "string" ? args.path : "";
+		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", `${directory}/${path}`)} @ ${ref}`;
 	}
 	const ref = typeof args.ref === "string" ? ` ${args.ref}` : "";
 	return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)}${ref}`;
@@ -55,6 +86,44 @@ function formatGitWorktreeRemoveResult(result: GitWorktreeRemoveResult | undefin
 	return theme.fg("accent", "worktree removed");
 }
 
+function formatGitShowFileResult(details: GitToolDetails["showFile"], theme: LectorTheme): string {
+	if (!details) return theme.fg("dim", "No result.");
+	if (details.content === undefined) return theme.fg("dim", `"${details.path}" does not exist at ${details.ref}`);
+	return details.content;
+}
+
+function formatGitGrepResult(result: GitGrepResult | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!result || result.matches.length === 0) return theme.fg("dim", "No matches.");
+	const lines = renderTruncatedList({
+		items: result.matches,
+		expanded,
+		visibleCount: DEFAULT_VISIBLE_FILES,
+		formatItem: (match) => `${theme.fg("accent", `${match.path}:${match.line}`)}:${match.text}`,
+		moreLine: moreLine(theme),
+		truncationWarning: result.truncated ? theme.fg("warning", "(also bounded by maxMatches/maxBytes)") : undefined,
+	});
+	return lines.join("\n");
+}
+
+function formatGitListFilesResult(result: GitListFilesResult | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!result || result.paths.length === 0) return theme.fg("dim", "No files.");
+	const lines = renderTruncatedList({
+		items: result.paths,
+		expanded,
+		visibleCount: DEFAULT_VISIBLE_FILES,
+		formatItem: (path) => path,
+		moreLine: moreLine(theme),
+		truncationWarning: result.truncated ? theme.fg("warning", "(bounded by maxResults)") : undefined,
+	});
+	return lines.join("\n");
+}
+
+function formatGitIsAncestorResult(details: GitToolDetails["isAncestor"], theme: LectorTheme): string {
+	if (!details) return theme.fg("dim", "No result.");
+	const verb = details.result ? "is" : "is not";
+	return theme.fg("accent", `${details.ancestorRef} ${verb} an ancestor of ${details.ref}`);
+}
+
 export function formatGitResult(details: GitToolDetails | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!details) return theme.fg("dim", "No result.");
 	if (details.action === "status") return formatGitStatusResult(details.summary, expanded, theme);
@@ -62,6 +131,10 @@ export function formatGitResult(details: GitToolDetails | undefined, expanded: b
 	if (details.action === "compare-symbol") return formatCompareSymbolResult(details.comparison, expanded, theme);
 	if (details.action === "worktree-add") return formatGitWorktreeAddResult(details.worktreeAdd, theme);
 	if (details.action === "worktree-remove") return formatGitWorktreeRemoveResult(details.worktreeRemove, theme);
+	if (details.action === "show") return formatGitShowFileResult(details.showFile, theme);
+	if (details.action === "grep-ref") return formatGitGrepResult(details.grep, expanded, theme);
+	if (details.action === "ls-ref") return formatGitListFilesResult(details.listFiles, expanded, theme);
+	if (details.action === "is-ancestor") return formatGitIsAncestorResult(details.isAncestor, theme);
 	return formatGitDiffResult(details.result, expanded, theme);
 }
 

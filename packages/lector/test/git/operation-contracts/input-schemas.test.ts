@@ -1,6 +1,14 @@
 /** Each schema's safeParse success/failure branches, without spinning up a registry or workspace. */
 import { describe, expect, it } from "bun:test";
-import { gitDiffInputSchema, gitLogInputSchema, gitStatusInputSchema } from "../../../src/git/input-schemas.ts";
+import {
+	gitDiffInputSchema,
+	gitGrepInputSchema,
+	gitIsAncestorInputSchema,
+	gitListFilesInputSchema,
+	gitLogInputSchema,
+	gitShowFileInputSchema,
+	gitStatusInputSchema,
+} from "../../../src/git/input-schemas.ts";
 
 describe("Git input schemas", () => {
 	describe("gitStatusInputSchema", () => {
@@ -57,6 +65,95 @@ describe("Git input schemas", () => {
 		it("rejects a missing maxBytes", () => {
 			const result = gitDiffInputSchema.safeParse({ workspaceId: "ws" });
 			expect(result).toEqual({ success: false, issues: [{ path: ["maxBytes"], message: "maxBytes must be a positive safe integer" }] });
+		});
+	});
+
+	describe("gitShowFileInputSchema", () => {
+		it("accepts a valid workspaceId, ref, and path", () => {
+			expect(gitShowFileInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD", path: "a.txt" })).toEqual({
+				success: true,
+				value: { workspaceId: "ws", ref: "HEAD", path: "a.txt" },
+			});
+		});
+
+		it("rejects a missing ref", () => {
+			const result = gitShowFileInputSchema.safeParse({ workspaceId: "ws", path: "a.txt" });
+			expect(result).toEqual({ success: false, issues: [{ path: ["ref"], message: "ref must be a non-empty string" }] });
+		});
+
+		it("rejects a missing path", () => {
+			const result = gitShowFileInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD" });
+			expect(result).toEqual({ success: false, issues: [{ path: ["path"], message: "path must be a non-empty string" }] });
+		});
+	});
+
+	describe("gitGrepInputSchema", () => {
+		it("accepts a valid request without pathspecs", () => {
+			expect(gitGrepInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD", pattern: "foo", maxMatches: 10, maxBytes: 1000 })).toEqual({
+				success: true,
+				value: { workspaceId: "ws", ref: "HEAD", pattern: "foo", pathspecs: undefined, maxMatches: 10, maxBytes: 1000 },
+			});
+		});
+
+		it("accepts an explicit pathspecs array", () => {
+			const result = gitGrepInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD", pattern: "foo", pathspecs: ["*.go"], maxMatches: 10, maxBytes: 1000 });
+			expect(result).toEqual({
+				success: true,
+				value: { workspaceId: "ws", ref: "HEAD", pattern: "foo", pathspecs: ["*.go"], maxMatches: 10, maxBytes: 1000 },
+			});
+		});
+
+		it("rejects a non-array pathspecs", () => {
+			const result = gitGrepInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD", pattern: "foo", pathspecs: "*.go", maxMatches: 10, maxBytes: 1000 });
+			expect(result).toEqual({ success: false, issues: [{ path: ["pathspecs"], message: "pathspecs must be an array of strings when given" }] });
+		});
+
+		it("rejects a missing pattern", () => {
+			const result = gitGrepInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD", maxMatches: 10, maxBytes: 1000 });
+			expect(result).toEqual({ success: false, issues: [{ path: ["pattern"], message: "pattern must be a non-empty string" }] });
+		});
+
+		it("rejects a missing maxMatches", () => {
+			const result = gitGrepInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD", pattern: "foo", maxBytes: 1000 });
+			expect(result).toEqual({ success: false, issues: [{ path: ["maxMatches"], message: "maxMatches must be a positive safe integer" }] });
+		});
+	});
+
+	describe("gitListFilesInputSchema", () => {
+		it("accepts a valid request without pathspecs", () => {
+			expect(gitListFilesInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD", maxResults: 100 })).toEqual({
+				success: true,
+				value: { workspaceId: "ws", ref: "HEAD", pathspecs: undefined, maxResults: 100 },
+			});
+		});
+
+		it("rejects a non-array pathspecs", () => {
+			const result = gitListFilesInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD", pathspecs: 42, maxResults: 100 });
+			expect(result).toEqual({ success: false, issues: [{ path: ["pathspecs"], message: "pathspecs must be an array of strings when given" }] });
+		});
+
+		it("rejects a missing maxResults", () => {
+			const result = gitListFilesInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD" });
+			expect(result).toEqual({ success: false, issues: [{ path: ["maxResults"], message: "maxResults must be a positive safe integer" }] });
+		});
+	});
+
+	describe("gitIsAncestorInputSchema", () => {
+		it("accepts a valid request", () => {
+			expect(gitIsAncestorInputSchema.safeParse({ workspaceId: "ws", ancestorRef: "HEAD~1", ref: "HEAD" })).toEqual({
+				success: true,
+				value: { workspaceId: "ws", ancestorRef: "HEAD~1", ref: "HEAD" },
+			});
+		});
+
+		it("rejects a missing ancestorRef", () => {
+			const result = gitIsAncestorInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD" });
+			expect(result).toEqual({ success: false, issues: [{ path: ["ancestorRef"], message: "ancestorRef must be a non-empty string" }] });
+		});
+
+		it("rejects a missing ref", () => {
+			const result = gitIsAncestorInputSchema.safeParse({ workspaceId: "ws", ancestorRef: "HEAD~1" });
+			expect(result).toEqual({ success: false, issues: [{ path: ["ref"], message: "ref must be a non-empty string" }] });
 		});
 	});
 });

@@ -115,6 +115,9 @@ describe("mock: the automatic watcher's own git-repository gate, via a fake GitP
 			resolveCommit: async () => "0".repeat(40),
 			addWorktree: async () => ({ commit: "0".repeat(40) }),
 			removeWorktree: async () => {},
+			grep: async () => ({ matches: [], truncated: false }),
+			listFiles: async () => ({ paths: [], truncated: false }),
+			isAncestor: async () => false,
 		};
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
@@ -148,6 +151,9 @@ describe("mock: the automatic watcher's own git-repository gate, via a fake GitP
 			resolveCommit: async () => "0".repeat(40),
 			addWorktree: async () => ({ commit: "0".repeat(40) }),
 			removeWorktree: async () => {},
+			grep: async () => ({ matches: [], truncated: false }),
+			listFiles: async () => ({ paths: [], truncated: false }),
+			isAncestor: async () => false,
 		};
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
@@ -183,6 +189,9 @@ describe("mock: a remote-origin (repo.fetch) workspace is always treated as git-
 			resolveCommit: async () => "0".repeat(40),
 			addWorktree: async () => ({ commit: "0".repeat(40) }),
 			removeWorktree: async () => {},
+			grep: async () => ({ matches: [], truncated: false }),
+			listFiles: async () => ({ paths: [], truncated: false }),
+			isAncestor: async () => false,
 		};
 		const fakeFetcher: RepoFetcherPort = {
 			fetch: async (): Promise<RepoFetchResult> => ({ path: root, fromCache: false, resolvedRef: "HEAD", refFallbackOccurred: false, commit: "a".repeat(40) }),

@@ -161,4 +161,29 @@ describe("Lector-backed git operations", () => {
 		const removed = await ops.worktreeRemove(added.path, call);
 		expect(removed.workspaceId).toBeTruthy();
 	}, 20_000);
+
+	it("showFile/grep/listFiles/isAncestor answer real cross-branch questions with no checkout, via a running Lector daemon", async () => {
+		await wireDaemon();
+		repoRoot = buildRepoWithBranch();
+		ctx = await realExtensionContext(repoRoot);
+		const call = { toolName: "git", toolCallId: "t5", context: ctx };
+
+		const ops = createLectorGitOperations();
+
+		const onMain = await ops.showFile(repoRoot, "master", "a.txt", call);
+		expect(onMain).toBe("hello\n");
+		const onRelease = await ops.showFile(repoRoot, "release-4.20", "a.txt", call);
+		expect(onRelease).toBe("on release-4.20\n");
+
+		const grepResult = await ops.grep(repoRoot, "release-4.20", "release-4.20", undefined, 10, 10_000, call);
+		expect(grepResult.matches).toEqual([{ path: "a.txt", line: 1, text: "on release-4.20" }]);
+
+		const listResult = await ops.listFiles(repoRoot, "release-4.20", undefined, 10, call);
+		expect(listResult.paths).toEqual(["a.txt"]);
+
+		const masterSha = execFileSync("git", ["rev-parse", "master"], { cwd: repoRoot }).toString().trim();
+		const releaseSha = execFileSync("git", ["rev-parse", "release-4.20"], { cwd: repoRoot }).toString().trim();
+		expect(await ops.isAncestor(repoRoot, masterSha, releaseSha, call)).toBe(true);
+		expect(await ops.isAncestor(repoRoot, releaseSha, masterSha, call)).toBe(false);
+	}, 20_000);
 });
