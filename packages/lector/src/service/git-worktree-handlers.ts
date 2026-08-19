@@ -54,7 +54,13 @@ export function createGitWorktreeHandlers(deps: GitWorktreeHandlerDeps): GitWork
 
 			if (deps.registry.has(worktreeWorkspaceId)) {
 				if (!input.forceRefresh) {
-					const commit = await git.resolveCommit(input.ref);
+					// The worktree's own real, currently-checked-out HEAD -- not git.resolveCommit(input.ref)
+					// against the SOURCE repo, which reports wherever `ref` points to *right now* even though
+					// a moved branch tip was never actually checked out here without forceRefresh. Confirmed
+					// live: reporting the source repo's own resolveCommit here named a commit whose content
+					// disagreed with every file `path` actually served until forceRefresh caught the worktree
+					// up -- a caller trusting `commit` alone would have been reading the wrong version.
+					const commit = await deps.createGitPort(targetDir).resolveCommit("HEAD");
 					return { workspaceId: worktreeWorkspaceId, path: targetDir, ref: input.ref, commit, created: false };
 				}
 				// forceRefresh: tear the existing worktree down (same guards as workspace.release --

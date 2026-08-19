@@ -106,6 +106,29 @@ describe("createGitWorktreeHandlers", () => {
 		expect(second.commit).toBe(first.commit);
 	});
 
+	it("reports the worktree's own real checked-out commit on reuse, not the source ref's own current tip, if ref moved since", async () => {
+		repoRoot = buildRepo();
+		const { registry, handlers } = buildFixture(repoRoot);
+
+		const added = await handlers["workspace.gitWorktreeAdd"](registry, { workspaceId: "source", ref: "release-4.20" });
+
+		// release-4.20 moves on the SOURCE repo -- this worktree is never told to catch up (no
+		// forceRefresh), so it must keep reporting (and serving) its own original commit's content.
+		git(repoRoot, "checkout", "-q", "release-4.20");
+		writeFileSync(join(repoRoot, "a.txt"), "on release-4.20, moved on without this worktree\n");
+		git(repoRoot, "commit", "-qa", "-m", "release-4.20 moves on");
+		const movedTip = execFileSync("git", ["rev-parse", "release-4.20"], { cwd: repoRoot }).toString().trim();
+		git(repoRoot, "checkout", "-q", "main");
+
+		const reused = await handlers["workspace.gitWorktreeAdd"](registry, { workspaceId: "source", ref: "release-4.20" });
+
+		expect(reused.created).toBe(false);
+		expect(reused.commit).toBe(added.commit);
+		expect(reused.commit).not.toBe(movedTip);
+		// The reported commit must actually match what reading from `path` serves -- the whole point.
+		expect(readFileSync(join(reused.path, "a.txt"), "utf8")).toBe("on release-4.20\n");
+	});
+
 	it("forceRefresh releases and recreates an already-reused worktree", async () => {
 		repoRoot = buildRepo();
 		const { registry, handlers, releaseCalls } = buildFixture(repoRoot);
