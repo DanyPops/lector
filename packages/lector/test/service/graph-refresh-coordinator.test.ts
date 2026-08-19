@@ -56,6 +56,21 @@ describe("GraphRefreshCoordinator", () => {
 		expect(coordinator.activeJob("workspace-a")).toBeUndefined();
 	});
 
+	it("activeJobEntries() enumerates every workspace with a currently active job, none that have already cleared", () => {
+		const coordinator = new GraphRefreshCoordinator({ debounceMs: 10, createGraph: () => new InMemorySymbolGraph() });
+		expect(coordinator.activeJobEntries()).toEqual([]);
+
+		coordinator.setActiveJob("workspace-a", "job-1");
+		coordinator.setActiveJob("workspace-b", "job-2");
+		expect(coordinator.activeJobEntries().sort()).toEqual([
+			["workspace-a", "job-1"],
+			["workspace-b", "job-2"],
+		]);
+
+		coordinator.clearActiveJob("workspace-a", "job-1");
+		expect(coordinator.activeJobEntries()).toEqual([["workspace-b", "job-2"]]);
+	});
+
 	it("coalesces refresh scheduling per workspace through one debouncer", () => {
 		const scheduler = new RecordingScheduler();
 		const coordinator = new GraphRefreshCoordinator({ debounceMs: 10, createGraph: () => new InMemorySymbolGraph(), scheduler });

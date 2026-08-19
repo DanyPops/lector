@@ -125,6 +125,66 @@ describe("createLectorService background jobs", () => {
 		});
 	});
 
+	it("workspace.activeCachingJobs enumerates every workspace currently caching, across several at once, and clears once each finishes", async () => {
+		const documentsA = deferred<readonly DocumentSymbolEntry[]>();
+		const documentsB = deferred<readonly DocumentSymbolEntry[]>();
+		let callCount = 0;
+		const rootA = fixture();
+		const rootB = fixture(false);
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createJobExecutor: () =>
+				new BoundedJobExecutor<PopulateSymbolGraphResult>({
+					maxConcurrent: 2,
+					maxQueued: 2,
+					maxRetained: 4,
+					retentionMs: 60_000,
+					createId: () => `test-job-${++callCount}`,
+				}),
+			createSymbolIndex: (rootPath) => new DelayedCodeIndex(rootPath === rootA ? documentsA.promise : documentsB.promise),
+		});
+		expect(await service.dispatch("workspace.activeCachingJobs", {})).toEqual({ jobs: [] });
+		const { workspaceId: workspaceIdA } = await service.dispatch("workspace.registerPath", { path: rootA });
+		const { workspaceId: workspaceIdB } = await service.dispatch("workspace.registerPath", { path: rootB });
+
+		const submittedA = await service.dispatch("job.submit", {
+			operation: "workspace.populateSymbolGraph",
+			input: { workspaceId: workspaceIdA, maxFiles: 10, maxSymbolsPerFile: 10 },
+			waitMs: 0,
+		});
+		const submittedB = await service.dispatch("job.submit", {
+			operation: "workspace.populateSymbolGraph",
+			input: { workspaceId: workspaceIdB, maxFiles: 10, maxSymbolsPerFile: 10 },
+			waitMs: 0,
+		});
+
+		const activeWhileBothRunning = await service.dispatch("workspace.activeCachingJobs", {});
+		expect([...activeWhileBothRunning.jobs].sort((a, b) => a.workspaceId.localeCompare(b.workspaceId))).toEqual(
+			[
+				{ workspaceId: workspaceIdA, status: "running" as const },
+				{ workspaceId: workspaceIdB, status: "running" as const },
+			].sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
+		);
+
+		documentsA.resolve([]);
+		let statusA = await service.dispatch("job.status", { jobId: submittedA.job.id });
+		for (let attempt = 0; attempt < 20 && statusA.job.status !== "succeeded"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			statusA = await service.dispatch("job.status", { jobId: submittedA.job.id });
+		}
+
+		const activeAfterAFinishes = await service.dispatch("workspace.activeCachingJobs", {});
+		expect(activeAfterAFinishes.jobs).toEqual([{ workspaceId: workspaceIdB, status: "running" }]);
+
+		documentsB.resolve([]);
+		let statusB = await service.dispatch("job.status", { jobId: submittedB.job.id });
+		for (let attempt = 0; attempt < 20 && statusB.job.status !== "succeeded"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			statusB = await service.dispatch("job.status", { jobId: submittedB.job.id });
+		}
+		expect(await service.dispatch("workspace.activeCachingJobs", {})).toEqual({ jobs: [] });
+	});
+
 	it("publishes one terminal snapshot on the topic returned by job.watch", async () => {
 		const documents = deferred<readonly DocumentSymbolEntry[]>();
 		const published: Array<{ topic: string; payload: unknown }> = [];

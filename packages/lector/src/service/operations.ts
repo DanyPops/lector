@@ -39,6 +39,7 @@ import type { WorkspaceMapResult } from "../workspace/workspace-map.ts";
 import type { WorkspaceQueryOutcome } from "../workspace/workspace-query-outcome.ts";
 import type { SymbolSearchResult, WorkspaceLocation } from "../workspace/workspace-symbol.ts";
 import type { JobTopic, JobWatchId, WorkspaceId } from "./errors.ts";
+import type { ActiveCachingJobSummary } from "./symbol-graph/cache-query-handlers.ts";
 
 export type OperationName =
 	| "workspace.rawRead"
@@ -74,6 +75,7 @@ export type OperationName =
 	| "workspace.cacheStatus"
 	| "workspace.cacheWalkedFiles"
 	| "workspace.cacheFailures"
+	| "workspace.activeCachingJobs"
 	| "workspace.referenceBasedRename"
 	| "workspace.prepareRename"
 	| "workspace.rename"
@@ -155,6 +157,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.cacheStatus",
 	"workspace.cacheWalkedFiles",
 	"workspace.cacheFailures",
+	"workspace.activeCachingJobs",
 	"workspace.referenceBasedRename",
 	"workspace.prepareRename",
 	"workspace.rename",
@@ -269,6 +272,8 @@ export interface OperationInputs {
 	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
 	"workspace.hasWarmIndex": { workspaceId: WorkspaceId; path?: string };
 	"workspace.cacheStatus": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
+	/** No input -- enumerates every workspace with a currently active (queued/running) population job across the whole daemon, not scoped to one workspaceId the caller must already know. */
+	"workspace.activeCachingJobs": Record<string, never>;
 	/** Paginated raw detail behind cacheStatus's own compact summary -- the workspace's last completed generation regardless of whether it is still fresh (this is inspection, not a freshness check). Throws NoCompletedGeneration if none exists yet. */
 	"workspace.cacheWalkedFiles": { workspaceId: WorkspaceId; offset: number; maxResults: number; maxBytes: number };
 	/** Paginated raw (non-deduplicated) failures behind cacheStatus's own compact failureSummary -- see workspace.cacheWalkedFiles for the same completed-generation semantics. */
@@ -429,6 +434,7 @@ export interface OperationOutputs {
 	"workspace.symbolEdgesTo": { symbols: readonly SymbolNode[]; truncated: boolean };
 	"workspace.hasWarmIndex": { warm: boolean };
 	"workspace.cacheStatus": WorkspaceCacheStatus;
+	"workspace.activeCachingJobs": { jobs: readonly ActiveCachingJobSummary[] };
 	"workspace.cacheWalkedFiles": { files: readonly string[]; totalCount: number; truncated: boolean };
 	"workspace.cacheFailures": { failures: readonly SymbolGraphPopulationFailure[]; totalCount: number; truncated: boolean };
 	/** steps carries full before/after file content internally for mutation-history recording -- deliberately excluded from the wire response, which stays the small movedTo/filesUpdated/caveats summary every caller already expects. */

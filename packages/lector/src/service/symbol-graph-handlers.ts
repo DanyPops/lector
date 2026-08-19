@@ -55,6 +55,10 @@ export interface SymbolGraphHandlers {
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.cacheFailures"],
 	) => Promise<OperationOutputs["workspace.cacheFailures"]>;
+	"workspace.activeCachingJobs": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.activeCachingJobs"],
+	) => Promise<OperationOutputs["workspace.activeCachingJobs"]>;
 	"workspace.referenceBasedRename": (
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.referenceBasedRename"],

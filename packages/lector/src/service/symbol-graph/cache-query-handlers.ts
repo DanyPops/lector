@@ -32,6 +32,15 @@ export interface CacheQueryHandlers {
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.cacheFailures"],
 	) => Promise<OperationOutputs["workspace.cacheFailures"]>;
+	"workspace.activeCachingJobs": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.activeCachingJobs"],
+	) => Promise<OperationOutputs["workspace.activeCachingJobs"]>;
+}
+
+export interface ActiveCachingJobSummary {
+	workspaceId: WorkspaceId;
+	status: "queued" | "running" | "waiting-for-resources";
 }
 
 export interface CacheQueryHandlerFactory {
@@ -124,11 +133,29 @@ export function createCacheQueryHandlers(deps: CacheQueryHandlerDeps): CacheQuer
 		return { failures: page, totalCount, truncated: truncated || generation.result.failuresTruncated };
 	}
 
+	/** Enumerates every workspace with a currently active job -- mirrors cacheStatusHandler's own
+	 * inline eviction (a job that already settled without a per-workspace cacheStatus call to
+	 * notice is cleared here too, not left dangling). */
+	async function activeCachingJobsHandler(): Promise<OperationOutputs["workspace.activeCachingJobs"]> {
+		const active: ActiveCachingJobSummary[] = [];
+		for (const [workspaceId, jobId] of graphRefresh.activeJobEntries()) {
+			const snapshot = jobs.status(jobId);
+			if (snapshot.status === "queued" || snapshot.status === "running") {
+				const waiting = snapshot.status === "running" && warmIndexes.waitingForAdmission(workspaceId);
+				active.push({ workspaceId, status: waiting ? "waiting-for-resources" : snapshot.status });
+			} else {
+				graphRefresh.clearActiveJob(workspaceId, jobId);
+			}
+		}
+		return { jobs: active };
+	}
+
 	return {
 		handlers: {
 			"workspace.cacheStatus": cacheStatusHandler,
 			"workspace.cacheWalkedFiles": cacheWalkedFilesHandler,
 			"workspace.cacheFailures": cacheFailuresHandler,
+			"workspace.activeCachingJobs": activeCachingJobsHandler,
 		},
 		requireCompletedGeneration,
 	};

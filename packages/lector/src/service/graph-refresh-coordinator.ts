@@ -47,6 +47,12 @@ export class GraphRefreshCoordinator<WorkspaceKey extends string, JobKey extends
 		return this.activeJobs.get(workspaceId);
 	}
 
+	/** Every [workspaceId, jobId] pair currently tracked as active -- lets a caller enumerate
+	 * which workspace(s) are caching right now without already knowing their ids in advance. */
+	activeJobEntries(): [WorkspaceKey, JobKey][] {
+		return Array.from(this.activeJobs.entries());
+	}
+
 	setActiveJob(workspaceId: WorkspaceKey, jobId: JobKey): void {
 		this.activeJobs.set(workspaceId, jobId);
 	}
