@@ -129,6 +129,7 @@ import { formatSearchCall, formatSearchResult } from "./search/rendering.ts";
 import { type AnnotationAnchorInput, createLectorSymbolAnnotationOperations } from "./symbol-annotation/operations.ts";
 import { formatAnnotationDetail, formatAnnotationListSummary, formatAnnotationSummary } from "./symbol-annotation/rendering.ts";
 import type { LectorVehicleCall } from "./vehicle-client.ts";
+import { CachingOverlay } from "./workspace-cache/caching-overlay.ts";
 import {
 	type CachePresentationState,
 	cacheContextMessage,
@@ -278,6 +279,7 @@ export default function (pi: ExtensionAPI) {
 		};
 	});
 
+	let cachingOverlay: CachingOverlay | undefined;
 	pi.on("session_shutdown", (_event, ctx) => {
 		sessionGeneration++;
 		cacheStatesByRoot.clear();
@@ -285,6 +287,7 @@ export default function (pi: ExtensionAPI) {
 		lastInjectedSummary = undefined;
 		uiContext = undefined;
 		ctx.ui.setStatus("lector-cache", undefined);
+		cachingOverlay?.dispose();
 	});
 
 	pi.on("session_start", (_event, ctx) => {
@@ -295,6 +298,14 @@ export default function (pi: ExtensionAPI) {
 		lastInjectedSummary = undefined;
 		uiContext = ctx;
 		setNewWorkspaceObserver((root) => startMonitoringRoot(root, ctx));
+		if (ctx.hasUI) {
+			// The persistent widget counterpart to the single-line "lector-cache" status above --
+			// enumerates EVERY workspace currently caching, not just this session's own cwd root.
+			cachingOverlay ??= new CachingOverlay();
+			cachingOverlay.setUI(ctx.ui);
+			void cachingOverlay.refresh();
+			cachingOverlay.startPolling();
+		}
 		const thisGeneration = sessionGeneration;
 		void nearestGitWorkspaceRoot(cwd)
 			.then((projectRoot) => {

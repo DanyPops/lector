@@ -23,7 +23,7 @@
     },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.19.4",
+      "version": "0.19.9",
       "bin": {
         "lector": "src/cli.ts",
       },
@@ -58,12 +58,12 @@
     },
     "packages/pi-lector": {
       "name": "@danypops/pi-lector",
-      "version": "0.12.12",
+      "version": "0.12.15",
       "dependencies": {
         "@danypops/lector": "^0.19.3",
         "@danypops/vehicle-client": "^0.10.3",
         "@danypops/vehicle-core": "^0.17.1",
-        "malevich-tui-components": "^0.25.0",
+        "malevich-tui-components": "^0.32.1",
         "picomatch": "^4.0.5",
       },
       "devDependencies": {
@@ -522,7 +522,7 @@
 
     "lru-cache": ["lru-cache@11.5.2", "", {}, "sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g=="],
 
-    "malevich-tui-components": ["malevich-tui-components@0.25.0", "", {}, "sha512-vnjVvmCfJcE9wxUCQKdL2Gvnm5RiBO/2Lxk3Ut7Z6GHWyd5L3LidAkrcXvWNLuHuZ4VW+B8N26fDtGj+HcbMVw=="],
+    "malevich-tui-components": ["malevich-tui-components@0.32.1", "", {}, "sha512-8FbQP9kre0SptqmYfH3CDKRWiESex1FlAcU2MsgBpsVOkYTuaFhMla6udPQmYZI8zc2uOIn9mf8VAak0n/ojJw=="],
 
     "marked": ["marked@18.0.5", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-S6GcvALHg6K4ohtu4E7x0a1AqhAjp6cV8KhLSyN9qVapnzJkusVBxZRcIU9AeYsbe6P1hKDusSbEOzGyyuce6w=="],
 
