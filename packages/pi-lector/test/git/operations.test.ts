@@ -12,7 +12,7 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createExtensionHarness } from "@danypops/pi-extension-harness";
@@ -49,6 +49,16 @@ function buildRepo(): string {
 	writeFileSync(join(root, "a.txt"), "hello\n");
 	git(root, "add", "a.txt");
 	git(root, "commit", "-q", "-m", "initial commit");
+	return root;
+}
+
+function buildRepoWithBranch(): string {
+	const root = buildRepo();
+	git(root, "checkout", "-qb", "release-4.20");
+	writeFileSync(join(root, "a.txt"), "on release-4.20\n");
+	git(root, "add", "a.txt");
+	git(root, "commit", "-q", "-m", "release-4.20 commit");
+	git(root, "checkout", "-q", "master");
 	return root;
 }
 
@@ -123,5 +133,32 @@ describe("Lector-backed git operations", () => {
 		expect(result.status).toBe("changed");
 		expect(result.diff).toContain("-\treturn 'hi';");
 		expect(result.diff).toContain("+\treturn 'hello';");
+	}, 20_000);
+
+	it("worktreeAdd/worktreeRemove materialize and tear down a real checkout at another ref, reachable by every other tool via its own returned directory", async () => {
+		await wireDaemon();
+		repoRoot = buildRepoWithBranch();
+		ctx = await realExtensionContext(repoRoot);
+		const call = { toolName: "git", toolCallId: "t4", context: ctx };
+
+		const ops = createLectorGitOperations();
+		const added = await ops.worktreeAdd(repoRoot, "release-4.20", undefined, call);
+
+		expect(added.created).toBe(true);
+		expect(added.ref).toBe("release-4.20");
+		expect(readFileSync(join(added.path, "a.txt"), "utf8")).toBe("on release-4.20\n");
+
+		// The worktree's own returned path resolves back to the exact same workspace via the same
+		// git-root walk every other pi-lector tool already uses -- a second worktreeAdd against it
+		// reuses rather than recreates.
+		const reused = await ops.worktreeAdd(repoRoot, "release-4.20", undefined, call);
+		expect(reused.created).toBe(false);
+		expect(reused.path).toBe(added.path);
+
+		const statusOnWorktree = await ops.status(added.path, call);
+		expect(typeof statusOnWorktree.current).toBe("string");
+
+		const removed = await ops.worktreeRemove(added.path, call);
+		expect(removed.workspaceId).toBeTruthy();
 	}, 20_000);
 });

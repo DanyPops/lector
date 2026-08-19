@@ -10,6 +10,7 @@ import { LocalGit } from "../../../src/git/local-git.ts";
 import { registerGitOperations } from "../../../src/git/operation-registration.ts";
 import { NotAGitRepository } from "../../../src/service/errors.ts";
 import { createGitHandlers } from "../../../src/service/git-handlers.ts";
+import { createGitWorktreeHandlers } from "../../../src/service/git-worktree-handlers.ts";
 import type { MutableRegistry } from "../../../src/service/workspace-registry.ts";
 import { LocalFilesystemWorkspace } from "../../../src/workspace/local-filesystem-workspace.ts";
 
@@ -28,9 +29,17 @@ const READ_PERMISSIONS = ["workspace:read"];
 
 function buildFixture(rootPath: string) {
 	const registry: MutableRegistry = new Map([["ws", { port: new LocalFilesystemWorkspace(rootPath), rootPath, origin: "local" as const }]]);
-	const handlers = createGitHandlers({ registry, createGitPort: (p) => new LocalGit(p), logger: { debug() {}, info() {}, warn() {}, error() {} } });
+	const logger = { debug() {}, info() {}, warn() {}, error() {} };
+	const handlers = createGitHandlers({ registry, createGitPort: (p) => new LocalGit(p), logger });
+	const worktreeHandlers = createGitWorktreeHandlers({
+		registry,
+		createGitPort: (p) => new LocalGit(p),
+		worktreesRoot: join(tmpdir(), "lector-git-pilot-worktrees"),
+		releaseWorkspace: async (_registry, input) => ({ workspaceId: input.workspaceId, closedIndexes: 0, closedGraph: false, closedWatch: false }),
+		logger,
+	});
 	const vehicleRegistry = new VehicleRegistry({ name: "lector-git-pilot", version: "1.0.0", description: "pilot" });
-	registerGitOperations(vehicleRegistry, registry, handlers);
+	registerGitOperations(vehicleRegistry, registry, handlers, worktreeHandlers);
 	return { registry, handlers, vehicleRegistry };
 }
 

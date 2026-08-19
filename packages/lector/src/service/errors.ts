@@ -67,6 +67,14 @@ export class NotAGitRepository extends Error {
 	}
 }
 
+/** Raised when workspace.gitWorktreeRemove targets a workspace whose root is not a linked git worktree (no `.git` file with a `gitdir:` pointer back through a `/worktrees/` admin entry) -- refuses rather than running `git worktree remove` against an arbitrary registered project. */
+export class NotAWorktree extends Error {
+	constructor(readonly workspaceId: WorkspaceId) {
+		super(`workspace "${workspaceId}" is not a git worktree created by workspace.gitWorktreeAdd`);
+		this.name = "NotAWorktree";
+	}
+}
+
 /**
  * Raised when workspace.compareSymbolAcrossVersions targets a file extension outside
  * Lector's tree-sitter TypeScript/JavaScript grammars -- a narrower list than

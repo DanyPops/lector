@@ -8,5 +8,7 @@ export class GitRevisionNotFound extends Error {
 
 export function gitErrorIsMissingRevision(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
-	return /(?:bad revision|unknown revision|invalid object name|ambiguous argument|not a valid object name)/i.test(error.message);
+	// "invalid reference" is git worktree add's own wording for the identical condition
+	// (bad-revision/showFile/diff instead use "bad revision"/"unknown revision"/etc).
+	return /(?:bad revision|unknown revision|invalid object name|ambiguous argument|not a valid object name|invalid reference)/i.test(error.message);
 }

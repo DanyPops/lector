@@ -1,3 +1,5 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { FallbackCodeIntelligenceIndex } from "./code-intelligence/fallback-code-intelligence-index.ts";
@@ -18,7 +20,7 @@ import { NodeFsFileWatcher } from "./file-watcher/node-fs-file-watcher.ts";
 import type { FileWatcherPort } from "./file-watcher/port.ts";
 import { WatchLimitExceeded } from "./file-watcher/watch-registry.ts";
 import { LocalGit } from "./git/local-git.ts";
-import { GIT_READ_PERMISSIONS, registerGitOperations } from "./git/operation-registration.ts";
+import { GIT_READ_PERMISSIONS, GIT_WORKTREE_WRITE_PERMISSIONS, registerGitOperations } from "./git/operation-registration.ts";
 import type { GitPort } from "./git/port.ts";
 import { GithubSearchClient } from "./github-search/github-search-client.ts";
 import type { GithubSearchPort } from "./github-search/port.ts";
@@ -48,6 +50,7 @@ import { createCrossWorkspaceHandlers } from "./service/cross-workspace-handlers
 import { SymbolQueryUnavailable, UnknownWorkspace, UnsupportedLanguage, type WorkspaceId } from "./service/errors.ts";
 import { createExternalSearchHandlers } from "./service/external-search-handlers.ts";
 import { createGitHandlers } from "./service/git-handlers.ts";
+import { createGitWorktreeHandlers } from "./service/git-worktree-handlers.ts";
 import { GraphRefreshCoordinator } from "./service/graph-refresh-coordinator.ts";
 import { MutationHistoryCoordinator } from "./service/mutation-history-handlers.ts";
 import { OPERATION_NAMES, type OperationInputs, type OperationName, type OperationOutputs } from "./service/operations.ts";
@@ -160,6 +163,8 @@ export interface LectorServiceOptions {
 	populateRetryNow?: () => number;
 	/** Factory for the git port backing workspace.gitStatus/gitLog/gitDiff. Defaults to LocalGit, the real `git` CLI. Cheap to construct -- never cached, unlike symbol indexes. */
 	createGitPort?: (rootPath: string) => GitPort;
+	/** Base directory workspace.gitWorktreeAdd creates its own detached worktrees under, one subdirectory per source repo. Defaults to a real OS tmpdir; daemon.ts overrides it to a sibling of GitRepoFetcher's own reposDirectory so both live under the same bounded data root. */
+	worktreesRoot?: string;
 	/** Factory for the port backing repo.fetch. No default -- unlike createSymbolGraph's safe in-memory fallback, fetching a real external repo always needs a real disk location only a host (daemon.ts) can supply. Called once at construction and reused, not per-call. */
 	createRepoFetcher?: () => RepoFetcherPort;
 	/** Override package-source resolution. With a repo fetcher configured, the default composes npm lockfiles, registry metadata, and exact Git fetching. */
@@ -343,17 +348,31 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	ensureOsWatcher = (workspaceId, rootPath) => workspaceWatchHandlers.ensureOsWatcher(workspaceId, rootPath);
 	const workspaceLifecycleHandlers = createWorkspaceLifecycleHandlers({ registry, warmIndexes, graphRefresh, watchHandlers: workspaceWatchHandlers });
 	const gitHandlers = createGitHandlers({ registry, createGitPort, logger });
+	const gitWorktreeHandlers = createGitWorktreeHandlers({
+		registry,
+		createGitPort,
+		worktreesRoot: options.worktreesRoot ?? join(tmpdir(), "lector-worktrees"),
+		releaseWorkspace: workspaceLifecycleHandlers["workspace.release"],
+		logger,
+	});
 	// Registered Git contracts override only their matching direct handlers.
 	const operationRegistry = new VehicleRegistry({
 		name: "lector",
 		version: lectorVersion(),
 		description: "Lector's operation registry.",
 	});
-	registerGitOperations(operationRegistry, registry, gitHandlers);
-	const registryGitHandlers: Pick<OperationHandlers, "workspace.gitStatus" | "workspace.gitLog" | "workspace.gitDiff"> = {
+	registerGitOperations(operationRegistry, registry, gitHandlers, gitWorktreeHandlers);
+	const registryGitHandlers: Pick<
+		OperationHandlers,
+		"workspace.gitStatus" | "workspace.gitLog" | "workspace.gitDiff" | "workspace.gitWorktreeAdd" | "workspace.gitWorktreeRemove"
+	> = {
 		"workspace.gitStatus": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitStatus", 1, input, GIT_READ_PERMISSIONS),
 		"workspace.gitLog": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitLog", 1, input, GIT_READ_PERMISSIONS),
 		"workspace.gitDiff": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitDiff", 1, input, GIT_READ_PERMISSIONS),
+		"workspace.gitWorktreeAdd": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.gitWorktreeAdd", 1, input, GIT_WORKTREE_WRITE_PERMISSIONS),
+		"workspace.gitWorktreeRemove": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.gitWorktreeRemove", 1, input, GIT_WORKTREE_WRITE_PERMISSIONS),
 	};
 	const repoFetchHandlers = createRepoFetchHandlers({ repoFetcher, logger });
 	registerRepoFetchOperations(operationRegistry, registry, repoFetchHandlers);

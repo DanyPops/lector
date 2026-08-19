@@ -155,6 +155,37 @@ describe("formatGitResult -- compare-symbol", () => {
 	});
 });
 
+describe("formatGitResult -- worktree-add", () => {
+	it("reports a newly created worktree's ref, commit, and path", () => {
+		const details: GitToolDetails = {
+			action: "worktree-add",
+			worktreeAdd: { workspaceId: "abc123", path: "/tmp/lector-worktrees/repo/release-4.20", ref: "release-4.20", commit: "a".repeat(40), created: true },
+		};
+		const text = formatGitResult(details, false, theme);
+		expect(text).toContain("created worktree at release-4.20");
+		expect(text).toContain("aaaaaaaa");
+		expect(text).toContain("/tmp/lector-worktrees/repo/release-4.20");
+	});
+
+	it("distinguishes a reused worktree from a newly created one", () => {
+		const details: GitToolDetails = {
+			action: "worktree-add",
+			worktreeAdd: { workspaceId: "abc123", path: "/tmp/repo/main", ref: "main", commit: "b".repeat(40), created: false },
+		};
+		expect(formatGitResult(details, false, theme)).toContain("reused existing worktree");
+	});
+});
+
+describe("formatGitResult -- worktree-remove", () => {
+	it("reports the worktree was removed", () => {
+		const details: GitToolDetails = {
+			action: "worktree-remove",
+			worktreeRemove: { workspaceId: "abc123", closedIndexes: 0, closedGraph: false, closedWatch: false },
+		};
+		expect(formatGitResult(details, false, theme)).toContain("worktree removed");
+	});
+});
+
 describe("formatGitResult -- no details", () => {
 	it("shows a placeholder when there's no result at all", () => {
 		expect(formatGitResult(undefined, false, theme)).toContain("No result");

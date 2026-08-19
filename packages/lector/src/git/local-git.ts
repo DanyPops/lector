@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import simpleGit from "simple-git";
 import { truncateUtf8 } from "../bounds/truncate-utf8.ts";
 import { assertSafeGitArgument } from "./assert-safe-git-argument.ts";
@@ -93,6 +94,47 @@ export class LocalGit implements GitPort {
 			if (error instanceof Error && error.message.includes("does not exist in")) return undefined;
 			if (gitErrorIsMissingRevision(error)) throw new GitRevisionNotFound(ref);
 			throw error;
+		}
+	}
+
+	async resolveCommit(ref: string): Promise<string> {
+		assertSafeGitArgument(ref);
+		try {
+			const out = await this.git.raw(["rev-parse", `${ref}^{commit}`]);
+			return out.trim();
+		} catch (error) {
+			if (gitErrorIsMissingRevision(error)) throw new GitRevisionNotFound(ref);
+			throw error;
+		}
+	}
+
+	async addWorktree(ref: string, targetDir: string): Promise<{ commit: string }> {
+		assertSafeGitArgument(ref);
+		const attemptAdd = () => this.git.raw(["worktree", "add", "--detach", targetDir, ref]);
+		try {
+			await attemptAdd();
+		} catch (error) {
+			if (gitErrorIsMissingRevision(error)) throw new GitRevisionNotFound(ref);
+			// Not a missing-revision failure -- most likely targetDir is already a registered worktree
+			// left behind by a prior process (see addWorktree's own doc comment). Clear it and retry
+			// once; a real, different failure (e.g. a genuinely unsafe targetDir) still surfaces from
+			// this second attempt rather than being swallowed.
+			await this.git.raw(["worktree", "remove", "--force", targetDir]).catch(() => undefined);
+			await rm(targetDir, { recursive: true, force: true }).catch(() => undefined);
+			await this.git.raw(["worktree", "prune"]).catch(() => undefined);
+			await attemptAdd();
+		}
+		return { commit: await this.resolveCommit(ref) };
+	}
+
+	async removeWorktree(targetDir: string): Promise<void> {
+		try {
+			await this.git.raw(["worktree", "remove", "--force", targetDir]);
+		} catch {
+			// Already gone from disk, or git never fully registered it -- prune git's own stale admin
+			// entry and finish the removal by hand rather than surfacing a false failure.
+			await rm(targetDir, { recursive: true, force: true }).catch(() => undefined);
+			await this.git.raw(["worktree", "prune"]).catch(() => undefined);
 		}
 	}
 }

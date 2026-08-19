@@ -22,6 +22,17 @@ export interface GitDiffInput {
 	readonly maxBytes: number;
 }
 
+export interface GitWorktreeAddInput {
+	readonly workspaceId: string;
+	readonly ref: string;
+	/** Recreates an already-reused worktree at the current tip of `ref` instead of returning the existing one -- the ref itself may have moved since it was first added. */
+	readonly forceRefresh?: boolean;
+}
+
+export interface GitWorktreeRemoveInput {
+	readonly workspaceId: string;
+}
+
 function notAnObject(): { readonly success: false; readonly issues: readonly VehicleSchemaIssue[] } {
 	return { success: false, issues: [{ path: [], message: "input must be an object" }] };
 }
@@ -79,5 +90,30 @@ export const gitDiffInputSchema: VehicleSchemaCodec<GitDiffInput> = defineVehicl
 		if (value.ref !== undefined && typeof value.ref !== "string") return issue("ref", "ref must be a string when given");
 		if (!isPositiveSafeInteger(value.maxBytes)) return issue("maxBytes", "maxBytes must be a positive safe integer");
 		return { success: true, value: { workspaceId: value.workspaceId, ref: value.ref, maxBytes: value.maxBytes } };
+	},
+});
+
+export const gitWorktreeAddInputSchema: VehicleSchemaCodec<GitWorktreeAddInput> = defineVehicleSchema({
+	jsonSchema: {
+		type: "object",
+		properties: { workspaceId: { type: "string" }, ref: { type: "string" }, forceRefresh: { type: "boolean" } },
+		required: ["workspaceId", "ref"],
+		additionalProperties: false,
+	},
+	safeParse(value) {
+		if (!isPlainObject(value)) return notAnObject();
+		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.ref)) return issue("ref", "ref must be a non-empty string");
+		if (value.forceRefresh !== undefined && typeof value.forceRefresh !== "boolean") return issue("forceRefresh", "forceRefresh must be a boolean when given");
+		return { success: true, value: { workspaceId: value.workspaceId, ref: value.ref, forceRefresh: value.forceRefresh } };
+	},
+});
+
+export const gitWorktreeRemoveInputSchema: VehicleSchemaCodec<GitWorktreeRemoveInput> = defineVehicleSchema({
+	jsonSchema: { type: "object", properties: { workspaceId: { type: "string" } }, required: ["workspaceId"], additionalProperties: false },
+	safeParse(value) {
+		if (!isPlainObject(value)) return notAnObject();
+		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
+		return { success: true, value: { workspaceId: value.workspaceId } };
 	},
 });

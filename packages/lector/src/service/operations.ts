@@ -78,6 +78,8 @@ export type OperationName =
 	| "workspace.gitStatus"
 	| "workspace.gitLog"
 	| "workspace.gitDiff"
+	| "workspace.gitWorktreeAdd"
+	| "workspace.gitWorktreeRemove"
 	| "workspace.compareSymbolAcrossVersions"
 	| "repo.fetch"
 	| "repo.listCache"
@@ -153,6 +155,8 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.gitStatus",
 	"workspace.gitLog",
 	"workspace.gitDiff",
+	"workspace.gitWorktreeAdd",
+	"workspace.gitWorktreeRemove",
 	"workspace.compareSymbolAcrossVersions",
 	"repo.fetch",
 	"repo.listCache",
@@ -284,6 +288,9 @@ export interface OperationInputs {
 	"workspace.gitStatus": { workspaceId: WorkspaceId };
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
+	/** forceRefresh recreates an already-reused worktree at ref's current tip instead of returning the existing one. */
+	"workspace.gitWorktreeAdd": { workspaceId: WorkspaceId; ref: string; forceRefresh?: boolean };
+	"workspace.gitWorktreeRemove": { workspaceId: WorkspaceId };
 	/** toRef omitted means "the current working tree" -- fromRef is always a real git ref, never optional, since there is always at least one real version to compare from. */
 	"workspace.compareSymbolAcrossVersions": { workspaceId: WorkspaceId; path: string; symbolName: string; fromRef: string; toRef?: string; maxBytes: number };
 	"repo.fetch": RepoReference & { forceRefresh?: boolean };
@@ -413,6 +420,15 @@ export interface OperationOutputs {
 	"workspace.gitStatus": GitStatusSummary;
 	"workspace.gitLog": { entries: readonly GitLogEntry[] };
 	"workspace.gitDiff": GitDiffResult;
+	/**
+	 * A brand-new read-only workspace (own workspaceId, distinct from the source repo's) backed by
+	 * a real detached git worktree checked out to `ref` -- every other Lector operation
+	 * (findSymbols, goToDefinition, findReferences, searchText, ...) works against it unchanged,
+	 * the same way repo.fetch's checkouts already do. `created: false` means an existing worktree
+	 * for this exact (source workspace, ref) pair was reused rather than recreated.
+	 */
+	"workspace.gitWorktreeAdd": { workspaceId: WorkspaceId; path: string; ref: string; commit: string; created: boolean };
+	"workspace.gitWorktreeRemove": { workspaceId: WorkspaceId; closedIndexes: number; closedGraph: boolean; closedWatch: boolean };
 	"workspace.compareSymbolAcrossVersions": {
 		readonly path: string;
 		readonly symbolName: string;

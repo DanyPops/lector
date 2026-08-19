@@ -11,9 +11,11 @@ const DEFAULT_VISIBLE_FILES = 20;
 const DEFAULT_VISIBLE_COMMITS = 10;
 const DEFAULT_VISIBLE_DIFF_LINES = 60;
 
-export type GitAction = "status" | "log" | "diff" | "compare-symbol";
+export type GitAction = "status" | "log" | "diff" | "compare-symbol" | "worktree-add" | "worktree-remove";
 
 type SymbolComparison = OperationOutputs["workspace.compareSymbolAcrossVersions"];
+type GitWorktreeAddResult = OperationOutputs["workspace.gitWorktreeAdd"];
+type GitWorktreeRemoveResult = OperationOutputs["workspace.gitWorktreeRemove"];
 
 export interface GitToolDetails {
 	readonly action: GitAction;
@@ -21,6 +23,8 @@ export interface GitToolDetails {
 	readonly entries?: readonly GitLogEntry[];
 	readonly result?: GitDiffResult;
 	readonly comparison?: SymbolComparison;
+	readonly worktreeAdd?: GitWorktreeAddResult;
+	readonly worktreeRemove?: GitWorktreeRemoveResult;
 }
 
 export function formatGitCall(
@@ -40,11 +44,24 @@ export function formatGitCall(
 	return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)}${ref}`;
 }
 
+function formatGitWorktreeAddResult(result: GitWorktreeAddResult | undefined, theme: LectorTheme): string {
+	if (!result) return theme.fg("dim", "No result.");
+	const verb = result.created ? "created" : "reused existing";
+	return [theme.fg("accent", `${verb} worktree at ${result.ref} (${result.commit.slice(0, 8)})`), theme.fg("muted", result.path)].join("\n");
+}
+
+function formatGitWorktreeRemoveResult(result: GitWorktreeRemoveResult | undefined, theme: LectorTheme): string {
+	if (!result) return theme.fg("dim", "No result.");
+	return theme.fg("accent", "worktree removed");
+}
+
 export function formatGitResult(details: GitToolDetails | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!details) return theme.fg("dim", "No result.");
 	if (details.action === "status") return formatGitStatusResult(details.summary, expanded, theme);
 	if (details.action === "log") return formatGitLogResult(details.entries, expanded, theme);
 	if (details.action === "compare-symbol") return formatCompareSymbolResult(details.comparison, expanded, theme);
+	if (details.action === "worktree-add") return formatGitWorktreeAddResult(details.worktreeAdd, theme);
+	if (details.action === "worktree-remove") return formatGitWorktreeRemoveResult(details.worktreeRemove, theme);
 	return formatGitDiffResult(details.result, expanded, theme);
 }
 

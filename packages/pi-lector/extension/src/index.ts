@@ -1246,17 +1246,21 @@ export default function (pi: ExtensionAPI) {
 			name: "git",
 			label: "Git",
 			description:
-				"Working tree status, recent commit log, unified diff, and one symbol's own declaration diff across two versions, for a real git repository, in one tool. Fails clearly if `directory` is not inside a git repository. ACTIONS: status (working tree state, ahead/behind tracking), log (recent commits, bounded by maxCount), diff (unified diff against `ref`, defaulting to HEAD, bounded by maxBytes), compare-symbol (a named symbol's own declaration text diffed between fromRef and toRef, or fromRef and the current working tree when toRef is omitted -- tree-sitter syntactic tier only, TypeScript/JavaScript files only, no project-aware cross-reference resolution).",
-			promptSnippet: "Show a repository's status, log, diff, or one symbol's diff across versions",
+				"Working tree status, recent commit log, unified diff, one symbol's own declaration diff across two versions, and a real disposable checkout at another ref, for a real git repository, in one tool. Fails clearly if `directory` is not inside a git repository. ACTIONS: status (working tree state, ahead/behind tracking), log (recent commits, bounded by maxCount), diff (unified diff against `ref`, defaulting to HEAD, bounded by maxBytes), compare-symbol (a named symbol's own declaration text diffed between fromRef and toRef, or fromRef and the current working tree when toRef is omitted -- tree-sitter syntactic tier only, TypeScript/JavaScript files only, no project-aware cross-reference resolution), worktree-add (materializes `ref` as a real, read-only project via a detached git worktree and returns its own `directory` -- pass that straight to find_symbols/search_code/this tool itself for full semantic queries against another branch/commit, not just text), worktree-remove (releases and deletes a worktree-add-created checkout -- `directory` is that checkout's own returned directory, not the source repo's).",
+			promptSnippet: "Show a repository's status, log, diff, one symbol's diff across versions, or a real checkout at another ref",
 			promptGuidelines: [
 				"maxCount is required for action=log; maxBytes is required for action=diff/compare-symbol -- every bounded query needs its bound stated explicitly, never defaulted silently.",
 				"path, symbol, and fromRef are required for action=compare-symbol; toRef is optional and means 'the current working tree' when omitted.",
+				"ref is required for action=worktree-add. A repeated worktree-add for the same (directory, ref) reuses the existing checkout unless forceRefresh is set -- use that when ref is a branch that may have moved.",
+				"action=worktree-remove's directory is worktree-add's own returned directory, never the source repo's -- always call it once done with a worktree to reclaim disk.",
 			],
 			parameters: Type.Object({
-				action: Type.String({ description: "status | log | diff | compare-symbol" }),
+				action: Type.String({ description: "status | log | diff | compare-symbol | worktree-add | worktree-remove" }),
 				directory: Type.String({ description: "Directory inside the repository to check, absolute or relative to the current working directory" }),
 				maxCount: Type.Optional(Type.Number({ description: "Maximum number of commits to return, most recent first -- required for action=log" })),
-				ref: Type.Optional(Type.String({ description: "Ref to diff against; defaults to HEAD -- only used for action=diff" })),
+				ref: Type.Optional(
+					Type.String({ description: "Ref to diff against (defaults to HEAD) for action=diff, or to check out for action=worktree-add (required)" }),
+				),
 				maxBytes: Type.Optional(
 					Type.Number({ description: "Maximum diff/comparison size in bytes before truncating -- required for action=diff/compare-symbol" }),
 				),
@@ -1265,6 +1269,11 @@ export default function (pi: ExtensionAPI) {
 				fromRef: Type.Optional(Type.String({ description: "Git ref for the 'before' version -- required for action=compare-symbol" })),
 				toRef: Type.Optional(
 					Type.String({ description: "Git ref for the 'after' version; omit to compare against the current working tree -- action=compare-symbol only" }),
+				),
+				forceRefresh: Type.Optional(
+					Type.Boolean({
+						description: "action=worktree-add only: recreate an already-reused worktree at ref's current tip instead of returning the existing one",
+					}),
 				),
 			}),
 			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<GitToolDetails>> {
@@ -1295,6 +1304,17 @@ export default function (pi: ExtensionAPI) {
 					const comparison = await gitOperations.compareSymbol(directory, params.path, params.symbol, params.fromRef, params.toRef, params.maxBytes);
 					const details: GitToolDetails = { action: "compare-symbol", comparison };
 					return { content: [{ type: "text", text: JSON.stringify(comparison) }], details };
+				}
+				if (params.action === "worktree-add") {
+					if (!params.ref) throw new Error("git action=worktree-add requires ref");
+					const worktreeAdd = await gitOperations.worktreeAdd(directory, params.ref, params.forceRefresh, vehicleCall);
+					const details: GitToolDetails = { action: "worktree-add", worktreeAdd };
+					return { content: [{ type: "text", text: JSON.stringify(worktreeAdd) }], details };
+				}
+				if (params.action === "worktree-remove") {
+					const worktreeRemove = await gitOperations.worktreeRemove(directory, vehicleCall);
+					const details: GitToolDetails = { action: "worktree-remove", worktreeRemove };
+					return { content: [{ type: "text", text: JSON.stringify(worktreeRemove) }], details };
 				}
 				throw new Error(`unknown git action: ${String(params.action)}`);
 			},

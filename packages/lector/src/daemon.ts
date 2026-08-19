@@ -164,6 +164,8 @@ export interface LectorDaemonOptions {
 	symbolIndexReapIntervalMs?: number;
 	/** Override the repo.fetch backend (tests inject a GitRepoFetcher pointed at a local fixture repo, avoiding live network). Defaults to a real GitRepoFetcher under this daemon's own data directory. */
 	createRepoFetcher?: () => RepoFetcherPort;
+	/** Override where workspace.gitWorktreeAdd creates its detached worktrees. Tests point this at an isolated fixture directory. Defaults to a sibling of reposDirectory under this daemon's own data directory. */
+	worktreesRoot?: string;
 	/** Override package source resolution while retaining the authenticated daemon/client seam. */
 	createPackageSourceResolver?: () => PackageSourceResolverPort;
 	/** Override the npm registry client backing package.resolveSource and search.npmPackages (tests inject a fixture-server-pointed instance, avoiding the real registry). */
@@ -197,6 +199,9 @@ function prepare(options: LectorDaemonOptions): {
 	// manages its own disk-bounded LRU cache of fetched external repos under a sibling
 	// directory of the main database, independent of any single registered workspace.
 	const reposDirectory = join(dirname(paths.database), "repos");
+	// Sibling of reposDirectory -- workspace.gitWorktreeAdd's own bounded data root, distinct from
+	// GitRepoFetcher's disk-cached external clones (a worktree is always of an already-local repo).
+	const worktreesRoot = options.worktreesRoot ?? join(dirname(paths.database), "worktrees");
 	const lspProvisioningRoot = resolveLspProvisioningRoot(paths);
 	const languageServerProvisioner =
 		options.createLanguageServerProvisioner?.(lspProvisioningRoot) ?? new LanguageServerProvisioner(new InstallLocation(lspProvisioningRoot));
@@ -259,6 +264,7 @@ function prepare(options: LectorDaemonOptions): {
 		languageServerProvisioner,
 		createSymbolGraph: (workspaceId) => new SqliteSymbolGraph(join(symbolGraphDirectory, `${workspaceId}.db`)),
 		createRepoFetcher: options.createRepoFetcher ?? (() => new GitRepoFetcher(reposDirectory)),
+		worktreesRoot,
 		createPackageSourceResolver: options.createPackageSourceResolver,
 		createNpmRegistry: options.createNpmRegistry,
 		createGithubSearch: options.createGithubSearch,

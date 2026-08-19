@@ -58,6 +58,8 @@ describe("Lector daemon's /vehicle/* surface (createVehicleHttpApp, additive alo
 				"workspace.gitStatus",
 				"workspace.gitLog",
 				"workspace.gitDiff",
+				"workspace.gitWorktreeAdd",
+				"workspace.gitWorktreeRemove",
 				"repo.fetch",
 				"repo.listCache",
 				"repo.evictCache",

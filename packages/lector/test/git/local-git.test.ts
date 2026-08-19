@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UnsafeGitArgument } from "../../src/git/assert-safe-git-argument.ts";
@@ -175,5 +175,94 @@ describe("LocalGit", () => {
 	it("showFile rejects a ref that looks like a flag", async () => {
 		repoRoot = buildRepo();
 		await expect(new LocalGit(repoRoot).showFile("--upload-pack=evil", "a.txt")).rejects.toBeInstanceOf(UnsafeGitArgument);
+	});
+
+	it("resolveCommit resolves a ref to its real 40-hex commit sha", async () => {
+		repoRoot = buildRepo();
+		const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot }).toString().trim();
+		expect(await new LocalGit(repoRoot).resolveCommit("HEAD")).toBe(headSha);
+	});
+
+	it("resolveCommit rejects a ref that looks like a flag", async () => {
+		repoRoot = buildRepo();
+		await expect(new LocalGit(repoRoot).resolveCommit("--upload-pack=evil")).rejects.toBeInstanceOf(UnsafeGitArgument);
+	});
+
+	it("resolveCommit throws GitRevisionNotFound for an invalid ref", async () => {
+		repoRoot = buildRepo();
+		await expect(new LocalGit(repoRoot).resolveCommit("no-such-ref")).rejects.toBeInstanceOf(GitRevisionNotFound);
+	});
+
+	describe("addWorktree/removeWorktree", () => {
+		let worktreeDir: string | undefined;
+
+		afterEach(() => {
+			if (worktreeDir) rmSync(worktreeDir, { recursive: true, force: true });
+			worktreeDir = undefined;
+		});
+
+		it("checks out a real detached worktree at ref, with the file content real at that ref", async () => {
+			repoRoot = buildRepo();
+			worktreeDir = join(tmpdir(), `lector-worktree-${Date.now()}`);
+
+			const { commit } = await new LocalGit(repoRoot).addWorktree("HEAD", worktreeDir);
+
+			const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot }).toString().trim();
+			expect(commit).toBe(headSha);
+			expect(readFileSync(join(worktreeDir, "a.txt"), "utf8")).toBe("hello\n");
+			// Detached, not tracking any branch -- a later change on the source repo's own checked-out
+			// branch must never move this worktree out from under a caller reading it.
+			const status = execFileSync("git", ["status", "--branch", "--porcelain=v2"], { cwd: worktreeDir }).toString();
+			expect(status).toContain("# branch.head (detached)");
+		});
+
+		it("rejects a ref that does not resolve, without leaving a worktree behind", async () => {
+			repoRoot = buildRepo();
+			worktreeDir = join(tmpdir(), `lector-worktree-${Date.now()}`);
+
+			await expect(new LocalGit(repoRoot).addWorktree("no-such-ref", worktreeDir)).rejects.toBeInstanceOf(GitRevisionNotFound);
+			expect(existsSync(worktreeDir)).toBe(false);
+		});
+
+		it("self-heals a targetDir already registered as a worktree from a prior call, instead of failing", async () => {
+			repoRoot = buildRepo();
+			worktreeDir = join(tmpdir(), `lector-worktree-${Date.now()}`);
+			const gitPort = new LocalGit(repoRoot);
+			await gitPort.addWorktree("HEAD", worktreeDir);
+
+			// A fresh LocalGit instance (standing in for a daemon restart, which loses the in-memory
+			// registry but never git's own on-disk worktree admin state) re-adding at the same path
+			// must succeed by clearing the stale entry, not surface a "path already exists" failure.
+			const { commit } = await new LocalGit(repoRoot).addWorktree("HEAD", worktreeDir);
+			const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot }).toString().trim();
+			expect(commit).toBe(headSha);
+			expect(readFileSync(join(worktreeDir, "a.txt"), "utf8")).toBe("hello\n");
+		});
+
+		it("removeWorktree deletes the directory and git's own admin entry for it", async () => {
+			repoRoot = buildRepo();
+			worktreeDir = join(tmpdir(), `lector-worktree-${Date.now()}`);
+			const gitPort = new LocalGit(repoRoot);
+			await gitPort.addWorktree("HEAD", worktreeDir);
+
+			await gitPort.removeWorktree(worktreeDir);
+
+			expect(existsSync(worktreeDir)).toBe(false);
+			const list = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: repoRoot }).toString();
+			expect(list).not.toContain(worktreeDir);
+		});
+
+		it("removeWorktree is safe to call even after the directory was already deleted out-of-band", async () => {
+			repoRoot = buildRepo();
+			worktreeDir = join(tmpdir(), `lector-worktree-${Date.now()}`);
+			const gitPort = new LocalGit(repoRoot);
+			await gitPort.addWorktree("HEAD", worktreeDir);
+			rmSync(worktreeDir, { recursive: true, force: true });
+
+			await gitPort.removeWorktree(worktreeDir);
+
+			const list = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: repoRoot }).toString();
+			expect(list).not.toContain(worktreeDir);
+		});
 	});
 });
