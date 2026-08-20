@@ -23,14 +23,14 @@
     },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.19.10",
+      "version": "0.19.11",
       "bin": {
         "lector": "src/cli.ts",
       },
       "dependencies": {
         "@codemirror/state": "^6.7.1",
         "@danypops/vehicle-client": "^0.10.1",
-        "@danypops/vehicle-core": "^0.18.2",
+        "@danypops/vehicle-core": "^0.18.3",
         "@danypops/vehicle-server": "^0.25.2",
         "@yarnpkg/parsers": "^3.0.3",
         "diff": "^9.0.0",
@@ -190,7 +190,7 @@
 
     "@danypops/vehicle-conformance": ["@danypops/vehicle-conformance@0.4.0", "", { "dependencies": { "@danypops/vehicle-core": "^0.17.1", "@danypops/vehicle-server": "^0.25.2" } }, "sha512-Qvp0SZ1I1M758Cp2onSK3r7YWIK/hrqd8tUP1Fl1zG25eigjSjhgmEA9HHRNRYg+D8pZeUUNINwTLRfKlZ0rVg=="],
 
-    "@danypops/vehicle-core": ["@danypops/vehicle-core@0.18.2", "", {}, "sha512-6zJ6lPF2K9gpkRmyISJoifD4KbourRCrCW50TNJ9hF4tO+Adl2yThucOkJN3s3SChUzB34XM+Bju9WC3g0aogw=="],
+    "@danypops/vehicle-core": ["@danypops/vehicle-core@0.18.3", "", {}, "sha512-0V7Vj+o0a01uBgT2SszuPozetAlidsA8nxP3iHKm1GDhED/X8BV9N9jhEXEfoeBMytbe3T81RMPxp5ZV9X10Xw=="],
 
     "@danypops/vehicle-server": ["@danypops/vehicle-server@0.25.2", "", { "dependencies": { "@danypops/armada": "^0.5.0", "@danypops/vehicle-core": "^0.17.1", "better-result": "^3.0.1", "pino": "^10.3.1" } }, "sha512-TemjO5SfvKU6fvB0I3UOFChJ8AtjxFEKvg3kMEcOkOnC2xWrdLA0f2hRvL5bFROz2bpAWC+oYJIpH4L93EF6Hw=="],
 
