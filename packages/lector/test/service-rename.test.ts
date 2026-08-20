@@ -117,4 +117,63 @@ describe("createLectorService's workspace.prepareRename/workspace.rename", () =>
 		expect(readFileSync(mathPath, "utf8")).toContain("export function sum");
 		expect(readFileSync(join(fixtureRoot, "src", "consumer.ts"), "utf8")).toContain("sum(9, 9)");
 	}, 20_000);
+
+	it("records a rename's own per-file mutation-history entries correctly, tagged with a shared transactionId", async () => {
+		fixtureRoot = buildFixture();
+		const built = await buildService();
+		service = built.service;
+		const mathPath = join(fixtureRoot, "src", "math.ts");
+		const consumerPath = join(fixtureRoot, "src", "consumer.ts");
+		await service.dispatch("workspace.documentSymbols", { workspaceId: built.workspaceId, path: consumerPath });
+
+		await service.dispatch("workspace.rename", { workspaceId: built.workspaceId, path: mathPath, line: 1, character: 17, newName: "sum" });
+
+		const mathHistory = await service.dispatch("workspace.mutationHistory", { workspaceId: built.workspaceId, path: mathPath, maxResults: 10 });
+		const consumerHistory = await service.dispatch("workspace.mutationHistory", {
+			workspaceId: built.workspaceId,
+			path: consumerPath,
+			maxResults: 10,
+		});
+
+		// The daemon backend tracks this correctly: both files get a real entry, operation "rename",
+		// sharing one transactionId -- confirming the gap (see the next test) is NOT that renames go
+		// untracked, but that the only revert the tool layer exposes ignores this grouping entirely.
+		expect(mathHistory.entries).toHaveLength(1);
+		expect(mathHistory.entries[0]).toMatchObject({ operation: "rename" });
+		expect(consumerHistory.entries).toHaveLength(1);
+		expect(consumerHistory.entries[0]).toMatchObject({ operation: "rename" });
+		expect(mathHistory.entries[0]?.transactionId).toBe(consumerHistory.entries[0]?.transactionId);
+		expect(mathHistory.entries[0]?.transactionId).not.toBeNull();
+	}, 20_000);
+
+	it("DANGER: workspace.revertMutation (the only revert pi-lector's mutation_history tool exposes) reverts one rename-transaction member in isolation, leaving the others broken", async () => {
+		// This is the real gap: Lector's daemon has an atomic, all-or-nothing
+		// workspace.revertMutationTransaction specifically to prevent this outcome -- but pi-lector's
+		// mutation_history tool never wires it up (confirmed: zero references to
+		// mutationTransaction/revertMutationTransaction anywhere in pi-lector's extension source).
+		// The only revert action the tool exposes is single-entry workspace.revertMutation, which has
+		// no idea a transaction even exists and happily reverts just one member.
+		fixtureRoot = buildFixture();
+		const built = await buildService();
+		service = built.service;
+		const mathPath = join(fixtureRoot, "src", "math.ts");
+		const consumerPath = join(fixtureRoot, "src", "consumer.ts");
+		await service.dispatch("workspace.documentSymbols", { workspaceId: built.workspaceId, path: consumerPath });
+		await service.dispatch("workspace.rename", { workspaceId: built.workspaceId, path: mathPath, line: 1, character: 17, newName: "sum" });
+
+		const mathHistory = await service.dispatch("workspace.mutationHistory", { workspaceId: built.workspaceId, path: mathPath, maxResults: 10 });
+		const mathEntry = mathHistory.entries[0];
+		if (!mathEntry) throw new Error("expected a recorded math.ts rename entry");
+
+		// Reverts ONLY math.ts's own half of the transaction -- consumer.ts is never touched.
+		await service.dispatch("workspace.revertMutation", { workspaceId: built.workspaceId, entryId: mathEntry.id });
+
+		// The real, confirmed damage: math.ts is back to exporting "add", but consumer.ts still
+		// imports and calls "sum" -- a name math.ts no longer exports. Silently broken code, with no
+		// warning that this revert was only one member of an atomic multi-file rename.
+		expect(readFileSync(mathPath, "utf8")).toContain("export function add");
+		expect(readFileSync(mathPath, "utf8")).not.toContain("export function sum");
+		expect(readFileSync(consumerPath, "utf8")).toContain('import { sum } from "./math"');
+		expect(readFileSync(consumerPath, "utf8")).toContain("sum(1, 2)");
+	}, 20_000);
 });
