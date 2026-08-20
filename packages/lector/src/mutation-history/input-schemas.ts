@@ -4,7 +4,15 @@
  * field the handler defaults/bounds via resolveBound -- neither field's own numeric ceiling is
  * enforced here, only its shape, matching every other migrated capability's schema/handler split.
  */
-import { defineVehicleSchema, type VehicleSchemaCodec, type VehicleSchemaIssue } from "@danypops/vehicle-core";
+import {
+	defineVehicleSchema,
+	isNonEmptyString,
+	isPlainObject,
+	isPositiveSafeInteger,
+	notAnObjectIssue,
+	schemaIssue,
+	type VehicleSchemaCodec,
+} from "@danypops/vehicle-core";
 
 export interface MutationHistoryInput {
 	readonly workspaceId: string;
@@ -23,26 +31,6 @@ export interface MutationTransactionInput {
 	readonly transactionId: string;
 }
 
-function notAnObject(): { readonly success: false; readonly issues: readonly VehicleSchemaIssue[] } {
-	return { success: false, issues: [{ path: [], message: "input must be an object" }] };
-}
-
-function issue(path: string, message: string): { readonly success: false; readonly issues: readonly VehicleSchemaIssue[] } {
-	return { success: false, issues: [{ path: [path], message }] };
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-	return typeof value === "string" && value.length > 0;
-}
-
-function isPositiveSafeInteger(value: unknown): value is number {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
-}
-
 export const mutationHistoryInputSchema: VehicleSchemaCodec<MutationHistoryInput> = defineVehicleSchema({
 	jsonSchema: {
 		type: "object",
@@ -51,11 +39,12 @@ export const mutationHistoryInputSchema: VehicleSchemaCodec<MutationHistoryInput
 		additionalProperties: false,
 	},
 	safeParse(value) {
-		if (!isPlainObject(value)) return notAnObject();
-		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
-		if (!isNonEmptyString(value.path)) return issue("path", "path must be a non-empty string");
-		if (!isPositiveSafeInteger(value.maxResults)) return issue("maxResults", "maxResults must be a positive safe integer");
-		if (value.maxBytes !== undefined && !isPositiveSafeInteger(value.maxBytes)) return issue("maxBytes", "maxBytes must be a positive safe integer when given");
+		if (!isPlainObject(value)) return notAnObjectIssue();
+		if (!isNonEmptyString(value.workspaceId)) return schemaIssue("workspaceId", "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.path)) return schemaIssue("path", "path must be a non-empty string");
+		if (!isPositiveSafeInteger(value.maxResults)) return schemaIssue("maxResults", "maxResults must be a positive safe integer");
+		if (value.maxBytes !== undefined && !isPositiveSafeInteger(value.maxBytes))
+			return schemaIssue("maxBytes", "maxBytes must be a positive safe integer when given");
 		return { success: true, value: { workspaceId: value.workspaceId, path: value.path, maxResults: value.maxResults, maxBytes: value.maxBytes } };
 	},
 });
@@ -68,9 +57,9 @@ export const revertMutationInputSchema: VehicleSchemaCodec<RevertMutationInput> 
 		additionalProperties: false,
 	},
 	safeParse(value) {
-		if (!isPlainObject(value)) return notAnObject();
-		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
-		if (!isNonEmptyString(value.entryId)) return issue("entryId", "entryId must be a non-empty string");
+		if (!isPlainObject(value)) return notAnObjectIssue();
+		if (!isNonEmptyString(value.workspaceId)) return schemaIssue("workspaceId", "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.entryId)) return schemaIssue("entryId", "entryId must be a non-empty string");
 		return { success: true, value: { workspaceId: value.workspaceId, entryId: value.entryId } };
 	},
 });
@@ -83,9 +72,9 @@ export const mutationTransactionInputSchema: VehicleSchemaCodec<MutationTransact
 		additionalProperties: false,
 	},
 	safeParse(value) {
-		if (!isPlainObject(value)) return notAnObject();
-		if (!isNonEmptyString(value.workspaceId)) return issue("workspaceId", "workspaceId must be a non-empty string");
-		if (!isNonEmptyString(value.transactionId)) return issue("transactionId", "transactionId must be a non-empty string");
+		if (!isPlainObject(value)) return notAnObjectIssue();
+		if (!isNonEmptyString(value.workspaceId)) return schemaIssue("workspaceId", "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.transactionId)) return schemaIssue("transactionId", "transactionId must be a non-empty string");
 		return { success: true, value: { workspaceId: value.workspaceId, transactionId: value.transactionId } };
 	},
 });

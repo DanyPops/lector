@@ -1,4 +1,13 @@
-import { defineVehicleSchema, type VehicleSchemaCodec, type VehicleSchemaIssue } from "@danypops/vehicle-core";
+import {
+	defineVehicleSchema,
+	isNonEmptyString,
+	isPlainObject,
+	isPositiveSafeInteger,
+	notAnObjectIssue,
+	schemaIssue,
+	type VehicleSchemaCodec,
+	type VehicleSchemaIssue,
+} from "@danypops/vehicle-core";
 
 export interface ExternalSearchInput {
 	readonly query: string;
@@ -8,33 +17,13 @@ export interface ExternalSearchInput {
 type ParseFailure = { readonly success: false; readonly issues: readonly VehicleSchemaIssue[] };
 type ParseResult = ParseFailure | { readonly success: true; readonly value: ExternalSearchInput };
 
-function notAnObject(): ParseFailure {
-	return { success: false, issues: [{ path: [], message: "input must be an object" }] };
-}
-
-function issue(path: string, message: string): ParseFailure {
-	return { success: false, issues: [{ path: [path], message }] };
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-	return typeof value === "string" && value.length > 0;
-}
-
-function isPositiveSafeInteger(value: unknown, maximum: number): value is number {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= maximum;
-}
-
 /** Matches external-search-handlers.ts's own MAX_EXTERNAL_SEARCH_RESULTS, kept in sync here rather than imported to avoid a schema module depending on the handler module it validates for. */
 const MAX_EXTERNAL_SEARCH_RESULTS = 100;
 
 function parseExternalSearchInput(value: Record<string, unknown>): ParseResult {
-	if (!isNonEmptyString(value.query)) return issue("query", "query must be a non-empty string");
+	if (!isNonEmptyString(value.query)) return schemaIssue("query", "query must be a non-empty string");
 	if (!isPositiveSafeInteger(value.maxResults, MAX_EXTERNAL_SEARCH_RESULTS))
-		return issue("maxResults", `maxResults must be a positive safe integer no greater than ${MAX_EXTERNAL_SEARCH_RESULTS}`);
+		return schemaIssue("maxResults", `maxResults must be a positive safe integer no greater than ${MAX_EXTERNAL_SEARCH_RESULTS}`);
 	return { success: true, value: { query: value.query, maxResults: value.maxResults } };
 }
 
@@ -53,7 +42,7 @@ function buildExternalSearchSchema(): VehicleSchemaCodec<ExternalSearchInput> {
 			additionalProperties: false,
 		},
 		safeParse(value) {
-			if (!isPlainObject(value)) return notAnObject();
+			if (!isPlainObject(value)) return notAnObjectIssue();
 			return parseExternalSearchInput(value);
 		},
 	});

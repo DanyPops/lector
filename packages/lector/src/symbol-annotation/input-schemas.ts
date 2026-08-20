@@ -1,5 +1,16 @@
 /** Runtime schemas narrow annotation anchors, filters, and traversal bounds before dispatch. */
-import { defineVehicleSchema, type VehicleSchemaCodec, type VehicleSchemaIssue } from "@danypops/vehicle-core";
+import {
+	defineVehicleSchema,
+	isNonEmptyString,
+	isNonNegativeSafeInteger,
+	isPlainObject,
+	isPositiveSafeInteger,
+	isSafeInteger,
+	notAnObjectIssue,
+	schemaIssue,
+	type VehicleSchemaCodec,
+	type VehicleSchemaIssue,
+} from "@danypops/vehicle-core";
 
 export interface AnnotationPosition {
 	readonly path: string;
@@ -69,43 +80,15 @@ export interface AnnotationTreeInput {
 
 type ParseFailure = { readonly success: false; readonly issues: readonly VehicleSchemaIssue[] };
 
-function notAnObject(): ParseFailure {
-	return { success: false, issues: [{ path: [], message: "input must be an object" }] };
-}
-
-function issue(path: (string | number)[], message: string): ParseFailure {
-	return { success: false, issues: [{ path, message }] };
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-	return typeof value === "string" && value.length > 0;
-}
-
-function isPositiveSafeInteger(value: unknown): value is number {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
-}
-
-function isNonNegativeSafeInteger(value: unknown): value is number {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-function isSafeInteger(value: unknown): value is number {
-	return typeof value === "number" && Number.isSafeInteger(value);
-}
-
 /** anchors: a non-empty array of {path, line, character} -- emptiness itself is a domain rule (AnnotationRequiresAnchors), enforced by the handler, not this schema; this only narrows each element's own shape. */
 function parseAnchors(value: unknown): readonly AnnotationPosition[] | ParseFailure {
-	if (!Array.isArray(value)) return issue(["anchors"], "anchors must be an array");
+	if (!Array.isArray(value)) return schemaIssue(["anchors"], "anchors must be an array");
 	const anchors: AnnotationPosition[] = [];
 	for (const [index, element] of value.entries()) {
-		if (!isPlainObject(element)) return issue(["anchors", index], "each anchor must be an object");
-		if (!isNonEmptyString(element.path)) return issue(["anchors", index, "path"], "path must be a non-empty string");
-		if (!isSafeInteger(element.line)) return issue(["anchors", index, "line"], "line must be a safe integer");
-		if (!isSafeInteger(element.character)) return issue(["anchors", index, "character"], "character must be a safe integer");
+		if (!isPlainObject(element)) return schemaIssue(["anchors", index], "each anchor must be an object");
+		if (!isNonEmptyString(element.path)) return schemaIssue(["anchors", index, "path"], "path must be a non-empty string");
+		if (!isSafeInteger(element.line)) return schemaIssue(["anchors", index, "line"], "line must be a safe integer");
+		if (!isSafeInteger(element.character)) return schemaIssue(["anchors", index, "character"], "character must be a safe integer");
 		anchors.push({ path: element.path, line: element.line, character: element.character });
 	}
 	return anchors;
@@ -129,11 +112,11 @@ export const createAnnotationInputSchema: VehicleSchemaCodec<CreateAnnotationInp
 		additionalProperties: false,
 	},
 	safeParse(value) {
-		if (!isPlainObject(value)) return notAnObject();
-		if (!isNonEmptyString(value.workspaceId)) return issue(["workspaceId"], "workspaceId must be a non-empty string");
-		if (typeof value.subtype !== "string" || value.subtype.length === 0) return issue(["subtype"], "subtype must be a non-empty string");
-		if (typeof value.title !== "string") return issue(["title"], "title must be a string");
-		if (typeof value.body !== "string") return issue(["body"], "body must be a string");
+		if (!isPlainObject(value)) return notAnObjectIssue();
+		if (!isNonEmptyString(value.workspaceId)) return schemaIssue(["workspaceId"], "workspaceId must be a non-empty string");
+		if (typeof value.subtype !== "string" || value.subtype.length === 0) return schemaIssue(["subtype"], "subtype must be a non-empty string");
+		if (typeof value.title !== "string") return schemaIssue(["title"], "title must be a string");
+		if (typeof value.body !== "string") return schemaIssue(["body"], "body must be a string");
 		const anchors = parseAnchors(value.anchors);
 		if (isParseFailure(anchors)) return anchors;
 		return { success: true, value: { workspaceId: value.workspaceId, subtype: value.subtype, title: value.title, body: value.body, anchors } };
@@ -148,9 +131,9 @@ export const getAnnotationInputSchema: VehicleSchemaCodec<GetAnnotationInput> = 
 		additionalProperties: false,
 	},
 	safeParse(value) {
-		if (!isPlainObject(value)) return notAnObject();
-		if (!isNonEmptyString(value.workspaceId)) return issue(["workspaceId"], "workspaceId must be a non-empty string");
-		if (!isNonEmptyString(value.id)) return issue(["id"], "id must be a non-empty string");
+		if (!isPlainObject(value)) return notAnObjectIssue();
+		if (!isNonEmptyString(value.workspaceId)) return schemaIssue(["workspaceId"], "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.id)) return schemaIssue(["id"], "id must be a non-empty string");
 		return { success: true, value: { workspaceId: value.workspaceId, id: value.id } };
 	},
 });
@@ -175,15 +158,15 @@ export const listAnnotationsInputSchema: VehicleSchemaCodec<ListAnnotationsInput
 		additionalProperties: false,
 	},
 	safeParse(value) {
-		if (!isPlainObject(value)) return notAnObject();
-		if (!isNonEmptyString(value.workspaceId)) return issue(["workspaceId"], "workspaceId must be a non-empty string");
-		if (value.subtype !== undefined && typeof value.subtype !== "string") return issue(["subtype"], "subtype must be a string when given");
+		if (!isPlainObject(value)) return notAnObjectIssue();
+		if (!isNonEmptyString(value.workspaceId)) return schemaIssue(["workspaceId"], "workspaceId must be a non-empty string");
+		if (value.subtype !== undefined && typeof value.subtype !== "string") return schemaIssue(["subtype"], "subtype must be a string when given");
 		if (value.status !== undefined && !isStatusFilter(value.status)) {
-			return issue(["status"], `status must be one of ${ANNOTATION_STATUS_VALUES.join(", ")} when given`);
+			return schemaIssue(["status"], `status must be one of ${ANNOTATION_STATUS_VALUES.join(", ")} when given`);
 		}
 		if (value.maxResults !== undefined && !isPositiveSafeInteger(value.maxResults))
-			return issue(["maxResults"], "maxResults must be a positive safe integer when given");
-		if (value.query !== undefined && typeof value.query !== "string") return issue(["query"], "query must be a string when given");
+			return schemaIssue(["maxResults"], "maxResults must be a positive safe integer when given");
+		if (value.query !== undefined && typeof value.query !== "string") return schemaIssue(["query"], "query must be a string when given");
 		return {
 			success: true,
 			value: { workspaceId: value.workspaceId, subtype: value.subtype, status: value.status, maxResults: value.maxResults, query: value.query },
@@ -206,12 +189,12 @@ export const refreshAnnotationInputSchema: VehicleSchemaCodec<RefreshAnnotationI
 		additionalProperties: false,
 	},
 	safeParse(value) {
-		if (!isPlainObject(value)) return notAnObject();
-		if (!isNonEmptyString(value.workspaceId)) return issue(["workspaceId"], "workspaceId must be a non-empty string");
-		if (!isNonEmptyString(value.id)) return issue(["id"], "id must be a non-empty string");
-		if (typeof value.subtype !== "string" || value.subtype.length === 0) return issue(["subtype"], "subtype must be a non-empty string");
-		if (typeof value.title !== "string") return issue(["title"], "title must be a string");
-		if (typeof value.body !== "string") return issue(["body"], "body must be a string");
+		if (!isPlainObject(value)) return notAnObjectIssue();
+		if (!isNonEmptyString(value.workspaceId)) return schemaIssue(["workspaceId"], "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.id)) return schemaIssue(["id"], "id must be a non-empty string");
+		if (typeof value.subtype !== "string" || value.subtype.length === 0) return schemaIssue(["subtype"], "subtype must be a non-empty string");
+		if (typeof value.title !== "string") return schemaIssue(["title"], "title must be a string");
+		if (typeof value.body !== "string") return schemaIssue(["body"], "body must be a string");
 		const anchors = parseAnchors(value.anchors);
 		if (isParseFailure(anchors)) return anchors;
 		return {
@@ -229,9 +212,9 @@ export const scrubAnnotationInputSchema: VehicleSchemaCodec<ScrubAnnotationInput
 		additionalProperties: false,
 	},
 	safeParse(value) {
-		if (!isPlainObject(value)) return notAnObject();
-		if (!isNonEmptyString(value.workspaceId)) return issue(["workspaceId"], "workspaceId must be a non-empty string");
-		if (!isNonEmptyString(value.id)) return issue(["id"], "id must be a non-empty string");
+		if (!isPlainObject(value)) return notAnObjectIssue();
+		if (!isNonEmptyString(value.workspaceId)) return schemaIssue(["workspaceId"], "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.id)) return schemaIssue(["id"], "id must be a non-empty string");
 		return { success: true, value: { workspaceId: value.workspaceId, id: value.id } };
 	},
 });
@@ -246,10 +229,10 @@ export const containAnnotationInputSchema: VehicleSchemaCodec<ContainAnnotationI
 		additionalProperties: false,
 	},
 	safeParse(value) {
-		if (!isPlainObject(value)) return notAnObject();
-		if (!isNonEmptyString(value.workspaceId)) return issue(["workspaceId"], "workspaceId must be a non-empty string");
-		if (!isNonEmptyString(value.parentId)) return issue(["parentId"], "parentId must be a non-empty string");
-		if (!isNonEmptyString(value.childId)) return issue(["childId"], "childId must be a non-empty string");
+		if (!isPlainObject(value)) return notAnObjectIssue();
+		if (!isNonEmptyString(value.workspaceId)) return schemaIssue(["workspaceId"], "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.parentId)) return schemaIssue(["parentId"], "parentId must be a non-empty string");
+		if (!isNonEmptyString(value.childId)) return schemaIssue(["childId"], "childId must be a non-empty string");
 		return { success: true, value: { workspaceId: value.workspaceId, parentId: value.parentId, childId: value.childId } };
 	},
 });
@@ -264,10 +247,10 @@ export const annotationTreeInputSchema: VehicleSchemaCodec<AnnotationTreeInput> 
 		additionalProperties: false,
 	},
 	safeParse(value) {
-		if (!isPlainObject(value)) return notAnObject();
-		if (!isNonEmptyString(value.workspaceId)) return issue(["workspaceId"], "workspaceId must be a non-empty string");
-		if (!isNonEmptyString(value.rootId)) return issue(["rootId"], "rootId must be a non-empty string");
-		if (!isNonNegativeSafeInteger(value.maxDepth)) return issue(["maxDepth"], "maxDepth must be a non-negative safe integer");
+		if (!isPlainObject(value)) return notAnObjectIssue();
+		if (!isNonEmptyString(value.workspaceId)) return schemaIssue(["workspaceId"], "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.rootId)) return schemaIssue(["rootId"], "rootId must be a non-empty string");
+		if (!isNonNegativeSafeInteger(value.maxDepth)) return schemaIssue(["maxDepth"], "maxDepth must be a non-negative safe integer");
 		return { success: true, value: { workspaceId: value.workspaceId, rootId: value.rootId, maxDepth: value.maxDepth } };
 	},
 });
