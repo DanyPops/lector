@@ -1,5 +1,5 @@
+import { DebouncedScheduler } from "@danypops/vehicle-core";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { DebouncedScheduler } from "../concurrency/debounced-scheduler.ts";
 import type { SymbolGraphPort } from "../symbol-graph/port.ts";
 
 /** Raised by releaseWorkspaceIfIdle when a populateSymbolGraph job for this workspace is still running -- closing the graph handle out from under it would corrupt bookkeeping the job still expects to find. */

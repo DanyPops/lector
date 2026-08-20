@@ -64,7 +64,7 @@
 	"dependencies": {
 		"@codemirror/state": "^6.7.1",
 		"@danypops/vehicle-client": "^0.10.1",
-		"@danypops/vehicle-core": "^0.18.1",
+		"@danypops/vehicle-core": "^0.18.2",
 		"@danypops/vehicle-server": "^0.25.2",
 		"@yarnpkg/parsers": "^3.0.3",
 		"diff": "^9.0.0",
