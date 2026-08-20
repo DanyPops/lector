@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { diagnostics } from "../../../src/code-intelligence/diagnostics.ts";
+import { documentHighlights } from "../../../src/code-intelligence/document-highlights.ts";
 import { documentSymbols } from "../../../src/code-intelligence/document-symbols.ts";
 import { findReferences } from "../../../src/code-intelligence/find-references.ts";
 import { goToDefinition } from "../../../src/code-intelligence/go-to-definition.ts";
@@ -26,6 +27,7 @@ import { incomingCalls } from "../../../src/symbol-graph/incoming-calls.ts";
 import { outgoingCalls } from "../../../src/symbol-graph/outgoing-calls.ts";
 import { prepareCallHierarchy } from "../../../src/symbol-graph/prepare-call-hierarchy.ts";
 import { findWorkspaceSymbols } from "../../../src/workspace/find-workspace-symbols.ts";
+import type { TextEditOperation } from "../../../src/workspace/workspace-edit.ts";
 import { findPositionOf } from "../../support/find-position.ts";
 import { startGithubReleaseFixture } from "../../support/github-release-fixture.ts";
 
@@ -587,6 +589,139 @@ describe("LspSymbolIndex auto-discovered seed file in a monorepo with no root ts
 		const results = await findWorkspaceSymbols(index, "realProjectExport");
 
 		expect(results.symbols.some((symbol) => symbol.name === "realProjectExport")).toBe(true);
+	}, 20_000);
+});
+
+describe("LspSymbolIndex position/path methods against a workspace-relative path", () => {
+	// Root cause of a live-found bug (workspace.documentSymbols returned empty for a real file
+	// while workspace/symbol still found the same symbol): every one of these methods built its
+	// own LSP request from `pathToFileURL(path)`/`pathToFileURL(at.path)` using the caller's path
+	// completely unresolved -- unlike diagnostics(), which already explicitly called
+	// resolveTargetPath(path) first. ensureFileOpen() DOES resolve the path before opening the
+	// file, but only inside its own local variable -- that resolution never propagated back to the
+	// caller, so the document ended up open under its real absolute URI while the follow-up
+	// request asked about a different, wrong one (the relative path resolved against the process's
+	// own cwd, not the workspace root). The server correctly had nothing open at that wrong URI and
+	// returned empty/nothing. workspace/symbol never had this problem: it is a project-wide query,
+	// not tied to one document's own URI.
+	//
+	// Fixed by resolving each method's own path once via resolveTargetPath() before using it for
+	// both ensureFileOpen and the request URI -- every method below now works with the workspace-
+	// relative path every real production caller (service/code-intelligence-handlers.ts forwards
+	// each operation's own `path` input completely unresolved) naturally supplies.
+	let root: string | undefined;
+	afterEach(() => {
+		if (root) rmSync(root, { recursive: true, force: true });
+		root = undefined;
+	});
+
+	function buildFixture(): { root: string; mathFile: string; consumerFile: string } {
+		const fixtureRoot = mkdtempSync(join(tmpdir(), "lector-relative-path-methods-"));
+		mkdirSync(join(fixtureRoot, "src"), { recursive: true });
+		const mathFile = join(fixtureRoot, "src", "math.ts");
+		writeFileSync(mathFile, "export function add(a: number, b: number): number {\n\treturn a + b;\n}\n");
+		const consumerFile = join(fixtureRoot, "src", "consumer.ts");
+		writeFileSync(consumerFile, 'import { add } from "./math";\n\nexport function total(): number {\n\treturn add(1, 2);\n}\n');
+		writeFileSync(join(fixtureRoot, "tsconfig.json"), JSON.stringify({ compilerOptions: { moduleResolution: "bundler" }, include: ["src"] }));
+		return { root: fixtureRoot, mathFile, consumerFile };
+	}
+
+	it("documentSymbols finds a real file's own declarations", async () => {
+		const fixture = buildFixture();
+		root = fixture.root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
+
+		const symbols = await documentSymbols(index, "src/math.ts");
+
+		expect(symbols.some((symbol) => symbol.name === "add")).toBe(true);
+	}, 20_000);
+
+	it("goToDefinition navigates a usage to its real declaration", async () => {
+		const fixture = buildFixture();
+		root = fixture.root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/consumer.ts");
+		const { line, character } = findPositionOf(fixture.consumerFile, "add(1, 2)");
+
+		const locations = await goToDefinition(index, { path: "src/consumer.ts", line, character: character + 1 });
+
+		expect(locations.some((location) => location.path === fixture.mathFile)).toBe(true);
+	}, 20_000);
+
+	it("findReferences finds a real cross-file usage", async () => {
+		const fixture = buildFixture();
+		root = fixture.root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
+		await documentSymbols(index, "src/consumer.ts"); // open the consumer so its usage is indexed
+		const { line, character } = findPositionOf(fixture.mathFile, "add");
+
+		const locations = await findReferences(index, { path: "src/math.ts", line, character: character + 1 }, false);
+
+		expect(locations.some((location) => location.path === fixture.consumerFile)).toBe(true);
+	}, 20_000);
+
+	it("hover returns real type information", async () => {
+		const fixture = buildFixture();
+		root = fixture.root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
+		const { line, character } = findPositionOf(fixture.mathFile, "add");
+
+		const hover = await hoverAt(index, { path: "src/math.ts", line, character: character + 1 });
+
+		expect(hover?.contents).toContain("add");
+	}, 20_000);
+
+	it("documentHighlights finds every occurrence of a local symbol within its own file", async () => {
+		const fixture = buildFixture();
+		root = fixture.root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
+		const { line, character } = findPositionOf(fixture.mathFile, "add");
+
+		const highlights = await documentHighlights(index, { path: "src/math.ts", line, character: character + 1 });
+
+		expect((highlights ?? []).length).toBeGreaterThan(0);
+	}, 20_000);
+
+	it("prepareCallHierarchy/incomingCalls/outgoingCalls resolve real call-hierarchy roots and edges", async () => {
+		const fixture = buildFixture();
+		root = fixture.root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
+		await documentSymbols(index, "src/consumer.ts"); // open the consumer so it is a known caller
+		const addPosition = findPositionOf(fixture.mathFile, "add");
+		const totalPosition = findPositionOf(fixture.consumerFile, "total");
+
+		const addRoots = await prepareCallHierarchy(index, { path: "src/math.ts", line: addPosition.line, character: addPosition.character + 1 });
+		expect(addRoots.length).toBeGreaterThan(0);
+
+		const callers = await incomingCalls(index, { path: "src/math.ts", line: addPosition.line, character: addPosition.character + 1 });
+		expect(callers.some((call) => call.from.location.path === fixture.consumerFile)).toBe(true);
+
+		const callees = await outgoingCalls(index, { path: "src/consumer.ts", line: totalPosition.line, character: totalPosition.character + 1 });
+		expect(callees.some((call) => call.to.location.path === fixture.mathFile)).toBe(true);
+	}, 20_000);
+
+	it("prepareRename resolves a real declaration's own placeholder text", async () => {
+		const fixture = buildFixture();
+		root = fixture.root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
+		const { line, character } = findPositionOf(fixture.mathFile, "add");
+
+		const result = await index.prepareRename?.({ path: "src/math.ts", line, character: character + 1 });
+
+		expect(result?.placeholder ?? "add").toContain("add");
+	}, 20_000);
+
+	it("rename returns a real WorkspaceEdit touching both the declaration and its cross-file usage", async () => {
+		const fixture = buildFixture();
+		root = fixture.root;
+		index = new LspSymbolIndex(root, TYPESCRIPT_DESCRIPTOR, "src/math.ts");
+		await documentSymbols(index, "src/consumer.ts"); // open the consumer so its usage is in scope
+		const { line, character } = findPositionOf(fixture.mathFile, "add");
+
+		const edit = await index.rename({ path: "src/math.ts", line, character: character + 1 }, "sum");
+
+		const touchedPaths = edit.operations.filter((operation): operation is TextEditOperation => operation.kind === "text").map((operation) => operation.path);
+		expect(touchedPaths).toContain(fixture.mathFile);
+		expect(touchedPaths).toContain(fixture.consumerFile);
 	}, 20_000);
 });
 

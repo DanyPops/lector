@@ -973,9 +973,10 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 
 	async goToDefinition(at: WorkspaceLocation): Promise<WorkspaceLocation[]> {
 		const proc = await this.ensureInitialized(at.path);
-		await this.ensureFileOpen(proc, at.path);
+		const resolvedPath = this.resolveTargetPath(at.path);
+		await this.ensureFileOpen(proc, resolvedPath);
 		const result = await this.requestWhenReady<LspLocation | LspLocation[] | LspLocationLink[] | null>(proc, "textDocument/definition", {
-			textDocument: { uri: pathToFileURL(at.path).href },
+			textDocument: { uri: pathToFileURL(resolvedPath).href },
 			position: toLspPosition(at.line, at.character),
 		});
 		return normalizeLocations(result);
@@ -983,9 +984,10 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 
 	async goToImplementation(at: WorkspaceLocation): Promise<WorkspaceLocation[]> {
 		const proc = await this.ensureInitialized(at.path);
-		await this.ensureFileOpen(proc, at.path);
+		const resolvedPath = this.resolveTargetPath(at.path);
+		await this.ensureFileOpen(proc, resolvedPath);
 		const result = await this.requestWhenReady<LspLocation | LspLocation[] | LspLocationLink[] | null>(proc, "textDocument/implementation", {
-			textDocument: { uri: pathToFileURL(at.path).href },
+			textDocument: { uri: pathToFileURL(resolvedPath).href },
 			position: toLspPosition(at.line, at.character),
 		});
 		return normalizeLocations(result);
@@ -993,10 +995,11 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 
 	async findReferences(at: WorkspaceLocation, includeDeclaration: boolean): Promise<WorkspaceLocation[]> {
 		const proc = await this.ensureInitialized(at.path);
-		await this.ensureFileOpen(proc, at.path);
+		const resolvedPath = this.resolveTargetPath(at.path);
+		await this.ensureFileOpen(proc, resolvedPath);
 		const results =
 			(await this.requestWhenReady<LspLocation[] | null>(proc, "textDocument/references", {
-				textDocument: { uri: pathToFileURL(at.path).href },
+				textDocument: { uri: pathToFileURL(resolvedPath).href },
 				position: toLspPosition(at.line, at.character),
 				context: { includeDeclaration },
 			})) ?? [];
@@ -1015,38 +1018,41 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	 */
 	async documentHighlights(at: WorkspaceLocation): Promise<DocumentHighlight[]> {
 		const proc = await this.ensureInitialized(at.path);
-		await this.ensureFileOpen(proc, at.path);
+		const resolvedPath = this.resolveTargetPath(at.path);
+		await this.ensureFileOpen(proc, resolvedPath);
 		let results: LspDocumentHighlight[] | null;
 		try {
 			results = await this.requestWhenReady<LspDocumentHighlight[] | null>(proc, "textDocument/documentHighlight", {
-				textDocument: { uri: pathToFileURL(at.path).href },
+				textDocument: { uri: pathToFileURL(resolvedPath).href },
 				position: toLspPosition(at.line, at.character),
 			});
 		} catch {
 			return [];
 		}
-		return (results ?? []).map((item) => ({ range: toCodeRange(at.path, item.range), kind: toDocumentHighlightKind(item.kind) }));
+		return (results ?? []).map((item) => ({ range: toCodeRange(resolvedPath, item.range), kind: toDocumentHighlightKind(item.kind) }));
 	}
 
 	async hover(at: WorkspaceLocation): Promise<Hover | undefined> {
 		const proc = await this.ensureInitialized(at.path);
-		await this.ensureFileOpen(proc, at.path);
+		const resolvedPath = this.resolveTargetPath(at.path);
+		await this.ensureFileOpen(proc, resolvedPath);
 		const result = await this.requestWhenReady<LspHover | null>(proc, "textDocument/hover", {
-			textDocument: { uri: pathToFileURL(at.path).href },
+			textDocument: { uri: pathToFileURL(resolvedPath).href },
 			position: toLspPosition(at.line, at.character),
 		});
 		if (!result) return undefined;
-		return { contents: normalizeHoverContents(result.contents), range: result.range ? toCodeRange(at.path, result.range) : undefined };
+		return { contents: normalizeHoverContents(result.contents), range: result.range ? toCodeRange(resolvedPath, result.range) : undefined };
 	}
 
 	async documentSymbols(path: string, options?: { settleMs?: number }): Promise<DocumentSymbolEntry[]> {
 		const proc = await this.ensureInitialized(path);
-		await this.ensureFileOpen(proc, path, options?.settleMs);
+		const resolvedPath = this.resolveTargetPath(path);
+		await this.ensureFileOpen(proc, resolvedPath, options?.settleMs);
 		const results =
 			(await this.requestWhenReady<(LspDocumentSymbol | LspSymbolInformation)[] | null>(proc, "textDocument/documentSymbol", {
-				textDocument: { uri: pathToFileURL(path).href },
+				textDocument: { uri: pathToFileURL(resolvedPath).href },
 			})) ?? [];
-		return results.map((item) => normalizeDocumentSymbol(path, item));
+		return results.map((item) => normalizeDocumentSymbol(resolvedPath, item));
 	}
 
 	async diagnostics(path: string): Promise<Diagnostic[]> {
@@ -1097,9 +1103,10 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 
 	/** Raw LSP items, `data` intact -- callHierarchy/incomingCalls|outgoingCalls need the exact item prepareCallHierarchy returned, not a normalized copy. */
 	private async prepareCallHierarchyRaw(proc: LanguageServerProcess, at: WorkspaceLocation, settleMsOverride?: number): Promise<LspCallHierarchyItem[]> {
-		await this.ensureFileOpen(proc, at.path, settleMsOverride);
+		const resolvedPath = this.resolveTargetPath(at.path);
+		await this.ensureFileOpen(proc, resolvedPath, settleMsOverride);
 		const result = await this.requestWhenReady<LspCallHierarchyItem[] | null>(proc, "textDocument/prepareCallHierarchy", {
-			textDocument: { uri: pathToFileURL(at.path).href },
+			textDocument: { uri: pathToFileURL(resolvedPath).href },
 			position: toLspPosition(at.line, at.character),
 		});
 		return result ?? [];
@@ -1113,13 +1120,14 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 
 	async prepareRename(at: WorkspaceLocation): Promise<RenameRange | null> {
 		const proc = await this.ensureInitialized(at.path);
-		await this.ensureFileOpen(proc, at.path);
+		const resolvedPath = this.resolveTargetPath(at.path);
+		await this.ensureFileOpen(proc, resolvedPath);
 		try {
 			const result = await this.requestWhenReady<unknown>(proc, "textDocument/prepareRename", {
-				textDocument: { uri: pathToFileURL(at.path).href },
+				textDocument: { uri: pathToFileURL(resolvedPath).href },
 				position: toLspPosition(at.line, at.character),
 			});
-			return parsePrepareRenameResult(result, at.path);
+			return parsePrepareRenameResult(result, resolvedPath);
 		} catch {
 			// Per spec a server may reject with a JSON-RPC error instead of a null result when
 			// nothing is renameable here (typescript-language-server does this) -- same outcome.
@@ -1129,9 +1137,10 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 
 	async rename(at: WorkspaceLocation, newName: string): Promise<ParsedWorkspaceEdit> {
 		const proc = await this.ensureInitialized(at.path);
-		await this.ensureFileOpen(proc, at.path);
+		const resolvedPath = this.resolveTargetPath(at.path);
+		await this.ensureFileOpen(proc, resolvedPath);
 		const result = await this.requestWhenReady<unknown>(proc, "textDocument/rename", {
-			textDocument: { uri: pathToFileURL(at.path).href },
+			textDocument: { uri: pathToFileURL(resolvedPath).href },
 			position: toLspPosition(at.line, at.character),
 			newName,
 		});
