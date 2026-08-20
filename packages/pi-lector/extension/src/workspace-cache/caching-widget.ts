@@ -5,6 +5,8 @@
  * unit-testable without a real daemon or terminal. See caching-overlay.ts for the stateful
  * ctx.ui.setWidget-registered class that drives these from a live poll.
  */
+
+import { basename } from "node:path";
 import { vehicleWidgetTitle } from "@danypops/vehicle-client-pi/widget-header";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { type AutoRotatingWindow, renderCardRow, type TextMeasure } from "malevich-tui-components";
@@ -20,6 +22,10 @@ export const LECTOR_CACHING_WIDGET_VISIBLE_ROWS = 5;
 export interface CachingWidgetRow {
 	workspaceId: string;
 	status: "queued" | "running" | "waiting-for-resources";
+	/** Absent for an already-unregistered workspace -- falls back to the bare workspaceId for display. */
+	rootPath?: string;
+	/** Absent until the first file of this run completes, or while still queued -- nothing walked yet. */
+	progress?: { filesProcessed: number; filesTotal: number };
 }
 
 export interface CachingWidgetProjection {
@@ -31,6 +37,11 @@ export function buildCachingWidgetProjection(jobs: readonly CachingWidgetRow[]):
 	return { rows: [...jobs], total: jobs.length };
 }
 
+/** The project directory's own basename when a path is known ("lector", not the full absolute path a narrow card has no room for) -- falls back to the bare workspaceId hash for a row with no rootPath at all. */
+function cachingRowLabel(row: CachingWidgetRow): string {
+	return row.rootPath ? basename(row.rootPath) : row.workspaceId;
+}
+
 function cachingRowLine(theme: { fg(color: string, text: string): string }, row: CachingWidgetRow, width: number): string {
 	const glyph =
 		row.status === "waiting-for-resources"
@@ -38,7 +49,8 @@ function cachingRowLine(theme: { fg(color: string, text: string): string }, row:
 			: row.status === "queued"
 				? theme.fg("muted", "\u2022")
 				: theme.fg("accent", "\u25b6");
-	return truncateToWidth(`${glyph} ${row.workspaceId}`, width, "\u2026");
+	const progressSuffix = row.progress ? theme.fg("muted", ` (${row.progress.filesProcessed}/${row.progress.filesTotal})`) : "";
+	return truncateToWidth(`${glyph} ${cachingRowLabel(row)}${progressSuffix}`, width, "\u2026");
 }
 
 /** "Lector · Caching · <N>", plus a "page/total ⟳" suffix once genuinely paging. */

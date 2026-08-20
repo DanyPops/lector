@@ -41,6 +41,31 @@ describe("renderCachingWidgetLines", () => {
 		expect(lines.some((line) => line.includes("my-workspace"))).toBe(true);
 	});
 
+	it("shows the project directory's own basename, not the bare workspaceId hash, when rootPath is known", () => {
+		const projection = buildCachingWidgetProjection([{ workspaceId: "dee0f7308a7935fc", status: "running", rootPath: "/home/user/Projects/lector" }]);
+		const lines = renderCachingWidgetLines(theme, projection, 80);
+		expect(lines.some((line) => line.includes("lector"))).toBe(true);
+		expect(lines.some((line) => line.includes("dee0f7308a7935fc"))).toBe(false);
+	});
+
+	it("falls back to the bare workspaceId when rootPath is absent", () => {
+		const projection = buildCachingWidgetProjection([{ workspaceId: "dee0f7308a7935fc", status: "running" }]);
+		const lines = renderCachingWidgetLines(theme, projection, 80);
+		expect(lines.some((line) => line.includes("dee0f7308a7935fc"))).toBe(true);
+	});
+
+	it("shows a real files-processed/files-total fraction when progress is known, nothing extra when it is not", () => {
+		const withProgress = buildCachingWidgetProjection([
+			{ workspaceId: "a", status: "running", rootPath: "/home/user/proj-a", progress: { filesProcessed: 142, filesTotal: 500 } },
+		]);
+		const linesWithProgress = renderCachingWidgetLines(theme, withProgress, 80);
+		expect(linesWithProgress.some((line) => line.includes("(142/500)"))).toBe(true);
+
+		const withoutProgress = buildCachingWidgetProjection([{ workspaceId: "b", status: "queued", rootPath: "/home/user/proj-b" }]);
+		const linesWithoutProgress = renderCachingWidgetLines(theme, withoutProgress, 80);
+		expect(linesWithoutProgress.some((line) => line.includes("("))).toBe(false);
+	});
+
 	it("shows a distinguishable marker for a job waiting on resource admission vs a genuinely running one", () => {
 		const projection = buildCachingWidgetProjection([
 			{ workspaceId: "running-ws", status: "running" },
