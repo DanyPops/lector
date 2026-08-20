@@ -1,3 +1,12 @@
+import {
+	BoundedResourcePool,
+	ResourceAdmissionQueueFull as PoolAdmissionQueueFull,
+	ResourceAdmissionQueueTimedOut as PoolAdmissionQueueTimedOut,
+	ResourceCapacityExceeded as PoolCapacityExceeded,
+	type PooledResource,
+	type PoolLease,
+	ResourceInUse as PoolResourceInUse,
+} from "@danypops/vehicle-core";
 import type { IntelligenceProvenance } from "../code-intelligence/intelligence-provenance.ts";
 import type { LanguageServerDescriptor } from "../code-intelligence/language-server-descriptor.ts";
 import { discoverWorkspaceDescriptor, discoverWorkspaceDescriptors } from "../code-intelligence/lsp/discover-seed-file.ts";
@@ -25,9 +34,6 @@ export function supportsCodeIntelligence(index: SymbolIndexPort): index is Symbo
 	return "goToDefinition" in index && typeof index.goToDefinition === "function";
 }
 
-const DEFAULT_MAX_ACTIVE = 3;
-/** A genuine structural ceiling on process count -- independent of memory, protecting against pathological OS-level exhaustion (file descriptors, threads, scheduler overhead) that no amount of available RAM makes safe to exceed. maxActive itself can never be raised past this by a resource policy's own soft ceiling. */
-const DEFAULT_ABSOLUTE_MAX_ACTIVE = 32;
 const DEFAULT_LANGUAGE_LIMITS: Readonly<Record<string, number>> = Object.freeze({ c: 1, cpp: 1, typescript: 2 });
 
 /**
@@ -38,18 +44,6 @@ const DEFAULT_LANGUAGE_LIMITS: Readonly<Record<string, number>> = Object.freeze(
  * caller that never opts in keeps today's exact behavior.
  */
 export type WarmIndexWorkKind = "foreground" | "background";
-
-/**
- * Internal signal only: admit() throws this to tell acquireLanguageIndex "release the serialized
- * lock and wait outside it" -- never surfaced to a caller. Waiting for a background admission's
- * turn can legitimately take seconds; holding admissionTail (the single global admission mutex)
- * for that whole span would block every OTHER admission request, including foreground's, which
- * is exactly the starvation this exists to prevent.
- */
-class NeedsBackgroundAdmissionWait extends Error {}
-
-const DEFAULT_BACKGROUND_ADMISSION_QUEUE_TIMEOUT_MS = 10_000;
-const DEFAULT_MAX_QUEUED_BACKGROUND_ADMISSIONS = 8;
 
 export type WarmIndexPoolEvent =
 	| { readonly kind: "admission-evicted" | "dead-replaced" | "resource-pressure-evicted"; readonly languageId: string }
@@ -84,15 +78,6 @@ export interface WarmIndexRegistryOptions<WorkspaceKey extends string> {
 	readonly composeIndexes?: (indexes: readonly PolyglotIndexEntry[]) => SymbolIndexPort;
 }
 
-interface WarmIndexEntry<WorkspaceKey extends string> {
-	readonly index: ClosableSymbolIndex;
-	readonly workspaceId: WorkspaceKey;
-	readonly languageId: string;
-	recencySequence: number;
-	activeLeases: number;
-	lastUsedAt: number;
-}
-
 /** Which ceiling actually constrained the most recent admission decision -- "configured" when no resource policy is present or it reported no room to raise, "resource-budget" when the policy's own soft ceiling (derived from the real memory budget) is currently in effect above maxActive, "absolute-cap" when a resource policy would allow more but DEFAULT_ABSOLUTE_MAX_ACTIVE/absoluteMaxActiveIndexes itself is the binding constraint. */
 export type WarmIndexActiveCeilingSource = "configured" | "resource-budget" | "absolute-cap";
 
@@ -120,53 +105,58 @@ interface WorkspaceIndex {
 	readonly sources: readonly IntelligenceProvenance[];
 }
 
-/** Owns the bounded lifecycle of warm per-workspace, per-language symbol indexes. */
+/** The pool's own generic resource shape, wrapping a real ClosableSymbolIndex -- costHandle carries processId through to calibrateCosts() without requiring ClosableSymbolIndex itself to know about the pool's own vocabulary. */
+interface PooledSymbolIndex extends PooledResource {
+	readonly index: ClosableSymbolIndex;
+}
+
+function wrapForPool(index: ClosableSymbolIndex): PooledSymbolIndex {
+	return {
+		index,
+		close: () => index.close(),
+		isAlive: index.isAlive ? () => index.isAlive?.() ?? false : undefined,
+		costHandle: index.processId,
+	};
+}
+
+/** Translates the generic pool's own error vocabulary back to WarmIndexRegistry's long-established names -- every existing caller/test keeps matching on WarmIndex* by name and instanceof. */
+function translateAdmissionError(error: unknown, languageId: string): never {
+	if (error instanceof PoolCapacityExceeded) throw new WarmIndexCapacityExceeded(languageId, error.maxActive, error.partitionLimit);
+	if (error instanceof PoolAdmissionQueueFull) throw new WarmIndexAdmissionQueueFull(languageId, error.maxQueued);
+	if (error instanceof PoolAdmissionQueueTimedOut) throw new WarmIndexAdmissionQueueTimedOut(languageId, error.timeoutMs);
+	throw error;
+}
+
+/** Owns the bounded lifecycle of warm per-workspace, per-language symbol indexes -- a thin, LSP-specific wrapper around vehicle-core's own BoundedResourcePool, which owns every admission/eviction/leasing mechanic generically. */
 export class WarmIndexRegistry<WorkspaceKey extends string> {
-	private readonly entries = new Map<string, WarmIndexEntry<WorkspaceKey>>();
-	private readonly now: () => number;
-	private readonly maxActive: number;
-	private readonly absoluteMaxActiveIndexes: number;
-	private lastActiveCeilingSource: WarmIndexActiveCeilingSource = "configured";
-	private lastEffectiveMaxActive: number;
-	private readonly languageLimits: Readonly<Record<string, number>>;
-	private admissionTail: Promise<void> = Promise.resolve();
-	private nextSequence = 0;
-	private readonly reservedForegroundSlots: number;
-	private readonly backgroundAdmissionQueueTimeoutMs: number;
-	private readonly maxQueuedBackgroundAdmissions: number;
-	private readonly admissionWaiters = new Set<() => void>();
-	private queuedBackgroundAdmissions = 0;
-	private readonly waitingCounts = new Map<WorkspaceKey, number>();
+	private readonly pool: BoundedResourcePool<WorkspaceKey, PooledSymbolIndex, WarmIndexResourceStatus>;
 
 	constructor(private readonly options: WarmIndexRegistryOptions<WorkspaceKey>) {
-		this.now = options.now ?? Date.now;
-		this.maxActive = options.maxActive ?? DEFAULT_MAX_ACTIVE;
-		this.languageLimits = options.languageLimits ?? DEFAULT_LANGUAGE_LIMITS;
-		if (!Number.isSafeInteger(this.maxActive) || this.maxActive < 1) throw new TypeError("maxActive must be a positive safe integer");
-		this.absoluteMaxActiveIndexes = options.absoluteMaxActiveIndexes ?? Math.max(DEFAULT_ABSOLUTE_MAX_ACTIVE, this.maxActive);
-		if (!Number.isSafeInteger(this.absoluteMaxActiveIndexes) || this.absoluteMaxActiveIndexes < this.maxActive) {
-			throw new TypeError("absoluteMaxActiveIndexes must be a safe integer no smaller than maxActive");
-		}
-		this.lastEffectiveMaxActive = this.maxActive;
-		for (const [languageId, limit] of Object.entries(this.languageLimits)) {
-			if (!languageId || !Number.isSafeInteger(limit) || limit < 1) throw new TypeError("language limits must be positive safe integers keyed by language id");
-		}
-		this.reservedForegroundSlots = options.reservedForegroundSlots ?? 0;
-		if (!Number.isSafeInteger(this.reservedForegroundSlots) || this.reservedForegroundSlots < 0) {
-			throw new TypeError("reservedForegroundSlots must be a non-negative safe integer");
-		}
-		this.backgroundAdmissionQueueTimeoutMs = options.backgroundAdmissionQueueTimeoutMs ?? DEFAULT_BACKGROUND_ADMISSION_QUEUE_TIMEOUT_MS;
-		if (!Number.isSafeInteger(this.backgroundAdmissionQueueTimeoutMs) || this.backgroundAdmissionQueueTimeoutMs < 0) {
-			throw new TypeError("backgroundAdmissionQueueTimeoutMs must be a non-negative safe integer");
-		}
-		this.maxQueuedBackgroundAdmissions = options.maxQueuedBackgroundAdmissions ?? DEFAULT_MAX_QUEUED_BACKGROUND_ADMISSIONS;
-		if (!Number.isSafeInteger(this.maxQueuedBackgroundAdmissions) || this.maxQueuedBackgroundAdmissions < 1) {
-			throw new TypeError("maxQueuedBackgroundAdmissions must be a positive safe integer");
-		}
-	}
-
-	private key(workspaceId: WorkspaceKey, languageId: string): string {
-		return `${workspaceId}:${languageId}`;
+		this.pool = new BoundedResourcePool<WorkspaceKey, PooledSymbolIndex, WarmIndexResourceStatus>({
+			maxActive: options.maxActive,
+			partitionLimits: options.languageLimits ?? DEFAULT_LANGUAGE_LIMITS,
+			resourcePolicy: options.resourcePolicy,
+			absoluteMaxActive: options.absoluteMaxActiveIndexes,
+			reservedForegroundSlots: options.reservedForegroundSlots,
+			backgroundAdmissionQueueTimeoutMs: options.backgroundAdmissionQueueTimeoutMs,
+			maxQueuedBackgroundAdmissions: options.maxQueuedBackgroundAdmissions,
+			now: options.now,
+			costRecorder: options.processCostCalibrator
+				? {
+						recordSample: (languageId, costHandle) => {
+							if (typeof costHandle === "number") options.processCostCalibrator?.recordSample(languageId, costHandle);
+						},
+					}
+				: undefined,
+			observe: options.observe
+				? (event) =>
+						options.observe?.(
+							event.kind === "close-failed"
+								? { kind: "close-failed", reason: event.reason, languageId: event.partitionKey, errorName: event.errorName }
+								: { kind: event.kind, languageId: event.partitionKey },
+						)
+				: undefined,
+		});
 	}
 
 	private descriptorForPath(path: string): LanguageServerDescriptor | undefined {
@@ -180,213 +170,33 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		return this.options.unsupportedLanguage?.(path) ?? new Error(`unsupported language: ${path}`);
 	}
 
-	private languageLimit(languageId: string): number {
-		return this.languageLimits[languageId] ?? this.maxActive;
-	}
-
-	private countLanguage(languageId: string): number {
-		let count = 0;
-		for (const entry of this.entries.values()) if (entry.languageId === languageId) count++;
-		return count;
-	}
-
-	private activeLanguages(): string[] {
-		return Array.from(this.entries.values(), (entry) => entry.languageId);
-	}
-
-	private leastRecentlyUsedIdle(languageId?: string): [string, WarmIndexEntry<WorkspaceKey>] | undefined {
-		let selected: [string, WarmIndexEntry<WorkspaceKey>] | undefined;
-		for (const candidate of this.entries) {
-			const entry = candidate[1];
-			if (entry.activeLeases > 0 || (languageId !== undefined && entry.languageId !== languageId)) continue;
-			const current = selected?.[1];
-			if (!current || entry.lastUsedAt < current.lastUsedAt || (entry.lastUsedAt === current.lastUsedAt && entry.recencySequence < current.recencySequence))
-				selected = candidate;
-		}
-		return selected;
-	}
-
-	private async evict(
-		entry: [string, WarmIndexEntry<WorkspaceKey>],
-		reason: "admission" | "dead-replacement" | "resource-pressure" = "admission",
-	): Promise<void> {
-		try {
-			await entry[1].index.close();
-		} catch (error) {
-			this.options.observe?.({
-				kind: "close-failed",
-				reason,
-				languageId: entry[1].languageId,
-				errorName: error instanceof Error ? error.name : "UnknownError",
-			});
-			throw error;
-		}
-		this.entries.delete(entry[0]);
-		const kind = reason === "admission" ? "admission-evicted" : reason === "dead-replacement" ? "dead-replaced" : "resource-pressure-evicted";
-		this.options.observe?.({ kind, languageId: entry[1].languageId });
-		this.notifyAdmissionWaiters();
-	}
-
-	/** Wakes every queued background admission to re-check the real state -- called whenever an entry is removed OR a lease completes (an idle candidate an admit() retry might now be able to evict). A false wake just re-checks and re-waits; never a correctness issue, only a wasted retry. */
-	private notifyAdmissionWaiters(): void {
-		if (this.admissionWaiters.size === 0) return;
-		const waiters = Array.from(this.admissionWaiters);
-		this.admissionWaiters.clear();
-		for (const waiter of waiters) waiter();
-	}
-
 	/** True while at least one background admission for this workspace is currently waiting for a reserved-slot conflict to clear -- workspace.cacheStatus's "waiting-for-resources" signal. */
 	waitingForAdmission(workspaceId: WorkspaceKey): boolean {
-		return (this.waitingCounts.get(workspaceId) ?? 0) > 0;
+		return this.pool.waitingForAdmission(workspaceId);
 	}
 
-	/**
-	 * Runs entirely outside the serialized admission lock -- admissionTail is the single global
-	 * admission mutex, and this wait can legitimately take up to backgroundAdmissionQueueTimeoutMs.
-	 * Holding that lock for the whole wait would block every other admission request, foreground
-	 * included, which is the exact starvation this exists to prevent.
-	 */
-	private async waitForAdmissionRoom(languageId: string, workspaceId: WorkspaceKey): Promise<void> {
-		if (this.queuedBackgroundAdmissions >= this.maxQueuedBackgroundAdmissions) {
-			throw new WarmIndexAdmissionQueueFull(languageId, this.maxQueuedBackgroundAdmissions);
-		}
-		this.queuedBackgroundAdmissions++;
-		this.waitingCounts.set(workspaceId, (this.waitingCounts.get(workspaceId) ?? 0) + 1);
-		try {
-			const gotSignal = await new Promise<boolean>((resolve) => {
-				let settled = false;
-				const finish = (ready: boolean): void => {
-					if (settled) return;
-					settled = true;
-					clearTimeout(timer);
-					this.admissionWaiters.delete(onSignal);
-					resolve(ready);
-				};
-				const onSignal = (): void => finish(true);
-				const timer = setTimeout(() => finish(false), this.backgroundAdmissionQueueTimeoutMs);
-				this.admissionWaiters.add(onSignal);
-			});
-			if (!gotSignal) throw new WarmIndexAdmissionQueueTimedOut(languageId, this.backgroundAdmissionQueueTimeoutMs);
-		} finally {
-			this.queuedBackgroundAdmissions--;
-			const remaining = (this.waitingCounts.get(workspaceId) ?? 1) - 1;
-			if (remaining <= 0) this.waitingCounts.delete(workspaceId);
-			else this.waitingCounts.set(workspaceId, remaining);
-		}
-	}
-
-	private async admit(
+	private async acquireLanguageLease(
 		workspaceId: WorkspaceKey,
 		rootPath: string,
 		descriptor: LanguageServerDescriptor,
 		seedFile: string | undefined,
 		workKind: WarmIndexWorkKind,
-	): Promise<WarmIndexEntry<WorkspaceKey>> {
-		const languageLimit = this.languageLimit(descriptor.languageId);
-		while (this.countLanguage(descriptor.languageId) >= languageLimit) {
-			const victim = this.leastRecentlyUsedIdle(descriptor.languageId);
-			if (!victim) throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, languageLimit);
-			await this.evict(victim);
-		}
-		const { ceiling: baseCeiling, source: ceilingSource } = this.baseActiveCeiling();
-		this.lastEffectiveMaxActive = baseCeiling;
-		this.lastActiveCeilingSource = ceilingSource;
-		// "Borrowable": background's own effective ceiling is reduced, but only background is ever
-		// held to it -- it constrains what background alone can grow the pool into, not a hard
-		// set-aside nothing else can reach. Foreground keeps using the full (possibly resource-
-		// budget-raised) baseCeiling unchanged.
-		const effectiveMaxActive = workKind === "background" ? Math.max(baseCeiling - this.reservedForegroundSlots, 0) : baseCeiling;
-		while (this.entries.size >= effectiveMaxActive) {
-			const victim = this.leastRecentlyUsedIdle();
-			if (victim) {
-				await this.evict(victim);
-				continue;
-			}
-			if (workKind === "background") throw new NeedsBackgroundAdmissionWait();
-			throw new WarmIndexCapacityExceeded(descriptor.languageId, baseCeiling, languageLimit);
-		}
-		while (this.options.resourcePolicy && !this.options.resourcePolicy.canAdmit(this.activeLanguages(), descriptor.languageId)) {
-			const victim = this.leastRecentlyUsedIdle();
-			if (!victim) throw new WarmIndexCapacityExceeded(descriptor.languageId, baseCeiling, languageLimit);
-			await this.evict(victim, "resource-pressure");
-		}
-		return {
-			index: this.options.createIndex(rootPath, descriptor, seedFile),
-			workspaceId,
-			languageId: descriptor.languageId,
-			recencySequence: this.nextSequence++,
-			activeLeases: 0,
-			lastUsedAt: this.now(),
-		};
-	}
-
-	private async serialized<Value>(operation: () => Promise<Value>): Promise<Value> {
-		const previous = this.admissionTail;
-		let release = (): void => {};
-		this.admissionTail = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		await previous;
+	): Promise<PoolLease<PooledSymbolIndex>> {
 		try {
-			return await operation();
-		} finally {
-			release();
+			return await this.pool.acquire(workspaceId, descriptor.languageId, () => wrapForPool(this.options.createIndex(rootPath, descriptor, seedFile)), workKind);
+		} catch (error) {
+			translateAdmissionError(error, descriptor.languageId);
 		}
 	}
 
-	private async acquireLanguageIndex(
-		workspaceId: WorkspaceKey,
-		rootPath: string,
-		descriptor: LanguageServerDescriptor,
-		seedFile: string | undefined,
-		workKind: WarmIndexWorkKind,
-	): Promise<WarmIndexEntry<WorkspaceKey>> {
-		for (;;) {
-			try {
-				return await this.serialized(async () => {
-					const key = this.key(workspaceId, descriptor.languageId);
-					let entry = this.entries.get(key);
-					if (entry?.index.isAlive?.() === false) {
-						if (entry.activeLeases > 0) {
-							throw new WarmIndexCapacityExceeded(descriptor.languageId, this.maxActive, this.languageLimit(descriptor.languageId));
-						}
-						await this.evict([key, entry], "dead-replacement");
-						entry = undefined;
-					}
-					if (!entry) {
-						entry = await this.admit(workspaceId, rootPath, descriptor, seedFile, workKind);
-						this.entries.set(key, entry);
-					}
-					entry.activeLeases++;
-					return entry;
-				});
-			} catch (error) {
-				if (!(error instanceof NeedsBackgroundAdmissionWait)) throw error;
-				// Outside the lock deliberately -- see waitForAdmissionRoom's own comment. Throws
-				// WarmIndexAdmissionQueueFull/TimedOut instead of looping back if it can't wait.
-				await this.waitForAdmissionRoom(descriptor.languageId, workspaceId);
-			}
-		}
-	}
-
-	private lease<Value>(value: Value, entries: readonly WarmIndexEntry<WorkspaceKey>[]): WarmIndexLease<Value> {
+	private combineLeases<Value>(value: Value, poolLeases: readonly PoolLease<PooledSymbolIndex>[]): WarmIndexLease<Value> {
 		let released = false;
 		return {
 			value,
 			[Symbol.asyncDispose]: async () => {
 				if (released) return;
 				released = true;
-				const completedAt = this.now();
-				for (const entry of entries) {
-					entry.activeLeases--;
-					entry.lastUsedAt = completedAt;
-					entry.recencySequence = this.nextSequence++;
-				}
-				// A lease completing makes its entry newly idle -- exactly the condition a queued
-				// background admission's retry is waiting to find, whether or not resource pressure
-				// itself ends up evicting anything below.
-				this.notifyAdmissionWaiters();
-				await this.reconcileResources();
+				await Promise.all(poolLeases.map((lease) => lease[Symbol.asyncDispose]()));
 			},
 		};
 	}
@@ -416,8 +226,8 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			descriptor = discovered.descriptor;
 			seedFile = discovered.seedFile;
 		}
-		const entry = await this.acquireLanguageIndex(input.workspaceId, rootPath, descriptor, seedFile, input.workKind ?? "foreground");
-		return this.lease({ index: entry.index, descriptor }, [entry]);
+		const poolLease = await this.acquireLanguageLease(input.workspaceId, rootPath, descriptor, seedFile, input.workKind ?? "foreground");
+		return this.combineLeases({ index: poolLease.value.index, descriptor }, [poolLease]);
 	}
 
 	async leaseWorkspaceIndex(
@@ -433,11 +243,11 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			discovered.push({ descriptor: preferredDescriptor, seedFile: preferredSeedFile });
 		}
 		if (discovered.length === 0) throw this.unsupportedLanguage(rootPath);
-		const entries: WarmIndexEntry<WorkspaceKey>[] = [];
+		const poolLeases: PoolLease<PooledSymbolIndex>[] = [];
 		try {
 			for (const { descriptor, seedFile } of discovered) {
-				entries.push(
-					await this.acquireLanguageIndex(
+				poolLeases.push(
+					await this.acquireLanguageLease(
 						workspaceId,
 						rootPath,
 						descriptor,
@@ -447,20 +257,24 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 				);
 			}
 		} catch (error) {
-			await this.lease(undefined, entries)[Symbol.asyncDispose]();
+			await this.combineLeases(undefined, poolLeases)[Symbol.asyncDispose]();
 			throw error;
 		}
-		const indexes = entries.map((entry, index) => {
+		const indexes = poolLeases.map((poolLease, index) => {
 			const source = discovered[index];
 			if (!source) throw new Error("warm-index lease lost its language descriptor");
-			return { descriptor: source.descriptor, index: entry.index };
+			return { descriptor: source.descriptor, index: poolLease.value.index };
 		});
 		const first = indexes[0];
 		const composeIndexes = this.options.composeIndexes ?? ((entries: readonly PolyglotIndexEntry[]) => new PolyglotCodeIntelligenceIndex(entries));
 		const index: SymbolIndexPort = indexes.length === 1 && first ? first.index : composeIndexes(indexes);
-		return this.lease(
-			{ index, descriptors: discovered.map(({ descriptor }) => descriptor), sources: entries.map(({ index: source }) => source.provenance) },
-			entries,
+		return this.combineLeases(
+			{
+				index,
+				descriptors: discovered.map(({ descriptor }) => descriptor),
+				sources: poolLeases.map((poolLease) => poolLease.value.index.provenance),
+			},
+			poolLeases,
 		);
 	}
 
@@ -471,69 +285,38 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 	hasWarmIndex(workspaceId: WorkspaceKey, path?: string): boolean {
 		if (path) {
 			const descriptor = this.descriptorForPath(path);
-			return descriptor ? this.entries.has(this.key(workspaceId, descriptor.languageId)) : false;
+			return descriptor ? this.pool.has(workspaceId, descriptor.languageId) : false;
 		}
-		for (const entry of this.entries.values()) if (entry.workspaceId === workspaceId) return true;
-		return false;
-	}
-
-	/**
-	 * Derives the count ceiling actually in effect right now, independent of any particular
-	 * admission attempt -- the resource policy's own soft ceiling (from the real memory budget and
-	 * worst-case known cost) raises maxActive when it reports more room, clamped to
-	 * absoluteMaxActiveIndexes, and falls back to maxActive alone (source "configured") on any
-	 * metric loss (no policy, or the policy declines/fails to compute one) -- fails closed, never
-	 * treated as "unlimited room."
-	 */
-	private baseActiveCeiling(): { readonly ceiling: number; readonly source: WarmIndexActiveCeilingSource } {
-		const soft = this.options.resourcePolicy?.softActiveCeiling(this.activeLanguages());
-		if (soft === undefined || !Number.isFinite(soft) || soft <= this.maxActive) return { ceiling: this.maxActive, source: "configured" };
-		const clamped = Math.min(Math.floor(soft), this.absoluteMaxActiveIndexes);
-		return { ceiling: clamped, source: clamped >= this.absoluteMaxActiveIndexes ? "absolute-cap" : "resource-budget" };
+		return this.pool.hasAny(workspaceId);
 	}
 
 	status(): WarmIndexPoolStatus {
-		const byLanguage: Record<string, number> = {};
-		let leased = 0;
-		for (const entry of this.entries.values()) {
-			byLanguage[entry.languageId] = (byLanguage[entry.languageId] ?? 0) + 1;
-			if (entry.activeLeases > 0) leased++;
-		}
-		const resources = this.options.resourcePolicy?.status(this.activeLanguages());
+		const poolStatus = this.pool.status();
 		return {
-			active: this.entries.size,
-			leased,
-			maxActive: this.maxActive,
-			effectiveMaxActive: this.lastEffectiveMaxActive,
-			activeCeilingSource: this.lastActiveCeilingSource,
-			absoluteMaxActiveIndexes: this.absoluteMaxActiveIndexes,
-			byLanguage,
-			waitingBackgroundAdmissions: this.queuedBackgroundAdmissions,
-			...(resources ? { resources } : {}),
+			active: poolStatus.active,
+			leased: poolStatus.leased,
+			maxActive: poolStatus.maxActive,
+			effectiveMaxActive: poolStatus.effectiveMaxActive,
+			activeCeilingSource: poolStatus.activeCeilingSource,
+			absoluteMaxActiveIndexes: poolStatus.absoluteMaxActive,
+			byLanguage: poolStatus.byPartition,
+			waitingBackgroundAdmissions: poolStatus.waitingBackgroundAdmissions,
+			...(poolStatus.resources !== undefined ? { resources: poolStatus.resources } : {}),
 		};
 	}
 
 	/**
 	 * Samples every currently active entry's own real process tree and folds it into the
-	 * configured calibrator, if any -- a no-op without one. Read-only over the entry map (no
-	 * admission/eviction decision here), so it deliberately does not run inside serialized(): it
-	 * cannot race with admission in any way that matters, and holding the single admission mutex
-	 * for N bounded /proc samples would only cost foreground admissions latency for no benefit.
+	 * configured calibrator, if any -- a no-op without one.
 	 */
 	calibrateProcessCosts(): void {
-		const calibrator = this.options.processCostCalibrator;
-		if (!calibrator) return;
-		for (const entry of this.entries.values()) {
-			const pid = entry.index.processId;
-			if (pid === undefined) continue;
-			calibrator.recordSample(entry.languageId, pid);
-		}
+		this.pool.calibrateCosts();
 	}
 
 	private codeIntelligenceIndexes(workspaceId: WorkspaceKey): Array<ClosableSymbolIndex & CodeIntelligencePort> {
 		const indexes: Array<ClosableSymbolIndex & CodeIntelligencePort> = [];
-		for (const entry of this.entries.values()) {
-			if (entry.workspaceId === workspaceId && supportsCodeIntelligence(entry.index)) indexes.push(entry.index);
+		for (const resource of this.pool.activeResourcesForOwner(workspaceId)) {
+			if (supportsCodeIntelligence(resource.index)) indexes.push(resource.index);
 		}
 		return indexes;
 	}
@@ -559,9 +342,7 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 	}
 
 	async closeWorkspace(workspaceId: WorkspaceKey): Promise<void> {
-		const stale = Array.from(this.entries.entries()).filter(([, entry]) => entry.workspaceId === workspaceId);
-		for (const [key] of stale) this.entries.delete(key);
-		await Promise.all(stale.map(([, entry]) => entry.index.close()));
+		await this.pool.closeOwner(workspaceId);
 	}
 
 	/**
@@ -577,17 +358,16 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 	 * index for a different language sharing this same polyglot workspace -- a Cargo.toml change
 	 * has no bearing on an already-warm TypeScript index here. Unconditional, like closeWorkspace
 	 * above and for the same reason: a process serving a stale, structurally wrong project graph
-	 * is strictly worse than the cost of a fresh respawn, lease or not.
+	 * is strictly worse than the cost of a fresh respawn, lease or not. closePartition is already
+	 * a safe no-op for a language with nothing warm, so every matching descriptor's languageId is
+	 * tried regardless of whether it's actually active for this workspace right now.
 	 */
 	async closeForRootMarkerChange(workspaceId: WorkspaceKey, changedPath: string): Promise<void> {
 		const basename = changedPath.split("/").pop() ?? changedPath;
-		const stale = Array.from(this.entries.entries()).filter(([, entry]) => {
-			if (entry.workspaceId !== workspaceId) return false;
-			const descriptor = this.options.descriptors.find((candidate) => candidate.languageId === entry.languageId);
-			return descriptor?.rootMarkers.includes(basename) ?? false;
-		});
-		for (const [key] of stale) this.entries.delete(key);
-		await Promise.all(stale.map(([, entry]) => entry.index.close()));
+		const matchingLanguageIds = this.options.descriptors
+			.filter((descriptor) => descriptor.rootMarkers.includes(basename))
+			.map((descriptor) => descriptor.languageId);
+		await Promise.all(matchingLanguageIds.map((languageId) => this.pool.closePartition(workspaceId, languageId)));
 	}
 
 	/**
@@ -595,67 +375,26 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 	 * workspace's warm indexes has an active lease, instead of closeWorkspace's own unconditional
 	 * force-close (which exists for the very different case of a remote directory swapped out
 	 * from under an already-warm process -- correctness there requires closing regardless of who
-	 * still holds it). Serialized against concurrent admission so a lease can't be granted between
-	 * the check and the close.
+	 * still holds it).
 	 */
 	async releaseWorkspaceIfIdle(workspaceId: WorkspaceKey): Promise<{ readonly closed: number }> {
-		return this.serialized(async () => {
-			const matching = Array.from(this.entries.entries()).filter(([, entry]) => entry.workspaceId === workspaceId);
-			if (matching.some(([, entry]) => entry.activeLeases > 0)) throw new WarmIndexInUse(workspaceId);
-			for (const pair of matching) await this.evict(pair, "admission");
-			return { closed: matching.length };
-		});
+		try {
+			return await this.pool.releaseOwnerIfIdle(workspaceId);
+		} catch (error) {
+			if (error instanceof PoolResourceInUse) throw new WarmIndexInUse(workspaceId);
+			throw error;
+		}
 	}
 
 	async closeAll(): Promise<void> {
-		const entries = Array.from(this.entries.values());
-		this.entries.clear();
-		await Promise.all(entries.map((entry) => entry.index.close()));
-	}
-
-	private async reconcileResourcesUnsafe(): Promise<number> {
-		const policy = this.options.resourcePolicy;
-		if (!policy) return 0;
-		let reaped = 0;
-		while (policy.isOverBudget(this.activeLanguages())) {
-			const victim = this.leastRecentlyUsedIdle();
-			if (!victim) break;
-			try {
-				await this.evict(victim, "resource-pressure");
-				reaped++;
-			} catch {
-				break;
-			}
-		}
-		return reaped;
+		await this.pool.closeAll();
 	}
 
 	async reconcileResources(): Promise<number> {
-		return this.serialized(() => this.reconcileResourcesUnsafe());
+		return this.pool.reconcileResources();
 	}
 
 	async reapIdle(maxIdleMs: number): Promise<number> {
-		return this.serialized(async () => {
-			let reaped = await this.reconcileResourcesUnsafe();
-			const now = this.now();
-			const effectiveMaxIdleMs = this.options.resourcePolicy?.maxIdleMs(maxIdleMs, this.activeLanguages()) ?? maxIdleMs;
-			const idle = Array.from(this.entries.entries()).filter(([, entry]) => entry.activeLeases === 0 && now - entry.lastUsedAt > effectiveMaxIdleMs);
-			for (const [key, entry] of idle) {
-				try {
-					await entry.index.close();
-					if (this.entries.get(key) === entry) this.entries.delete(key);
-					reaped++;
-				} catch (error) {
-					this.options.observe?.({
-						kind: "close-failed",
-						reason: "idle-reap",
-						languageId: entry.languageId,
-						errorName: error instanceof Error ? error.name : "UnknownError",
-					});
-				}
-			}
-			if (idle.length > 0) this.notifyAdmissionWaiters();
-			return reaped;
-		});
+		return this.pool.reapIdle(maxIdleMs);
 	}
 }
