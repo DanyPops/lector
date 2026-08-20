@@ -67,6 +67,12 @@ export interface SymbolGraphPopulationFailure {
 	readonly provenance: IntelligenceProvenance;
 }
 
+/** A live snapshot of an in-progress population, reported after each file completes -- filesTotal is known upfront (the caller already computed which files to walk before calling), so a caller can render a real fraction, not just an opaque "running" state. */
+export interface PopulationProgress {
+	readonly filesProcessed: number;
+	readonly filesTotal: number;
+}
+
 export interface PopulateSymbolGraphResult {
 	readonly completeness: "complete" | "partial";
 	readonly filesAttempted: number;
@@ -147,6 +153,8 @@ export async function populateSymbolGraph(
 	/** Warn per failure as it happens (a long-running background job has no other way to surface one before the crawl finishes), warn/info summary on completion. Defaults to a no-op. */
 	logger: Logger = NOOP_LOGGER,
 	concurrency: number = DEFAULT_POPULATION_CONCURRENCY,
+	/** Fired once per file, after that file's own documentSymbols step completes -- not per-symbol, which would be far chattier for no real benefit to a caller only rendering a coarse progress fraction. Optional: a caller with nothing to do with progress (most direct/test callers) pays nothing. */
+	onProgress?: (progress: PopulationProgress) => void,
 ): Promise<PopulateSymbolGraphResult> {
 	if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("concurrency must be a positive integer");
 	let filesProcessed = 0;
@@ -190,10 +198,12 @@ export async function populateSymbolGraph(
 				topLevel = await withTransientRetry(() => index.documentSymbols(file, { settleMs: POPULATION_SETTLE_MS }));
 			} catch (error) {
 				recordFailure(file, "document-symbols", error);
+				onProgress?.({ filesProcessed: filesProcessed + failedFiles.size, filesTotal: files.length });
 				return;
 			}
 			const flattened = flattenDocumentSymbols(topLevel).slice(0, maxSymbolsPerFile);
 			filesProcessed++;
+			onProgress?.({ filesProcessed: filesProcessed + failedFiles.size, filesTotal: files.length });
 
 			for (const { entry, parentLocation } of flattened) {
 				symbolsProcessed++;

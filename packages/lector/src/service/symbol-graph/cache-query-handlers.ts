@@ -2,7 +2,7 @@ import { boundList } from "../../bounds/bound-list.ts";
 import { LANGUAGE_SERVER_DESCRIPTORS } from "../../code-intelligence/language-server-descriptor.ts";
 import { discoverWorkspaceDescriptors } from "../../code-intelligence/lsp/discover-seed-file.ts";
 import type { BoundedJobExecutor } from "../../concurrency/bounded-job-executor.ts";
-import type { PopulateSymbolGraphResult } from "../../symbol-graph/populate-symbol-graph.ts";
+import type { PopulateSymbolGraphResult, PopulationProgress } from "../../symbol-graph/populate-symbol-graph.ts";
 import { summarizeCacheGeneration } from "../../symbol-graph/summarize-cache-generation.ts";
 import type { SymbolGraphGeneration } from "../../symbol-graph/symbol-graph-generation.ts";
 import { deriveSourceManifest } from "../../workspace/source-manifest.ts";
@@ -13,6 +13,7 @@ import type { OperationInputs, OperationOutputs } from "../operations.ts";
 import type { WarmIndexRegistry } from "../warm-index-registry.ts";
 import type { MutableRegistry } from "../workspace-registry.ts";
 import type { CacheFreshnessHelpers } from "./cache-freshness.ts";
+import type { PopulationProgressTracker } from "./population-progress-tracker.ts";
 
 export interface CacheQueryHandlerDeps {
 	readonly registry: MutableRegistry;
@@ -20,6 +21,7 @@ export interface CacheQueryHandlerDeps {
 	readonly graphRefresh: GraphRefreshCoordinator<WorkspaceId, string>;
 	readonly jobs: BoundedJobExecutor<PopulateSymbolGraphResult>;
 	readonly cacheFreshness: Pick<CacheFreshnessHelpers, "refreshRemoteWorkspaceIfMoved" | "isCacheFreshViaGit">;
+	readonly progressTracker: PopulationProgressTracker;
 }
 
 export interface CacheQueryHandlers {
@@ -41,6 +43,10 @@ export interface CacheQueryHandlers {
 export interface ActiveCachingJobSummary {
 	workspaceId: WorkspaceId;
 	status: "queued" | "running" | "waiting-for-resources";
+	/** Undefined for an unknown/already-unregistered workspace -- kept optional rather than throwing, since this is a best-effort display field, not something a caller depends on for correctness. */
+	rootPath?: string;
+	/** Undefined until the first file of this run completes, or for a job still "queued" (nothing walked yet). */
+	progress?: PopulationProgress;
 }
 
 export interface CacheQueryHandlerFactory {
@@ -51,7 +57,7 @@ export interface CacheQueryHandlerFactory {
 
 /** workspace.cacheStatus/cacheWalkedFiles/cacheFailures -- read-only queries against the current symbol-graph generation, sharing cacheFreshness's fast paths with population but never writing anything themselves. */
 export function createCacheQueryHandlers(deps: CacheQueryHandlerDeps): CacheQueryHandlerFactory {
-	const { registry, warmIndexes, graphRefresh, jobs, cacheFreshness } = deps;
+	const { registry, warmIndexes, graphRefresh, jobs, cacheFreshness, progressTracker } = deps;
 	const ensureSymbolGraph = (workspaceId: WorkspaceId) => graphRefresh.graph(workspaceId);
 
 	async function cacheStatusHandler(
@@ -64,10 +70,13 @@ export function createCacheQueryHandlers(deps: CacheQueryHandlerDeps): CacheQuer
 		const activeJobId = graphRefresh.activeJob(input.workspaceId);
 		if (activeJobId) {
 			const snapshot = jobs.status(activeJobId);
+			const progress = progressTracker.get(input.workspaceId);
 			if (snapshot.status === "running" && warmIndexes.waitingForAdmission(input.workspaceId)) {
-				return { status: "waiting-for-resources", jobId: activeJobId };
+				return { status: "waiting-for-resources", jobId: activeJobId, ...(progress ? { progress } : {}) };
 			}
-			if (snapshot.status === "queued" || snapshot.status === "running") return { status: "caching", jobId: activeJobId };
+			if (snapshot.status === "queued" || snapshot.status === "running") {
+				return { status: "caching", jobId: activeJobId, ...(progress ? { progress } : {}) };
+			}
 			graphRefresh.clearActiveJob(input.workspaceId);
 		}
 		const graph = ensureSymbolGraph(input.workspaceId);
@@ -142,7 +151,14 @@ export function createCacheQueryHandlers(deps: CacheQueryHandlerDeps): CacheQuer
 			const snapshot = jobs.status(jobId);
 			if (snapshot.status === "queued" || snapshot.status === "running") {
 				const waiting = snapshot.status === "running" && warmIndexes.waitingForAdmission(workspaceId);
-				active.push({ workspaceId, status: waiting ? "waiting-for-resources" : snapshot.status });
+				const rootPath = registry.get(workspaceId)?.rootPath;
+				const progress = progressTracker.get(workspaceId);
+				active.push({
+					workspaceId,
+					status: waiting ? "waiting-for-resources" : snapshot.status,
+					...(rootPath ? { rootPath } : {}),
+					...(progress ? { progress } : {}),
+				});
 			} else {
 				graphRefresh.clearActiveJob(workspaceId, jobId);
 			}

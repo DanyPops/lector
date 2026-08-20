@@ -13,6 +13,7 @@ import { createCacheFreshnessHelpers } from "./symbol-graph/cache-freshness.ts";
 import { createCacheQueryHandlers } from "./symbol-graph/cache-query-handlers.ts";
 import { createGraphQueryHandlers } from "./symbol-graph/graph-query-handlers.ts";
 import { createPopulationHandlers } from "./symbol-graph/population.ts";
+import { PopulationProgressTracker } from "./symbol-graph/population-progress-tracker.ts";
 import { createRefreshScheduler } from "./symbol-graph/refresh-scheduler.ts";
 import { createRenameHandlers } from "./symbol-graph/rename-handlers.ts";
 import type { WarmIndexRegistry } from "./warm-index-registry.ts";
@@ -120,6 +121,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 	const now = deps.now ?? Date.now;
 
 	const cacheFreshness = createCacheFreshnessHelpers({ repoFetcher, createGitPort, warmIndexes });
+	const progressTracker = new PopulationProgressTracker();
 
 	const population = createPopulationHandlers({
 		registry,
@@ -133,9 +135,10 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		homeDir,
 		sleep,
 		now,
+		progressTracker,
 	});
 
-	const cacheQuery = createCacheQueryHandlers({ registry, warmIndexes, graphRefresh, jobs, cacheFreshness });
+	const cacheQuery = createCacheQueryHandlers({ registry, warmIndexes, graphRefresh, jobs, cacheFreshness, progressTracker });
 
 	const rename = createRenameHandlers({
 		registry,

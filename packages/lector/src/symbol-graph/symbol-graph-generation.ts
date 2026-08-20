@@ -1,7 +1,7 @@
 import type { IntelligenceProvenance } from "../code-intelligence/intelligence-provenance.ts";
 import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { RepoReference } from "../repo-fetcher/repo-reference.ts";
-import type { PopulateSymbolGraphResult } from "./populate-symbol-graph.ts";
+import type { PopulateSymbolGraphResult, PopulationProgress } from "./populate-symbol-graph.ts";
 
 export interface SymbolGraphGeneration {
 	readonly sourceFingerprint: string;
@@ -99,8 +99,9 @@ export interface CacheGenerationSummary {
 
 export type WorkspaceCacheStatus =
 	| { readonly status: "not-cached"; readonly reason: "no-completed-generation" | "bounds-changed" | "source-changed" }
-	| { readonly status: "caching"; readonly jobId: string }
+	/** progress is undefined until the first file of this run completes -- nothing walked yet is a real, distinct state from "no progress data available at all". */
+	| { readonly status: "caching"; readonly jobId: string; readonly progress?: PopulationProgress }
 	/** The job is running but its own populateSymbolGraph call is queued waiting for a warm-index slot reserved for foreground work, not actually walking files -- distinct from "caching" so a caller can tell "genuinely working" from "waiting its turn behind interactive queries". */
-	| { readonly status: "waiting-for-resources"; readonly jobId: string }
+	| { readonly status: "waiting-for-resources"; readonly jobId: string; readonly progress?: PopulationProgress }
 	| { readonly status: "partial"; readonly generation: CacheGenerationSummary }
 	| { readonly status: "cached"; readonly generation: CacheGenerationSummary };

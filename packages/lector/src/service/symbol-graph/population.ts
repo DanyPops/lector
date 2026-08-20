@@ -25,6 +25,7 @@ import type { OperationInputs, OperationOutputs } from "../operations.ts";
 import { supportsCodeIntelligence, type WarmIndexRegistry } from "../warm-index-registry.ts";
 import type { MutableRegistry } from "../workspace-registry.ts";
 import type { CacheFreshnessHelpers } from "./cache-freshness.ts";
+import type { PopulationProgressTracker } from "./population-progress-tracker.ts";
 
 export interface PopulationHandlerDeps {
 	readonly registry: MutableRegistry;
@@ -36,6 +37,8 @@ export interface PopulationHandlerDeps {
 	readonly cacheFreshness: Pick<CacheFreshnessHelpers, "refreshRemoteWorkspaceIfMoved" | "captureGitHeadShaIfClean">;
 	/** Late-bound: WorkspaceWatchHandlers and this factory are mutually dependent -- the caller passes an initially-no-op indirection and rebinds it once both objects exist. */
 	readonly ensureOsWatcher: (workspaceId: WorkspaceId, rootPath: string) => void;
+	/** Shared with cache-query-handlers.ts so workspace.cacheStatus/activeCachingJobs can report a real, live files-processed/files-total fraction while this handler's own populateSymbolGraphQuery call is still running. */
+	readonly progressTracker: PopulationProgressTracker;
 	/** Injectable for tests -- classifyAutoPopulationRoot's own home-directory heuristic must never depend on the real host machine's actual home directory. Defaults to the real one via node:os. */
 	readonly homeDir?: string;
 	/** Injectable for tests -- the settle delay between populateSymbolGraphHandler's own retry-on-race attempts. Defaults to a real setTimeout-based wait. */
@@ -53,7 +56,7 @@ export interface PopulationHandlers {
 
 /** populateSymbolGraph's own lifecycle: delta selection against the previous generation, remote-refetch-if-moved, purge, re-walk, and recording a fresh generation. */
 export function createPopulationHandlers(deps: PopulationHandlerDeps): PopulationHandlers {
-	const { registry, warmIndexes, graphRefresh, createGitPort, repoFetcher, logger, cacheFreshness, ensureOsWatcher } = deps;
+	const { registry, warmIndexes, graphRefresh, createGitPort, repoFetcher, logger, cacheFreshness, ensureOsWatcher, progressTracker } = deps;
 	const homeDir = deps.homeDir ?? homedir();
 	const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 	const now = deps.now ?? Date.now;
@@ -80,38 +83,45 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 		const startedAt = now();
 		const deadline = retryBudgetMs > 0 ? startedAt + retryBudgetMs : undefined;
 		let attempt = 0;
-		for (;;) {
-			attempt++;
-			try {
-				return await populateSymbolGraphOnce(_registry, input);
-			} catch (error) {
-				if (!(error instanceof WorkspaceChangedDuringPopulation)) throw error;
-				const elapsedMs = now() - startedAt;
-				if (deadline === undefined || now() >= deadline) {
-					// Distinguishes "the workspace kept changing on every attempt until the budget ran
-					// out" from a single-attempt fail-fast call (retryTimeBudgetMs omitted/0) -- both
-					// otherwise surface as the same WorkspaceChangedDuringPopulation error with no way
-					// to tell how many attempts were actually made.
-					logger.warn("symbol graph population: retry budget exhausted under continuous workspace churn", {
+		try {
+			for (;;) {
+				attempt++;
+				try {
+					return await populateSymbolGraphOnce(_registry, input);
+				} catch (error) {
+					if (!(error instanceof WorkspaceChangedDuringPopulation)) throw error;
+					const elapsedMs = now() - startedAt;
+					if (deadline === undefined || now() >= deadline) {
+						// Distinguishes "the workspace kept changing on every attempt until the budget ran
+						// out" from a single-attempt fail-fast call (retryTimeBudgetMs omitted/0) -- both
+						// otherwise surface as the same WorkspaceChangedDuringPopulation error with no way
+						// to tell how many attempts were actually made.
+						logger.warn("symbol graph population: retry budget exhausted under continuous workspace churn", {
+							module: "population",
+							operation: "workspace.populateSymbolGraph",
+							workspaceId: input.workspaceId,
+							attempts: attempt,
+							elapsedMs: Math.round(elapsedMs),
+							retryBudgetMs,
+						});
+						throw error;
+					}
+					logger.debug("symbol graph population: source changed mid-scan, retrying", {
 						module: "population",
 						operation: "workspace.populateSymbolGraph",
 						workspaceId: input.workspaceId,
-						attempts: attempt,
+						attempt,
 						elapsedMs: Math.round(elapsedMs),
 						retryBudgetMs,
 					});
-					throw error;
+					await sleep(POPULATE_RETRY_SETTLE_MS);
 				}
-				logger.debug("symbol graph population: source changed mid-scan, retrying", {
-					module: "population",
-					operation: "workspace.populateSymbolGraph",
-					workspaceId: input.workspaceId,
-					attempt,
-					elapsedMs: Math.round(elapsedMs),
-					retryBudgetMs,
-				});
-				await sleep(POPULATE_RETRY_SETTLE_MS);
 			}
+		} finally {
+			// Every attempt shares the same workspaceId key -- clearing once here (success or final
+			// failure) rather than per-attempt avoids a misleading brief gap in reported progress
+			// between a retried attempt's own last progress report and the next attempt's first one.
+			progressTracker.clear(input.workspaceId);
 		}
 	}
 
@@ -192,6 +202,7 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 			input.maxSymbolsPerFile,
 			logger,
 			POPULATION_CONCURRENCY,
+			(progress) => progressTracker.set(input.workspaceId, progress),
 		);
 		const after = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		if (after.fingerprint !== before.fingerprint) throw new WorkspaceChangedDuringPopulation(input.workspaceId);

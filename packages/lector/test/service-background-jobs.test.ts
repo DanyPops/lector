@@ -43,6 +43,39 @@ class DelayedCodeIndex implements ClosableSymbolIndex {
 	}
 }
 
+/** Resolves each file's own documentSymbols call independently, so a test can complete one file at a time and observe progress reported after each. */
+class PerFileDelayedCodeIndex implements ClosableSymbolIndex {
+	readonly provenance = TEST_SEMANTIC_PROVENANCE;
+	private readonly deferredByPath = new Map<string, ReturnType<typeof deferred<readonly DocumentSymbolEntry[]>>>();
+
+	resolve(path: string, entries: readonly DocumentSymbolEntry[] = []): void {
+		this.forPath(path).resolve(entries);
+	}
+	private forPath(path: string): ReturnType<typeof deferred<readonly DocumentSymbolEntry[]>> {
+		let entry = this.deferredByPath.get(path);
+		if (!entry) {
+			entry = deferred<readonly DocumentSymbolEntry[]>();
+			this.deferredByPath.set(path, entry);
+		}
+		return entry;
+	}
+	findSymbols() {
+		return Promise.resolve(symbolSearchResult());
+	}
+	goToDefinition(_location: WorkspaceLocation): Promise<readonly WorkspaceLocation[]> {
+		return Promise.resolve([]);
+	}
+	documentSymbols(path: string): Promise<readonly DocumentSymbolEntry[]> {
+		return this.forPath(path).promise;
+	}
+	outgoingCalls(): Promise<[]> {
+		return Promise.resolve([]);
+	}
+	close(): Promise<void> {
+		return Promise.resolve();
+	}
+}
+
 let root: string | undefined;
 const extraRoots: string[] = [];
 let service: LectorService | undefined;
@@ -62,6 +95,16 @@ function fixture(trackAsPrimary = true): string {
 	if (trackAsPrimary) root = directory;
 	else extraRoots.push(directory);
 	return directory;
+}
+
+/** Three files, so a test can complete one at a time and observe filesProcessed/filesTotal tick up mid-run rather than jumping straight from 0 to "done". */
+function threeFileFixture(): { directory: string; files: readonly string[] } {
+	const directory = mkdtempSync(join(tmpdir(), "lector-job-service-progress-"));
+	const files = ["a.ts", "b.ts", "c.ts"].map((name) => join(directory, name));
+	for (const file of files) writeFileSync(file, "export function value() { return 1; }\n");
+	writeFileSync(join(directory, "tsconfig.json"), "{}");
+	root = directory;
+	return { directory, files };
 }
 
 async function waitForPublished(predicate: () => boolean, timeoutMs = 100): Promise<void> {
@@ -161,8 +204,8 @@ describe("createLectorService background jobs", () => {
 		const activeWhileBothRunning = await service.dispatch("workspace.activeCachingJobs", {});
 		expect([...activeWhileBothRunning.jobs].sort((a, b) => a.workspaceId.localeCompare(b.workspaceId))).toEqual(
 			[
-				{ workspaceId: workspaceIdA, status: "running" as const },
-				{ workspaceId: workspaceIdB, status: "running" as const },
+				{ workspaceId: workspaceIdA, status: "running" as const, rootPath: rootA },
+				{ workspaceId: workspaceIdB, status: "running" as const, rootPath: rootB },
 			].sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
 		);
 
@@ -174,13 +217,62 @@ describe("createLectorService background jobs", () => {
 		}
 
 		const activeAfterAFinishes = await service.dispatch("workspace.activeCachingJobs", {});
-		expect(activeAfterAFinishes.jobs).toEqual([{ workspaceId: workspaceIdB, status: "running" }]);
+		expect(activeAfterAFinishes.jobs).toEqual([{ workspaceId: workspaceIdB, status: "running", rootPath: rootB }]);
 
 		documentsB.resolve([]);
 		let statusB = await service.dispatch("job.status", { jobId: submittedB.job.id });
 		for (let attempt = 0; attempt < 20 && statusB.job.status !== "succeeded"; attempt++) {
 			await new Promise((resolve) => setTimeout(resolve, 1));
 			statusB = await service.dispatch("job.status", { jobId: submittedB.job.id });
+		}
+		expect(await service.dispatch("workspace.activeCachingJobs", {})).toEqual({ jobs: [] });
+	});
+
+	it("workspace.activeCachingJobs and workspace.cacheStatus both report a real, live filesProcessed/filesTotal fraction while population is still running", async () => {
+		const { directory, files } = threeFileFixture();
+		const index = new PerFileDelayedCodeIndex();
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createJobExecutor: testExecutor,
+			createSymbolIndex: () => index,
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: directory });
+		const submitted = await service.dispatch("job.submit", {
+			operation: "workspace.populateSymbolGraph",
+			input: { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 },
+			waitMs: 0,
+		});
+
+		// Nothing has completed yet -- both operations report the job as running, but with no
+		// progress snapshot at all yet (never conflated with a real "0 of N" report).
+		const beforeAnyFile = await service.dispatch("workspace.activeCachingJobs", {});
+		expect(beforeAnyFile.jobs).toEqual([{ workspaceId, status: "running", rootPath: directory }]);
+		const statusBeforeAnyFile = await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 });
+		expect(statusBeforeAnyFile).toEqual({ status: "caching", jobId: submitted.job.id });
+
+		// One of three files finishes -- both operations now report a real 1/3, not just "running".
+		index.resolve(files[0] as string);
+		let activeJobs = await service.dispatch("workspace.activeCachingJobs", {});
+		for (let attempt = 0; attempt < 50 && activeJobs.jobs[0]?.progress === undefined; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			activeJobs = await service.dispatch("workspace.activeCachingJobs", {});
+		}
+		expect(activeJobs.jobs).toEqual([{ workspaceId, status: "running", rootPath: directory, progress: { filesProcessed: 1, filesTotal: 3 } }]);
+		const statusAfterOneFile = await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 });
+		expect(statusAfterOneFile).toEqual({
+			status: "caching",
+			jobId: submitted.job.id,
+			progress: { filesProcessed: 1, filesTotal: 3 },
+		});
+
+		// The remaining two finish -- the job completes, and progress is cleared (population has no
+		// active job at all any more, so there's nothing left to report progress about).
+		index.resolve(files[1] as string);
+		index.resolve(files[2] as string);
+		let finalStatus = await service.dispatch("job.status", { jobId: submitted.job.id });
+		for (let attempt = 0; attempt < 50 && finalStatus.job.status !== "succeeded"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			finalStatus = await service.dispatch("job.status", { jobId: submitted.job.id });
 		}
 		expect(await service.dispatch("workspace.activeCachingJobs", {})).toEqual({ jobs: [] });
 	});
