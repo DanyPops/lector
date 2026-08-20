@@ -53,8 +53,13 @@ describe("Lector daemon-unavailable diagnostics", () => {
 			processState: "exited",
 			exitStatus: 1,
 			signal: "SIGTERM",
-			causeName: "Error",
 		});
+		// The underlying connection-refused fetch failure's own top-level error class (e.g. plain
+		// "Error" vs "TypeError") is a runtime/version implementation detail, not something this
+		// diagnostic depends on -- confirmed to genuinely differ between a local Bun and a CI
+		// runner's Bun for the exact same connection-refused failure. Only its presence matters.
+		expect(typeof unavailable.details.causeName).toBe("string");
+		expect(unavailable.details.causeName.length).toBeGreaterThan(0);
 		expect(unavailable.details.requestId).toMatch(/^lector-[a-z0-9]+-[a-z0-9]+$/);
 		expect(unavailable.details.diagnosticCommand).toContain("journalctl --user-unit lector.service -n 50");
 		expect(unavailable.message).toContain("Restart Lector");

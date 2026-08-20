@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FileChangeEvent } from "../../src/file-watcher/file-change-event.ts";
-import { NodeFsFileWatcher } from "../../src/file-watcher/node-fs-file-watcher.ts";
+import { classifyFileChange, NodeFsFileWatcher } from "../../src/file-watcher/node-fs-file-watcher.ts";
 
 function waitForEvent(events: FileChangeEvent[], predicate: (event: FileChangeEvent) => boolean, timeoutMs = 3000): Promise<void> {
 	const startedAt = Date.now();
@@ -75,6 +75,41 @@ describe("NodeFsFileWatcher", () => {
 		try {
 			writeFileSync(join(root, "sub", "nested.txt"), "hello");
 			await waitForEvent(events, (e) => e.path.replace(/\\/g, "/") === "sub/nested.txt" && e.kind === "created");
+		} finally {
+			handle.close();
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it('classifies a brand-new path as created without ever consulting the platform\'s own raw event label -- the exact case a real CI runner got wrong by reporting a plain "change" event for a file that had never existed before', () => {
+		const knownPaths = new Set<string>();
+		expect(classifyFileChange("brand-new.txt", true, knownPaths)).toBe("created");
+		expect(knownPaths.has("brand-new.txt")).toBe(true);
+	});
+
+	it("classifies a change to an already-known path as modified, not created", () => {
+		const knownPaths = new Set<string>(["existing.txt"]);
+		expect(classifyFileChange("existing.txt", true, knownPaths)).toBe("modified");
+		expect(knownPaths.has("existing.txt")).toBe(true);
+	});
+
+	it("classifies a now-missing path as deleted and forgets it, regardless of whether it was previously known", () => {
+		const knownPaths = new Set<string>(["tracked.txt"]);
+		expect(classifyFileChange("tracked.txt", false, knownPaths)).toBe("deleted");
+		expect(knownPaths.has("tracked.txt")).toBe(false);
+		expect(classifyFileChange("never-seen.txt", false, knownPaths)).toBe("deleted");
+	});
+
+	it("does not mistake a pre-existing file's first observed change for its creation", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-fs-watcher-"));
+		writeFileSync(join(root, "pre-existing.txt"), "seeded before watch() is ever called");
+		const watcher = new NodeFsFileWatcher();
+		const events: FileChangeEvent[] = [];
+		const handle = watcher.watch(root, (event) => events.push(event));
+		try {
+			writeFileSync(join(root, "pre-existing.txt"), "changed after watch() started");
+			await waitForEvent(events, (e) => e.path === "pre-existing.txt");
+			expect(events.find((e) => e.path === "pre-existing.txt")?.kind).toBe("modified");
 		} finally {
 			handle.close();
 			rmSync(root, { recursive: true, force: true });
