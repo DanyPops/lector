@@ -7,6 +7,7 @@ import { lectorServiceCli, lectorServiceSpec, runServe, runService } from "./cli
 import { runWorkspace } from "./cli/commands/workspace/index.ts";
 import { fail } from "./cli/flags.ts";
 import { USAGE } from "./cli/usage.ts";
+import { lectorVersion } from "./version.ts";
 
 // Re-exported for import-path stability -- moved to cli/commands/service.ts, the command-group
 // module they actually belong to, alongside runServe/runService.
@@ -16,15 +17,22 @@ const ENTRYPOINT_PATH = fileURLToPath(import.meta.url);
 
 const TOP_LEVEL_COMMANDS: Record<string, (rest: string[]) => Promise<void>> = {
 	serve: runServe,
-	service: async (rest) => runService(rest[0], ENTRYPOINT_PATH),
 	search: runSearch,
 	job: runJob,
 	package: runPackage,
 	workspace: runWorkspace,
 };
 
-async function main(): Promise<void> {
-	const [command, ...rest] = process.argv.slice(2);
+export async function main(args: readonly string[] = process.argv.slice(2), entrypointPath = ENTRYPOINT_PATH): Promise<void> {
+	const [command, ...rest] = args;
+	if (command === "--version" || command === "version") {
+		console.log(lectorVersion());
+		return;
+	}
+	if (command === "service") {
+		runService(rest[0], entrypointPath);
+		return;
+	}
 	const handler = command ? TOP_LEVEL_COMMANDS[command] : undefined;
 	if (!handler) fail(USAGE);
 	return handler(rest);

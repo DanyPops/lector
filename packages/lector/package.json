@@ -39,7 +39,7 @@
 	},
 	"sideEffects": false,
 	"bin": {
-		"lector": "src/cli.ts"
+		"lector": "src/cli-bootstrap.ts"
 	},
 	"scripts": {
 		"test": "bun test",

@@ -13,6 +13,8 @@ bun add --global @danypops/lector
 lector service install
 ```
 
+The CLI and the service it installs are one versioned unit: update the global package, then rerun `lector service install`. Do not combine that service with a separately managed Pi/Armada installation. Pi/Armada deployments instead update `@danypops/lector` under `~/.pi/agent/npm` and restart `armada-lector.service`. The published CLI starts through a dependency-light bootstrap, so an incompatible hoisted Vehicle dependency reports this reconciliation guidance rather than a raw ESM missing-export exception.
+
 ## Storage and service
 
 ```text
