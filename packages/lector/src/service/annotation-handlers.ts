@@ -56,6 +56,11 @@ export class AnnotationHandlers {
 		};
 	}
 
+	/** Shared read seam for other bounded workspace operations that enrich results with annotations. */
+	storeForWorkspace(workspaceId: WorkspaceId): SymbolAnnotationPort {
+		return this.store(workspaceId);
+	}
+
 	private store(workspaceId: WorkspaceId): SymbolAnnotationPort {
 		let store = this.stores.get(workspaceId);
 		if (!store) {

@@ -196,6 +196,23 @@ describe("Lector-backed code-intelligence operations", () => {
 		expect(map.entries.find((entry) => entry.name === "add")?.signature).toContain("add");
 	}, 20_000);
 
+	it("populateSymbolGraph and localizeContext return ranked graph-backed context through a real daemon", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const ops = createLectorCodeIntelligenceOperations();
+		const populated = await ops.populateSymbolGraph(mathFile, 100, 50, 20_000);
+		expect(populated.status).toBe("succeeded");
+
+		const result = await ops.localizeContext(root, "change the add function and its callers", { maxSymbols: 10, maxBytes: 20_000, maxDepth: 2 });
+		expect(result.candidates.map((candidate) => candidate.name)).toContain("add");
+		expect(result.candidates.some((candidate) => candidate.reasons.some((reason) => reason.kind === "graph-edge"))).toBe(true);
+		expect(result.completeness.graph).toBe("complete");
+	}, 20_000);
+
 	it("populateSymbolGraph and workspaceMap resolve the project's own root directory to the project itself, not its parent", async () => {
 		// Real, confirmed live bug: passing a project's own root directory (which has its own
 		// .git right there) through the file-anchored resolution used elsewhere in this file

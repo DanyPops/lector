@@ -56,6 +56,12 @@ export class RipgrepTextSearch implements TextSearchPort {
 		const matches: TextSearchMatch[] = [];
 		let bytesUsed = 0;
 		let truncated = false;
+		const abort = () => {
+			truncated = true;
+			child.kill();
+		};
+		if (options.signal?.aborted) abort();
+		else options.signal?.addEventListener("abort", abort, { once: true });
 
 		const rl = createInterface({ input: child.stdout });
 		for await (const line of rl) {
@@ -85,6 +91,7 @@ export class RipgrepTextSearch implements TextSearchPort {
 			}
 		}
 		rl.close();
+		options.signal?.removeEventListener("abort", abort);
 
 		const { code } = await exited;
 		// rg's own exit codes: 0 = matches found, 1 = no matches, 2 = a real error (e.g. an

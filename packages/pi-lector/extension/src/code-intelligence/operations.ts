@@ -50,6 +50,18 @@ export interface CodeIntelligenceOperations {
 	/** Never spawns a symbol index -- safe to call opportunistically (e.g. before deciding whether to enrich a result). */
 	hasWarmIndex(path: string): Promise<boolean>;
 	workspaceMap(path: string, maxNodes: number, maxEdges: number, maxEntries: number, maxBytes: number): Promise<OperationOutputs["workspace.map"]>;
+	localizeContext(
+		path: string,
+		query: string,
+		options?: {
+			seedSymbols?: readonly string[];
+			seedLocations?: readonly { path: string; line: number; character?: number }[];
+			maxSymbols?: number;
+			maxBytes?: number;
+			maxDepth?: number;
+			deadlineMs?: number;
+		},
+	): Promise<OperationOutputs["workspace.localizeContext"]>;
 }
 
 export function createLectorCodeIntelligenceOperations(ownerId?: string): CodeIntelligenceOperations {
@@ -181,6 +193,15 @@ export function createLectorCodeIntelligenceOperations(ownerId?: string): CodeIn
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.call("workspace.map", { workspaceId, maxNodes, maxEdges, maxEntries, maxBytes });
+				},
+			);
+		},
+		async localizeContext(path, query, options = {}) {
+			return withWorkspace(
+				() => workspaceForPathOrDirectory(path),
+				async ({ workspaceId }) => {
+					const client = await lectorClient();
+					return client.call("workspace.localizeContext", { workspaceId, query, ...options });
 				},
 			);
 		},

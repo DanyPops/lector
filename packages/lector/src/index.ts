@@ -369,6 +369,15 @@ export {
 export type { DirectoryListing } from "./workspace/list-directory.ts";
 export { listDirectory } from "./workspace/list-directory.ts";
 export { LocalFilesystemWorkspace, PathEscapesWorkspaceRoot } from "./workspace/local-filesystem-workspace.ts";
+export {
+	type ContextBundleCompleteness,
+	type ContextBundleResult,
+	type ContextCandidate,
+	type ContextReason,
+	type ContextReasonKind,
+	type LocalizeContextOptions,
+	localizeContext,
+} from "./workspace/localize-context.ts";
 export { isFilesystemRoot } from "./workspace/nearest-workspace-root.ts";
 export type { MissingWorkspaceEntry, PresentWorkspaceEntry, WorkspaceEntry, WorkspacePort } from "./workspace/port.ts";
 export { raceWorkspaceQuery } from "./workspace/race-workspace-query.ts";

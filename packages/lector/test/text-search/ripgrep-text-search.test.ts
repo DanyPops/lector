@@ -85,6 +85,18 @@ describe("RipgrepTextSearch", () => {
 		}
 	});
 
+	it("kills a real ripgrep scan when the caller's deadline signal is already aborted", async () => {
+		const root = buildFixture();
+		try {
+			const controller = new AbortController();
+			controller.abort();
+			const result = await new RipgrepTextSearch().search(root, "hello", { maxMatches: 100, maxBytes: 100_000, signal: controller.signal });
+			expect(result.truncated).toBe(true);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	it("rejects a query that looks like a ripgrep flag before spawning", async () => {
 		const root = buildFixture();
 		try {

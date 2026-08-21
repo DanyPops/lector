@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import type {
 	CachedRepositoryPage,
 	ContentHash,
+	ContextBundleResult,
 	Diagnostic,
 	DocumentSymbolEntry,
 	EditOutcome,
@@ -406,6 +407,74 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const codeIntelligenceOperations = createLectorCodeIntelligenceOperations(ownerId);
+
+		registerLectorTool({
+			name: "localize_context",
+			label: "Localize Context",
+			description:
+				"Localize a natural-language coding task to a bounded, ranked set of workspace symbols. Combines lexical source matches with the persisted call/reference/containment graph, returns compact signatures and explicit score reasons, and reports incomplete or unavailable graph coverage. The daemon does not invoke an LLM. `directory` selects the project explicitly.",
+			promptSnippet: "Localize a coding task to ranked symbols and compact graph-backed context",
+			promptGuidelines: [
+				"Use localize_context near the start of an unfamiliar implementation or debugging task to get a bounded candidate set before reading files one by one.",
+				"Treat every reason as provenance for a retrieval signal, not proof of semantic dataflow; inspect completeness before relying on graph omissions.",
+			],
+			parameters: Type.Object({
+				query: Type.String({ description: "Natural-language coding task or issue text" }),
+				directory: Type.String({ description: "Directory of the project to localize, absolute or relative to the current working directory" }),
+				seedSymbols: Type.Optional(Type.Array(Type.String(), { description: "Optional exact symbol names that anchor graph expansion", maxItems: 100 })),
+				seedLocations: Type.Optional(
+					Type.Array(
+						Type.Object({
+							path: Type.String(),
+							line: Type.Number({ description: "1-indexed line" }),
+							character: Type.Optional(Type.Number({ description: "Optional 1-indexed declaration character" })),
+						}),
+						{ description: "Optional declaration locations that anchor graph expansion", maxItems: 100 },
+					),
+				),
+				maxSymbols: Type.Optional(Type.Number({ description: "Maximum candidates returned (default 20, maximum 500)" })),
+				maxBytes: Type.Optional(Type.Number({ description: "Maximum serialized candidate bytes (default 30000, maximum 2 MiB)" })),
+				maxDepth: Type.Optional(Type.Number({ description: "Maximum call/reference/containment expansion depth (default 2, maximum 5)" })),
+				deadlineMs: Type.Optional(Type.Number({ description: "Wall-clock budget in milliseconds (default 5000, maximum 30000)" })),
+			}),
+			async execute(_toolCallId, params) {
+				const directory = resolve(cwd, params.directory);
+				const result = await codeIntelligenceOperations.localizeContext(directory, params.query, {
+					...(params.seedSymbols ? { seedSymbols: params.seedSymbols } : {}),
+					...(params.seedLocations ? { seedLocations: params.seedLocations.map((seed) => ({ ...seed, path: resolve(cwd, seed.path) })) } : {}),
+					...(params.maxSymbols !== undefined ? { maxSymbols: params.maxSymbols } : {}),
+					...(params.maxBytes !== undefined ? { maxBytes: params.maxBytes } : {}),
+					...(params.maxDepth !== undefined ? { maxDepth: params.maxDepth } : {}),
+					...(params.deadlineMs !== undefined ? { deadlineMs: params.deadlineMs } : {}),
+				});
+				const completeness = `lexical=${result.completeness.lexical}, graph=${result.completeness.graph}${result.completeness.deadlineReached ? ", deadline reached" : ""}${result.truncated ? ", truncated" : ""}`;
+				const text =
+					result.candidates.length === 0
+						? `No localization candidates.\nCompleteness: ${completeness}`
+						: `Primary candidates\n\n${result.candidates
+								.map(
+									(candidate, index) =>
+										`${index + 1}. ${candidate.name}\n   ${candidate.path}:${candidate.line}:${candidate.character}\n   ${candidate.signature ?? candidate.kind}\n   Reasons:\n${candidate.reasons.map((reason) => `   - ${reason.detail} (+${reason.score})`).join("\n")}`,
+								)
+								.join("\n\n")}\n\nCompleteness: ${completeness}`;
+				return { content: [{ type: "text", text }], details: result };
+			},
+			renderCall(args, theme) {
+				return new Text(theme.fg("toolTitle", `localize ${typeof args.query === "string" ? args.query : "context"}`), 0, 0);
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Localizing..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "localize_context failed"), 0, 0);
+				}
+				const details = result.details as ContextBundleResult | undefined;
+				return new Text(details ? `${details.candidates.length} candidates · graph ${details.completeness.graph}` : "Localization complete", 0, 0);
+			},
+		});
 
 		const editorOverlayOptions = { overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", anchor: "center" } } as const;
 

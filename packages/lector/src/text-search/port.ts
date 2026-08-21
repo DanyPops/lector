@@ -5,6 +5,8 @@ export interface TextSearchOptions {
 	readonly maxMatches: number;
 	/** Bound on the total bytes of matched line text returned, not on bytes scanned. */
 	readonly maxBytes: number;
+	/** Optional cancellation/deadline signal. Real process-backed adapters must stop scanning when aborted. */
+	readonly signal?: AbortSignal;
 }
 
 export interface FindFilesOptions {

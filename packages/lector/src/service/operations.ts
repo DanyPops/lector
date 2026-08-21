@@ -31,6 +31,7 @@ import type { TextSearchResult } from "../text-search/text-search-result.ts";
 import type { EditOutcome, ExpectedHashEdit } from "../workspace/exact-edit.ts";
 import type { LineEdit, LineEditOutcome } from "../workspace/line-edit.ts";
 import type { DirectoryListing } from "../workspace/list-directory.ts";
+import type { ContextBundleResult } from "../workspace/localize-context.ts";
 import type { RawRead } from "../workspace/raw-read.ts";
 import type { WorkspaceResolutionRequest } from "../workspace/resolve-workspace-path.ts";
 import type { ResponseFormat } from "../workspace/response-format.ts";
@@ -118,6 +119,7 @@ export type OperationName =
 	| "workspace.uncontainAnnotation"
 	| "workspace.annotationTree"
 	| "workspace.map"
+	| "workspace.localizeContext"
 	| "workspace.listDirectory"
 	| "workspace.createDirectory"
 	| "workspace.renamePath"
@@ -200,6 +202,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.uncontainAnnotation",
 	"workspace.annotationTree",
 	"workspace.map",
+	"workspace.localizeContext",
 	"workspace.listDirectory",
 	"workspace.createDirectory",
 	"workspace.renamePath",
@@ -384,6 +387,16 @@ export interface OperationInputs {
 	"workspace.uncontainAnnotation": { workspaceId: WorkspaceId; parentId: AnnotationId; childId: AnnotationId };
 	"workspace.annotationTree": { workspaceId: WorkspaceId; rootId: AnnotationId; maxDepth: number };
 	"workspace.map": { workspaceId: WorkspaceId; maxNodes: number; maxEdges: number; maxEntries: number; maxBytes: number };
+	"workspace.localizeContext": {
+		workspaceId: WorkspaceId;
+		query: string;
+		seedSymbols?: readonly string[];
+		seedLocations?: readonly { path: string; line: number; character?: number }[];
+		maxSymbols?: number;
+		maxBytes?: number;
+		maxDepth?: number;
+		deadlineMs?: number;
+	};
 }
 
 type Provenanced<T> = T & { readonly provenance: IntelligenceProvenance };
@@ -499,4 +512,5 @@ export interface OperationOutputs {
 	"workspace.uncontainAnnotation": { uncontained: boolean };
 	"workspace.annotationTree": { annotations: readonly SymbolAnnotation[] };
 	"workspace.map": WorkspaceMapResult;
+	"workspace.localizeContext": ContextBundleResult;
 }

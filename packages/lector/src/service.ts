@@ -53,6 +53,7 @@ import { createExternalSearchHandlers } from "./service/external-search-handlers
 import { createGitHandlers } from "./service/git-handlers.ts";
 import { createGitWorktreeHandlers } from "./service/git-worktree-handlers.ts";
 import { GraphRefreshCoordinator } from "./service/graph-refresh-coordinator.ts";
+import { createLocalizeContextHandler } from "./service/localize-context-handler.ts";
 import { MutationHistoryCoordinator } from "./service/mutation-history-handlers.ts";
 import { OPERATION_NAMES, type OperationInputs, type OperationName, type OperationOutputs } from "./service/operations.ts";
 import { createPackageSourceHandlers } from "./service/package-source-handlers.ts";
@@ -473,6 +474,9 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	});
 
 	const workspaceMapHandler = createWorkspaceMapHandler(ensureSymbolGraph);
+	const localizeContextHandler = createLocalizeContextHandler(textSearch, ensureSymbolGraph, (workspaceId) =>
+		annotationHandlers.storeForWorkspace(workspaceId),
+	);
 
 	const handlers: OperationHandlers = {
 		...workspaceFileHandlers,
@@ -492,6 +496,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...crossWorkspaceHandlers,
 		...workspaceWatchHandlers.handlers,
 		"workspace.map": workspaceMapHandler,
+		"workspace.localizeContext": localizeContextHandler,
 	};
 
 	return {
