@@ -306,7 +306,7 @@ export async function localizeContext(
 			role: candidateRole(path),
 			path,
 			line: first.lineNumber,
-			character: first.matchStart + 1,
+			character: (first.lineStartByte ?? 0) + first.matchStart + 1,
 			signature: truncateUtf8(first.line.trim(), 2_048).value,
 			score: reasons.reduce((total, reason) => total + reason.score, 0),
 			reasons,

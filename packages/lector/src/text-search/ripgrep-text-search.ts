@@ -27,6 +27,48 @@ function isMatchEvent(value: unknown): value is RipgrepMatchEvent {
 	return typeof value === "object" && value !== null && (value as { type?: unknown }).type === "match";
 }
 
+const MAX_MATCH_LINE_BYTES = 16 * 1024;
+
+interface BoundedMatchLine {
+	readonly line: string;
+	readonly bytes: number;
+	readonly matchStart: number;
+	readonly matchEnd: number;
+	readonly lineTruncated: boolean;
+	readonly lineStartByte: number;
+}
+
+/** Keeps the first matched span inside a UTF-8-safe excerpt instead of blindly retaining a giant line prefix that may not contain the match. */
+function boundMatchLine(line: string, matchStart: number, matchEnd: number, maxBytes: number): BoundedMatchLine {
+	const encoded = Buffer.from(line, "utf8");
+	if (encoded.byteLength <= maxBytes) {
+		return { line, bytes: encoded.byteLength, matchStart, matchEnd, lineTruncated: false, lineStartByte: 0 };
+	}
+
+	const safeStart = Math.max(0, Math.min(matchStart, encoded.byteLength));
+	const safeEnd = Math.max(safeStart, Math.min(matchEnd, encoded.byteLength));
+	const matchBytes = safeEnd - safeStart;
+	const contextBytes = Math.max(0, maxBytes - Math.min(matchBytes, maxBytes));
+	let start = Math.max(0, safeStart - Math.floor(contextBytes / 2));
+	let end = Math.min(encoded.byteLength, start + maxBytes);
+	start = Math.max(0, end - maxBytes);
+
+	// Both slice boundaries must begin at UTF-8 code-point boundaries. Moving the
+	// start forward and end backward can only reduce the result below maxBytes.
+	while (start < end && (encoded[start] ?? 0) >>> 6 === 2) start += 1;
+	while (end > start && (encoded[end] ?? 0) >>> 6 === 2) end -= 1;
+
+	const bounded = encoded.subarray(start, end);
+	return {
+		line: bounded.toString("utf8"),
+		bytes: bounded.byteLength,
+		matchStart: Math.max(0, safeStart - start),
+		matchEnd: Math.min(bounded.byteLength, safeEnd - start),
+		lineTruncated: true,
+		lineStartByte: start,
+	};
+}
+
 /**
  * TextSearchPort backed by real ripgrep (`rg --json`), streamed line-by-line via readline
  * rather than buffered wholesale (execFile's default maxBuffer would either truncate or throw
@@ -55,7 +97,15 @@ export class RipgrepTextSearch implements TextSearchPort {
 
 		const matches: TextSearchMatch[] = [];
 		let bytesUsed = 0;
+		let candidatesSeen = 0;
 		let truncated = false;
+		// When more than one result was requested, no single matched line may consume
+		// more than half the aggregate line-text budget. The fixed ceiling prevents a
+		// giant line from dominating even under a very generous aggregate budget.
+		const maxMatchLineBytes = Math.max(1, Math.min(MAX_MATCH_LINE_BYTES, options.maxMatches > 1 ? Math.floor(options.maxBytes / 2) : options.maxBytes));
+		// Continuing past a candidate that does not fit improves result quality, but
+		// must not turn a bounded response into an unbounded ripgrep scan.
+		const maxCandidates = Math.min(Number.MAX_SAFE_INTEGER, options.maxMatches * 4);
 		const abort = () => {
 			truncated = true;
 			child.kill();
@@ -72,19 +122,32 @@ export class RipgrepTextSearch implements TextSearchPort {
 				continue;
 			}
 			if (!isMatchEvent(event)) continue;
+			candidatesSeen += 1;
 
 			const lineText = event.data.lines.text;
 			const submatch = event.data.submatches[0];
+			const boundedLine = boundMatchLine(lineText, submatch?.start ?? 0, submatch?.end ?? 0, maxMatchLineBytes);
+			if (bytesUsed + boundedLine.bytes > options.maxBytes) {
+				// Keep scanning: a later compact hit may still fit the remaining aggregate
+				// budget even when this candidate does not.
+				truncated = true;
+				if (candidatesSeen >= maxCandidates) {
+					child.kill();
+					break;
+				}
+				continue;
+			}
 			matches.push({
 				path: event.data.path.text.replace(/^\.\//, ""),
 				lineNumber: event.data.line_number,
-				line: lineText,
-				matchStart: submatch?.start ?? 0,
-				matchEnd: submatch?.end ?? 0,
+				line: boundedLine.line,
+				...(boundedLine.lineTruncated ? { lineTruncated: true as const, lineStartByte: boundedLine.lineStartByte } : {}),
+				matchStart: boundedLine.matchStart,
+				matchEnd: boundedLine.matchEnd,
 			});
-			bytesUsed += Buffer.byteLength(lineText, "utf8");
+			bytesUsed += boundedLine.bytes;
 
-			if (matches.length >= options.maxMatches || bytesUsed >= options.maxBytes) {
+			if (matches.length >= options.maxMatches || bytesUsed >= options.maxBytes || candidatesSeen >= maxCandidates) {
 				truncated = true;
 				child.kill();
 				break;

@@ -92,7 +92,8 @@ export function formatSearchTextAcrossProjectsResult(
 				items: outcome.result.matches,
 				expanded,
 				visibleCount: DEFAULT_VISIBLE_PER_WORKSPACE,
-				formatItem: (match) => `  ${match.path}:${match.lineNumber}: ${match.line.replace(/\n$/, "")}`,
+				formatItem: (match) =>
+					`  ${match.path}:${match.lineNumber}: ${match.line.replace(/\n$/, "")}${match.lineTruncated ? theme.fg("warning", " (line truncated)") : ""}`,
 				moreLine: (hidden) => theme.fg("dim", `  ... ${hidden} more (${keyHint("app.tools.expand", "to expand")})`),
 				truncationWarning: outcome.result.truncated
 					? theme.fg("warning", "  (this workspace's search was itself truncated by maxMatches/maxBytes)")

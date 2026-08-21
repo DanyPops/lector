@@ -125,10 +125,10 @@ export function createCacheQueryHandlers(deps: CacheQueryHandlerDeps): CacheQuer
 		input: OperationInputs["workspace.cacheWalkedFiles"],
 	): Promise<OperationOutputs["workspace.cacheWalkedFiles"]> {
 		const generation = await requireCompletedGeneration(input.workspaceId);
-		const { page, totalCount, truncated } = boundList(generation.walkedFiles ?? [], input.offset, input.maxResults, input.maxBytes, (path) =>
+		const { page, totalCount, nextOffset, truncated } = boundList(generation.walkedFiles ?? [], input.offset, input.maxResults, input.maxBytes, (path) =>
 			Buffer.byteLength(path, "utf8"),
 		);
-		return { files: page, totalCount, truncated };
+		return { files: page, totalCount, nextOffset, truncated };
 	}
 
 	async function cacheFailuresHandler(
@@ -136,10 +136,10 @@ export function createCacheQueryHandlers(deps: CacheQueryHandlerDeps): CacheQuer
 		input: OperationInputs["workspace.cacheFailures"],
 	): Promise<OperationOutputs["workspace.cacheFailures"]> {
 		const generation = await requireCompletedGeneration(input.workspaceId);
-		const { page, totalCount, truncated } = boundList(generation.result.failures, input.offset, input.maxResults, input.maxBytes, (failure) =>
+		const { page, totalCount, nextOffset, truncated } = boundList(generation.result.failures, input.offset, input.maxResults, input.maxBytes, (failure) =>
 			Buffer.byteLength(failure.message, "utf8"),
 		);
-		return { failures: page, totalCount, truncated: truncated || generation.result.failuresTruncated };
+		return { failures: page, totalCount, nextOffset, truncated: truncated || generation.result.failuresTruncated };
 	}
 
 	/** Enumerates every workspace with a currently active job -- mirrors cacheStatusHandler's own

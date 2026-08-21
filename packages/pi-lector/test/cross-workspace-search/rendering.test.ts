@@ -117,6 +117,19 @@ describe("formatSearchTextAcrossProjectsResult", () => {
 		expect(formatSearchTextAcrossProjectsResult(outcomes, false, theme)).toContain("truncated by maxMatches/maxBytes");
 	});
 
+	it("marks an individually truncated line independently of workspace-level truncation", () => {
+		const outcomes = [
+			entry("/a", {
+				workspaceId: "/a",
+				status: "ready" as const,
+				result: textResult({ matches: [match("a.ts", "hello", { lineTruncated: true })], truncated: false }),
+			}),
+		];
+		const text = formatSearchTextAcrossProjectsResult(outcomes, false, theme);
+		expect(text).toContain("line truncated");
+		expect(text).not.toContain("workspace's search was itself truncated");
+	});
+
 	it("truncates a ready workspace's own match list past its per-workspace visible count", () => {
 		const matches = Array.from({ length: 20 }, (_, i) => match(`f${i}.ts`, "match"));
 		const outcomes = [entry("/a", { workspaceId: "/a", status: "ready" as const, result: textResult({ matches }) })];

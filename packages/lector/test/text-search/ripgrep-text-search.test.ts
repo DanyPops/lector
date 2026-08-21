@@ -85,6 +85,41 @@ describe("RipgrepTextSearch", () => {
 		}
 	});
 
+	it("bounds one oversized matched line, preserves its location and matched span, and still returns a later compact hit", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-ripgrep-fixture-"));
+		try {
+			writeFileSync(join(root, "oversized.txt"), `${"prefix ".repeat(100)}hello${" suffix".repeat(100)}\nhello compact\n`);
+			const result = await new RipgrepTextSearch().search(root, "hello", { maxMatches: 10, maxBytes: 200 });
+
+			expect(result.matches).toHaveLength(2);
+			expect(result.truncated).toBe(false);
+			expect(result.matches[0]).toMatchObject({ path: "oversized.txt", lineNumber: 1, lineTruncated: true });
+			expect(result.matches[0]?.line.slice(result.matches[0].matchStart, result.matches[0].matchEnd)).toBe("hello");
+			expect(Buffer.byteLength(result.matches[0]?.line ?? "", "utf8")).toBeLessThanOrEqual(100);
+			expect(result.matches[1]).toMatchObject({ path: "oversized.txt", lineNumber: 2, line: "hello compact\n" });
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("cuts oversized excerpts only at UTF-8 boundaries while retaining the matched bytes", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-ripgrep-fixture-"));
+		try {
+			writeFileSync(join(root, "unicode.txt"), `${"é".repeat(100)} hello ${"界".repeat(100)}\n`);
+			const result = await new RipgrepTextSearch().search(root, "hello", { maxMatches: 10, maxBytes: 101 });
+			const match = result.matches[0];
+			if (!match) throw new Error("expected a bounded Unicode match");
+
+			expect(match).toMatchObject({ path: "unicode.txt", lineNumber: 1, lineTruncated: true });
+			expect(match.line).not.toContain("�");
+			const encoded = Buffer.from(match.line, "utf8");
+			expect(encoded.subarray(match.matchStart, match.matchEnd).toString("utf8")).toBe("hello");
+			expect(encoded.byteLength).toBeLessThanOrEqual(50);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	it("kills a real ripgrep scan when the caller's deadline signal is already aborted", async () => {
 		const root = buildFixture();
 		try {

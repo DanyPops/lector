@@ -4,11 +4,16 @@ export interface TextSearchMatch {
 	readonly path: string;
 	readonly lineNumber: number;
 	readonly line: string;
+	/** True when `line` is a bounded excerpt rather than the complete matched line. */
+	readonly lineTruncated?: true;
+	/** Original UTF-8 byte offset where a bounded excerpt starts; omitted for a complete line. */
+	readonly lineStartByte?: number;
+	/** UTF-8 byte offsets within the returned `line`, matching ripgrep's offset semantics. */
 	readonly matchStart: number;
 	readonly matchEnd: number;
 }
 
-/** `truncated` is honest, not silent: true whenever maxMatches or maxBytes cut the search short. */
+/** `truncated` reports aggregate result loss from maxMatches/maxBytes; an excerpted individual line reports `lineTruncated` on its own match instead. */
 export interface TextSearchResult {
 	readonly matches: readonly TextSearchMatch[];
 	readonly truncated: boolean;

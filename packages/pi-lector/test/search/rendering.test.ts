@@ -50,6 +50,12 @@ describe("formatSearchResult", () => {
 		expect(text).toContain("truncated by maxMatches/maxBytes");
 	});
 
+	it("marks an individually truncated matched line without claiming aggregate result truncation", () => {
+		const text = formatSearchResult(result({ matches: [match("a.ts", "hello", { lineTruncated: true })], truncated: false }), false, theme);
+		expect(text).toContain("line truncated");
+		expect(text).not.toContain("results are incomplete");
+	});
+
 	it("renders a placeholder when there's no result at all", () => {
 		expect(formatSearchResult(undefined, false, theme)).toContain("No matches found");
 	});

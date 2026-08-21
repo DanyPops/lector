@@ -79,10 +79,12 @@ describe("workspace.cacheWalkedFiles", () => {
 		const page = await service.dispatch("workspace.cacheWalkedFiles", { workspaceId, offset: 0, maxResults: 1, maxBytes: 1_000_000 });
 		expect(page.totalCount).toBe(2);
 		expect(page.files).toHaveLength(1);
+		expect(page.nextOffset).toBe(1);
 		expect(page.truncated).toBe(true);
 
-		const rest = await service.dispatch("workspace.cacheWalkedFiles", { workspaceId, offset: 1, maxResults: 10, maxBytes: 1_000_000 });
+		const rest = await service.dispatch("workspace.cacheWalkedFiles", { workspaceId, offset: page.nextOffset, maxResults: 10, maxBytes: 1_000_000 });
 		expect(rest.files).toHaveLength(1);
+		expect(rest.nextOffset).toBe(2);
 		expect(rest.truncated).toBe(false);
 	}, 30_000);
 
@@ -115,6 +117,7 @@ describe("workspace.cacheFailures", () => {
 
 		const page = await service.dispatch("workspace.cacheFailures", { workspaceId, offset: 0, maxResults: 10, maxBytes: 1_000_000 });
 		expect(page.totalCount).toBe(1);
+		expect(page.nextOffset).toBe(1);
 		expect(page.truncated).toBe(false);
 		expect(page.failures[0]).toMatchObject({ path: orphanGoTest, operation: "outgoing-calls" });
 		expect(page.failures[0]?.message).toContain("no package metadata");

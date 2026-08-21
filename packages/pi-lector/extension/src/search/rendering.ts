@@ -17,7 +17,8 @@ export function formatSearchResult(result: TextSearchResult | undefined, expande
 		items: result.matches,
 		expanded,
 		visibleCount: DEFAULT_VISIBLE_MATCHES,
-		formatItem: (match) => `${theme.fg("accent", match.path)}:${match.lineNumber}: ${match.line.replace(/\n$/, "")}`,
+		formatItem: (match) =>
+			`${theme.fg("accent", match.path)}:${match.lineNumber}: ${match.line.replace(/\n$/, "")}${match.lineTruncated ? theme.fg("warning", " (line truncated)") : ""}`,
 		moreLine: (hidden) => theme.fg("dim", `... ${hidden} more (${keyHint("app.tools.expand", "to expand")})`),
 		truncationWarning: result.truncated ? theme.fg("warning", "(search itself was truncated by maxMatches/maxBytes -- results are incomplete)") : undefined,
 	});

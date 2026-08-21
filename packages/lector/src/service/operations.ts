@@ -450,8 +450,8 @@ export interface OperationOutputs {
 	"workspace.hasWarmIndex": { warm: boolean };
 	"workspace.cacheStatus": WorkspaceCacheStatus;
 	"workspace.activeCachingJobs": { jobs: readonly ActiveCachingJobSummary[] };
-	"workspace.cacheWalkedFiles": { files: readonly string[]; totalCount: number; truncated: boolean };
-	"workspace.cacheFailures": { failures: readonly SymbolGraphPopulationFailure[]; totalCount: number; truncated: boolean };
+	"workspace.cacheWalkedFiles": { files: readonly string[]; totalCount: number; nextOffset: number; truncated: boolean };
+	"workspace.cacheFailures": { failures: readonly SymbolGraphPopulationFailure[]; totalCount: number; nextOffset: number; truncated: boolean };
 	/** steps carries full before/after file content internally for mutation-history recording -- deliberately excluded from the wire response, which stays the small movedTo/filesUpdated/caveats summary every caller already expects. */
 	"workspace.referenceBasedRename": Omit<ReferenceBasedRenameOutcome, "steps">;
 	"workspace.prepareRename": Provenanced<{ range: RenameRange | null }>;

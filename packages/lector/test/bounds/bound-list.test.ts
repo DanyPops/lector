@@ -6,17 +6,17 @@ const BYTE_SIZE = (item: string) => item.length;
 describe("boundList", () => {
 	it("returns everything untruncated when both bounds comfortably fit", () => {
 		const result = boundList(["a", "b", "c"], 0, 10, 1_000, BYTE_SIZE);
-		expect(result).toEqual({ page: ["a", "b", "c"], totalCount: 3, truncated: false });
+		expect(result).toEqual({ page: ["a", "b", "c"], totalCount: 3, nextOffset: 3, truncated: false });
 	});
 
 	it("honors offset", () => {
 		const result = boundList(["a", "b", "c"], 1, 10, 1_000, BYTE_SIZE);
-		expect(result).toEqual({ page: ["b", "c"], totalCount: 3, truncated: false });
+		expect(result).toEqual({ page: ["b", "c"], totalCount: 3, nextOffset: 3, truncated: false });
 	});
 
 	it("truncates on maxResults and says so", () => {
 		const result = boundList(["a", "b", "c"], 0, 2, 1_000, BYTE_SIZE);
-		expect(result).toEqual({ page: ["a", "b"], totalCount: 3, truncated: true });
+		expect(result).toEqual({ page: ["a", "b"], totalCount: 3, nextOffset: 2, truncated: true });
 	});
 
 	it("truncates on maxBytes even under the maxResults cap", () => {
@@ -25,10 +25,18 @@ describe("boundList", () => {
 		expect(result.truncated).toBe(true);
 	});
 
-	it("always includes at least one item even when that single item alone exceeds maxBytes -- a byte budget bounds growth, never starves a caller entirely", () => {
-		const result = boundList(["a-very-long-single-entry"], 0, 10, 1, BYTE_SIZE);
-		expect(result.page).toEqual(["a-very-long-single-entry"]);
-		expect(result.truncated).toBe(false);
+	it("skips an oversized first item and continues scanning for later items that fit", () => {
+		const result = boundList(["a-very-long-single-entry", "ok", "x"], 0, 10, 3, BYTE_SIZE);
+		expect(result.page).toEqual(["ok", "x"]);
+		expect(result.nextOffset).toBe(3);
+		expect(result.truncated).toBe(true);
+	});
+
+	it("continues past an item that does not fit the remaining byte budget", () => {
+		const result = boundList(["aa", "too-large", "b"], 0, 10, 3, BYTE_SIZE);
+		expect(result.page).toEqual(["aa", "b"]);
+		expect(result.nextOffset).toBe(3);
+		expect(result.truncated).toBe(true);
 	});
 
 	it("reports totalCount against the full array, not just what offset left remaining", () => {
@@ -48,7 +56,7 @@ describe("boundList", () => {
 
 	it("returns an empty, untruncated page for an offset past the end", () => {
 		const result = boundList(["a", "b"], 5, 10, 1_000, BYTE_SIZE);
-		expect(result).toEqual({ page: [], totalCount: 2, truncated: false });
+		expect(result).toEqual({ page: [], totalCount: 2, nextOffset: 2, truncated: false });
 	});
 });
 
