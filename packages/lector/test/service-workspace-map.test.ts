@@ -49,6 +49,13 @@ describe("createLectorService's workspace.map operation", () => {
 		expect(map.entries.length).toBeGreaterThan(0);
 		expect(map.entries[0]?.name).toBe("central");
 		expect(map.entries[0]?.signature).toContain("function central");
+		expect(map.candidateSelection).toMatchObject({
+			strategy: "generation-stratified",
+			representedLanguages: ["typescript"],
+			omittedLanguages: [],
+			representedScopes: ["typescript:."],
+			omittedScopes: [],
+		});
 	});
 
 	it("truncates to maxEntries through the service dispatch", async () => {
@@ -72,6 +79,18 @@ describe("createLectorService's workspace.map operation", () => {
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
 
 		const map = await service.dispatch("workspace.map", { workspaceId, maxNodes: 1_000, maxEdges: 1_000, maxEntries: 100, maxBytes: 1_000_000 });
-		expect(map).toEqual({ entries: [], totalRanked: 0, truncated: false });
+		expect(map).toEqual({
+			entries: [],
+			totalRanked: 0,
+			truncated: false,
+			candidateSelection: {
+				strategy: "bounded-prefix",
+				representedLanguages: [],
+				omittedLanguages: [],
+				representedScopes: [],
+				omittedScopes: [],
+				candidateLimitReached: false,
+			},
+		});
 	});
 });

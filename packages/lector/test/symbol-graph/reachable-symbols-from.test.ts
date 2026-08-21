@@ -37,7 +37,9 @@ function fakeGraph(reachable: readonly SymbolNodeId[], nodesById: ReadonlyMap<Sy
 		getGeneration: unimplemented,
 		setGeneration: unimplemented,
 		allNodes: unimplemented,
+		nodesForFiles: unimplemented,
 		allEdges: unimplemented,
+		edgesAmong: unimplemented,
 		close: unimplemented,
 	};
 }

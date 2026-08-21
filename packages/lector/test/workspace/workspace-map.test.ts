@@ -19,12 +19,46 @@ async function seedNode(graph: InMemorySymbolGraph, id: string, name: string, pa
 	await graph.addNode({ id: nid(id), name, kind: "function", location: { path, line, character: 1 } });
 }
 
+async function setWalkedFiles(graph: InMemorySymbolGraph, walkedFiles: readonly string[]): Promise<void> {
+	await graph.setGeneration({
+		sourceFingerprint: "fixture",
+		maxFiles: walkedFiles.length,
+		maxSymbolsPerFile: 100,
+		completedAt: 1,
+		walkedFiles,
+		result: {
+			completeness: "complete",
+			filesAttempted: walkedFiles.length,
+			filesProcessed: walkedFiles.length,
+			filesFailed: 0,
+			symbolsProcessed: 0,
+			nodesAdded: 0,
+			edgesAdded: 0,
+			failureCount: 0,
+			failures: [],
+			failuresTruncated: false,
+		},
+	});
+}
+
 describe("computeWorkspaceMap", () => {
 	it("returns an empty result for a graph with no nodes", async () => {
 		const graph = new InMemorySymbolGraph();
 		const workspace = new InMemoryWorkspace();
 		const result = await computeWorkspaceMap(graph, workspace, DEFAULT_OPTIONS);
-		expect(result).toEqual({ entries: [], totalRanked: 0, truncated: false });
+		expect(result).toEqual({
+			entries: [],
+			totalRanked: 0,
+			truncated: false,
+			candidateSelection: {
+				strategy: "bounded-prefix",
+				representedLanguages: [],
+				omittedLanguages: [],
+				representedScopes: [],
+				omittedScopes: [],
+				candidateLimitReached: false,
+			},
+		});
 	});
 
 	it("ranks a symbol called by many others above an isolated leaf that nothing calls", async () => {
@@ -104,6 +138,49 @@ describe("computeWorkspaceMap", () => {
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
+	});
+
+	it("represents every populated language and declared subproject before depth, independent of insertion order", async () => {
+		const workspace = new InMemoryWorkspace();
+		for (const [path, content] of [
+			["frontend/tsconfig.json", "{}"],
+			["frontend/src/domain.ts", "export function frontendDomain() {}"],
+			["frontend/tests/noise.test.ts", "test('noise', () => {})"],
+			["admin/tsconfig.json", "{}"],
+			["admin/src/admin.ts", "export function adminDomain() {}"],
+			["backend/Cargo.toml", "[package]"],
+			["backend/src/lib.rs", "pub fn rust_domain() {}"],
+		] as const) {
+			await workspace.writeEntry(path, null, content);
+		}
+		const walkedFiles = ["frontend/tests/noise.test.ts", "frontend/src/domain.ts", "admin/src/admin.ts", "backend/src/lib.rs"];
+		const declarations = [
+			["noise-1", "anonymous callback", "frontend/tests/noise.test.ts"],
+			["noise-2", "object property", "frontend/tests/noise.test.ts"],
+			["frontend", "frontendDomain", "frontend/src/domain.ts"],
+			["admin", "adminDomain", "admin/src/admin.ts"],
+			["rust", "rust_domain", "backend/src/lib.rs"],
+		] as const;
+		const build = async (ordered: readonly (typeof declarations)[number][]) => {
+			const graph = new InMemorySymbolGraph();
+			for (const [id, name, path] of ordered) await seedNode(graph, id, name, path);
+			await setWalkedFiles(graph, walkedFiles);
+			return computeWorkspaceMap(graph, workspace, { ...DEFAULT_OPTIONS, maxNodes: 3 });
+		};
+
+		const forward = await build(declarations);
+		const reversed = await build([...declarations].reverse());
+		expect(forward.entries.map((entry) => entry.name)).toEqual(["adminDomain", "rust_domain", "frontendDomain"]);
+		expect(reversed.entries.map((entry) => entry.name)).toEqual(forward.entries.map((entry) => entry.name));
+		expect(forward.candidateSelection).toEqual({
+			strategy: "generation-stratified",
+			representedLanguages: ["rust", "typescript"],
+			omittedLanguages: [],
+			representedScopes: ["rust:backend", "typescript:admin", "typescript:frontend"],
+			omittedScopes: [],
+			candidateLimitReached: true,
+		});
+		expect(forward.truncated).toBe(true);
 	});
 
 	it("truncates to maxEntries and reports totalRanked/truncated correctly", async () => {

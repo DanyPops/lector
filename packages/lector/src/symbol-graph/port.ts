@@ -42,9 +42,13 @@ export interface SymbolGraphPort {
 	reachableFrom(id: SymbolNodeId, options: { maxDepth: number; kind?: SymbolEdgeKind }): Promise<readonly SymbolNodeId[]>;
 	getGeneration(): Promise<SymbolGraphGeneration | undefined>;
 	setGeneration(generation: SymbolGraphGeneration): Promise<void>;
-	/** Every node, bounded to maxNodes -- for whole-graph analyses (e.g. ranking) that genuinely need every node, unlike every other query here which starts from one id. */
+	/** Every node, bounded to maxNodes -- for whole-graph analyses that have no candidate strata available. */
 	allNodes(maxNodes: number): Promise<readonly SymbolNode[]>;
+	/** Nodes declared in the caller-ordered file list, deterministically ordered and globally bounded. */
+	nodesForFiles(paths: readonly string[], maxNodes: number): Promise<readonly SymbolNode[]>;
 	/** Every edge, bounded to maxEdges. */
 	allEdges(maxEdges: number): Promise<readonly SymbolEdgeRecord[]>;
+	/** Edges whose endpoints are both in nodeIds, bounded after that filtering. */
+	edgesAmong(nodeIds: readonly SymbolNodeId[], maxEdges: number): Promise<readonly SymbolEdgeRecord[]>;
 	close(): Promise<void>;
 }

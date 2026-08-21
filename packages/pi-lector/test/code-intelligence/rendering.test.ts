@@ -264,11 +264,20 @@ describe("formatReachableFromCall/Result", () => {
 
 describe("formatWorkspaceMapCall/Result", () => {
 	function mapResult(overrides: Partial<WorkspaceMapResult> = {}): WorkspaceMapResult {
+		const candidateSelection = {
+			strategy: "generation-stratified" as const,
+			representedLanguages: ["typescript"],
+			omittedLanguages: [],
+			representedScopes: ["typescript:."],
+			omittedScopes: [],
+			candidateLimitReached: false,
+		};
 		return {
 			entries: [{ name: "central", kind: "function", path: "src/math.ts", line: 1, character: 17, score: 0.5, signature: "export function central() {}" }],
 			totalRanked: 1,
 			truncated: false,
 			...overrides,
+			candidateSelection: overrides.candidateSelection ?? candidateSelection,
 		};
 	}
 
@@ -280,7 +289,7 @@ describe("formatWorkspaceMapCall/Result", () => {
 	});
 
 	it("shows a clear message when nothing is ranked", () => {
-		expect(formatWorkspaceMapResult({ entries: [], totalRanked: 0, truncated: false }, false, plainTheme)).toContain("No ranked symbols");
+		expect(formatWorkspaceMapResult(mapResult({ entries: [], totalRanked: 0, truncated: false }), false, plainTheme)).toContain("No ranked symbols");
 	});
 
 	it("lists each ranked entry with its signature", () => {

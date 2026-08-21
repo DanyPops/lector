@@ -1145,14 +1145,16 @@ export default function (pi: ExtensionAPI) {
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
 				const result = await codeIntelligenceOperations.workspaceMap(path, params.maxNodes, params.maxEdges, params.maxEntries, params.maxBytes);
-				const text =
+				const coverage = `Candidate coverage: languages=${result.candidateSelection.representedLanguages.join(",") || "none"}; scopes=${result.candidateSelection.representedScopes.join(",") || "none"}${result.candidateSelection.omittedScopes.length > 0 ? `; omitted=${result.candidateSelection.omittedScopes.join(",")}` : ""}; strategy=${result.candidateSelection.strategy}.`;
+				const text = `${
 					result.entries.length === 0
 						? "No ranked symbols (the workspace's symbol graph may still be populating in the background -- retry shortly)."
 						: result.entries
 								.map(
 									(entry) => `${entry.kind} ${entry.name} -- ${entry.path}:${entry.line}:${entry.character}${entry.signature ? ` -- ${entry.signature}` : ""}`,
 								)
-								.join("\n");
+								.join("\n")
+				}\n${coverage}`;
 				return { content: [{ type: "text", text }], details: { result } };
 			},
 			renderCall(args, theme, context) {

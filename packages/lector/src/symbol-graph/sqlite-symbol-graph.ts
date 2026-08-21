@@ -263,16 +263,40 @@ export class SqliteSymbolGraph implements SymbolGraphPort {
 	}
 
 	async allNodes(maxNodes: number): Promise<readonly SymbolNode[]> {
-		const rows = this.db.query("SELECT id, name, kind, path, line, character FROM symbol_nodes LIMIT ?").all(maxNodes) as (NodeRow & { id: SymbolNodeId })[];
+		const rows = this.db
+			.query("SELECT id, name, kind, path, line, character FROM symbol_nodes ORDER BY path, line, character, id LIMIT ?")
+			.all(maxNodes) as (NodeRow & {
+			id: SymbolNodeId;
+		})[];
+		return rows.map((row) => ({ id: row.id, name: row.name, kind: row.kind, location: { path: row.path, line: row.line, character: row.character } }));
+	}
+
+	async nodesForFiles(paths: readonly string[], maxNodes: number): Promise<readonly SymbolNode[]> {
+		if (paths.length === 0 || maxNodes === 0) return [];
+		const rows = this.db
+			.query(
+				"WITH selected(path, ord) AS (SELECT value, key FROM json_each(?)) SELECT n.id, n.name, n.kind, n.path, n.line, n.character FROM selected s JOIN symbol_nodes n ON n.path = s.path ORDER BY CAST(s.ord AS INTEGER), n.line, n.character, n.id LIMIT ?",
+			)
+			.all(JSON.stringify(paths), maxNodes) as (NodeRow & { id: SymbolNodeId })[];
 		return rows.map((row) => ({ id: row.id, name: row.name, kind: row.kind, location: { path: row.path, line: row.line, character: row.character } }));
 	}
 
 	async allEdges(maxEdges: number): Promise<readonly SymbolEdgeRecord[]> {
-		const rows = this.db.query("SELECT from_id, to_id, kind FROM symbol_edges LIMIT ?").all(maxEdges) as {
+		const rows = this.db.query("SELECT from_id, to_id, kind FROM symbol_edges ORDER BY from_id, to_id, kind LIMIT ?").all(maxEdges) as {
 			from_id: SymbolNodeId;
 			to_id: SymbolNodeId;
 			kind: SymbolEdgeKind;
 		}[];
+		return rows.map((row) => ({ from: row.from_id, to: row.to_id, kind: row.kind }));
+	}
+
+	async edgesAmong(nodeIds: readonly SymbolNodeId[], maxEdges: number): Promise<readonly SymbolEdgeRecord[]> {
+		if (nodeIds.length === 0 || maxEdges === 0) return [];
+		const rows = this.db
+			.query(
+				"WITH selected(id) AS (SELECT value FROM json_each(?)) SELECT e.from_id, e.to_id, e.kind FROM symbol_edges e JOIN selected source ON source.id = e.from_id JOIN selected target ON target.id = e.to_id ORDER BY e.from_id, e.to_id, e.kind LIMIT ?",
+			)
+			.all(JSON.stringify(nodeIds), maxEdges) as { from_id: SymbolNodeId; to_id: SymbolNodeId; kind: SymbolEdgeKind }[];
 		return rows.map((row) => ({ from: row.from_id, to: row.to_id, kind: row.kind }));
 	}
 

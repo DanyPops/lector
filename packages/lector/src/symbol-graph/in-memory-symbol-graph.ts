@@ -86,13 +86,34 @@ export class InMemorySymbolGraph implements SymbolGraphPort {
 	}
 
 	async allNodes(maxNodes: number): Promise<readonly SymbolNode[]> {
-		return Array.from(this.nodes.values()).slice(0, maxNodes);
+		return Array.from(this.nodes.values())
+			.sort(
+				(a, b) =>
+					a.location.path.localeCompare(b.location.path) ||
+					a.location.line - b.location.line ||
+					a.location.character - b.location.character ||
+					a.id.localeCompare(b.id),
+			)
+			.slice(0, maxNodes);
+	}
+
+	async nodesForFiles(paths: readonly string[], maxNodes: number): Promise<readonly SymbolNode[]> {
+		const pathOrder = new Map(paths.map((path, index) => [path, index] as const));
+		return Array.from(this.nodes.values())
+			.filter((node) => pathOrder.has(node.location.path))
+			.sort(
+				(a, b) =>
+					(pathOrder.get(a.location.path) ?? Number.MAX_SAFE_INTEGER) - (pathOrder.get(b.location.path) ?? Number.MAX_SAFE_INTEGER) ||
+					a.location.line - b.location.line ||
+					a.location.character - b.location.character ||
+					a.id.localeCompare(b.id),
+			)
+			.slice(0, maxNodes);
 	}
 
 	async allEdges(maxEdges: number): Promise<readonly SymbolEdgeRecord[]> {
 		const records: SymbolEdgeRecord[] = [];
 		for (const edgeKey of this.graph.edges()) {
-			if (records.length >= maxEdges) break;
 			// graphology's edge attributes and node keys are untyped by design; addEdge above is the
 			// only writer and always sets a real SymbolEdgeKind/SymbolNodeId.
 			records.push({
@@ -104,7 +125,12 @@ export class InMemorySymbolGraph implements SymbolGraphPort {
 				kind: this.graph.getEdgeAttribute(edgeKey, "kind") as SymbolEdgeKind,
 			});
 		}
-		return records;
+		return records.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to) || a.kind.localeCompare(b.kind)).slice(0, maxEdges);
+	}
+
+	async edgesAmong(nodeIds: readonly SymbolNodeId[], maxEdges: number): Promise<readonly SymbolEdgeRecord[]> {
+		const included = new Set(nodeIds);
+		return (await this.allEdges(Number.MAX_SAFE_INTEGER)).filter((edge) => included.has(edge.from) && included.has(edge.to)).slice(0, maxEdges);
 	}
 
 	async getGeneration(): Promise<SymbolGraphGeneration | undefined> {

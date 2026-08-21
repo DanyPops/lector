@@ -243,6 +243,16 @@ export function runSymbolGraphPortConformanceSuite(name: string, harness: Symbol
 				expect(edges).toEqual([{ from: nid("a"), to: nid("b"), kind: "calls" }]);
 			}));
 
+		it("nodesForFiles honors caller file order and a global bound, while edgesAmong excludes outside endpoints", () =>
+			withGraph(async (graph) => {
+				for (const label of ["a", "b", "c"]) await graph.addNode(node(label, label));
+				await graph.addEdge(nid("a"), nid("b"), "calls");
+				await graph.addEdge(nid("b"), nid("c"), "calls");
+
+				expect(await graph.nodesForFiles(["/src/b.ts", "/src/a.ts"], 1)).toEqual([node("b", "b")]);
+				expect(await graph.edgesAmong([nid("a"), nid("b")], 10)).toEqual([{ from: nid("a"), to: nid("b"), kind: "calls" }]);
+			}));
+
 		it("allNodes/allEdges are bounded by maxNodes/maxEdges", () =>
 			withGraph(async (graph) => {
 				for (const label of ["a", "b", "c"]) await graph.addNode(node(label, label));
