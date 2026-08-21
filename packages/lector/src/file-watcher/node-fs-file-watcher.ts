@@ -46,6 +46,65 @@ export function classifyFileChange(relativePath: string, existsNow: boolean, kno
 	return kind;
 }
 
+interface PendingPathClassification {
+	trailingCheckRequested: boolean;
+}
+
+/**
+ * Serializes asynchronous existence checks per path. While one check is running, any duplicate
+ * raw-event burst is represented by one boolean and therefore costs at most one trailing check --
+ * no unbounded promise chain and no concurrent callbacks racing to mutate knownPaths.
+ */
+export class SerializedFileChangeClassifier {
+	private readonly pending = new Map<string, PendingPathClassification>();
+	private readonly lifetime = new AbortController();
+
+	constructor(
+		private readonly knownPaths: Set<string>,
+		private readonly onEvent: (event: FileChangeEvent) => void,
+		private readonly pathExists: (relativePath: string) => Promise<boolean>,
+	) {}
+
+	enqueue(relativePath: string): void {
+		if (this.isClosed()) return;
+		const active = this.pending.get(relativePath);
+		if (active) {
+			active.trailingCheckRequested = true;
+			return;
+		}
+		const state: PendingPathClassification = { trailingCheckRequested: false };
+		this.pending.set(relativePath, state);
+		void this.drain(relativePath, state);
+	}
+
+	close(): void {
+		this.lifetime.abort();
+		this.pending.clear();
+	}
+
+	private isClosed(): boolean {
+		return this.lifetime.signal.aborted;
+	}
+
+	private async drain(relativePath: string, state: PendingPathClassification): Promise<void> {
+		try {
+			for (;;) {
+				state.trailingCheckRequested = false;
+				const existsNow = await this.pathExists(relativePath);
+				// close() can clear this exact state while the awaited check yields to the event loop.
+				if (this.pending.get(relativePath) !== state) return;
+				this.onEvent({ path: relativePath, kind: classifyFileChange(relativePath, existsNow, this.knownPaths) });
+				// enqueue() can flip this while the awaited check yields; static control-flow
+				// analysis sees only the assignment above and cannot model that callback.
+				// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+				if (!state.trailingCheckRequested) break;
+			}
+		} finally {
+			if (this.pending.get(relativePath) === state) this.pending.delete(relativePath);
+		}
+	}
+}
+
 /**
  * FileWatcherPort backed by Node/Bun's own `fs.watch(root, {recursive: true})` -- confirmed
  * directly against this project's own real environment (Bun on Linux), not assumed from docs
@@ -60,25 +119,33 @@ export function classifyFileChange(relativePath: string, existsNow: boolean, kno
  * means modified, present-and-new means created, absent means deleted. This is robust to
  * whichever raw event type any given platform happens to emit for a given operation.
  *
- * Deliberately no debouncing: a single logical save that an editor performs via a temp-file
- * write + atomic rename can surface as more than one raw event for the same path in quick
- * succession. Coalescing would require inventing a time-window policy with no real evidence
- * yet for what it should be -- left as a known, honest limitation rather than a guessed one.
+ * Classification is serialized independently per path. A duplicate burst while one `stat` is
+ * running coalesces to one trailing existence check: created/modified can never be emitted out
+ * of order by racing promises, while a real state change that landed during the first check is
+ * still observed. This policy has no guessed timer window and holds at most one pending bit per
+ * active path.
  */
 export class NodeFsFileWatcher implements FileWatcherPort {
 	watch(rootPath: string, onEvent: (event: FileChangeEvent) => void): { close(): void } {
 		const knownPaths = listExistingPaths(rootPath);
+		const classifier = new SerializedFileChangeClassifier(knownPaths, onEvent, (relativePath) =>
+			stat(join(rootPath, relativePath)).then(
+				() => true,
+				() => false,
+			),
+		);
 		const watcher = watch(rootPath, { recursive: true }, (_eventType, filename) => {
 			// A null filename is a real, documented possibility on some platforms (e.g. certain
 			// network filesystems) -- nothing actionable without a path, so it's dropped, not
 			// guessed at.
 			if (!filename) return;
-			const relativePath = filename.split("\\").join("/");
-			stat(join(rootPath, filename)).then(
-				() => onEvent({ path: relativePath, kind: classifyFileChange(relativePath, true, knownPaths) }),
-				() => onEvent({ path: relativePath, kind: classifyFileChange(relativePath, false, knownPaths) }),
-			);
+			classifier.enqueue(filename.split("\\").join("/"));
 		});
-		return { close: () => watcher.close() };
+		return {
+			close: () => {
+				classifier.close();
+				watcher.close();
+			},
+		};
 	}
 }
