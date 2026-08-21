@@ -5,6 +5,7 @@ on:
     tags:
       - "lector-v*"
       - "pi-lector-v*"
+      - "zodiac-lector-v*"
 
 permissions:
   id-token: write
@@ -29,6 +30,10 @@ jobs:
             pi-lector-v*)
               package_dir="packages/pi-lector"
               tag_version="${GITHUB_REF_NAME#pi-lector-v}"
+              ;;
+            zodiac-lector-v*)
+              package_dir="packages/zodiac-lector"
+              tag_version="${GITHUB_REF_NAME#zodiac-lector-v}"
               ;;
             *)
               echo "Unsupported release tag: $GITHUB_REF_NAME" >&2
