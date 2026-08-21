@@ -7,7 +7,7 @@ import { summarizeCacheGeneration } from "../../symbol-graph/summarize-cache-gen
 import type { SymbolGraphGeneration } from "../../symbol-graph/symbol-graph-generation.ts";
 import { deriveSourceManifest } from "../../workspace/source-manifest.ts";
 import { MAX_SOURCE_MANIFEST_BYTES } from "../bounds.ts";
-import { NoCompletedGeneration, SymbolQueryUnavailable, UnknownWorkspace, type WorkspaceId } from "../errors.ts";
+import { InvalidJobInput, NoCompletedGeneration, SymbolQueryUnavailable, UnknownWorkspace, type WorkspaceId } from "../errors.ts";
 import type { GraphRefreshCoordinator } from "../graph-refresh-coordinator.ts";
 import type { OperationInputs, OperationOutputs } from "../operations.ts";
 import type { WarmIndexRegistry } from "../warm-index-registry.ts";
@@ -145,9 +145,15 @@ export function createCacheQueryHandlers(deps: CacheQueryHandlerDeps): CacheQuer
 	/** Enumerates every workspace with a currently active job -- mirrors cacheStatusHandler's own
 	 * inline eviction (a job that already settled without a per-workspace cacheStatus call to
 	 * notice is cleared here too, not left dangling). */
-	async function activeCachingJobsHandler(): Promise<OperationOutputs["workspace.activeCachingJobs"]> {
+	async function activeCachingJobsHandler(
+		_registry: MutableRegistry,
+		input: OperationInputs["workspace.activeCachingJobs"],
+	): Promise<OperationOutputs["workspace.activeCachingJobs"]> {
+		if (input.ownerId !== undefined && (typeof input.ownerId !== "string" || input.ownerId.length === 0 || input.ownerId.length > 200)) {
+			throw new InvalidJobInput("ownerId must be a non-empty string no longer than 200 characters when given");
+		}
 		const active: ActiveCachingJobSummary[] = [];
-		for (const [workspaceId, jobId] of graphRefresh.activeJobEntries()) {
+		for (const [workspaceId, jobId] of graphRefresh.activeJobEntries(input.ownerId)) {
 			const snapshot = jobs.status(jobId);
 			if (snapshot.status === "queued" || snapshot.status === "running") {
 				const waiting = snapshot.status === "running" && warmIndexes.waitingForAdmission(workspaceId);

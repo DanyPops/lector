@@ -52,7 +52,7 @@ export interface CodeIntelligenceOperations {
 	workspaceMap(path: string, maxNodes: number, maxEdges: number, maxEntries: number, maxBytes: number): Promise<OperationOutputs["workspace.map"]>;
 }
 
-export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperations {
+export function createLectorCodeIntelligenceOperations(ownerId?: string): CodeIntelligenceOperations {
 	return {
 		async goToDefinition(path, line, character) {
 			return withWorkspace(
@@ -144,6 +144,7 @@ export function createLectorCodeIntelligenceOperations(): CodeIntelligenceOperat
 						operation: "workspace.populateSymbolGraph",
 						input: { workspaceId, maxFiles, maxSymbolsPerFile },
 						waitMs,
+						...(ownerId ? { ownerId } : {}),
 					});
 					return job;
 				},

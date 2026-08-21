@@ -56,19 +56,28 @@ describe("GraphRefreshCoordinator", () => {
 		expect(coordinator.activeJob("workspace-a")).toBeUndefined();
 	});
 
-	it("activeJobEntries() enumerates every workspace with a currently active job, none that have already cleared", () => {
+	it("activeJobEntries() enumerates active jobs globally or by every caller that shares ownership of deduplicated work", () => {
 		const coordinator = new GraphRefreshCoordinator({ debounceMs: 10, createGraph: () => new InMemorySymbolGraph() });
 		expect(coordinator.activeJobEntries()).toEqual([]);
 
-		coordinator.setActiveJob("workspace-a", "job-1");
-		coordinator.setActiveJob("workspace-b", "job-2");
+		coordinator.setActiveJob("workspace-a", "job-1", "session-a");
+		coordinator.addActiveJobOwner("workspace-a", "job-1", "session-b");
+		coordinator.setActiveJob("workspace-b", "job-2", "session-b");
+		coordinator.setActiveJob("workspace-c", "job-3");
 		expect(coordinator.activeJobEntries().sort()).toEqual([
 			["workspace-a", "job-1"],
 			["workspace-b", "job-2"],
+			["workspace-c", "job-3"],
 		]);
+		expect(coordinator.activeJobEntries("session-a")).toEqual([["workspace-a", "job-1"]]);
+		expect(coordinator.activeJobEntries("session-b").sort()).toEqual([
+			["workspace-a", "job-1"],
+			["workspace-b", "job-2"],
+		]);
+		expect(coordinator.activeJobEntries("unknown-session")).toEqual([]);
 
 		coordinator.clearActiveJob("workspace-a", "job-1");
-		expect(coordinator.activeJobEntries()).toEqual([["workspace-b", "job-2"]]);
+		expect(coordinator.activeJobEntries("session-a")).toEqual([]);
 	});
 
 	it("coalesces refresh scheduling per workspace through one debouncer", () => {

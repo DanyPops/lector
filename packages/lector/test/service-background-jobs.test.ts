@@ -194,11 +194,20 @@ describe("createLectorService background jobs", () => {
 			operation: "workspace.populateSymbolGraph",
 			input: { workspaceId: workspaceIdA, maxFiles: 10, maxSymbolsPerFile: 10 },
 			waitMs: 0,
+			ownerId: "session-a",
 		});
+		const deduplicatedA = await service.dispatch("job.submit", {
+			operation: "workspace.populateSymbolGraph",
+			input: { workspaceId: workspaceIdA, maxFiles: 10, maxSymbolsPerFile: 10 },
+			waitMs: 0,
+			ownerId: "session-b",
+		});
+		expect(deduplicatedA.job.id).toBe(submittedA.job.id);
 		const submittedB = await service.dispatch("job.submit", {
 			operation: "workspace.populateSymbolGraph",
 			input: { workspaceId: workspaceIdB, maxFiles: 10, maxSymbolsPerFile: 10 },
 			waitMs: 0,
+			ownerId: "session-b",
 		});
 
 		const activeWhileBothRunning = await service.dispatch("workspace.activeCachingJobs", {});
@@ -208,6 +217,18 @@ describe("createLectorService background jobs", () => {
 				{ workspaceId: workspaceIdB, status: "running" as const, rootPath: rootB },
 			].sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
 		);
+		expect(await service.dispatch("workspace.activeCachingJobs", { ownerId: "session-a" })).toEqual({
+			jobs: [{ workspaceId: workspaceIdA, status: "running", rootPath: rootA }],
+		});
+		expect(
+			[...(await service.dispatch("workspace.activeCachingJobs", { ownerId: "session-b" })).jobs].sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
+		).toEqual(
+			[
+				{ workspaceId: workspaceIdA, status: "running" as const, rootPath: rootA },
+				{ workspaceId: workspaceIdB, status: "running" as const, rootPath: rootB },
+			].sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
+		);
+		expect(await service.dispatch("workspace.activeCachingJobs", { ownerId: "unrelated-session" })).toEqual({ jobs: [] });
 
 		documentsA.resolve([]);
 		let statusA = await service.dispatch("job.status", { jobId: submittedA.job.id });

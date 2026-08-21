@@ -3,7 +3,7 @@ import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { RetryingLectorClient } from "../../extension/src/lector-client.ts";
 import { CachingOverlay } from "../../extension/src/workspace-cache/caching-overlay.ts";
 
-function fakeClient(call: (operation: string) => Promise<unknown>): RetryingLectorClient {
+function fakeClient(call: (operation: string, input: unknown) => Promise<unknown>): RetryingLectorClient {
 	return {
 		call: call as RetryingLectorClient["call"],
 		callOnce: call as RetryingLectorClient["callOnce"],
@@ -11,6 +11,21 @@ function fakeClient(call: (operation: string) => Promise<unknown>): RetryingLect
 }
 
 describe("CachingOverlay", () => {
+	it("queries only caching jobs owned by its Pi session", async () => {
+		let capturedInput: unknown;
+		const overlay = new CachingOverlay(
+			async () =>
+				fakeClient(async (_operation, input) => {
+					capturedInput = input;
+					return { jobs: [] };
+				}),
+			"session-a",
+		);
+		overlay.setUI({ setWidget: () => {} } as unknown as ExtensionUIContext);
+		await overlay.refresh();
+		expect(capturedInput).toEqual({ ownerId: "session-a" });
+	});
+
 	it("registers the widget once refresh() finds at least one active caching job", async () => {
 		let registeredKey: string | undefined;
 		const uiCtx = {

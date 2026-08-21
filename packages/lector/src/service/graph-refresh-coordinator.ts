@@ -26,7 +26,7 @@ export interface GraphRefreshCoordinatorOptions<WorkspaceKey extends string> {
 /** Owns symbol-graph instances and every piece of graph-refresh lifecycle state. */
 export class GraphRefreshCoordinator<WorkspaceKey extends string, JobKey extends string> {
 	private readonly graphs = new Map<WorkspaceKey, SymbolGraphPort>();
-	private readonly activeJobs = new Map<WorkspaceKey, JobKey>();
+	private readonly activeJobs = new Map<WorkspaceKey, { jobId: JobKey; ownerIds: Set<string> }>();
 	private readonly watchedWorkspaces = new Set<WorkspaceKey>();
 	private readonly scheduler: RefreshScheduler;
 
@@ -44,21 +44,32 @@ export class GraphRefreshCoordinator<WorkspaceKey extends string, JobKey extends
 	}
 
 	activeJob(workspaceId: WorkspaceKey): JobKey | undefined {
-		return this.activeJobs.get(workspaceId);
+		return this.activeJobs.get(workspaceId)?.jobId;
 	}
 
-	/** Every [workspaceId, jobId] pair currently tracked as active -- lets a caller enumerate
-	 * which workspace(s) are caching right now without already knowing their ids in advance. */
-	activeJobEntries(): [WorkspaceKey, JobKey][] {
-		return Array.from(this.activeJobs.entries());
+	/** Every [workspaceId, jobId] pair currently tracked as active. ownerId scopes presentation
+	 * without changing global administrative inspection when omitted. */
+	activeJobEntries(ownerId?: string): [WorkspaceKey, JobKey][] {
+		const entries: [WorkspaceKey, JobKey][] = [];
+		for (const [workspaceId, active] of this.activeJobs) {
+			if (ownerId === undefined || active.ownerIds.has(ownerId)) entries.push([workspaceId, active.jobId]);
+		}
+		return entries;
 	}
 
-	setActiveJob(workspaceId: WorkspaceKey, jobId: JobKey): void {
-		this.activeJobs.set(workspaceId, jobId);
+	setActiveJob(workspaceId: WorkspaceKey, jobId: JobKey, ownerId?: string): void {
+		this.activeJobs.set(workspaceId, { jobId, ownerIds: new Set(ownerId ? [ownerId] : []) });
+	}
+
+	/** A second caller can share one deduplicated population job without stealing its first
+	 * caller's ownership; both sessions then see the work they requested. */
+	addActiveJobOwner(workspaceId: WorkspaceKey, expectedJobId: JobKey, ownerId: string): void {
+		const active = this.activeJobs.get(workspaceId);
+		if (active?.jobId === expectedJobId) active.ownerIds.add(ownerId);
 	}
 
 	clearActiveJob(workspaceId: WorkspaceKey, expectedJobId?: JobKey): void {
-		if (expectedJobId !== undefined && this.activeJobs.get(workspaceId) !== expectedJobId) return;
+		if (expectedJobId !== undefined && this.activeJobs.get(workspaceId)?.jobId !== expectedJobId) return;
 		this.activeJobs.delete(workspaceId);
 	}
 

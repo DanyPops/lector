@@ -38,10 +38,11 @@ import {
 	createWriteToolDefinition,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
+	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { renderBoundedTable, type TextMeasure } from "malevich-tui-components";
-import { Type } from "typebox";
+import { type TSchema, Type } from "typebox";
 
 /** Real ANSI-aware measurement for Table -- Malevich's own default is ASCII-only, unsafe against theme-styled cell/header text. */
 const tableMeasure: TextMeasure = { visibleWidth, truncateToWidth };
@@ -128,6 +129,7 @@ import { createLectorSearchOperations } from "./search/operations.ts";
 import { formatSearchCall, formatSearchResult } from "./search/rendering.ts";
 import { type AnnotationAnchorInput, createLectorSymbolAnnotationOperations } from "./symbol-annotation/operations.ts";
 import { formatAnnotationDetail, formatAnnotationListSummary, formatAnnotationSummary } from "./symbol-annotation/rendering.ts";
+import { boundLectorToolText } from "./tool-output-bounds.ts";
 import type { LectorVehicleCall } from "./vehicle-client.ts";
 import { CachingOverlay } from "./workspace-cache/caching-overlay.ts";
 import {
@@ -168,7 +170,23 @@ function renderIntelligenceSource(body: string, provenance: IntelligenceProvenan
  * "start it with `lector serve`" error if none is reachable.
  */
 export default function (pi: ExtensionAPI) {
-	const cacheOperations = createWorkspaceCacheOperations();
+	let cacheOperations = createWorkspaceCacheOperations();
+	// Registration is the ownership boundary: every custom Lector tool enters this set
+	// automatically, so future tools cannot silently bypass the final model-content cap.
+	// Built-in-compatible read/write/edit stay on Pi's own definitions and truncation path.
+	const customToolNames = new Set<string>();
+	function registerLectorTool<TParams extends TSchema, TDetails = unknown, TState = unknown>(tool: ToolDefinition<TParams, TDetails, TState>): void {
+		customToolNames.add(tool.name);
+		pi.registerTool(tool);
+	}
+	pi.on("tool_result", (event) => {
+		if (!customToolNames.has(event.toolName)) return;
+		const textBlocks = event.content.filter((block): block is Extract<(typeof event.content)[number], { type: "text" }> => block.type === "text");
+		if (textBlocks.length === 0) return;
+		const bounded = boundLectorToolText(textBlocks.map((block) => block.text).join("\n"));
+		if (!bounded.truncation) return;
+		return { content: [{ type: "text", text: bounded.text }, ...event.content.filter((block) => block.type !== "text")] };
+	});
 	// One generation counter shared by every root's monitor loop, not per-root -- a new session
 	// (or shutdown) invalidates every previous session's in-flight monitor regardless of which
 	// root it tracked, and there is exactly one "current session" at a time.
@@ -292,6 +310,8 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", (_event, ctx) => {
 		const { cwd } = ctx;
+		const ownerId = ctx.sessionManager.getSessionId();
+		cacheOperations = createWorkspaceCacheOperations(ownerId);
 		sessionGeneration++;
 		cacheStatesByRoot.clear();
 		monitoringRoots.clear();
@@ -299,9 +319,9 @@ export default function (pi: ExtensionAPI) {
 		uiContext = ctx;
 		setNewWorkspaceObserver((root) => startMonitoringRoot(root, ctx));
 		if (ctx.hasUI) {
-			// The persistent widget counterpart to the single-line "lector-cache" status above --
-			// enumerates EVERY workspace currently caching, not just this session's own cwd root.
-			cachingOverlay ??= new CachingOverlay();
+			// The persistent widget counterpart to the single-line "lector-cache" status above.
+			// Ownership is the Pi session, not cwd: one session may legitimately touch several roots.
+			cachingOverlay = new CachingOverlay(undefined, ownerId);
 			cachingOverlay.setUI(ctx.ui);
 			void cachingOverlay.refresh();
 			cachingOverlay.startPolling();
@@ -323,7 +343,7 @@ export default function (pi: ExtensionAPI) {
 		pi.registerTool(createEditToolDefinition(cwd, { operations: createLectorEditOperations() }));
 
 		const findSymbolsOperations = createLectorFindSymbolsOperations();
-		pi.registerTool({
+		registerLectorTool({
 			name: "find_symbols",
 			label: "Find Symbols",
 			description:
@@ -385,7 +405,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
-		const codeIntelligenceOperations = createLectorCodeIntelligenceOperations();
+		const codeIntelligenceOperations = createLectorCodeIntelligenceOperations(ownerId);
 
 		const editorOverlayOptions = { overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", anchor: "center" } } as const;
 
@@ -451,7 +471,7 @@ export default function (pi: ExtensionAPI) {
 			character: Type.Number({ description: "1-indexed character offset within the line" }),
 		};
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "go_to_definition",
 			label: "Go to Definition",
 			description: "Find where the symbol at an exact file position is actually declared, across files, through re-exports and aliasing.",
@@ -485,7 +505,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "go_to_implementation",
 			label: "Go to Implementation",
 			description:
@@ -523,7 +543,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "find_references",
 			label: "Find References",
 			description: "Find every project-wide usage of the symbol at an exact file position.",
@@ -568,7 +588,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "hover",
 			label: "Hover",
 			description: "Get type and documentation information for the symbol at an exact file position.",
@@ -608,7 +628,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "document_symbols",
 			label: "Document Symbols",
 			description: "List every symbol declared in one file, hierarchically -- an outline of its classes, functions, and their members.",
@@ -642,7 +662,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "diagnostics",
 			label: "Diagnostics",
 			description: "List every error and warning a language server currently knows about for one file, as of its last analysis.",
@@ -679,7 +699,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "call_hierarchy",
 			label: "Call Hierarchy",
 			description:
@@ -745,7 +765,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "reference_based_rename",
 			label: "Reference-Based Rename",
 			description:
@@ -808,7 +828,7 @@ export default function (pi: ExtensionAPI) {
 			applied?: OperationOutputs["workspace.rename"];
 		}
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "rename",
 			label: "Rename",
 			description:
@@ -877,7 +897,7 @@ export default function (pi: ExtensionAPI) {
 			uncontained?: boolean;
 		}
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "symbol_annotations",
 			label: "Symbol Annotations",
 			description:
@@ -1056,7 +1076,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "reachable_from",
 			label: "Reachable From",
 			description:
@@ -1105,7 +1125,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "workspace_map",
 			label: "Workspace Map",
 			description:
@@ -1162,7 +1182,7 @@ export default function (pi: ExtensionAPI) {
 			readonly job?: JobSnapshot<PopulateSymbolGraphResult>;
 		}
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "workspace_cache",
 			label: "Workspace Cache",
 			description:
@@ -1253,7 +1273,7 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const gitOperations = createLectorGitOperations();
-		pi.registerTool({
+		registerLectorTool({
 			name: "git",
 			label: "Git",
 			description:
@@ -1396,7 +1416,7 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const searchOperations = createLectorSearchOperations();
-		pi.registerTool({
+		registerLectorTool({
 			name: "search_code",
 			label: "Search Code",
 			description:
@@ -1437,7 +1457,7 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const findFilesOperations = createLectorFindFilesOperations();
-		pi.registerTool({
+		registerLectorTool({
 			name: "find_files",
 			label: "Find Files",
 			description:
@@ -1483,7 +1503,7 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const lineEditOperations = createLectorLineEditOperations();
-		pi.registerTool({
+		registerLectorTool({
 			name: "line_edit",
 			label: "Line Edit",
 			description:
@@ -1554,7 +1574,7 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const applyPatchOperations = createLectorApplyPatchOperations();
-		pi.registerTool({
+		registerLectorTool({
 			name: "apply_patch",
 			label: "Apply Patch",
 			description:
@@ -1605,7 +1625,7 @@ export default function (pi: ExtensionAPI) {
 			| { readonly action: "revert"; readonly reverted: { readonly path: string; readonly newHash: string | null } };
 
 		const mutationHistoryOperations = createMutationHistoryOperations();
-		pi.registerTool({
+		registerLectorTool({
 			name: "mutation_history",
 			label: "Mutation History",
 			description:
@@ -1690,7 +1710,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const packageSourceOperations = createLectorPackageSourceOperations();
-		pi.registerTool({
+		registerLectorTool({
 			name: "package_source",
 			label: "Package Source",
 			description:
@@ -1796,7 +1816,7 @@ export default function (pi: ExtensionAPI) {
 		const repoFetchOperations = createLectorRepoFetchOperations();
 		const repoCacheListOperations = createRepoCacheListOperations();
 		const repoCacheEvictOperations = createRepoCacheEvictOperations();
-		pi.registerTool({
+		registerLectorTool({
 			name: "repo_cache",
 			label: "Repo Cache",
 			description:
@@ -1899,7 +1919,7 @@ export default function (pi: ExtensionAPI) {
 			| { readonly action: "sourcegraph_code"; readonly result: { candidates: readonly SourcegraphCodeCandidate[] } };
 
 		const externalSearchOperations = createExternalSearchOperations();
-		pi.registerTool({
+		registerLectorTool({
 			name: "external_search",
 			label: "External Search",
 			description:
@@ -1956,7 +1976,7 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const crossWorkspaceSearchOperations = createLectorCrossWorkspaceSearchOperations();
-		pi.registerTool({
+		registerLectorTool({
 			name: "find_symbols_across_projects",
 			label: "Find Symbols Across Projects",
 			description:
@@ -1996,7 +2016,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 
-		pi.registerTool({
+		registerLectorTool({
 			name: "search_code_across_projects",
 			label: "Search Code Across Projects",
 			description:

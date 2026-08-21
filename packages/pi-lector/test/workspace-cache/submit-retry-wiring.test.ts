@@ -28,11 +28,11 @@ describe("createWorkspaceCacheOperations().submit() -- retryTimeBudgetMs default
 	it("defaults retryTimeBudgetMs to 60000 -- absorbing a brief concurrent edit is this tool's whole point, unlike the raw daemon operation's own fail-fast default", async () => {
 		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
-		let capturedInput: OperationInputs["job.submit"] | undefined;
+		const capturedInputs: OperationInputs["job.submit"][] = [];
 		const capturingClient: LectorClient = {
 			...daemon.client,
 			call: (operation: OperationName, input: unknown) => {
-				if (operation === "job.submit") capturedInput = input as OperationInputs["job.submit"];
+				if (operation === "job.submit") capturedInputs.push(input as OperationInputs["job.submit"]);
 				return daemon.client.call(operation, input as never);
 			},
 		} as LectorClient;
@@ -41,20 +41,20 @@ describe("createWorkspaceCacheOperations().submit() -- retryTimeBudgetMs default
 		projectDir = mkdtempSync(join(tmpdir(), "pi-lector-cache-retry-wiring-"));
 		writeFileSync(join(projectDir, "index.ts"), "export function answer() { return 42; }\n");
 
-		const cache = createWorkspaceCacheOperations();
+		const cache = createWorkspaceCacheOperations("session-a");
 		await cache.submit(projectDir, 10, 10);
 
-		expect(capturedInput?.input).toMatchObject({ retryTimeBudgetMs: 60_000 });
+		expect(capturedInputs).toContainEqual(expect.objectContaining({ ownerId: "session-a", input: expect.objectContaining({ retryTimeBudgetMs: 60_000 }) }));
 	});
 
 	it("an explicit retryTimeBudgetMs overrides the tool's own default", async () => {
 		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
-		let capturedInput: OperationInputs["job.submit"] | undefined;
+		const capturedInputs: OperationInputs["job.submit"][] = [];
 		const capturingClient: LectorClient = {
 			...daemon.client,
 			call: (operation: OperationName, input: unknown) => {
-				if (operation === "job.submit") capturedInput = input as OperationInputs["job.submit"];
+				if (operation === "job.submit") capturedInputs.push(input as OperationInputs["job.submit"]);
 				return daemon.client.call(operation, input as never);
 			},
 		} as LectorClient;
@@ -66,6 +66,8 @@ describe("createWorkspaceCacheOperations().submit() -- retryTimeBudgetMs default
 		const cache = createWorkspaceCacheOperations();
 		await cache.submit(projectDir, 10, 10, 0, 0);
 
-		expect(capturedInput?.input).toMatchObject({ retryTimeBudgetMs: 0 });
+		expect(capturedInputs).toContainEqual(
+			expect.objectContaining({ input: expect.objectContaining({ maxFiles: 10, maxSymbolsPerFile: 10, retryTimeBudgetMs: 0 }) }),
+		);
 	});
 });

@@ -4,8 +4,8 @@
  * DoctorOverlay: factory-form ctx.ui.setWidget registration, requestRender on refresh, hides the
  * widget entirely (setWidget(key, undefined)) rather than an empty box once nothing is caching.
  *
- * workspace.activeCachingJobs enumerates every workspace with a currently active (queued/
- * running) population job -- see packages/lector/src/service/symbol-graph/cache-query-handlers.ts.
+ * workspace.activeCachingJobs is filtered by the owning Pi session, while its omitted-owner
+ * daemon contract remains available for global administration -- see cache-query-handlers.ts.
  */
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
@@ -39,7 +39,10 @@ export class CachingOverlay {
 		intervalMs: CACHING_WIDGET_ROTATION_INTERVAL_MS,
 	});
 
-	constructor(private readonly connect: () => Promise<RetryingLectorClient> = lectorClient) {}
+	constructor(
+		private readonly connect: () => Promise<RetryingLectorClient> = lectorClient,
+		private readonly ownerId?: string,
+	) {}
 
 	setUI(ctx: ExtensionUIContext): void {
 		if (ctx !== this.uiCtx) {
@@ -55,7 +58,7 @@ export class CachingOverlay {
 	async refresh(): Promise<void> {
 		try {
 			const client = await this.connect();
-			const result = await client.call("workspace.activeCachingJobs", {});
+			const result = await client.call("workspace.activeCachingJobs", this.ownerId ? { ownerId: this.ownerId } : {});
 			this.projection = buildCachingWidgetProjection(result.jobs);
 		} catch {
 			this.projection = EMPTY_PROJECTION;

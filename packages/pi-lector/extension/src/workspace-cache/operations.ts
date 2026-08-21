@@ -39,7 +39,7 @@ export interface WorkspaceCacheOperations {
 	watchJob?(jobId: string, onJob: (job: JobSnapshot<PopulateSymbolGraphResult>) => void): Promise<JobWatchOutcome>;
 }
 
-export function createWorkspaceCacheOperations(): WorkspaceCacheOperations {
+export function createWorkspaceCacheOperations(ownerId?: string): WorkspaceCacheOperations {
 	return {
 		status(directory, maxFiles, maxSymbolsPerFile) {
 			return withWorkspace(
@@ -59,6 +59,7 @@ export function createWorkspaceCacheOperations(): WorkspaceCacheOperations {
 						operation: "workspace.populateSymbolGraph",
 						input: { workspaceId, maxFiles, maxSymbolsPerFile, retryTimeBudgetMs },
 						waitMs,
+						...(ownerId ? { ownerId } : {}),
 					});
 					return job;
 				},

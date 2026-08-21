@@ -95,6 +95,11 @@ export function createRefreshScheduler(deps: RefreshSchedulerDeps): RefreshSched
 		const waitMs = rawWaitMs ?? 0;
 		if (typeof waitMs !== "number" || !Number.isSafeInteger(waitMs) || waitMs < 0) throw new InvalidJobInput("waitMs must be a non-negative safe integer");
 		if (waitMs > MAX_INITIAL_JOB_WAIT_MS) throw new JobWaitTooLong(waitMs, MAX_INITIAL_JOB_WAIT_MS);
+		const rawOwnerId = rawRequest.ownerId;
+		if (rawOwnerId !== undefined && (typeof rawOwnerId !== "string" || rawOwnerId.length === 0 || rawOwnerId.length > 200)) {
+			throw new InvalidJobInput("ownerId must be a non-empty string no longer than 200 characters when given");
+		}
+		const ownerId = rawOwnerId;
 		const rawAllowBroadRoot = rawInput.allowBroadRoot;
 		if (rawAllowBroadRoot !== undefined && typeof rawAllowBroadRoot !== "boolean") throw new InvalidJobInput("allowBroadRoot must be a boolean when given");
 		const rawRetryTimeBudgetMs = rawInput.retryTimeBudgetMs;
@@ -113,6 +118,7 @@ export function createRefreshScheduler(deps: RefreshSchedulerDeps): RefreshSched
 		if (existingJobId) {
 			const existing = jobs.status(existingJobId);
 			if (existing.status === "queued" || existing.status === "running") {
+				if (ownerId) graphRefresh.addActiveJobOwner(workspaceId, existing.id, ownerId);
 				return { job: waitMs === 0 ? existing : await jobs.wait(existing.id, waitMs) };
 			}
 			graphRefresh.clearActiveJob(workspaceId);
@@ -131,7 +137,7 @@ export function createRefreshScheduler(deps: RefreshSchedulerDeps): RefreshSched
 			},
 		});
 		submittedJobId = submitted.id;
-		graphRefresh.setActiveJob(workspaceId, submitted.id);
+		graphRefresh.setActiveJob(workspaceId, submitted.id, ownerId);
 		jobs.onTerminal(submitted.id, (job) => {
 			try {
 				publish(jobTopicFor(job.id), { job });

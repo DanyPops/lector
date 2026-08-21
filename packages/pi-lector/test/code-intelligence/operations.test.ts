@@ -231,9 +231,11 @@ describe("Lector-backed code-intelligence operations", () => {
 		const { root, mathFile } = buildProjectFixture();
 		projectDir = root;
 
-		const ops = createLectorCodeIntelligenceOperations();
+		const ops = createLectorCodeIntelligenceOperations("session-code-intelligence");
 		const submitted = await ops.populateSymbolGraph(mathFile, 100, 50, 0);
 		expect(["queued", "running"]).toContain(submitted.status);
+		expect((await daemon.client.call("workspace.activeCachingJobs", { ownerId: "session-code-intelligence" })).jobs).toHaveLength(1);
+		expect((await daemon.client.call("workspace.activeCachingJobs", { ownerId: "unrelated-session" })).jobs).toEqual([]);
 		const final = await ops.jobStatus(submitted.id);
 		expect(["running", "succeeded"]).toContain(final.status);
 	}, 20_000);

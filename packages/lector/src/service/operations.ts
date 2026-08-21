@@ -272,8 +272,8 @@ export interface OperationInputs {
 	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
 	"workspace.hasWarmIndex": { workspaceId: WorkspaceId; path?: string };
 	"workspace.cacheStatus": { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number };
-	/** No input -- enumerates every workspace with a currently active (queued/running) population job across the whole daemon, not scoped to one workspaceId the caller must already know. */
-	"workspace.activeCachingJobs": Record<string, never>;
+	/** Enumerates active population jobs globally when ownerId is omitted, or only jobs requested by that explicit caller owner. */
+	"workspace.activeCachingJobs": { ownerId?: string };
 	/** Paginated raw detail behind cacheStatus's own compact summary -- the workspace's last completed generation regardless of whether it is still fresh (this is inspection, not a freshness check). Throws NoCompletedGeneration if none exists yet. */
 	"workspace.cacheWalkedFiles": { workspaceId: WorkspaceId; offset: number; maxResults: number; maxBytes: number };
 	/** Paginated raw (non-deduplicated) failures behind cacheStatus's own compact failureSummary -- see workspace.cacheWalkedFiles for the same completed-generation semantics. */
@@ -351,6 +351,8 @@ export interface OperationInputs {
 	"search.text": { query: string; maxMatches: number; maxBytes: number; workspaceIds?: readonly WorkspaceId[]; timeoutMs?: number };
 	"job.submit": {
 		operation: "workspace.populateSymbolGraph";
+		/** Opaque caller identity used only to scope best-effort job presentation; not an authorization boundary. */
+		ownerId?: string;
 		/** retryTimeBudgetMs: see workspace.populateSymbolGraph's own doc comment -- same opt-in retry-on-race semantics, threaded through unchanged. */
 		input: { workspaceId: WorkspaceId; maxFiles: number; maxSymbolsPerFile: number; retryTimeBudgetMs?: number };
 		/** Bounded wait before returning the current snapshot. Zero/omitted always returns immediately. */
