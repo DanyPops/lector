@@ -100,6 +100,7 @@ describe("foreground admission priority over background population", () => {
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
 			maxActiveSymbolIndexes: 1,
+			foregroundAdmissionQueueTimeoutMs: 0,
 			createSymbolIndex: (rootPath: string, _descriptor: LanguageServerDescriptor) => (rootPath === rootA ? blocked : new InstantIndex()),
 		});
 		const { workspaceId: workspaceA } = await service.dispatch("workspace.registerPath", { path: rootA });

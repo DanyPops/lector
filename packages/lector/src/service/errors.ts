@@ -351,26 +351,26 @@ export class WarmIndexInUse extends Error {
 	}
 }
 
-/** Raised when background admission is already waiting at maxQueuedBackgroundAdmissions -- fails fast rather than growing the wait queue without bound. */
+/** Raised when one admission class reaches its configured warm-index queue bound. */
 export class WarmIndexAdmissionQueueFull extends Error {
 	constructor(
 		readonly languageId: string,
 		readonly maxQueued: number,
+		readonly workKind: "foreground" | "background" = "background",
 	) {
-		super(`background admission for language "${languageId}" is already waiting at capacity (${maxQueued} queued); retry later`);
+		super(`${workKind} admission for language "${languageId}" is already waiting at capacity (${maxQueued} queued); retry later`);
 		this.name = "WarmIndexAdmissionQueueFull";
 	}
 }
 
-/** Raised when background admission waited backgroundAdmissionQueueTimeoutMs for a slot reserved for foreground work and none appeared -- a bounded, cancellable wait, not an indefinite one. */
+/** Raised when a bounded warm-index admission wait expires. */
 export class WarmIndexAdmissionQueueTimedOut extends Error {
 	constructor(
 		readonly languageId: string,
 		readonly timeoutMs: number,
+		readonly workKind: "foreground" | "background" = "background",
 	) {
-		super(
-			`background admission for language "${languageId}" waited ${timeoutMs}ms for a warm-index slot and gave up -- foreground demand is holding every admittable slot`,
-		);
+		super(`${workKind} admission for language "${languageId}" waited ${timeoutMs}ms for a warm-index slot and gave up`);
 		this.name = "WarmIndexAdmissionQueueTimedOut";
 	}
 }

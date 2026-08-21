@@ -134,6 +134,10 @@ export interface LectorServiceOptions {
 	backgroundAdmissionQueueTimeoutMs?: number;
 	/** How many populateSymbolGraph admissions may be simultaneously queued before a new one fails fast with WarmIndexAdmissionQueueFull. Defaults to 8. */
 	maxQueuedBackgroundAdmissions?: number;
+	/** How long an interactive semantic query may wait for a sibling foreground lease to free before failing explicitly. Defaults to 10s; zero restores fail-fast capacity errors. */
+	foregroundAdmissionQueueTimeoutMs?: number;
+	/** Maximum concurrent interactive semantic queries waiting for capacity. Defaults to 8. */
+	maxQueuedForegroundAdmissions?: number;
 	/** Fed real (languageId, pid) samples by calibrateProcessCosts() -- typically the same LanguageServerCostEstimator instance also passed as symbolIndexResourcePolicy's own costEstimator, so calibration and admission read/write the identical live state. */
 	symbolIndexProcessCostCalibrator?: WarmIndexProcessCostRecorder;
 	/** Shared managed installer for provisionable system-binary language servers. Never used by filesystem-only operations. */
@@ -266,6 +270,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		absoluteMaxActiveIndexes: options.absoluteMaxActiveIndexes,
 		backgroundAdmissionQueueTimeoutMs: options.backgroundAdmissionQueueTimeoutMs,
 		maxQueuedBackgroundAdmissions: options.maxQueuedBackgroundAdmissions,
+		foregroundAdmissionQueueTimeoutMs: options.foregroundAdmissionQueueTimeoutMs ?? 10_000,
+		maxQueuedForegroundAdmissions: options.maxQueuedForegroundAdmissions ?? 8,
 		processCostCalibrator: options.symbolIndexProcessCostCalibrator,
 		observe: (event) => {
 			if (event.kind === "close-failed") logger.warn("failed to close symbol index", event);

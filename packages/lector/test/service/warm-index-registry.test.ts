@@ -253,6 +253,7 @@ describe("WarmIndexRegistry", () => {
 			activeCeilingSource: "configured",
 			absoluteMaxActiveIndexes: 32,
 			byLanguage: { typescript: 2 },
+			waitingForegroundAdmissions: 0,
 			waitingBackgroundAdmissions: 0,
 		});
 	});

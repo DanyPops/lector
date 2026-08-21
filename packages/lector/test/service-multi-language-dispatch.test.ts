@@ -10,9 +10,13 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { DocumentSymbolEntry } from "../src/code-intelligence/document-symbol.ts";
+import type { LanguageServerDescriptor } from "../src/code-intelligence/language-server-descriptor.ts";
 import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
-import { createLectorService, type LectorService, UnsupportedLanguage } from "../src/service.ts";
+import { type ClosableSymbolIndex, createLectorService, type LectorService, UnsupportedLanguage } from "../src/service.ts";
 import { SqliteSymbolGraph } from "../src/symbol-graph/sqlite-symbol-graph.ts";
+import type { WorkspaceLocation } from "../src/workspace/workspace-symbol.ts";
+import { symbolSearchResult, TEST_SEMANTIC_PROVENANCE } from "./support/intelligence-provenance.ts";
 
 let fixtureRoot: string | undefined;
 let service: LectorService | undefined;
@@ -68,6 +72,61 @@ function buildPolyglotWithOrphanGoTest(): ReturnType<typeof buildPolyglot> & { o
 	const orphanGoTest = join(fixture.root, "e2e_concurrency_test.go");
 	writeFileSync(orphanGoTest, "//go:build e2e\n\npackage fixture_test\n\nfunc TestConcurrency() {}\n");
 	return { ...fixture, orphanGoTest };
+}
+
+function buildTypescriptRustScopes(): { root: string; tsRoot: string; rustRoot: string; tsFile: string; rustFile: string } {
+	const root = mkdtempSync(join(tmpdir(), "lector-polyglot-capacity-"));
+	const tsRoot = join(root, "frontend");
+	const rustRoot = join(root, "backend");
+	mkdirSync(tsRoot);
+	mkdirSync(join(rustRoot, "src"), { recursive: true });
+	writeFileSync(join(tsRoot, "tsconfig.json"), "{}");
+	const tsFile = join(tsRoot, "index.ts");
+	writeFileSync(tsFile, "export function typescriptDomain() {}\n");
+	writeFileSync(join(rustRoot, "Cargo.toml"), '[package]\nname = "capacity_fixture"\nversion = "0.1.0"\nedition = "2021"\n');
+	const rustFile = join(rustRoot, "src", "lib.rs");
+	writeFileSync(rustFile, "pub fn rust_domain() {}\n");
+	return { root, tsRoot, rustRoot, tsFile, rustFile };
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((resolvePromise) => {
+		resolve = resolvePromise;
+	});
+	return { promise, resolve };
+}
+
+class ControlledSymbolIndex implements ClosableSymbolIndex {
+	readonly provenance = TEST_SEMANTIC_PROVENANCE;
+
+	constructor(
+		private readonly documents: Promise<readonly DocumentSymbolEntry[]>,
+		private readonly onDocumentSymbols: () => void,
+		private readonly onClose: () => void,
+	) {}
+
+	findSymbols() {
+		return Promise.resolve(symbolSearchResult());
+	}
+
+	goToDefinition(_location: WorkspaceLocation): Promise<readonly WorkspaceLocation[]> {
+		return Promise.resolve([]);
+	}
+
+	documentSymbols(): Promise<readonly DocumentSymbolEntry[]> {
+		this.onDocumentSymbols();
+		return this.documents;
+	}
+
+	outgoingCalls(): Promise<[]> {
+		return Promise.resolve([]);
+	}
+
+	close(): Promise<void> {
+		this.onClose();
+		return Promise.resolve();
+	}
 }
 
 describe("multi-language dispatch: monoglot workspaces auto-detect with no seedFile at all", () => {
@@ -269,4 +328,57 @@ describe("multi-language dispatch: a polyglot workspace holds one independent wa
 		expect(status.status).toBe("cached");
 		if (status.status === "cached") expect(status.generation.sources?.map((source) => source.languageId)).toEqual(["typescript", "python", "go"]);
 	}, 30_000);
+
+	it("queues sibling foreground TS/Rust scopes behind a root polyglot background lease without exceeding process capacity", async () => {
+		const fixture = buildTypescriptRustScopes();
+		fixtureRoot = fixture.root;
+		const backgroundDocuments = deferred<readonly DocumentSymbolEntry[]>();
+		const foregroundDocuments = deferred<readonly DocumentSymbolEntry[]>();
+		const backgroundEntered = deferred<void>();
+		const foregroundEntered = deferred<void>();
+		let liveIndexes = 0;
+		let maxLiveIndexes = 0;
+		const createControlled = (documents: Promise<readonly DocumentSymbolEntry[]>, entered: () => void): ClosableSymbolIndex => {
+			liveIndexes++;
+			maxLiveIndexes = Math.max(maxLiveIndexes, liveIndexes);
+			return new ControlledSymbolIndex(documents, entered, () => liveIndexes--);
+		};
+
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			maxActiveSymbolIndexes: 3,
+			reservedForegroundSlots: 1,
+			foregroundAdmissionQueueTimeoutMs: 2_000,
+			maxQueuedForegroundAdmissions: 4,
+			createSymbolIndex: (rootPath: string, _descriptor: LanguageServerDescriptor) => {
+				if (rootPath === fixture.root) return createControlled(backgroundDocuments.promise, () => backgroundEntered.resolve());
+				if (rootPath === fixture.tsRoot) return createControlled(foregroundDocuments.promise, () => foregroundEntered.resolve());
+				return createControlled(Promise.resolve([]), () => {});
+			},
+		});
+		const { workspaceId: rootWorkspace } = await service.dispatch("workspace.registerPath", { path: fixture.root });
+		const { workspaceId: tsWorkspace } = await service.dispatch("workspace.registerPath", { path: fixture.tsRoot });
+		const { workspaceId: rustWorkspace } = await service.dispatch("workspace.registerPath", { path: fixture.rustRoot });
+
+		const background = await service.dispatch("job.submit", {
+			operation: "workspace.populateSymbolGraph",
+			input: { workspaceId: rootWorkspace, maxFiles: 10, maxSymbolsPerFile: 10 },
+			waitMs: 0,
+		});
+		await backgroundEntered.promise;
+		expect(service.symbolIndexPoolStatus()).toMatchObject({ active: 2, leased: 2 });
+
+		const typescriptQuery = service.dispatch("workspace.documentSymbols", { workspaceId: tsWorkspace, path: fixture.tsFile });
+		await foregroundEntered.promise;
+		const rustQuery = service.dispatch("workspace.documentSymbols", { workspaceId: rustWorkspace, path: fixture.rustFile });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(service.symbolIndexPoolStatus()).toMatchObject({ active: 3, leased: 3, waitingForegroundAdmissions: 1 });
+
+		foregroundDocuments.resolve([]);
+		await Promise.all([typescriptQuery, rustQuery]);
+		expect(maxLiveIndexes).toBe(3);
+		expect(service.symbolIndexPoolStatus().active).toBeLessThanOrEqual(3);
+		expect((await service.dispatch("job.status", { jobId: background.job.id })).job.status).toBe("running");
+		backgroundDocuments.resolve([]);
+	}, 10_000);
 });

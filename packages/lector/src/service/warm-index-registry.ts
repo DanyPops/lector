@@ -39,9 +39,8 @@ const DEFAULT_LANGUAGE_LIMITS: Readonly<Record<string, number>> = Object.freeze(
 /**
  * Distinguishes an interactive human/agent-facing request (findSymbols, goToDefinition, rename,
  * cross-project search) from a self-scheduled background one (populateSymbolGraph). Foreground
- * admission is never queued or reduced below reservedForegroundSlots' effective ceiling --
- * background is the only work kind that ever waits. Defaults to "foreground": every existing
- * caller that never opts in keeps today's exact behavior.
+ * keeps the full ceiling and can opt into a bounded wait; background also respects reserved slots.
+ * Defaults to "foreground".
  */
 export type WarmIndexWorkKind = "foreground" | "background";
 
@@ -72,6 +71,10 @@ export interface WarmIndexRegistryOptions<WorkspaceKey extends string> {
 	readonly backgroundAdmissionQueueTimeoutMs?: number;
 	/** How many background admissions may be simultaneously waiting before a new one fails fast with WarmIndexAdmissionQueueFull instead of growing the wait queue further. Default 8. */
 	readonly maxQueuedBackgroundAdmissions?: number;
+	/** Opt-in foreground admission wait. Zero/omitted preserves fail-fast behavior. */
+	readonly foregroundAdmissionQueueTimeoutMs?: number;
+	/** Maximum number of foreground admissions waiting concurrently. Default 8. */
+	readonly maxQueuedForegroundAdmissions?: number;
 	/** Fed one real (languageId, pid) pair per active entry on calibrateProcessCosts() -- optional, since a caller without a resource policy has nothing for calibration to improve. */
 	readonly processCostCalibrator?: WarmIndexProcessCostRecorder;
 	/** Strategy for combining several per-language indexes into the single SymbolIndexPort a multi-language workspace lease returns. Defaults to PolyglotCodeIntelligenceIndex -- injected so a caller can test or extend composition without pulling in that concrete class. */
@@ -91,7 +94,9 @@ export interface WarmIndexPoolStatus {
 	readonly absoluteMaxActiveIndexes: number;
 	readonly byLanguage: Readonly<Record<string, number>>;
 	readonly resources?: WarmIndexResourceStatus;
-	/** How many background admissions are currently waiting for a slot reserved for foreground work -- path-free, language/count only. Zero whenever reservedForegroundSlots is unset or nothing is contending. */
+	/** How many foreground admissions are currently waiting for a transient lease conflict. */
+	readonly waitingForegroundAdmissions: number;
+	/** How many background admissions are currently waiting for room. */
 	readonly waitingBackgroundAdmissions: number;
 }
 
@@ -122,8 +127,8 @@ function wrapForPool(index: ClosableSymbolIndex): PooledSymbolIndex {
 /** Translates the generic pool's own error vocabulary back to WarmIndexRegistry's long-established names -- every existing caller/test keeps matching on WarmIndex* by name and instanceof. */
 function translateAdmissionError(error: unknown, languageId: string): never {
 	if (error instanceof PoolCapacityExceeded) throw new WarmIndexCapacityExceeded(languageId, error.maxActive, error.partitionLimit);
-	if (error instanceof PoolAdmissionQueueFull) throw new WarmIndexAdmissionQueueFull(languageId, error.maxQueued);
-	if (error instanceof PoolAdmissionQueueTimedOut) throw new WarmIndexAdmissionQueueTimedOut(languageId, error.timeoutMs);
+	if (error instanceof PoolAdmissionQueueFull) throw new WarmIndexAdmissionQueueFull(languageId, error.maxQueued, error.workKind);
+	if (error instanceof PoolAdmissionQueueTimedOut) throw new WarmIndexAdmissionQueueTimedOut(languageId, error.timeoutMs, error.workKind);
 	throw error;
 }
 
@@ -140,6 +145,8 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			reservedForegroundSlots: options.reservedForegroundSlots,
 			backgroundAdmissionQueueTimeoutMs: options.backgroundAdmissionQueueTimeoutMs,
 			maxQueuedBackgroundAdmissions: options.maxQueuedBackgroundAdmissions,
+			foregroundAdmissionQueueTimeoutMs: options.foregroundAdmissionQueueTimeoutMs,
+			maxQueuedForegroundAdmissions: options.maxQueuedForegroundAdmissions,
 			now: options.now,
 			costRecorder: options.processCostCalibrator
 				? {
@@ -300,6 +307,7 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 			activeCeilingSource: poolStatus.activeCeilingSource,
 			absoluteMaxActiveIndexes: poolStatus.absoluteMaxActive,
 			byLanguage: poolStatus.byPartition,
+			waitingForegroundAdmissions: poolStatus.waitingForegroundAdmissions,
 			waitingBackgroundAdmissions: poolStatus.waitingBackgroundAdmissions,
 			...(poolStatus.resources !== undefined ? { resources: poolStatus.resources } : {}),
 		};
