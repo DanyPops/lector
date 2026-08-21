@@ -146,13 +146,10 @@ describe("createLectorService's workspace.prepareRename/workspace.rename", () =>
 		expect(mathHistory.entries[0]?.transactionId).not.toBeNull();
 	}, 20_000);
 
-	it("DANGER: workspace.revertMutation (the only revert pi-lector's mutation_history tool exposes) reverts one rename-transaction member in isolation, leaving the others broken", async () => {
-		// This is the real gap: Lector's daemon has an atomic, all-or-nothing
-		// workspace.revertMutationTransaction specifically to prevent this outcome -- but pi-lector's
-		// mutation_history tool never wires it up (confirmed: zero references to
-		// mutationTransaction/revertMutationTransaction anywhere in pi-lector's extension source).
-		// The only revert action the tool exposes is single-entry workspace.revertMutation, which has
-		// no idea a transaction even exists and happily reverts just one member.
+	it("DANGER: raw workspace.revertMutation can revert one rename-transaction member in isolation, proving clients must require atomic transaction revert", async () => {
+		// The low-level single-entry daemon primitive deliberately knows only the requested entry.
+		// User-facing clients must inspect transactionId and route grouped mutations through
+		// workspace.revertMutationTransaction, which preflights and applies every member atomically.
 		fixtureRoot = buildFixture();
 		const built = await buildService();
 		service = built.service;

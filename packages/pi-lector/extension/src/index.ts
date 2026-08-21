@@ -97,7 +97,8 @@ import { formatGitCall, formatGitResult, type GitToolDetails } from "./git/rende
 import { nearestGitWorkspaceRoot, setNewWorkspaceObserver } from "./lector-client.ts";
 import { createLectorLineEditOperations } from "./line-edit/operations.ts";
 import { formatLineEditCall, formatLineEditResult } from "./line-edit/rendering.ts";
-import { createMutationHistoryOperations } from "./mutation-history/operations.ts";
+import { createMutationHistoryOperations, type MutationTransactionRevertOutcome } from "./mutation-history/operations.ts";
+import { formatMutationHistoryList, formatMutationTransactionRevert } from "./mutation-history/rendering.ts";
 import { createLectorPackageSourceOperations, type PackageSourceListPage } from "./package-source/operations.ts";
 import {
 	buildPackageSourceListTableRows,
@@ -1693,23 +1694,25 @@ export default function (pi: ExtensionAPI) {
 
 		type MutationHistoryToolDetails =
 			| { readonly action: "list"; readonly entries: readonly MutationHistoryEntry[] }
-			| { readonly action: "revert"; readonly reverted: { readonly path: string; readonly newHash: string | null } };
+			| { readonly action: "revert"; readonly reverted: { readonly path: string; readonly newHash: string | null } }
+			| { readonly action: "revert-transaction"; readonly reverted: MutationTransactionRevertOutcome };
 
 		const mutationHistoryOperations = createMutationHistoryOperations();
 		registerLectorTool({
 			name: "mutation_history",
 			label: "Mutation History",
 			description:
-				"List or revert a file's recorded edit history. Every successful edit/line_edit/apply_patch is recorded (newest first, bounded, not durable across a daemon restart). Reverting restores the file to its exact content immediately before that entry's own mutation, guarded the same way every Lector write is -- refuses if the file changed since, rather than silently clobbering a newer change. A revert is itself a real, further-revertible mutation -- reverting a revert works.",
-			promptSnippet: "List or revert a file's recorded edit history",
+				"List a file's recorded edit history, revert a standalone entry, or atomically revert every file in a rename/multi-file transaction. Every successful edit/line_edit/apply_patch is recorded (newest first, bounded, not durable across a daemon restart). Reverts are hash-guarded and further-revertible. A transaction member is never reverted alone: use action=revert-transaction with its transactionId.",
+			promptSnippet: "List or safely revert standalone or transaction-grouped edit history",
 			promptGuidelines: [
-				"list first to find the entry id you want, then revert -- an id from a different file's history, or one already evicted by the bounded history, fails closed rather than guessing.",
+				"list first. Use action=revert only for a standalone entry; if list reports a transactionId, use action=revert-transaction so every member is restored atomically.",
 			],
 			parameters: Type.Object({
-				action: Type.Union([Type.Literal("list"), Type.Literal("revert")]),
-				path: Type.String({ description: "Absolute or workspace-relative path to the file" }),
+				action: Type.Union([Type.Literal("list"), Type.Literal("revert"), Type.Literal("revert-transaction")]),
+				path: Type.String({ description: "Absolute or workspace-relative path used to resolve the owning workspace" }),
 				maxResults: Type.Optional(Type.Number({ description: "Required for action=list -- maximum entries to return, newest first" })),
-				entryId: Type.Optional(Type.String({ description: "Required for action=revert -- an id returned by a prior action=list" })),
+				entryId: Type.Optional(Type.String({ description: "Required for action=revert -- a standalone entry id returned by list" })),
+				transactionId: Type.Optional(Type.String({ description: "Required for action=revert-transaction -- a transaction id returned by list" })),
 			}),
 			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<MutationHistoryToolDetails>> {
 				const absolutePath = resolve(cwd, params.path);
@@ -1722,17 +1725,21 @@ export default function (pi: ExtensionAPI) {
 				if (params.action === "list") {
 					if (params.maxResults === undefined) throw new Error("mutation_history action=list requires maxResults");
 					const entries = await mutationHistoryOperations.list(absolutePath, params.maxResults, vehicleCall);
-					const text =
-						entries.length === 0
-							? "no recorded mutation history for this path"
-							: entries.map((entry) => `${entry.id}  ${new Date(entry.timestamp).toISOString()}  ${entry.operation}`).join("\n");
-					return { content: [{ type: "text", text }], details: { action: "list", entries } };
+					return { content: [{ type: "text", text: formatMutationHistoryList(entries) }], details: { action: "list", entries } };
 				}
-				if (params.entryId === undefined) throw new Error("mutation_history action=revert requires entryId");
-				const reverted = await mutationHistoryOperations.revert(absolutePath, params.entryId, vehicleCall);
+				if (params.action === "revert") {
+					if (params.entryId === undefined) throw new Error("mutation_history action=revert requires entryId");
+					const reverted = await mutationHistoryOperations.revert(absolutePath, params.entryId, vehicleCall);
+					return {
+						content: [{ type: "text", text: `${reverted.path} reverted -> ${reverted.newHash ?? "(deleted)"}` }],
+						details: { action: "revert", reverted },
+					};
+				}
+				if (params.transactionId === undefined) throw new Error("mutation_history action=revert-transaction requires transactionId");
+				const reverted = await mutationHistoryOperations.revertTransaction(absolutePath, params.transactionId, vehicleCall);
 				return {
-					content: [{ type: "text", text: `${reverted.path} reverted -> ${reverted.newHash ?? "(deleted)"}` }],
-					details: { action: "revert", reverted },
+					content: [{ type: "text", text: formatMutationTransactionRevert(params.transactionId, reverted) }],
+					details: { action: "revert-transaction", reverted },
 				};
 			},
 			renderCall(args, theme, context) {

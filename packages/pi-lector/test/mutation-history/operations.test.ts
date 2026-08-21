@@ -4,7 +4,7 @@
  * server needed).
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resetLectorClientForTests } from "../../extension/src/lector-client.ts";
@@ -50,5 +50,42 @@ describe("Lector-backed mutation history operations", () => {
 		expect(reverted).toEqual({ path: "a.txt", newHash: first.newHash });
 		const read = await daemon.client.call("workspace.rawRead", { workspaceId, path: "a.txt" });
 		expect(read.content).toBe("v1");
+	}, 20_000);
+
+	it("refuses a single-entry revert for one member of a real rename transaction, then reverts the whole transaction atomically", async () => {
+		const daemon = await wireVehicleDaemon();
+		stopDaemon = daemon.stop;
+		const root = mkdtempSync(join(tmpdir(), "pi-lector-mutation-transaction-"));
+		mkdirSync(join(root, ".git"));
+		mkdirSync(join(root, "src"));
+		writeFileSync(join(root, "src", "math.ts"), "export function add(a: number, b: number): number {\n\treturn a + b;\n}\n");
+		writeFileSync(join(root, "src", "consumer.ts"), 'import { add } from "./math";\n\nexport function total(): number {\n\treturn add(1, 2);\n}\n');
+		writeFileSync(
+			join(root, "tsconfig.json"),
+			JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true }, include: ["src"] }),
+		);
+		projectDir = root;
+		const mathPath = join(root, "src", "math.ts");
+		const consumerPath = join(root, "src", "consumer.ts");
+		const { workspaceId } = await daemon.client.call("workspace.registerPath", { path: root });
+		await daemon.client.call("workspace.documentSymbols", { workspaceId, path: consumerPath });
+		const renamed = await daemon.client.call("workspace.rename", { workspaceId, path: mathPath, line: 1, character: 17, newName: "sum" });
+		expect([...renamed.touchedPaths].sort()).toEqual([consumerPath, mathPath].sort());
+
+		const call = await daemon.call("mutation_history");
+		const ops = createMutationHistoryOperations();
+		const entries = await ops.list(mathPath, 10, call);
+		const entry = entries[0];
+		if (!entry?.transactionId) throw new Error("expected a transaction-tagged rename entry");
+
+		await expect(ops.revert(mathPath, entry.id, call)).rejects.toThrow("revert-transaction");
+		expect(readFileSync(mathPath, "utf8")).toContain("function sum");
+		expect(readFileSync(consumerPath, "utf8")).toContain("sum(1, 2)");
+
+		const reverted = await ops.revertTransaction(mathPath, entry.transactionId, call);
+		expect(reverted.reverted.map((item) => item.path).sort()).toEqual([consumerPath, mathPath].sort());
+		expect(reverted.transactionId).not.toBe(entry.transactionId);
+		expect(readFileSync(mathPath, "utf8")).toContain("function add");
+		expect(readFileSync(consumerPath, "utf8")).toContain("add(1, 2)");
 	}, 20_000);
 });
