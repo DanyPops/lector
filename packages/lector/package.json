@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/lector",
-	"version": "0.19.19",
+	"version": "0.19.20",
 	"description": "Platform-neutral filesystem & code-intelligence capability: core, service, and driven adapters",
 	"license": "MIT",
 	"type": "module",
@@ -51,7 +51,7 @@
 		"serve": "bun src/cli.ts serve",
 		"bench:cold-start": "bun benchmarks/language-server-cold-start.ts",
 		"build:zodiac": "bun build ../zodiac-lector/src/zodiac-entry.ts --target=node --outfile=dist/zodiac-entry.js",
-		"prepack": "bun run build:zodiac"
+		"prepack": "bun run build:zodiac >/dev/null"
 	},
 	"packed": {
 		"daemonService": {

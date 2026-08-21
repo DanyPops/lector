@@ -23,7 +23,7 @@
     },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.19.19",
+      "version": "0.19.20",
       "bin": {
         "lector": "src/cli.ts",
       },
