@@ -84,21 +84,23 @@ describe("computeWorkspaceMap", () => {
 		expect(result.entries[0]?.signature).toBeUndefined();
 	});
 
-	it("omits the signature (but still includes the entry, and never throws) for a node whose path lives entirely outside the workspace root", async () => {
-		// Reproduces a real failure found live: an outgoingCalls edge target resolved into a
-		// non-npm ecosystem's stdlib (e.g. Rust's rustup toolchain source), an absolute path with
-		// no node_modules-shaped segment for pathHasSkippedDirectorySegment to catch, and with a
-		// LocalFilesystemWorkspace root, readEntry throws PathEscapesWorkspaceRoot rather than
-		// reporting the file missing -- computeWorkspaceMap must not let that propagate uncaught.
-		const root = mkdtempSync(join(tmpdir(), "lector-workspace-map-escape-"));
+	it("excludes external toolchain/dependency nodes and a sibling textual-prefix path before ranking", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lector-workspace-map-containment-"));
 		try {
 			const graph = new InMemorySymbolGraph();
 			const workspace = new LocalFilesystemWorkspace(root);
-			await seedNode(graph, "outside", "outside", "/definitely/outside/the/workspace/root.rs", 1);
+			await seedNode(graph, "owned", "owned", join(root, "src", "owned.rs"), 1);
+			await seedNode(graph, "toolchain", "toolchain", "/rustup/toolchains/stable/library/core/src/lib.rs", 1);
+			await seedNode(graph, "registry", "registry", "/cargo/registry/src/dependency/src/lib.rs", 1);
+			await seedNode(graph, "sibling-prefix", "siblingPrefix", `${root}-other/src/lib.rs`, 1);
+			for (const external of ["toolchain", "registry", "sibling-prefix"]) {
+				await graph.addEdge(nid("owned"), nid(external), "calls");
+			}
 
 			const result = await computeWorkspaceMap(graph, workspace, DEFAULT_OPTIONS);
-			expect(result.entries).toHaveLength(1);
-			expect(result.entries[0]?.signature).toBeUndefined();
+			expect(result.entries.map((entry) => entry.name)).toEqual(["owned"]);
+			expect(result.totalRanked).toBe(1);
+			expect(result.truncated).toBe(false);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}

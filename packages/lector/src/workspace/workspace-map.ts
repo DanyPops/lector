@@ -46,14 +46,19 @@ export interface WorkspaceMapResult {
  */
 export async function computeWorkspaceMap(graph: SymbolGraphPort, workspace: WorkspacePort, options: WorkspaceMapOptions): Promise<WorkspaceMapResult> {
 	const [allFetchedNodes, edges] = await Promise.all([graph.allNodes(options.maxNodes), graph.allEdges(options.maxEdges)]);
-	// node_modules/vendored declarations reach the graph only as outgoingCalls edge targets
-	// (the file scan itself never lists them) -- keep them in SymbolGraphPort for other features
-	// that legitimately need them (reachable_from, incoming_calls), but excluding them from
-	// ranking entirely: many unrelated call sites across a real codebase all point at the same
-	// shared stdlib method, which would otherwise dominate PageRank and crowd out the workspace's
-	// own architecturally-central symbols -- exactly the effect aider's own repo-map avoids by
-	// scoping ranking to the project's own files.
-	const nodes = allFetchedNodes.filter((node) => !pathHasSkippedDirectorySegment(node.location.path));
+	// External declarations reach the graph as navigation edge targets and must stay there for
+	// reachable_from/incoming_calls, but a workspace map ranks only project-owned declarations.
+	// Delegate containment to the WorkspacePort's canonical resolver: unlike string prefixes it
+	// rejects both arbitrary external paths and siblings such as /repo-other for root /repo.
+	const nodes = allFetchedNodes.filter((node) => {
+		if (pathHasSkippedDirectorySegment(node.location.path)) return false;
+		try {
+			workspace.resolvePath(node.location.path);
+			return true;
+		} catch {
+			return false;
+		}
+	});
 	if (nodes.length === 0) return { entries: [], totalRanked: 0, truncated: false };
 
 	const rankGraph = new Graph({ type: "directed", multi: true, allowSelfLoops: true });
@@ -80,11 +85,8 @@ export async function computeWorkspaceMap(graph: SymbolGraphPort, workspace: Wor
 	for (const { node, score } of ranked) {
 		if (entries.length >= options.maxEntries) break;
 		if (!linesByPath.has(node.location.path)) {
-			// A node's path can legitimately live entirely outside this workspace's own root --
-			// e.g. a non-npm ecosystem's stdlib (Rust's rustup toolchain has no node_modules-shaped
-			// segment for pathHasSkippedDirectorySegment to catch above). readEntry throws for such a
-			// path rather than reporting "missing"; treated the same as any other unreadable file --
-			// signature absent, ranking unaffected -- rather than letting the whole call fail.
+			// Files can disappear or become unreadable after graph population; keep the ranked
+			// declaration with no signature rather than failing the entire bounded overview.
 			let lines: readonly string[] | undefined;
 			try {
 				const fileEntry = await workspace.readEntry(node.location.path);
