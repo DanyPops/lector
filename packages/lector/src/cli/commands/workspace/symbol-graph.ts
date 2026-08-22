@@ -1,5 +1,5 @@
 import { connectLectorClient } from "../../../client.ts";
-import { fail, flagValue, hasFlag, parsePosition, parseSymbolEdgeKind, requiredIntFlag } from "../../flags.ts";
+import { fail, flagValue, hasFlag, parsePosition, parseSymbolEdgeKind, positiveIntegerFlag, requiredIntFlag } from "../../flags.ts";
 import { formatCacheGenerationSummaryResult, formatIntelligenceSource, formatJobSnapshot, formatPopulationResult, formatSymbolNode } from "../../format.ts";
 import { USAGE } from "../../usage.ts";
 import type { ActionHandler } from "../action-handler.ts";
@@ -116,7 +116,20 @@ export async function runWorkspaceSymbolGraphQuery(
 
 	if (subcommand === "reachable-from") {
 		const maxDepth = requiredIntFlag(flags, "--max-depth");
-		const { symbols } = await client.call("workspace.reachableFrom", { workspaceId, path, line, character, maxDepth, kind });
+		const autoPopulate = hasFlag(flags, "--auto-populate");
+		const maxFiles = positiveIntegerFlag(flags, "--max-files");
+		const maxSymbolsPerFile = positiveIntegerFlag(flags, "--max-symbols-per-file");
+		const { symbols } = await client.call("workspace.reachableFrom", {
+			workspaceId,
+			path,
+			line,
+			character,
+			maxDepth,
+			kind,
+			...(autoPopulate ? { autoPopulate } : {}),
+			...(maxFiles !== undefined ? { maxFiles } : {}),
+			...(maxSymbolsPerFile !== undefined ? { maxSymbolsPerFile } : {}),
+		});
 		if (hasFlag(flags, "--json")) {
 			console.log(JSON.stringify(symbols));
 			return;

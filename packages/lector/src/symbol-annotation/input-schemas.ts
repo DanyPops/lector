@@ -24,6 +24,9 @@ export interface CreateAnnotationInput {
 	readonly title: string;
 	readonly body: string;
 	readonly anchors: readonly AnnotationPosition[];
+	readonly autoPopulate?: boolean;
+	readonly maxFiles?: number;
+	readonly maxSymbolsPerFile?: number;
 }
 
 export interface GetAnnotationInput {
@@ -107,6 +110,9 @@ export const createAnnotationInputSchema: VehicleSchemaCodec<CreateAnnotationInp
 			title: { type: "string" },
 			body: { type: "string" },
 			anchors: { type: "array" },
+			autoPopulate: { type: "boolean" },
+			maxFiles: { type: "number" },
+			maxSymbolsPerFile: { type: "number" },
 		},
 		required: ["workspaceId", "subtype", "title", "body", "anchors"],
 		additionalProperties: false,
@@ -119,7 +125,23 @@ export const createAnnotationInputSchema: VehicleSchemaCodec<CreateAnnotationInp
 		if (typeof value.body !== "string") return schemaIssue(["body"], "body must be a string");
 		const anchors = parseAnchors(value.anchors);
 		if (isParseFailure(anchors)) return anchors;
-		return { success: true, value: { workspaceId: value.workspaceId, subtype: value.subtype, title: value.title, body: value.body, anchors } };
+		if (value.autoPopulate !== undefined && typeof value.autoPopulate !== "boolean") return schemaIssue(["autoPopulate"], "autoPopulate must be a boolean");
+		if (value.maxFiles !== undefined && !isPositiveSafeInteger(value.maxFiles)) return schemaIssue(["maxFiles"], "maxFiles must be a positive safe integer");
+		if (value.maxSymbolsPerFile !== undefined && !isPositiveSafeInteger(value.maxSymbolsPerFile))
+			return schemaIssue(["maxSymbolsPerFile"], "maxSymbolsPerFile must be a positive safe integer");
+		return {
+			success: true,
+			value: {
+				workspaceId: value.workspaceId,
+				subtype: value.subtype,
+				title: value.title,
+				body: value.body,
+				anchors,
+				...(value.autoPopulate !== undefined ? { autoPopulate: value.autoPopulate } : {}),
+				...(value.maxFiles !== undefined ? { maxFiles: value.maxFiles } : {}),
+				...(value.maxSymbolsPerFile !== undefined ? { maxSymbolsPerFile: value.maxSymbolsPerFile } : {}),
+			},
+		};
 	},
 });
 

@@ -158,7 +158,11 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		populateSymbolGraph: population["workspace.populateSymbolGraph"],
 	});
 
-	const graphQuery = createGraphQueryHandlers({ ensureSymbolGraph: (workspaceId: WorkspaceId) => graphRefresh.graph(workspaceId) });
+	const graphQuery = createGraphQueryHandlers({
+		ensureSymbolGraph: (workspaceId: WorkspaceId) => graphRefresh.graph(workspaceId),
+		cacheStatus: cacheQuery.handlers["workspace.cacheStatus"],
+		populateSymbolGraph: population["workspace.populateSymbolGraph"],
+	});
 
 	return {
 		handlers: {

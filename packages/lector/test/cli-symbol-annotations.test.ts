@@ -73,7 +73,50 @@ async function registerAndPopulate(): Promise<{ workspaceId: string; path: strin
 	return { workspaceId: registered.workspaceId, path, line: symbol.selectionRange.start.line, character: symbol.selectionRange.start.character };
 }
 
+/** Same as registerAndPopulate, but deliberately never populates the graph -- for autoPopulate's own opt-in recovery tests. */
+async function registerWithoutPopulating(): Promise<{ workspaceId: string; path: string; line: number; character: number }> {
+	const project = fixture();
+	const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
+	const path = join(project, "index.ts");
+	const found = JSON.parse(await runCli(["workspace", "document-symbols", registered.workspaceId, path, "--json"])) as { symbols: DocumentSymbolEntry[] };
+	const symbol = found.symbols.find((s) => s.name === "add");
+	if (!symbol) throw new Error("fixture symbol 'add' was not found by workspace.documentSymbols");
+	return { workspaceId: registered.workspaceId, path, line: symbol.selectionRange.start.line, character: symbol.selectionRange.start.character };
+}
+
 describe("lector CLI annotation commands", () => {
+	it("annotation create --auto-populate populates once and resolves a real anchor with no manual populate-symbol-graph call", async () => {
+		isolated = isolatedLectorPaths();
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		const { workspaceId, path, line, character } = await registerWithoutPopulating();
+
+		const created = JSON.parse(
+			await runCli([
+				"workspace",
+				"annotation",
+				"create",
+				workspaceId,
+				"--subtype",
+				"note",
+				"--title",
+				"auto-populated",
+				"--body",
+				"created via --auto-populate against a never-populated workspace",
+				"--anchor",
+				`${path}:${line}:${character}`,
+				"--auto-populate",
+				"--max-files",
+				"10",
+				"--max-symbols-per-file",
+				"10",
+				"--json",
+			]),
+		) as SymbolAnnotation;
+
+		expect(created.status).toBe("fresh");
+		expect(created.anchors).toHaveLength(1);
+	}, 30_000);
+
 	it("creates, gets, lists, refreshes, scrubs, and restores an annotation end-to-end against a real daemon", async () => {
 		isolated = isolatedLectorPaths();
 		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });

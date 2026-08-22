@@ -13,9 +13,11 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
 import {
 	AnnotationContainmentCycle,
 	AnnotationRequiresAnchors,
+	AutoPopulateRequiresBounds,
 	createLectorService,
 	type LectorService,
 	UnknownAnnotationAnchor,
@@ -61,6 +63,14 @@ async function warmGraph(service: LectorService, workspaceId: WorkspaceId, path:
 	await service.dispatch("workspace.symbolEdgesFrom", { workspaceId, path, line: 1, character: 1 });
 }
 
+function buildTypeScriptFixture(): string {
+	const root = mkdtempSync(join(tmpdir(), "lector-service-annotations-autopopulate-"));
+	mkdirSync(join(root, "src"));
+	writeFileSync(join(root, "src", "a.ts"), "export function add() {}\n");
+	writeFileSync(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true } }));
+	return root;
+}
+
 describe("createLectorService's annotation operations", () => {
 	it("creates an annotation anchored to a real symbol, and get() returns it fresh", async () => {
 		fixtureRoot = buildFixture();
@@ -84,6 +94,68 @@ describe("createLectorService's annotation operations", () => {
 
 		const { annotation: fetched } = await service.dispatch("workspace.getAnnotation", { workspaceId, id: annotation.id });
 		expect(fetched?.status).toBe("fresh");
+	});
+
+	it("createAnnotation: autoPopulate: true populates once and then resolves a real anchor, with no manual populateSymbolGraph call", async () => {
+		fixtureRoot = buildTypeScriptFixture();
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolIndex: (rootPath, descriptor, seedFile) => new LspSymbolIndex(rootPath, descriptor, seedFile),
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		const path = join(fixtureRoot, "src", "a.ts");
+
+		const { annotation } = await service.dispatch("workspace.createAnnotation", {
+			workspaceId,
+			subtype: "note",
+			title: "auto-populated anchor",
+			body: "created against a workspace that had never been populated at all",
+			anchors: [{ path, line: 1, character: 17 }],
+			autoPopulate: true,
+			maxFiles: 100,
+			maxSymbolsPerFile: 50,
+		});
+
+		expect(annotation.anchors[0]?.path).toBe(path);
+	}, 20_000);
+
+	it("createAnnotation: without autoPopulate still throws UnknownAnnotationAnchor against a never-populated workspace -- opt-in stays opt-in", async () => {
+		fixtureRoot = buildTypeScriptFixture();
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolIndex: (rootPath, descriptor, seedFile) => new LspSymbolIndex(rootPath, descriptor, seedFile),
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		const path = join(fixtureRoot, "src", "a.ts");
+
+		const attempt = service.dispatch("workspace.createAnnotation", {
+			workspaceId,
+			subtype: "note",
+			title: "should fail",
+			body: "autoPopulate defaults off",
+			anchors: [{ path, line: 1, character: 17 }],
+		});
+
+		await expect(attempt).rejects.toBeInstanceOf(UnknownAnnotationAnchor);
+	}, 20_000);
+
+	it("createAnnotation: autoPopulate: true without bounds throws AutoPopulateRequiresBounds rather than guessing a default scope", async () => {
+		fixtureRoot = buildFixture();
+		const { service: svc } = createServiceWithCapturedGraphs();
+		service = svc;
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		const path = join(fixtureRoot, "src", "a.ts");
+
+		const attempt = service.dispatch("workspace.createAnnotation", {
+			workspaceId,
+			subtype: "note",
+			title: "should fail",
+			body: "no bounds given",
+			anchors: [{ path, line: 1, character: 1 }],
+			autoPopulate: true,
+		});
+
+		await expect(attempt).rejects.toBeInstanceOf(AutoPopulateRequiresBounds);
 	});
 
 	it("resolves a workspace-relative anchor path to the same symbol a caller would reach with the absolute form", async () => {

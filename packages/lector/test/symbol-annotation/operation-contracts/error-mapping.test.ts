@@ -40,7 +40,16 @@ function buildFixture() {
 	const registry: MutableRegistry = new Map([["ws", { port: new LocalFilesystemWorkspace(root), rootPath: root, origin: "local" as const }]]);
 	const graph = new InMemorySymbolGraph();
 	graph.addNode({ id: deriveSymbolNodeId({ path, line: 1, character: 1 }), name: "add", kind: "function", location: { path, line: 1, character: 1 } });
-	const handlers = new AnnotationHandlers({ registry, graph: () => graph });
+	const handlers = new AnnotationHandlers({
+		registry,
+		graph: () => graph,
+		cacheStatus: () => {
+			throw new Error("cacheStatus is not exercised by this test");
+		},
+		populateSymbolGraph: () => {
+			throw new Error("populateSymbolGraph is not exercised by this test");
+		},
+	});
 	const vehicleRegistry = new VehicleRegistry({ name: "lector-annotation-error-mapping", version: "1.0.0", description: "test" });
 	registerAnnotationOperations(vehicleRegistry, registry, handlers);
 	return { registry, handlers, vehicleRegistry, anchors: [{ path, line: 1, character: 1 }] };

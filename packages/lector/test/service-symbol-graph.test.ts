@@ -12,7 +12,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
-import { createLectorService, type LectorService } from "../src/service.ts";
+import { AutoPopulateRequiresBounds, createLectorService, type LectorService } from "../src/service.ts";
 
 let fixtureRoot: string | undefined;
 let service: LectorService | undefined;
@@ -107,6 +107,47 @@ describe("createLectorService's symbol-graph operations", () => {
 		});
 
 		expect(result.symbols).toEqual([]);
+	}, 20_000);
+
+	it("reachableFrom: autoPopulate: true populates once and then answers a real multi-hop question in one call, no manual populateSymbolGraph needed", async () => {
+		fixtureRoot = buildFixture();
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolIndex: (rootPath, descriptor, seedFile) => new LspSymbolIndex(rootPath, descriptor, seedFile),
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+
+		const result = await service.dispatch("workspace.reachableFrom", {
+			workspaceId,
+			path: join(fixtureRoot, "src", "chain.ts"),
+			line: 1,
+			character: 17,
+			maxDepth: 2,
+			kind: "calls",
+			autoPopulate: true,
+			maxFiles: 100,
+			maxSymbolsPerFile: 50,
+		});
+
+		expect(result.symbols.map((s) => s.name)).toContain("b");
+		expect(result.symbols.map((s) => s.name)).toContain("c");
+	}, 20_000);
+
+	it("reachableFrom: autoPopulate: true without bounds throws AutoPopulateRequiresBounds rather than guessing a default scope", async () => {
+		fixtureRoot = buildFixture();
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+
+		const attempt = service.dispatch("workspace.reachableFrom", {
+			workspaceId,
+			path: join(fixtureRoot, "src", "chain.ts"),
+			line: 1,
+			character: 17,
+			maxDepth: 2,
+			autoPopulate: true,
+		});
+
+		await expect(attempt).rejects.toBeInstanceOf(AutoPopulateRequiresBounds);
 	}, 20_000);
 
 	it("populateSymbolGraph processes every file of a many-independent-file workspace correctly under real service-level concurrent dispatch", async () => {

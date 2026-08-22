@@ -78,9 +78,14 @@ export const USAGE = `Usage:
   lector workspace symbol-graph <reachable-from|edges-from|edges-to> <workspace-id> <path> <line> <character>
     [--max-depth <n>] [--kind <calls|references|contains>] [--json]
     --max-depth is required for reachable-from, ignored for edges-from/edges-to
+    reachable-from only: --auto-populate [--max-files <n>] [--max-symbols-per-file <n>] populates once
+    if the graph has no completed generation at all for those bounds, before querying -- never retries
+    a genuinely partial graph; --max-files/--max-symbols-per-file are required alongside --auto-populate
   lector workspace annotation create <workspace-id> --subtype <s> --title <t> --body <text>
     --anchor <path>:<line>:<character> (repeatable, at least one required) [--json]
     each anchor must resolve to a real, currently-known symbol in the populated graph
+    [--auto-populate --max-files <n> --max-symbols-per-file <n>] populates once first if not yet cached
+    at those bounds, instead of failing when an anchor falls outside the graph's current scan
   lector workspace annotation get <workspace-id> <annotation-id> [--json]
     live-checks staleness against the current graph/workspace before returning
   lector workspace annotation list <workspace-id> [--subtype <s>] [--status <fresh|stale|scrubbed>] [--query <text>]

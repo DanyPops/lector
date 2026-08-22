@@ -295,6 +295,14 @@ export class ReferenceBasedRenameRequiresFreshGraph extends Error {
 	}
 }
 
+/** autoPopulate needs explicit population bounds to check freshness/populate against -- never silently defaulted, since a wrong guessed bound could populate (and cache) the wrong scope. */
+export class AutoPopulateRequiresBounds extends Error {
+	constructor(readonly operation: string) {
+		super(`${operation}'s autoPopulate requires maxFiles and maxSymbolsPerFile to be set explicitly`);
+		this.name = "AutoPopulateRequiresBounds";
+	}
+}
+
 /** Raised when a workspace's own WorkspacePort implementation does not also implement FileTreePort (e.g. a read-only fetched-repo checkout). */
 export class WorkspaceDoesNotSupportFileTree extends Error {
 	constructor(readonly workspaceId: WorkspaceId) {

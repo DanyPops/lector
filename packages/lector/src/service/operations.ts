@@ -270,7 +270,23 @@ export interface OperationInputs {
 		allowBroadRoot?: boolean;
 		retryTimeBudgetMs?: number;
 	};
-	"workspace.reachableFrom": WorkspacePosition & { maxDepth: number; kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
+	"workspace.reachableFrom": WorkspacePosition & {
+		maxDepth: number;
+		kind?: SymbolEdgeKind;
+		maxResults?: number;
+		maxBytes?: number;
+		/**
+		 * When true and the graph has no completed generation at all for maxFiles/maxSymbolsPerFile
+		 * (never "partial"), populates once at those exact bounds before querying, instead of
+		 * silently returning an empty result for a position the graph never scanned. Requires
+		 * maxFiles/maxSymbolsPerFile when set. Opt-in and false by default -- see
+		 * workspace.referenceBasedRename's own autoPopulate doc comment for why this workspace is not
+		 * always a caller's correct final scope to auto-populate.
+		 */
+		autoPopulate?: boolean;
+		maxFiles?: number;
+		maxSymbolsPerFile?: number;
+	};
 	"workspace.symbolEdgesFrom": WorkspacePosition & { kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
 	"workspace.symbolEdgesTo": WorkspacePosition & { kind?: SymbolEdgeKind; maxResults?: number; maxBytes?: number };
 	"workspace.hasWarmIndex": { workspaceId: WorkspaceId; path?: string };
@@ -370,6 +386,16 @@ export interface OperationInputs {
 		body: string;
 		/** Positions only -- symbolNodeId and the anchor's baseline file hash are derived server-side from the live graph/workspace, never trusted from the caller. */
 		anchors: readonly { path: string; line: number; character: number }[];
+		/**
+		 * When true and the graph has no completed generation at all for maxFiles/maxSymbolsPerFile
+		 * (never "partial" -- a real per-file failure, not merely absent data), populates once at those
+		 * exact bounds before resolving anchors, instead of failing UnknownAnnotationAnchor outright.
+		 * Requires maxFiles/maxSymbolsPerFile when set. Opt-in and false by default: an anchor that
+		 * still can't resolve after populating is a real absence, not something to retry further.
+		 */
+		autoPopulate?: boolean;
+		maxFiles?: number;
+		maxSymbolsPerFile?: number;
 	};
 	"workspace.getAnnotation": { workspaceId: WorkspaceId; id: AnnotationId };
 	"workspace.listAnnotations": { workspaceId: WorkspaceId; subtype?: string; status?: "fresh" | "stale" | "scrubbed"; maxResults?: number; query?: string };

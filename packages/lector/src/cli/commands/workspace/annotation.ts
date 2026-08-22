@@ -1,5 +1,5 @@
 import { connectLectorClient } from "../../../client.ts";
-import { fail, flagValue, hasFlag, requireAnnotationFields } from "../../flags.ts";
+import { fail, flagValue, hasFlag, positiveIntegerFlag, requireAnnotationFields } from "../../flags.ts";
 import { formatAnnotation } from "../../format.ts";
 import { USAGE } from "../../usage.ts";
 
@@ -8,8 +8,20 @@ import { USAGE } from "../../usage.ts";
 export async function runWorkspaceAnnotationCreate(workspaceId: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId) fail(USAGE);
 	const { subtype, title, body, anchors } = requireAnnotationFields(flags);
+	const autoPopulate = hasFlag(flags, "--auto-populate");
+	const maxFiles = positiveIntegerFlag(flags, "--max-files");
+	const maxSymbolsPerFile = positiveIntegerFlag(flags, "--max-symbols-per-file");
 	const client = await connectLectorClient();
-	const { annotation } = await client.call("workspace.createAnnotation", { workspaceId, subtype, title, body, anchors });
+	const { annotation } = await client.call("workspace.createAnnotation", {
+		workspaceId,
+		subtype,
+		title,
+		body,
+		anchors,
+		...(autoPopulate ? { autoPopulate } : {}),
+		...(maxFiles !== undefined ? { maxFiles } : {}),
+		...(maxSymbolsPerFile !== undefined ? { maxSymbolsPerFile } : {}),
+	});
 	console.log(hasFlag(flags, "--json") ? JSON.stringify(annotation) : formatAnnotation(annotation));
 }
 

@@ -44,7 +44,7 @@ import { REPO_LIST_CACHE_PERMISSIONS, REPO_WRITE_PERMISSIONS, registerRepoFetchO
 import type { RepoFetcherPort } from "./repo-fetcher/port.ts";
 import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
 import type { SearchCachePort } from "./search-cache/port.ts";
-import { AnnotationHandlers } from "./service/annotation-handlers.ts";
+import { type AnnotationHandlerDeps, AnnotationHandlers } from "./service/annotation-handlers.ts";
 import { DISPATCH_SLOW_WARN_THRESHOLD_MS } from "./service/bounds.ts";
 import { createCodeIntelligenceHandlers } from "./service/code-intelligence-handlers.ts";
 import { createCrossWorkspaceHandlers } from "./service/cross-workspace-handlers.ts";
@@ -296,7 +296,23 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	});
 	const ensureSymbolGraph = (workspaceId: WorkspaceId): SymbolGraphPort => graphRefresh.graph(workspaceId);
 
-	const annotationHandlers = new AnnotationHandlers({ registry, graph: ensureSymbolGraph, createStore: options.createSymbolAnnotations });
+	// Late-bound the same way ensureOsWatcher is below: AnnotationHandlers is constructed before
+	// symbolGraphHandlers (which owns the real cacheStatus/populateSymbolGraph implementations it
+	// needs for autoPopulate), but both constructions are synchronous, so the rebind always lands
+	// before any real call could occur.
+	let annotationCacheStatus: AnnotationHandlerDeps["cacheStatus"] = () => {
+		throw new Error("cacheStatus not yet initialized");
+	};
+	let annotationPopulateSymbolGraph: AnnotationHandlerDeps["populateSymbolGraph"] = () => {
+		throw new Error("populateSymbolGraph not yet initialized");
+	};
+	const annotationHandlers = new AnnotationHandlers({
+		registry,
+		graph: ensureSymbolGraph,
+		createStore: options.createSymbolAnnotations,
+		cacheStatus: (registry, input) => annotationCacheStatus(registry, input),
+		populateSymbolGraph: (registry, input) => annotationPopulateSymbolGraph(registry, input),
+	});
 	const mutationHistory = new MutationHistoryCoordinator({ registry, createStore: options.createMutationHistory, fileOperations: warmIndexes });
 
 	const createGitPort = options.createGitPort ?? ((rootPath: string) => new LocalGit(rootPath));
@@ -345,6 +361,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		now: options.populateRetryNow,
 		ensureOsWatcher: (workspaceId, rootPath) => ensureOsWatcher(workspaceId, rootPath),
 	});
+	annotationCacheStatus = symbolGraphHandlers.handlers["workspace.cacheStatus"];
+	annotationPopulateSymbolGraph = symbolGraphHandlers.handlers["workspace.populateSymbolGraph"];
 	const workspaceWatchHandlers = new WorkspaceWatchHandlers({
 		registry,
 		createWatcher: createFileWatcher,
@@ -559,6 +577,7 @@ export type { WorkspaceId } from "./service/errors.ts";
 export {
 	AnnotationContainmentCycle,
 	AnnotationRequiresAnchors,
+	AutoPopulateRequiresBounds,
 	BroadNonProjectRoot,
 	CodeIntelligenceUnavailable,
 	deriveWorkspaceId,

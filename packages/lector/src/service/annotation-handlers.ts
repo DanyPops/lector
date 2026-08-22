@@ -8,7 +8,14 @@ import type { SymbolAnnotation, SymbolAnnotationAnchor } from "../symbol-annotat
 import type { SymbolGraphPort } from "../symbol-graph/port.ts";
 import { deriveSymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import type { WorkspacePort } from "../workspace/port.ts";
-import { AnnotationContainmentCycle, AnnotationRequiresAnchors, UnknownAnnotationAnchor, UnknownAnnotationForContainment, type WorkspaceId } from "./errors.ts";
+import {
+	AnnotationContainmentCycle,
+	AnnotationRequiresAnchors,
+	AutoPopulateRequiresBounds,
+	UnknownAnnotationAnchor,
+	UnknownAnnotationForContainment,
+	type WorkspaceId,
+} from "./errors.ts";
 import type { OperationInputs, OperationOutputs } from "./operations.ts";
 import { type MutableRegistry, resolveWorkspace } from "./workspace-registry.ts";
 
@@ -16,6 +23,11 @@ export interface AnnotationHandlerDeps {
 	readonly registry: MutableRegistry;
 	readonly graph: (workspaceId: WorkspaceId) => SymbolGraphPort;
 	readonly createStore?: (workspaceId: WorkspaceId) => SymbolAnnotationPort;
+	readonly cacheStatus: (registry: MutableRegistry, input: OperationInputs["workspace.cacheStatus"]) => Promise<OperationOutputs["workspace.cacheStatus"]>;
+	readonly populateSymbolGraph: (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.populateSymbolGraph"],
+	) => Promise<OperationOutputs["workspace.populateSymbolGraph"]>;
 }
 
 export class AnnotationHandlers {
@@ -119,6 +131,15 @@ export class AnnotationHandlers {
 		input: OperationInputs["workspace.createAnnotation"],
 	): Promise<OperationOutputs["workspace.createAnnotation"]> {
 		const workspace = resolveWorkspace(registry, input.workspaceId);
+		if (input.autoPopulate) {
+			if (input.maxFiles === undefined || input.maxSymbolsPerFile === undefined) throw new AutoPopulateRequiresBounds("workspace.createAnnotation");
+			const { maxFiles, maxSymbolsPerFile } = input;
+			// Only "not-cached" is safe to recover from automatically -- see
+			// workspace.referenceBasedRename's own autoPopulate doc comment for why "partial" and any
+			// in-flight population status are never retried here regardless of this flag.
+			const status = await this.deps.cacheStatus(registry, { workspaceId: input.workspaceId, maxFiles, maxSymbolsPerFile });
+			if (status.status === "not-cached") await this.deps.populateSymbolGraph(registry, { workspaceId: input.workspaceId, maxFiles, maxSymbolsPerFile });
+		}
 		const anchors = await this.anchors(this.deps.graph(input.workspaceId), workspace, input.anchors);
 		return { annotation: await this.store(input.workspaceId).create({ subtype: input.subtype, title: input.title, body: input.body, anchors }) };
 	}

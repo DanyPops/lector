@@ -5,12 +5,17 @@ import { symbolEdgesFrom } from "../../symbol-graph/symbol-edges-from.ts";
 import { symbolEdgesTo } from "../../symbol-graph/symbol-edges-to.ts";
 import { deriveSymbolNodeId } from "../../symbol-graph/symbol-node-id.ts";
 import { DEFAULT_GRAPH_QUERY_BYTES, DEFAULT_GRAPH_QUERY_RESULTS, MAX_GRAPH_QUERY_BYTES, MAX_GRAPH_QUERY_RESULTS, resolveBound } from "../bounds.ts";
-import type { WorkspaceId } from "../errors.ts";
+import { AutoPopulateRequiresBounds, type WorkspaceId } from "../errors.ts";
 import type { OperationInputs, OperationOutputs } from "../operations.ts";
 import type { MutableRegistry } from "../workspace-registry.ts";
 
 export interface GraphQueryHandlerDeps {
 	readonly ensureSymbolGraph: (workspaceId: WorkspaceId) => SymbolGraphPort;
+	readonly cacheStatus: (registry: MutableRegistry, input: OperationInputs["workspace.cacheStatus"]) => Promise<OperationOutputs["workspace.cacheStatus"]>;
+	readonly populateSymbolGraph: (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.populateSymbolGraph"],
+	) => Promise<OperationOutputs["workspace.populateSymbolGraph"]>;
 }
 
 export interface GraphQueryHandlers {
@@ -28,9 +33,9 @@ export interface GraphQueryHandlers {
 	) => Promise<OperationOutputs["workspace.symbolEdgesTo"]>;
 }
 
-/** Pure graph reads -- reachableFrom/symbolEdgesFrom/symbolEdgesTo need nothing but the graph itself, no warm index, no registry entry, no cache-freshness concern. */
+/** Pure graph reads -- reachableFrom/symbolEdgesFrom/symbolEdgesTo need nothing but the graph itself, no warm index, no registry entry, no cache-freshness concern (autoPopulate opts into the one exception for reachableFrom). */
 export function createGraphQueryHandlers(deps: GraphQueryHandlerDeps): GraphQueryHandlers {
-	const { ensureSymbolGraph } = deps;
+	const { ensureSymbolGraph, cacheStatus, populateSymbolGraph } = deps;
 
 	function boundedSymbolNodes(symbols: readonly SymbolNode[], input: { maxResults?: number; maxBytes?: number }): OperationOutputs["workspace.reachableFrom"] {
 		const maxResults = resolveBound(input.maxResults, DEFAULT_GRAPH_QUERY_RESULTS, MAX_GRAPH_QUERY_RESULTS, "maxResults");
@@ -40,9 +45,20 @@ export function createGraphQueryHandlers(deps: GraphQueryHandlerDeps): GraphQuer
 	}
 
 	async function reachableFromHandler(
-		_registry: MutableRegistry,
+		registry: MutableRegistry,
 		input: OperationInputs["workspace.reachableFrom"],
 	): Promise<OperationOutputs["workspace.reachableFrom"]> {
+		if (input.autoPopulate) {
+			if (input.maxFiles === undefined || input.maxSymbolsPerFile === undefined) throw new AutoPopulateRequiresBounds("workspace.reachableFrom");
+			const { maxFiles, maxSymbolsPerFile } = input;
+			// Only "not-cached" (no completed generation at these bounds at all -- never present, or
+			// recorded at different bounds) is safe to recover from automatically. "partial" (real
+			// per-file population failures) and "caching"/"waiting-for-resources" (another population
+			// already in flight) are never retried here regardless of this flag -- see
+			// workspace.referenceBasedRename's own autoPopulate doc comment for why.
+			const status = await cacheStatus(registry, { workspaceId: input.workspaceId, maxFiles, maxSymbolsPerFile });
+			if (status.status === "not-cached") await populateSymbolGraph(registry, { workspaceId: input.workspaceId, maxFiles, maxSymbolsPerFile });
+		}
 		const graph = ensureSymbolGraph(input.workspaceId);
 		const id = deriveSymbolNodeId({ path: input.path, line: input.line, character: input.character });
 		const symbols = await reachableSymbolsFrom(graph, id, { maxDepth: input.maxDepth, kind: input.kind });
