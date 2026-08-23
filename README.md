@@ -18,10 +18,18 @@ request can warm the other's for free.
   tree-sitter, SQLite content cache), and the CLI/systemd service.
 - **[`packages/pi-lector`](packages/pi-lector)** — the Pi host adapter:
   overrides `read`/`write`/`edit` and adds symbol, search, Git, repository, and verified package-source tools, all routed through a running Lector daemon.
+- **[`packages/alef-lector`](packages/alef-lector)** — the Alef host adapter:
+  Node-portable `WorkspaceFilesystemPort`/`CodeIntelligencePort`/`CallGraphPort`/`WorkspaceGitPort`
+  implementations over a running Lector daemon, shipping a real compiled
+  `dist/` so a Node/tsc consumer never resolves Lector's own raw Bun-native
+  source.
+- **[`packages/zodiac-lector`](packages/zodiac-lector)** — the Zodiac host
+  adapter: a package-owned contribution registering Lector's workspace,
+  file, search, symbol, diagnostics, call-graph, and Git operations as
+  Zodiac resources, over the same running daemon.
 
-A future `alef-lector` (the Alef host adapter) would join this workspace the
-same way, depending on `packages/lector` without duplicating any of its
-domain behavior.
+Each host adapter depends on `packages/lector` without duplicating any of
+its domain behavior.
 
 ## Architecture
 

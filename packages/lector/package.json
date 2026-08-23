@@ -2,6 +2,7 @@
 	"name": "@danypops/lector",
 	"version": "0.19.22",
 	"description": "Platform-neutral filesystem & code-intelligence capability: core, service, and driven adapters",
+	"keywords": ["filesystem", "code-intelligence", "language-server", "tree-sitter", "daemon", "cli"],
 	"license": "MIT",
 	"type": "module",
 	"main": "./src/index.ts",

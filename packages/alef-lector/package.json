@@ -2,6 +2,7 @@
 	"name": "@danypops/alef-lector",
 	"version": "0.1.0",
 	"description": "Alef host adapter for Lector: Node-portable WorkspaceFilesystemPort/CodeIntelligencePort/CallGraphPort/WorkspaceGitPort implementations over a running Lector daemon",
+	"keywords": ["filesystem", "code-intelligence", "alef", "lector"],
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",

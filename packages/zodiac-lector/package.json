@@ -2,6 +2,7 @@
   "name": "@danypops/zodiac-lector",
   "version": "0.0.5",
   "description": "Package-owned Lector contribution for Zodiac workspace resources",
+  "keywords": ["zodiac", "lector", "code-intelligence"],
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
