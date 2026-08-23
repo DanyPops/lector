@@ -1,0 +1,2 @@
+requests==2.31.0
+-e git+https://github.com/example/editable-dep.git@abcdef1#egg=editable-dep

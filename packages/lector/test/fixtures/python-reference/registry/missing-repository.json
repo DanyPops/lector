@@ -1,0 +1,16 @@
+{
+  "info": {
+    "name": "no-source-metadata",
+    "version": "1.0.0",
+    "project_urls": null
+  },
+  "releases": {
+    "1.0.0": [
+      {
+        "packagetype": "sdist",
+        "url": "https://files.pythonhosted.org/packages/no-source-metadata-1.0.0.tar.gz",
+        "digests": { "sha256": "0000000000000000000000000000000000000000000000000000000000000" }
+      }
+    ]
+  }
+}

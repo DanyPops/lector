@@ -1,0 +1,19 @@
+{
+  "info": {
+    "name": "mismatched-tag-package",
+    "version": "3.2.1",
+    "project_urls": {
+      "Source": "https://github.com/example/mismatched-tag-package"
+    }
+  },
+  "releases": {
+    "3.2.1": [
+      {
+        "packagetype": "sdist",
+        "url": "https://files.pythonhosted.org/packages/mismatched-tag-package-3.2.1.tar.gz",
+        "digests": { "sha256": "0000000000000000000000000000000000000000000000000000000000000" }
+      }
+    ]
+  },
+  "_fixtureNote": "the real repository has no v3.2.1 tag -- exercises mismatched-tag resolution"
+}

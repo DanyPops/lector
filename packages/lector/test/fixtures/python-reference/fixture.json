@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "languages": ["python"],
+  "packageManagers": ["pip", "poetry", "uv", "pipenv"],
+  "requiredPaths": [
+    "pyproject.toml",
+    "contracts/__init__.py",
+    "contracts/payment.py",
+    "contracts/vendor.pyi",
+    "app/checkout.py",
+    "app/stripe.py",
+    "app/type_error.py",
+    "app/unicode.py",
+    "app/async_ops.py",
+    "legacy/gateway.py",
+    "broken/syntax_error.py",
+    "nspkg/part_a/module_a.py",
+    "nspkg/part_b/module_b.py",
+    "packages/subapp/pyproject.toml",
+    "packages/subapp/subapp/__init__.py",
+    "locks/pip/requirements.txt",
+    "locks/pip/direct_url.json",
+    "locks/pip/direct_url.editable.json",
+    "locks/poetry/poetry.lock",
+    "locks/uv/uv.lock",
+    "locks/pipenv/Pipfile.lock",
+    "registry/exact.json",
+    "registry/missing-repository.json",
+    "registry/mismatched-tag.json",
+    "registry/private.json",
+    "history/v1/payment.py",
+    "history/v2/payment.py",
+    "generated/client.py",
+    "ignored/raw_text.py"
+  ],
+  "expectedSymbols": [
+    { "name": "PaymentProcessor", "kind": "class", "path": "contracts/payment.py" },
+    { "name": "StripeProcessor", "kind": "class", "path": "app/stripe.py" },
+    { "name": "run_checkout", "kind": "function", "path": "app/checkout.py" },
+    { "name": "LegacyGateway", "kind": "class", "path": "legacy/gateway.py" }
+  ],
+  "diagnostic": {
+    "path": "app/type_error.py",
+    "messageIncludes": "not assignable"
+  },
+  "lexicalMarker": "FIXTURE_RAW_TEXT_ONLY"
+}

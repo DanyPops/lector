@@ -1,0 +1,8 @@
+{
+  "url": "https://github.com/example/editable-dep.git",
+  "vcs_info": {
+    "vcs": "git",
+    "commit_id": "abcdef1234567890abcdef1234567890abcdef12",
+    "requested_revision": "abcdef1"
+  }
+}

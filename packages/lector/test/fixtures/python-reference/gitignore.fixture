@@ -1,0 +1,6 @@
+generated/
+history/
+ignored/
+__pycache__/
+*.pyc
+.venv/

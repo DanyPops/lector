@@ -1,0 +1,19 @@
+{
+  "info": {
+    "name": "internal-private-package",
+    "version": "0.9.0",
+    "project_urls": {
+      "Source": "https://git.internal.example/team/internal-private-package"
+    }
+  },
+  "releases": {
+    "0.9.0": [
+      {
+        "packagetype": "sdist",
+        "url": "https://pypi.internal.example/packages/internal-private-package-0.9.0.tar.gz",
+        "digests": { "sha256": "0000000000000000000000000000000000000000000000000000000000000" }
+      }
+    ]
+  },
+  "_fixtureNote": "resolved from a private index, not pypi.org"
+}
