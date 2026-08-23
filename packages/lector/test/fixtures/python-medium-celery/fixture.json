@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "source": {
+    "repo": "https://github.com/celery/celery",
+    "path": "celery/",
+    "commit": "8d2bccca0478cad48f31a75eaebc0ce389f65425",
+    "license": "BSD-3-Clause",
+    "fetchedVia": "repo_cache",
+    "fetchedAt": "2026-08-23"
+  },
+  "languages": ["python"],
+  "fileCount": 161,
+  "note": "A real, vendored (not live-cloned) snapshot for reproducibility and offline CI safety, same rationale as typescript-medium-axios/typescript-large-prettier. Correctness is checked structurally (fileContains/fileLacks/a word-boundary directoryLacksIdentifier), not via live pyright diagnostics -- applying the same lesson those two fixtures' own real checkJs-noise finding taught, proactively, without re-running the same discovery."
+}
