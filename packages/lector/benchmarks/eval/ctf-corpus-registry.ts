@@ -15,11 +15,13 @@ import { CTF_CORPUS_TYPESCRIPT_MEDIUM } from "./ctf-corpus-typescript-medium.ts"
 import { CTF_CORPUS_TYPESCRIPT_LARGE } from "./ctf-corpus-typescript-large.ts";
 import { CTF_CORPUS_PYTHON_MEDIUM } from "./ctf-corpus-python-medium.ts";
 import { CTF_CORPUS_GO_MEDIUM } from "./ctf-corpus-go-medium.ts";
+import { CTF_CORPUS_RUST_MEDIUM } from "./ctf-corpus-rust-medium.ts";
 import { materializeTypeScriptReferenceFixture } from "../../test/support/typescript-reference-fixture.ts";
 import { materializeTypescriptMediumAxiosFixture } from "../../test/support/typescript-medium-axios-fixture.ts";
 import { materializeTypescriptLargePrettierFixture } from "../../test/support/typescript-large-prettier-fixture.ts";
 import { materializePythonMediumCeleryFixture } from "../../test/support/python-medium-celery-fixture.ts";
 import { materializeGoMediumPrometheusClientFixture } from "../../test/support/go-medium-prometheus-client-fixture.ts";
+import { materializeRustMediumRipgrepFixture } from "../../test/support/rust-medium-ripgrep-fixture.ts";
 import { materializePythonReferenceFixture } from "../../test/support/python-reference-fixture.ts";
 import { materializeGoReferenceFixture } from "../../test/support/go-reference-fixture.ts";
 import { materializeRustReferenceFixture } from "../../test/support/rust-reference-fixture.ts";
@@ -55,6 +57,7 @@ export const CTF_CORPORA: Readonly<Record<string, CtfCorpusModule>> = {
 	"large:typescript": { tasks: CTF_CORPUS_TYPESCRIPT_LARGE, materializeFixture: materializeTypescriptLargePrettierFixture },
 	"medium:python": { tasks: CTF_CORPUS_PYTHON_MEDIUM, materializeFixture: materializePythonMediumCeleryFixture },
 	"medium:go": { tasks: CTF_CORPUS_GO_MEDIUM, materializeFixture: materializeGoMediumPrometheusClientFixture },
+	"medium:rust": { tasks: CTF_CORPUS_RUST_MEDIUM, materializeFixture: materializeRustMediumRipgrepFixture },
 };
 
 export function resolveCtfCorpus(key: string): CtfCorpusModule {

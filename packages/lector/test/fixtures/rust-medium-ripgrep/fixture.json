@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "source": {
+    "repo": "https://github.com/BurntSushi/ripgrep",
+    "path": "crates/",
+    "commit": "3fce3b5bb0236da2df6d99672afb8a719642eca7",
+    "license": "MIT",
+    "fetchedVia": "repo_cache",
+    "fetchedAt": "2026-08-23"
+  },
+  "languages": ["rust"],
+  "fileCount": 90,
+  "note": "A real, vendored (not live-cloned) snapshot for reproducibility and offline CI safety, same rationale as the other tier-2/3 corpora. A real multi-crate Cargo workspace -- SearcherBuilder (crates/searcher) is referenced across real consumer crates (core, printer, grep), a genuine cross-crate rename, not just cross-file within one crate. Correctness is checked structurally (fileContains/fileLacks/directoryLacksIdentifier), not via live rust-analyzer diagnostics, applying the checkJs-noise lesson proactively."
+}
