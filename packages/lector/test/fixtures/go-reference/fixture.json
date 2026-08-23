@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "languages": ["go"],
+  "packageManagers": ["gomod", "goworkspace", "govendor"],
+  "requiredPaths": [
+    "go.mod",
+    "go.sum",
+    "go.work",
+    "contracts/payment.go",
+    "app/checkout.go",
+    "app/stripe.go",
+    "app/type_error.go",
+    "app/embedding.go",
+    "app/generics.go",
+    "app/aliases.go",
+    "app/unicode.go",
+    "app/tagged.go",
+    "broken/syntax_error.go",
+    "generated/client.go",
+    "modules/nested/go.mod",
+    "modules/nested/nested.go",
+    "vendor/modules.txt",
+    "locks/replace-directive.go.mod.snippet",
+    "locks/pseudo-version.go.mod.snippet",
+    "locks/direct-vcs-dependency.go.mod.snippet",
+    "locks/checksum-mismatch.go.sum.snippet",
+    "locks/private-module.go.mod.snippet",
+    "history/v1/payment.go",
+    "history/v2/payment.go",
+    "ignored/raw_text.go"
+  ],
+  "expectedSymbols": [
+    { "name": "PaymentProcessor", "kind": "interface", "path": "contracts/payment.go" },
+    { "name": "StripeProcessor", "kind": "struct", "path": "app/stripe.go" },
+    { "name": "RunCheckout", "kind": "function", "path": "app/checkout.go" },
+    { "name": "NestedMarker", "kind": "function", "path": "modules/nested/nested.go" }
+  ],
+  "diagnostic": {
+    "path": "app/type_error.go",
+    "messageIncludes": "cannot use"
+  },
+  "lexicalMarker": "FIXTURE_RAW_TEXT_ONLY"
+}

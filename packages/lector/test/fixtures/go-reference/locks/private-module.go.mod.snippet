@@ -1,0 +1,8 @@
+module fixture.lector.invalid/gomod-reference
+
+go 1.22
+
+require git.internal.example/team/private-module v0.3.0
+
+// GOPRIVATE=git.internal.example/* and GONOSUMCHECK apply to this dependency --
+// its checksum is deliberately absent from go.sum, not merely mismatched.
