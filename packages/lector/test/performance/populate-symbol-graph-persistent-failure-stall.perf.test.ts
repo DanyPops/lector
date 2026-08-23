@@ -120,4 +120,42 @@ describe("populateSymbolGraph against a language server that crashes and never r
 		const minimumExpectedMs = failingPaths.size * callDelayMs * 0.9;
 		expect(elapsedMs).toBeGreaterThanOrEqual(minimumExpectedMs);
 	});
+
+	/**
+	 * The desired fix (task "Lector: add a consecutive-failure circuit breaker to
+	 * populateSymbolGraph for a persistently-unavailable language server"): once a persistent
+	 * failure pattern is evident, cumulative wall time for the remainder of a long
+	 * consecutively-failing tail must stop scaling linearly with its length.
+	 *
+	 * it.failing: there is no circuit breaker yet, so this genuinely fails today -- and
+	 * it.failing reports that as a PASS (a verified, tracked, currently-true gap) rather than
+	 * breaking the build. The moment the fix lands, this assertion will start succeeding, which
+	 * flips it.failing itself to a real failure -- the signal to promote this to a plain `it`
+	 * (and retire/update the two tests above, per that task's own "Verify" section).
+	 */
+	it.failing("desired: a circuit breaker keeps cumulative wall time well below the naive linear cost for a long consecutive-failure tail", async () => {
+		const totalFiles = 40;
+		const firstFailingIndex = 10; // a long tail (30 files) simulates a server that never recovers for the rest of a real, larger walk.
+		const files = Array.from({ length: totalFiles }, (_, i) => `f${i}.ts`);
+		const failingPaths = new Set(files.slice(firstFailingIndex));
+		const callDelayMs = 20;
+		const index = createFakeIndex({ failingPaths, callDelayMs });
+		const graph = new InMemorySymbolGraph();
+
+		const start = performance.now();
+		const result = await populateSymbolGraph(index, graph, files, 50);
+		const elapsedMs = performance.now() - start;
+
+		// Correctness must hold regardless of how the circuit breaker is implemented: every
+		// persistently-failing file is still accounted for one way or another (either walked and
+		// recorded as today, or short-circuited and recorded as such) -- never silently dropped.
+		expect(result.failureCount).toBe(failingPaths.size);
+
+		// The actual target: well under the naive fully-linear cost (30 files * 20ms = 600ms). Any
+		// sane breaker (tripping after a handful of consecutive failures) clears this by a wide
+		// margin; this is deliberately a loose ceiling, not a specific threshold value, since the
+		// exact threshold is an implementation decision left to that task, not this test.
+		const naiveLinearCostMs = failingPaths.size * callDelayMs;
+		expect(elapsedMs).toBeLessThan(naiveLinearCostMs * 0.5);
+	});
 });
