@@ -16,7 +16,11 @@ import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
 import { symbolSearchResult, TEST_SEMANTIC_PROVENANCE } from "./support/intelligence-provenance.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
-const LECTOR_ROOT = new URL("..", import.meta.url).pathname;
+// Scoped to src/, not the whole package root: this test's own "Lector's source is
+// TypeScript-only" assumption stopped holding for the package root once real
+// Python/Go/Rust/C++ reference fixtures landed under test/fixtures/ -- src/ itself
+// stays genuinely single-language, which is what these assertions actually need.
+const LECTOR_ROOT = new URL("../src", import.meta.url).pathname;
 
 let cleanup: (() => void) | undefined;
 afterEach(() => {
@@ -74,9 +78,9 @@ describe("workspace.findSymbols", () => {
 		const client = clientFor(daemon.host, daemon.port, token);
 		const { workspaceId } = await client.call("workspace.registerPath", { path: LECTOR_ROOT });
 
-		const first = await client.call("workspace.findSymbols", { workspaceId, seedFile: "src/index.ts", query: "exactEdit" });
+		const first = await client.call("workspace.findSymbols", { workspaceId, seedFile: "index.ts", query: "exactEdit" });
 		const firstSpawnCount = spawnCount;
-		const second = await client.call("workspace.findSymbols", { workspaceId, seedFile: "src/index.ts", query: "rawRead" });
+		const second = await client.call("workspace.findSymbols", { workspaceId, seedFile: "index.ts", query: "rawRead" });
 
 		expect(first.symbols.some((symbol) => symbol.name === "exactEdit")).toBe(true);
 		expect(first.provenance).toMatchObject({ fidelity: "semantic", backend: "typescript-language-server" });
@@ -100,7 +104,7 @@ describe("workspace.findSymbols", () => {
 		const { workspaceId } = await client.call("workspace.registerPath", { path: LECTOR_ROOT });
 
 		// No seedFile in the input at all -- discoverSeedFile() must find one on its own
-		// (Lector's own src/index.ts barrel, via the common-candidate list).
+		// (Lector's own index.ts barrel, via the common-candidate list).
 		const { symbols } = await client.call("workspace.findSymbols", { workspaceId, query: "exactEdit" });
 
 		expect(symbols.some((symbol) => symbol.name === "exactEdit")).toBe(true);
@@ -136,7 +140,7 @@ describe("workspace.findSymbols", () => {
 
 		const client = clientFor(daemon.host, daemon.port, token);
 		const { workspaceId } = await client.call("workspace.registerPath", { path: LECTOR_ROOT });
-		await client.call("workspace.findSymbols", { workspaceId, seedFile: "src/index.ts", query: "exactEdit" });
+		await client.call("workspace.findSymbols", { workspaceId, seedFile: "index.ts", query: "exactEdit" });
 
 		expect(closed).toBe(false);
 		await daemon.stop();
