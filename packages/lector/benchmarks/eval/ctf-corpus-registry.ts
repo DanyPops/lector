@@ -1,0 +1,43 @@
+/**
+ * Selects a CTF corpus by "tier:language" key rather than the ablation runner hard-coding a
+ * single language's fixture -- every corpus module shares the same shape (a real materialized
+ * fixture + a set of real CtfTask entries with their own outcome checkers) regardless of which
+ * language-server backend its own checkers call.
+ */
+import { CTF_CORPUS } from "./ctf-corpus.ts";
+import type { CtfTask } from "./ctf-corpus.ts";
+export type { CtfTask } from "./ctf-corpus.ts";
+import { CTF_CORPUS_PYTHON } from "./ctf-corpus-python.ts";
+import { materializeTypeScriptReferenceFixture } from "../../test/support/typescript-reference-fixture.ts";
+import { materializePythonReferenceFixture } from "../../test/support/python-reference-fixture.ts";
+
+export interface CtfFixtureHandle {
+	readonly root: string;
+	dispose(): void;
+}
+
+export interface CtfCorpusModule {
+	readonly tasks: readonly CtfTask[];
+	materializeFixture(): CtfFixtureHandle;
+}
+
+export class UnknownCtfCorpus extends Error {
+	constructor(
+		readonly key: string,
+		readonly knownKeys: readonly string[],
+	) {
+		super(`unknown CTF corpus "${key}" -- known corpora: ${knownKeys.join(", ")}`);
+		this.name = "UnknownCtfCorpus";
+	}
+}
+
+export const CTF_CORPORA: Readonly<Record<string, CtfCorpusModule>> = {
+	"small:typescript": { tasks: CTF_CORPUS, materializeFixture: materializeTypeScriptReferenceFixture },
+	"small:python": { tasks: CTF_CORPUS_PYTHON, materializeFixture: materializePythonReferenceFixture },
+};
+
+export function resolveCtfCorpus(key: string): CtfCorpusModule {
+	const module = CTF_CORPORA[key];
+	if (!module) throw new UnknownCtfCorpus(key, Object.keys(CTF_CORPORA));
+	return module;
+}

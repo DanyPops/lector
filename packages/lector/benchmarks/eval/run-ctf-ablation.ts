@@ -7,7 +7,9 @@
  * reports tool-call/token/turn/mistake deltas via pi-eval-harness's own ablate()/formatAblation().
  *
  * Never run automatically: real, billed API calls. Run explicitly:
- *   bun benchmarks/eval/run-ctf-ablation.ts [trialsPerArm]
+ *   bun benchmarks/eval/run-ctf-ablation.ts [corpusKey] [trialsPerArm]
+ * corpusKey defaults to "small:typescript" -- see ctf-corpus-registry.ts's own CTF_CORPORA for
+ * every other registered "tier:language" key.
  *
  * Baseline isolation is deliberate: the operator's own real ~/.pi/agent profile has pi-lector
  * installed (this whole session runs through it) -- isolatedHome: false would silently give the
@@ -31,8 +33,8 @@ import {
 	type TrialResult,
 } from "@danypops/pi-eval-harness";
 import { InMemoryWorkspace, resolveLectorPaths, startLectorDaemon } from "../../src/index.ts";
-import { CTF_CORPUS, type CtfTask } from "./ctf-corpus.ts";
-import { materializeTypeScriptReferenceFixture } from "../../test/support/typescript-reference-fixture.ts";
+import type { CtfFixtureHandle, CtfTask } from "./ctf-corpus-registry.ts";
+import { resolveCtfCorpus } from "./ctf-corpus-registry.ts";
 
 const VERTEX_PROVIDER_EXTENSION = join(homedir(), ".pi/agent/npm/node_modules/@twogiants/pi-anthropic-vertex/index.ts");
 const PI_LECTOR_EXTENSION_PATH = fileURLToPath(new URL("../../../pi-lector/extension/src/index.ts", import.meta.url));
@@ -52,8 +54,13 @@ async function startIsolatedDaemon(): Promise<{ env: Record<string, string>; sto
 	};
 }
 
-async function runOneTrial(task: CtfTask, extensions: readonly string[], extraEnv: Record<string, string>): Promise<TrialResult> {
-	const fixture = materializeTypeScriptReferenceFixture();
+async function runOneTrial(
+	task: CtfTask,
+	materializeFixture: () => CtfFixtureHandle,
+	extensions: readonly string[],
+	extraEnv: Record<string, string>,
+): Promise<TrialResult> {
+	const fixture = materializeFixture();
 	const start = Date.now();
 
 	const proc = spawnRealPiProcess({
@@ -109,18 +116,20 @@ async function runOneTrial(task: CtfTask, extensions: readonly string[], extraEn
 }
 
 async function main(): Promise<void> {
-	const trialsPerArm = Number(process.argv[2] ?? "1");
-	console.log(`Running the real CTF ablation benchmark: ${CTF_CORPUS.length} tasks x 2 arms x ${trialsPerArm} trial(s) each.\n`);
+	const corpusKey = process.argv[2] ?? "small:typescript";
+	const trialsPerArm = Number(process.argv[3] ?? "1");
+	const corpus = resolveCtfCorpus(corpusKey);
+	console.log(`Running the real CTF ablation benchmark (${corpusKey}): ${corpus.tasks.length} tasks x 2 arms x ${trialsPerArm} trial(s) each.\n`);
 
 	const daemon = await startIsolatedDaemon();
 	const report: string[] = [];
 
 	try {
-		for (const task of CTF_CORPUS) {
+		for (const task of corpus.tasks) {
 			console.log(`=== ${task.id} (${task.category}) ===`);
 			const configs: AblationConfig[] = [
-				{ name: "baseline", runOne: () => runOneTrial(task, [], {}) },
-				{ name: "with-lector", runOne: () => runOneTrial(task, [PI_LECTOR_EXTENSION_PATH], daemon.env) },
+				{ name: "baseline", runOne: () => runOneTrial(task, corpus.materializeFixture, [], {}) },
+				{ name: "with-lector", runOne: () => runOneTrial(task, corpus.materializeFixture, [PI_LECTOR_EXTENSION_PATH], daemon.env) },
 			];
 			const results = await ablate(configs, trialsPerArm);
 			const formatted = formatAblation(task.id, results);
