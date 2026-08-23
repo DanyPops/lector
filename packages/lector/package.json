@@ -39,7 +39,12 @@
 		"./package.json": "./package.json"
 	},
 	"sideEffects": false,
-	"zodiac": { "integrations": [{ "kind": "editor", "entry": "./dist/zodiac-entry.js" }] },
+	"zodiac": {
+		"integrations": [{
+			"kind": "editor",
+			"entry": "./dist/zodiac-entry.js"
+		}]
+	},
 	"bin": {
 		"lector": "src/cli-bootstrap.ts"
 	},
@@ -90,6 +95,8 @@
 		"yaml-language-server": "^1.24.0"
 	},
 	"devDependencies": {
+		"@danypops/pi-eval-harness": "^0.1.0",
+		"@earendil-works/pi-coding-agent": "^0.84.2",
 		"@ff-labs/fff-bun": "^0.10.5",
 		"@types/picomatch": "^4.0.3",
 		"bun-types": "latest",
