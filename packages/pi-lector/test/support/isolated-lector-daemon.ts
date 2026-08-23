@@ -31,11 +31,17 @@ export async function startIsolatedLectorDaemon(
 		createGithubSearch?: () => GithubSearchPort;
 		createSourcegraphSearch?: () => SourcegraphSearchPort;
 	} = {},
-): Promise<{ client: LectorClient; baseUrl: string; token: string; stop: () => Promise<void> }> {
+): Promise<{
+	client: LectorClient;
+	baseUrl: string;
+	token: string;
+	/** The exact XDG env overrides this daemon was started with -- pass these to a real spawned `pi` child process (e.g. via pi-process-harness) so its own connectLectorClient() resolves to this same isolated daemon, not a stray real one. */
+	env: Record<string, string>;
+	stop: () => Promise<void>;
+}> {
 	const root = mkdtempSync(join(tmpdir(), "pi-lector-test-"));
-	const paths = resolveLectorPaths({
-		env: { XDG_DATA_HOME: root, XDG_STATE_HOME: root, XDG_RUNTIME_DIR: root, XDG_CONFIG_HOME: root },
-	});
+	const env = { XDG_DATA_HOME: root, XDG_STATE_HOME: root, XDG_RUNTIME_DIR: root, XDG_CONFIG_HOME: root };
+	const paths = resolveLectorPaths({ env });
 	const daemon = await startLectorDaemon({
 		workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]),
 		paths,
@@ -53,6 +59,7 @@ export async function startIsolatedLectorDaemon(
 		client,
 		baseUrl,
 		token,
+		env,
 		stop: async () => {
 			await daemon.stop();
 			rmSync(root, { recursive: true, force: true });
