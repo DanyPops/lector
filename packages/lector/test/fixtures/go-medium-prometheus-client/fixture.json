@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "source": {
+    "repo": "https://github.com/prometheus/client_golang",
+    "path": "prometheus/",
+    "commit": "89c60c0554699c74fa3d4eec472b98a3108905e3",
+    "license": "Apache-2.0",
+    "fetchedVia": "repo_cache",
+    "fetchedAt": "2026-08-23"
+  },
+  "languages": ["go"],
+  "fileCount": 68,
+  "note": "A real, vendored (not live-cloned) snapshot for reproducibility and offline CI safety, same rationale as the other tier-2/3 corpora. Correctness is checked structurally (fileContains/fileLacks/a word-boundary directoryLacksIdentifier), not via live gopls diagnostics, applying the checkJs-noise lesson proactively."
+}
