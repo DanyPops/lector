@@ -67,6 +67,17 @@ export function scoreGroundTruthTask(task: GroundTruthTask, method: string, retr
 	return { taskId: task.id, method, recallAtK: recallAtK(retrieved, relevant, k), mrr: meanReciprocalRank(retrieved, relevant) };
 }
 
+/** Distinct file paths a ground-truth task's relevant symbols live in -- the identity every retrieval method compared here can express, even ripgrep, which has no concept of a symbol at all. */
+export function taskRelevantPaths(task: GroundTruthTask): string[] {
+	return [...new Set(task.relevantSymbols.map((reference) => reference.path))];
+}
+
+/** File-level counterpart to scoreGroundTruthTask -- for a method (lexical, annotation) whose real backend cannot express exact symbol identity, only which file it landed in. */
+export function scoreGroundTruthTaskByPath(task: GroundTruthTask, method: string, retrievedPaths: readonly string[], k: number): RetrievalScore {
+	const relevant = taskRelevantPaths(task);
+	return { taskId: task.id, method, recallAtK: recallAtK(retrievedPaths, relevant, k), mrr: meanReciprocalRank(retrievedPaths, relevant) };
+}
+
 export class MissingRetrievalResult extends Error {
 	constructor(
 		readonly taskId: string,

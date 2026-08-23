@@ -6,8 +6,10 @@ import {
 	meanReciprocalRank,
 	recallAtK,
 	scoreGroundTruthTask,
+	scoreGroundTruthTaskByPath,
 	scoreRetrievalResults,
 	symbolReferenceKey,
+	taskRelevantPaths,
 } from "../../../benchmarks/eval/retrieval-scoring.ts";
 
 describe("recallAtK", () => {
@@ -91,6 +93,36 @@ describe("scoreGroundTruthTask", () => {
 	it("scores a miss as recall 0 and MRR 0", () => {
 		const score = scoreGroundTruthTask(SYNTHETIC_TASK, "lexical", ["b.ts#bar"], 5);
 		expect(score).toEqual({ taskId: "synthetic-task", method: "lexical", recallAtK: 0, mrr: 0 });
+	});
+});
+
+describe("taskRelevantPaths", () => {
+	it("dedupes when several relevant symbols share the same file", () => {
+		const task: GroundTruthTask = {
+			id: "multi-symbol-same-file",
+			category: "cross-file-reference",
+			task: "synthetic",
+			relevantSymbols: [
+				{ path: "checkout.ts", symbolName: "runCheckout" },
+				{ path: "checkout.ts", symbolName: "runCheckoutTwice" },
+			],
+		};
+		expect(taskRelevantPaths(task)).toEqual(["checkout.ts"]);
+	});
+});
+
+describe("scoreGroundTruthTaskByPath", () => {
+	it("scores a real retrieved path as a full pass regardless of which relevant symbol lives there", () => {
+		expect(scoreGroundTruthTaskByPath(SYNTHETIC_TASK, "lexical", ["a.ts"], 5)).toEqual({
+			taskId: "synthetic-task",
+			method: "lexical",
+			recallAtK: 1.0,
+			mrr: 1.0,
+		});
+	});
+
+	it("scores a miss as recall 0 and MRR 0", () => {
+		expect(scoreGroundTruthTaskByPath(SYNTHETIC_TASK, "lexical", ["z.ts"], 5)).toEqual({ taskId: "synthetic-task", method: "lexical", recallAtK: 0, mrr: 0 });
 	});
 });
 
