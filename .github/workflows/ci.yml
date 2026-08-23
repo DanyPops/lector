@@ -41,6 +41,10 @@ jobs:
           # its own pinned editorconfig dependency carries an unpatched ReDoS/OOM chain, so it is a
           # self-installed system binary rather than a bundled npm dependency.
           bun add --global bash-language-server
+          # pi-lector's eval tests spawn a real `pi` process via @danypops/pi-process-harness
+          # (scripted faux-provider runs) -- the real binary must be resolvable on PATH, same as
+          # pi-integral's own CI installs it for pi-process-harness's own test suite.
+          bun add --global @earendil-works/pi-coding-agent
       - run: bun install
       - run: bun test
       - run: bun run typecheck
