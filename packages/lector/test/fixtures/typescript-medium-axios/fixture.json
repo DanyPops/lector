@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "source": {
+    "repo": "https://github.com/axios/axios",
+    "path": "lib/",
+    "commit": "84a9f3b9a4f3244b8c8e818f557d64c7b964fb25",
+    "license": "MIT",
+    "fetchedVia": "repo_cache",
+    "fetchedAt": "2026-08-23"
+  },
+  "languages": ["javascript"],
+  "fileCount": 69,
+  "note": "A real, vendored (not live-cloned) snapshot for reproducibility and offline CI safety -- same rationale RefactorBench itself uses for its own real-repo problems. jsconfig.json enables allowJs but deliberately leaves checkJs off: confirmed live that checkJs against this real, complex, previously-untyped source produces dozens of pre-existing type errors unrelated to any mutation, swamping any real signal -- correctness here is checked structurally (fileContains/fileLacks/directoryLacks), not via compiler diagnostics."
+}
