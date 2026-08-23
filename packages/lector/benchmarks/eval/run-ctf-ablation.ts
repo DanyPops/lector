@@ -75,7 +75,17 @@ async function runOneTrial(task: CtfTask, extensions: readonly string[], extraEn
 		const durationMs = Date.now() - start;
 		await proc.dispose();
 		fixture.dispose();
-		return { pass: false, score: 0, durationMs, tokensIn: 0, tokensOut: 0, costUsd: 0, error: error instanceof Error ? error.message : String(error) };
+		return {
+			pass: false,
+			score: 0,
+			durationMs,
+			tokensIn: 0,
+			tokensOut: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0,
+			error: error instanceof Error ? error.message : String(error),
+		};
 	}
 	await proc.dispose();
 
@@ -92,6 +102,8 @@ async function runOneTrial(task: CtfTask, extensions: readonly string[], extraEn
 		durationMs,
 		tokensIn: usage.tokensIn,
 		tokensOut: usage.tokensOut,
+		cacheReadTokens: usage.cacheReadTokens,
+		cacheWriteTokens: usage.cacheWriteTokens,
 		costUsd: usage.costUsd,
 	};
 }
