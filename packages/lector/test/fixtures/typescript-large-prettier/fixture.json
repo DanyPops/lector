@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "source": {
+    "repo": "https://github.com/prettier/prettier",
+    "path": "src/",
+    "commit": "d9969c57343d48a4d1fac12f3f5c4b2fd82d8da5",
+    "license": "MIT",
+    "fetchedVia": "repo_cache",
+    "fetchedAt": "2026-08-23"
+  },
+  "languages": ["javascript"],
+  "fileCount": 530,
+  "note": "A real, vendored (not live-cloned) snapshot for reproducibility and offline CI safety, same rationale as typescript-medium-axios. An order of magnitude larger (530 files vs 69) to exercise a genuinely broad rename (hasComment has ~36 real call sites scattered across src/language-js/) -- the tier this epic expects to show the clearest real advantage, per JetBrains Rider's own large-C#-solution study and RefactorBench's own large real repos. checkJs is off for the same reason as typescript-medium-axios: real, complex, previously-untyped source produces pre-existing type-checker noise unrelated to any mutation."
+}
