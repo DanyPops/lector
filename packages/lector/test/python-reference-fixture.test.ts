@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { LocalGit } from "../src/git/local-git.ts";
+import { resolveWorkspacePath } from "../src/workspace/resolve-workspace-path.ts";
 import {
 	materializePythonReferenceFixture,
 	materializePythonReferenceGitFixture,
@@ -39,6 +40,20 @@ describe("Python reference fixture", () => {
 		writeFileSync(materializedPath, "changed = True\n");
 
 		expect(readFileSync(committedPath, "utf8")).toBe(original);
+	});
+
+	it("resolves the nested pyproject.toml sub-project to itself, not the outer fixture root", () => {
+		fixture = materializePythonReferenceFixture();
+		const nestedSourceFile = join(fixture.root, "packages/subapp/subapp/__init__.py");
+
+		const resolved = resolveWorkspacePath({
+			strategy: "language-project-root",
+			path: dirname(nestedSourceFile),
+			fallback: "given-directory",
+			extension: ".py",
+		});
+
+		expect(resolved).toEqual({ found: true, root: join(fixture.root, "packages/subapp") });
 	});
 
 	it("materializes bounded Git history with a symbol and path rename", async () => {
