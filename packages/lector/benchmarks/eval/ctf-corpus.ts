@@ -87,7 +87,8 @@ export const CTF_CORPUS: readonly CtfTask[] = [
 		prompt:
 			"Move the function `runCheckoutTwice` out of packages/app/src/checkout.ts into a new file " +
 			"packages/app/src/checkout-batch.ts, exporting it from there. Fix imports so both files still " +
-			"compile -- checkout.ts must no longer define runCheckoutTwice itself.",
+			"compile -- checkout.ts must no longer define runCheckoutTwice itself. Import runCheckout into " +
+			'the new file with no file extension (e.g. `from "./checkout"`), not a `.ts` extension.',
 		checker: all(
 			noCompileErrors(["packages/app/src/checkout.ts", "packages/app/src/checkout-batch.ts"]),
 			fileContains("packages/app/src/checkout-batch.ts", "runCheckoutTwice"),

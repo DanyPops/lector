@@ -96,6 +96,7 @@
 	},
 	"devDependencies": {
 		"@danypops/pi-eval-harness": "^0.2.0",
+		"@danypops/pi-process-harness": "^0.1.3",
 		"@earendil-works/pi-coding-agent": "^0.84.2",
 		"@ff-labs/fff-bun": "^0.10.5",
 		"@types/picomatch": "^4.0.3",
