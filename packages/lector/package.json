@@ -90,8 +90,10 @@
 		"yaml-language-server": "^1.24.0"
 	},
 	"devDependencies": {
+		"@ff-labs/fff-bun": "^0.10.5",
 		"@types/picomatch": "^4.0.3",
-		"bun-types": "latest"
+		"bun-types": "latest",
+		"xgrep": "^0.6.0"
 	},
 	"repository": {
 		"type": "git",
