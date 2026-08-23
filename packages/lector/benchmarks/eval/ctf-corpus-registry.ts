@@ -8,8 +8,14 @@ import { CTF_CORPUS } from "./ctf-corpus.ts";
 import type { CtfTask } from "./ctf-corpus.ts";
 export type { CtfTask } from "./ctf-corpus.ts";
 import { CTF_CORPUS_PYTHON } from "./ctf-corpus-python.ts";
+import { CTF_CORPUS_GO } from "./ctf-corpus-go.ts";
+import { CTF_CORPUS_RUST } from "./ctf-corpus-rust.ts";
+import { CTF_CORPUS_CPP } from "./ctf-corpus-cpp.ts";
 import { materializeTypeScriptReferenceFixture } from "../../test/support/typescript-reference-fixture.ts";
 import { materializePythonReferenceFixture } from "../../test/support/python-reference-fixture.ts";
+import { materializeGoReferenceFixture } from "../../test/support/go-reference-fixture.ts";
+import { materializeRustReferenceFixture } from "../../test/support/rust-reference-fixture.ts";
+import { materializeCppReferenceFixture } from "../../test/support/cpp-reference-fixture.ts";
 
 export interface CtfFixtureHandle {
 	readonly root: string;
@@ -34,6 +40,9 @@ export class UnknownCtfCorpus extends Error {
 export const CTF_CORPORA: Readonly<Record<string, CtfCorpusModule>> = {
 	"small:typescript": { tasks: CTF_CORPUS, materializeFixture: materializeTypeScriptReferenceFixture },
 	"small:python": { tasks: CTF_CORPUS_PYTHON, materializeFixture: materializePythonReferenceFixture },
+	"small:go": { tasks: CTF_CORPUS_GO, materializeFixture: materializeGoReferenceFixture },
+	"small:rust": { tasks: CTF_CORPUS_RUST, materializeFixture: materializeRustReferenceFixture },
+	"small:cpp": { tasks: CTF_CORPUS_CPP, materializeFixture: materializeCppReferenceFixture },
 };
 
 export function resolveCtfCorpus(key: string): CtfCorpusModule {
