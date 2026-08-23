@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "languages": ["c", "cpp"],
+  "packageManagers": ["conan", "vcpkg", "cmake-fetchcontent"],
+  "requiredPaths": [
+    "compile_commands.json",
+    "include/contracts/payment.h",
+    "include/app/stripe.h",
+    "include/app/checkout.h",
+    "include/app/templates.h",
+    "include/app/macros.h",
+    "src/checkout.cpp",
+    "src/stripe.cpp",
+    "src/macros.cpp",
+    "src/type_error.cpp",
+    "src/unicode.cpp",
+    "broken/syntax_error.cpp",
+    "generated/client.cpp",
+    "locks/conan.lock",
+    "locks/vcpkg.json",
+    "locks/vcpkg-configuration.json",
+    "locks/fetchcontent.CMakeLists.txt.snippet",
+    "locks/port-patch.patch",
+    "history/v1/payment.h",
+    "history/v2/payment.h",
+    "ignored/raw_text.cpp"
+  ],
+  "expectedSymbols": [
+    { "name": "PaymentProcessor", "kind": "class", "path": "include/contracts/payment.h" },
+    { "name": "StripeProcessor", "kind": "class", "path": "include/app/stripe.h" },
+    { "name": "RunCheckout", "kind": "function", "path": "include/app/checkout.h" },
+    { "name": "MaxValue", "kind": "function", "path": "include/app/templates.h" }
+  ],
+  "diagnostic": {
+    "path": "src/type_error.cpp",
+    "messageIncludes": "incompatible type"
+  },
+  "lexicalMarker": "FIXTURE_RAW_TEXT_ONLY"
+}

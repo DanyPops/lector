@@ -1,0 +1,5 @@
+--- a/fixturedep/include/fixturedep.h
++++ b/fixturedep/include/fixturedep.h
+@@ -1 +1 @@
+-#define FIXTUREDEP_VERSION "1.2.2"
++#define FIXTUREDEP_VERSION "1.2.3"

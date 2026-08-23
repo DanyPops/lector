@@ -1,0 +1,15 @@
+{
+  "default-registry": {
+    "kind": "git",
+    "repository": "https://github.com/microsoft/vcpkg",
+    "baseline": "abcdef1234567890abcdef1234567890abcdef12"
+  },
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://git.internal.example/team/vcpkg-registry",
+      "baseline": "0000000000000000000000000000000000000000",
+      "packages": ["internal-crate"]
+    }
+  ]
+}

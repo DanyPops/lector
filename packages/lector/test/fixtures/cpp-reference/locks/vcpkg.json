@@ -1,0 +1,9 @@
+{
+  "name": "cpp-reference-fixture",
+  "version": "0.1.0",
+  "dependencies": [
+    "fixturedep",
+    { "name": "fixturedep-variant", "features": ["ssl"], "platform": "linux" }
+  ],
+  "builtin-baseline": "abcdef1234567890abcdef1234567890abcdef12"
+}

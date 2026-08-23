@@ -1,0 +1,12 @@
+include(FetchContent)
+
+FetchContent_Declare(
+  fixturedep
+  GIT_REPOSITORY https://github.com/example/fixturedep.git
+  GIT_TAG        abcdef1234567890abcdef1234567890abcdef12  # pinned commit, not a branch
+)
+FetchContent_MakeAvailable(fixturedep)
+
+# system-installed OpenSSL: version and provenance depend entirely on the host
+# package manager (apt/dnf/brew) -- no lockfile or checksum can verify it here.
+find_package(OpenSSL REQUIRED)

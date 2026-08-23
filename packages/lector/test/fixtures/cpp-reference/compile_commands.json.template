@@ -1,0 +1,27 @@
+[
+  {
+    "directory": "__FIXTURE_ROOT__",
+    "file": "__FIXTURE_ROOT__/src/checkout.cpp",
+    "arguments": ["clang++", "-std=c++17", "-I__FIXTURE_ROOT__/include", "-c", "__FIXTURE_ROOT__/src/checkout.cpp"]
+  },
+  {
+    "directory": "__FIXTURE_ROOT__",
+    "file": "__FIXTURE_ROOT__/src/stripe.cpp",
+    "arguments": ["clang++", "-std=c++17", "-I__FIXTURE_ROOT__/include", "-c", "__FIXTURE_ROOT__/src/stripe.cpp"]
+  },
+  {
+    "directory": "__FIXTURE_ROOT__",
+    "file": "__FIXTURE_ROOT__/src/macros.cpp",
+    "arguments": ["clang++", "-std=c++17", "-I__FIXTURE_ROOT__/include", "-c", "__FIXTURE_ROOT__/src/macros.cpp"]
+  },
+  {
+    "directory": "__FIXTURE_ROOT__",
+    "file": "__FIXTURE_ROOT__/src/type_error.cpp",
+    "arguments": ["clang++", "-std=c++17", "-I__FIXTURE_ROOT__/include", "-c", "__FIXTURE_ROOT__/src/type_error.cpp"]
+  },
+  {
+    "directory": "__FIXTURE_ROOT__",
+    "file": "__FIXTURE_ROOT__/src/unicode.cpp",
+    "arguments": ["clang++", "-std=c++17", "-I__FIXTURE_ROOT__/include", "-c", "__FIXTURE_ROOT__/src/unicode.cpp"]
+  }
+]

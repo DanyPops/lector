@@ -1,0 +1,6 @@
+{
+  "version": "0.5",
+  "requires": ["fixturedep/1.2.3#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa%1700000000"],
+  "build_requires": [],
+  "python_requires": []
+}
