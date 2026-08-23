@@ -33,6 +33,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { computeSampleStatistics } from "../../benchmarks/harness/statistics.ts";
 import { LocalGit } from "../../src/git/local-git.ts";
 import { deriveSourceManifest } from "../../src/workspace/source-manifest.ts";
 
@@ -45,11 +46,6 @@ function git(cwd: string, ...args: string[]): void {
 const FIXTURE_BYTES = 45 * 1024 * 1024;
 const WARMUP_ROUNDS = 5;
 const MEASURED_ROUNDS = 10;
-
-function median(values: readonly number[]): number {
-	const sorted = [...values].sort((a, b) => a - b);
-	return sorted[Math.floor(sorted.length / 2)] ?? 0;
-}
 
 describe("git-based cache-freshness fast path: performance vs. a full source rehash", () => {
 	it("answers the git-based freshness check meaningfully faster, at steady state, than a full deriveSourceManifest rehash over the same real data", async () => {
@@ -87,8 +83,8 @@ describe("git-based cache-freshness fast path: performance vs. a full source reh
 				expect(status.files).toHaveLength(0); // sanity: tree is genuinely clean throughout
 			}
 
-			const rehashMedianMs = median(rehashDurationsMs);
-			const gitCheckMedianMs = median(gitCheckDurationsMs);
+			const rehashMedianMs = computeSampleStatistics(rehashDurationsMs).median;
+			const gitCheckMedianMs = computeSampleStatistics(gitCheckDurationsMs).median;
 
 			// The real, measured gap at this fixture size is ~4x; asserting a much smaller 1.5x
 			// margin absorbs ordinary machine/CI variance while still catching a genuine

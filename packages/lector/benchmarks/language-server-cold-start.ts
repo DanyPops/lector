@@ -3,6 +3,12 @@
  * answer) and warm-query latency per LanguageServerDescriptor, against a
  * throwaway real project fixture per language -- not synthetic numbers.
  * Run: `bun benchmarks/language-server-cold-start.ts`.
+ *
+ * Each language gets exactly one real process spawn (cold-start is inherently a single
+ * unrepeatable event per process), then a bounded number of repeated warm-query samples
+ * against that same live server -- real percentile statistics for the warm path, not a single
+ * raw sample, while still respecting that cold-start itself cannot be resampled without
+ * spawning (and therefore measuring) a brand-new process each time.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +25,12 @@ import {
 } from "../src/code-intelligence/language-server-descriptor.ts";
 import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
 import { measureProcessTreeRssKb } from "../src/code-intelligence/lsp/process-resource-usage.ts";
+import { type BenchmarkRunResult, runBenchmarkCase } from "./harness/benchmark-runner.ts";
+import { collectEnvironmentMetadata } from "./harness/environment.ts";
+import { formatBenchmarkResult } from "./harness/format-report.ts";
+import { buildBenchmarkArtifact, writeBenchmarkArtifact } from "./harness/report-schema.ts";
+
+const WARM_QUERY_SAMPLES = 20;
 
 interface BenchmarkCase {
 	readonly descriptor: LanguageServerDescriptor;
@@ -98,7 +110,7 @@ const CASES: readonly BenchmarkCase[] = [
 interface BenchmarkResult {
 	readonly languageId: string;
 	readonly coldStartMs: number;
-	readonly warmQueryMs: number;
+	readonly warmQueryRun: BenchmarkRunResult;
 	readonly rssMb: number | undefined;
 }
 
@@ -107,18 +119,24 @@ async function runOne(benchCase: BenchmarkCase): Promise<BenchmarkResult> {
 	const mainFile = join(root, benchCase.seedFile);
 	const index = new LspSymbolIndex(root, benchCase.descriptor, benchCase.seedFile);
 	try {
+		// Cold start is a genuinely single unrepeatable event for this one process -- one sample,
+		// not an average, since a second "cold" call against the same already-spawned server would
+		// just be measuring warm behavior under a cold label.
 		const coldStart = performance.now();
 		await index.documentSymbols(mainFile);
 		const coldStartMs = performance.now() - coldStart;
 
-		const warmStart = performance.now();
-		await index.documentSymbols(mainFile);
-		const warmQueryMs = performance.now() - warmStart;
+		const warmQueryRun = await runBenchmarkCase({
+			name: `${benchCase.descriptor.languageId}-warm-query`,
+			mode: "warm",
+			sampleIterations: WARM_QUERY_SAMPLES,
+			run: () => index.documentSymbols(mainFile),
+		});
 
 		const pid = index.processId;
 		const rssKb = pid !== undefined ? measureProcessTreeRssKb(pid) : undefined;
 
-		return { languageId: benchCase.descriptor.languageId, coldStartMs, warmQueryMs, rssMb: rssKb !== undefined ? rssKb / 1024 : undefined };
+		return { languageId: benchCase.descriptor.languageId, coldStartMs, warmQueryRun, rssMb: rssKb !== undefined ? rssKb / 1024 : undefined };
 	} finally {
 		await index.close();
 		rmSync(root, { recursive: true, force: true });
@@ -136,10 +154,22 @@ console.table(
 	results.map((result) => ({
 		language: result.languageId,
 		"cold start (ms)": result.coldStartMs.toFixed(0),
-		"warm query (ms)": result.warmQueryMs.toFixed(1),
+		"warm query median (ms)": result.warmQueryRun.wallTimeStatistics?.median.toFixed(1) ?? "n/a",
+		"warm query p95 (ms)": result.warmQueryRun.wallTimeStatistics?.p95.toFixed(1) ?? "n/a",
 		"RSS incl. children (MB)": result.rssMb !== undefined ? result.rssMb.toFixed(0) : "n/a",
 	})),
 );
 
 const totalRssMb = results.reduce((sum, result) => sum + (result.rssMb ?? 0), 0);
 console.log(`total RSS if every server ran concurrently: ${totalRssMb.toFixed(0)} MB`);
+
+for (const result of results) console.log(`\n${formatBenchmarkResult(result.warmQueryRun)}`);
+
+const environment = await collectEnvironmentMetadata(join(import.meta.dir, ".."));
+const artifact = buildBenchmarkArtifact({
+	environment,
+	workload: { identity: "language-server-cold-start", bounds: { warmQuerySamples: WARM_QUERY_SAMPLES, languages: CASES.length } },
+	cases: results.map((result) => result.warmQueryRun),
+});
+const artifactPath = await writeBenchmarkArtifact(artifact, join(import.meta.dir, ".results"));
+console.log(`\nenvironment + workload metadata written to ${artifactPath}`);
