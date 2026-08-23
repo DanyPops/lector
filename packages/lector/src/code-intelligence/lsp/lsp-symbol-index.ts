@@ -42,6 +42,14 @@ const DEFAULT_MAX_FILE_BYTES = 4 * 1024 * 1024;
 const DEFAULT_WORKSPACE_READY_TIMEOUT_MS = 30_000;
 const MAX_WORKSPACE_READY_TIMEOUT_MS = 300_000;
 const MAX_SETTLE_MS = 30_000;
+// typescript-language-server publishes one file's diagnostics per kind (Syntax/Semantic/
+// Suggestion), each independently debounced 50ms server-side (confirmed against its own
+// DiagnosticsManager/FileDiagnostics source) -- a single edit can legitimately arrive as two or
+// more separate publishDiagnostics notifications for the same uri, an early incomplete one
+// followed by a fuller one. Resolving on the first notification alone races that: comfortably
+// above the known 50ms debounce, still small next to the outer bound below.
+const DIAGNOSTICS_SETTLE_MS = 150;
+const DIAGNOSTICS_WAIT_TIMEOUT_MS = 5_000;
 
 const NOOP_LOGGER: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 
@@ -546,11 +554,11 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				path,
 				diagnostics.map((item) => normalizeDiagnostic(path, item)),
 			);
+			// Every registered waiter is notified on every push for this path, not just the first --
+			// see waitForDiagnosticsNotification's own quiet-window logic for why a single push cannot
+			// be trusted as final and each waiter must decide for itself when to actually resolve.
 			const waiters = this.diagnosticsWaiters.get(path);
-			if (waiters) {
-				this.diagnosticsWaiters.delete(path);
-				for (const resolve of waiters) resolve();
-			}
+			if (waiters) for (const notify of [...waiters]) notify();
 		});
 		this.registerServerInitiatedRequestHandlers(proc);
 		proc.onNotification("$/progress", (params) => {
@@ -883,15 +891,41 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		});
 	}
 
-	/** Resolves as soon as `path`'s next publishDiagnostics notification lands, or after `timeoutMs` -- diagnostics are server-pushed, never a request/response Lector can just await. */
-	private waitForDiagnosticsNotification(path: string, timeoutMs: number): Promise<void> {
+	/**
+	 * Resolves once `path`'s diagnostics have gone quiet for `settleMs` after their last
+	 * publishDiagnostics notification, or after `timeoutMs` overall, whichever comes first --
+	 * never the first notification alone. A server that publishes one file's diagnostics in
+	 * several kinds (e.g. typescript-language-server's own Syntax/Semantic/Suggestion, each
+	 * independently debounced) can legitimately send more than one notification per edit; treating
+	 * the first as final risks returning an earlier, incomplete set. Bounded by timeoutMs
+	 * regardless of how many notifications keep arriving, so this can never hang indefinitely on a
+	 * server that never truly quiets down.
+	 */
+	private waitForDiagnosticsNotification(path: string, timeoutMs: number, settleMs = DIAGNOSTICS_SETTLE_MS): Promise<void> {
 		return new Promise((resolve) => {
-			const timer = setTimeout(resolve, timeoutMs);
-			const waiters = this.diagnosticsWaiters.get(path) ?? [];
-			waiters.push(() => {
-				clearTimeout(timer);
+			const deadline = Date.now() + timeoutMs;
+			let settleTimer: ReturnType<typeof setTimeout> | undefined;
+			const removeWaiter = () => {
+				const waiters = this.diagnosticsWaiters.get(path);
+				if (!waiters) return;
+				const index = waiters.indexOf(onNotification);
+				if (index >= 0) waiters.splice(index, 1);
+				if (waiters.length === 0) this.diagnosticsWaiters.delete(path);
+			};
+			const finish = () => {
+				clearTimeout(settleTimer);
+				clearTimeout(hardTimer);
+				removeWaiter();
 				resolve();
-			});
+			};
+			const hardTimer = setTimeout(finish, timeoutMs);
+			const onNotification = () => {
+				clearTimeout(settleTimer);
+				const remainingMs = Math.max(deadline - Date.now(), 0);
+				settleTimer = setTimeout(finish, Math.min(settleMs, remainingMs));
+			};
+			const waiters = this.diagnosticsWaiters.get(path) ?? [];
+			waiters.push(onNotification);
 			this.diagnosticsWaiters.set(path, waiters);
 		});
 	}
@@ -1071,7 +1105,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 			for (const identifier of identifiers) pulled = mergeDiagnostics(pulled, await this.pullDiagnostics(proc, resolvedPath, identifier));
 			return mergeDiagnostics(this.latestDiagnostics.get(resolvedPath) ?? [], pulled);
 		}
-		if (!this.latestDiagnostics.has(resolvedPath)) await this.waitForDiagnosticsNotification(resolvedPath, 5000);
+		if (!this.latestDiagnostics.has(resolvedPath)) await this.waitForDiagnosticsNotification(resolvedPath, DIAGNOSTICS_WAIT_TIMEOUT_MS);
 		return this.latestDiagnostics.get(resolvedPath) ?? [];
 	}
 
