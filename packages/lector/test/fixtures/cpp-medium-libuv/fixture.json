@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "source": {
+    "repo": "https://github.com/libuv/libuv",
+    "path": "src/ + include/",
+    "commit": "f87c8e4f70f234b952d9c47b15fb567f78e5f399",
+    "license": "MIT",
+    "fetchedVia": "repo_cache",
+    "fetchedAt": "2026-08-23"
+  },
+  "languages": ["c"],
+  "fileCount": 118,
+  "note": "A real, vendored (not live-cloned) snapshot for reproducibility and offline CI safety, same rationale as the other tier-2/3 corpora. No compile_commands.json -- correctness is checked structurally (fileContains/fileLacks/directoryLacksIdentifier), not via live clangd diagnostics, applying the checkJs-noise lesson proactively (and sidestepping the tier-1 C/C++ fixture's own real complication: a real absolute-path compilation database can't be committed verbatim). uv__handle_init is a real macro (#define, src/uv-common.h), not a function -- renaming a widely-used macro across real call sites is just as valid a C-idiomatic refactor task as a function rename."
+}
