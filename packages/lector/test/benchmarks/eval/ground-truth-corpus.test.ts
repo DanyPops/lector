@@ -4,12 +4,9 @@
  * the corpus is wrong if it claims a symbol exists that a real query can't find.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { TreeSitterSymbolIndex } from "../../../src/code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
-import {
-	materializeTypeScriptReferenceFixture,
-	type TypeScriptReferenceFixture,
-} from "../../support/typescript-reference-fixture.ts";
 import { GROUND_TRUTH_CORPUS } from "../../../benchmarks/eval/ground-truth-corpus.ts";
+import { TreeSitterSymbolIndex } from "../../../src/code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { materializeTypeScriptReferenceFixture, type TypeScriptReferenceFixture } from "../../support/typescript-reference-fixture.ts";
 
 let fixture: TypeScriptReferenceFixture | undefined;
 afterEach(() => {
@@ -35,9 +32,7 @@ describe("GROUND_TRUTH_CORPUS", () => {
 		for (const entry of GROUND_TRUTH_CORPUS) {
 			for (const reference of entry.relevantSymbols) {
 				const result = await parser.findSymbols(reference.symbolName);
-				const found = result.symbols.some(
-					(symbol) => symbol.name === reference.symbolName && symbol.location.path === reference.path,
-				);
+				const found = result.symbols.some((symbol) => symbol.name === reference.symbolName && symbol.location.path === reference.path);
 				expect(found).toBe(true);
 			}
 		}
