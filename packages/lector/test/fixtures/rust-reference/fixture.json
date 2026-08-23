@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "languages": ["rust"],
+  "packageManagers": ["cargo"],
+  "requiredPaths": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "contracts/Cargo.toml",
+    "contracts/src/lib.rs",
+    "contracts/src/payment.rs",
+    "app/Cargo.toml",
+    "app/src/lib.rs",
+    "app/src/checkout.rs",
+    "app/src/stripe.rs",
+    "app/src/generics.rs",
+    "app/src/macros.rs",
+    "app/src/unicode.rs",
+    "app/src/type_error.rs",
+    "app/src/feature_gated.rs",
+    "crates/nested/Cargo.toml",
+    "crates/nested/src/lib.rs",
+    "broken/syntax_error.rs",
+    "generated/client.rs",
+    "locks/renamed-dependency.Cargo.toml.snippet",
+    "locks/git-dependency.Cargo.toml.snippet",
+    "locks/mismatched-tag.Cargo.toml.snippet",
+    "locks/alternate-registry.Cargo.toml.snippet",
+    "locks/checksum-mismatch.Cargo.lock.snippet",
+    "locks/yanked-missing-metadata.Cargo.lock.snippet",
+    "locks/private-registry.Cargo.toml.snippet",
+    "history/v1/payment.rs",
+    "history/v2/payment.rs",
+    "ignored/raw_text.rs"
+  ],
+  "expectedSymbols": [
+    { "name": "PaymentProcessor", "kind": "trait", "path": "contracts/src/payment.rs" },
+    { "name": "StripeProcessor", "kind": "struct", "path": "app/src/stripe.rs" },
+    { "name": "run_checkout", "kind": "function", "path": "app/src/checkout.rs" },
+    { "name": "nested_marker", "kind": "function", "path": "crates/nested/src/lib.rs" }
+  ],
+  "diagnostic": {
+    "path": "app/src/type_error.rs",
+    "messageIncludes": "mismatched types"
+  },
+  "lexicalMarker": "FIXTURE_RAW_TEXT_ONLY"
+}
