@@ -9,7 +9,7 @@ import { goToImplementation } from "../../src/code-intelligence/go-to-implementa
 import { hoverAt } from "../../src/code-intelligence/hover-at.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../src/code-intelligence/language-server-descriptor.ts";
 import { LspSymbolIndex } from "../../src/code-intelligence/lsp/lsp-symbol-index.ts";
-import { TreeSitterSymbolIndex } from "../../src/code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { TreeSitterSymbolIndex } from "../../src/code-intelligence/tree-sitter/tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "../../src/code-intelligence/typescript-compiler-symbol-index.ts";
 import { outgoingCalls } from "../../src/symbol-graph/outgoing-calls.ts";
 import { findWorkspaceSymbols } from "../../src/workspace/find-workspace-symbols.ts";

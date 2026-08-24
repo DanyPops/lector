@@ -50,7 +50,7 @@ export type { CodeIntelligencePort } from "./port.ts";
 export type { SymbolDeclarationSnapshot } from "./symbol-declaration-snapshot.ts";
 export type { SymbolIndexPort } from "./symbol-index-port.ts";
 export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./symbol-query.ts";
-export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./tree-sitter/typescript-tree-sitter-symbol-index.ts";
+export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./tree-sitter/tree-sitter-symbol-index.ts";
 export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./typescript-compiler-symbol-index.ts";
 export {
 	AdaptiveWarmIndexResourcePolicy,

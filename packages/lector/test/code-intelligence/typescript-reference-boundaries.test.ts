@@ -4,7 +4,7 @@ import { documentSymbols } from "../../src/code-intelligence/document-symbols.ts
 import { FallbackCodeIntelligenceIndex } from "../../src/code-intelligence/fallback-code-intelligence-index.ts";
 import { TYPESCRIPT_DESCRIPTOR } from "../../src/code-intelligence/language-server-descriptor.ts";
 import { LanguageFileLimitExceeded, LspSymbolIndex } from "../../src/code-intelligence/lsp/lsp-symbol-index.ts";
-import { TreeSitterSymbolIndex } from "../../src/code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { TreeSitterSymbolIndex } from "../../src/code-intelligence/tree-sitter/tree-sitter-symbol-index.ts";
 import { TypeScriptCompilerSymbolIndex } from "../../src/code-intelligence/typescript-compiler-symbol-index.ts";
 import { deriveSourceManifest, SourceManifestLimitExceeded } from "../../src/workspace/source-manifest.ts";
 import { findPositionOf } from "../support/find-position.ts";

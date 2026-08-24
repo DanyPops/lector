@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
 import type { CodeIntelligencePort } from "../src/code-intelligence/port.ts";
-import { TreeSitterSymbolIndex } from "../src/code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { TreeSitterSymbolIndex } from "../src/code-intelligence/tree-sitter/tree-sitter-symbol-index.ts";
 import { DocumentHighlightsNotSupported } from "../src/service/errors.ts";
 import { type ClosableSymbolIndex, CodeIntelligenceUnavailable, createLectorService, type LectorService } from "../src/service.ts";
 

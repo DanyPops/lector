@@ -26,7 +26,7 @@ import { join } from "node:path";
 import { documentSymbols } from "../../src/code-intelligence/document-symbols.ts";
 import { GO_DESCRIPTOR, PYTHON_DESCRIPTOR, TYPESCRIPT_DESCRIPTOR } from "../../src/code-intelligence/language-server-descriptor.ts";
 import { LspSymbolIndex } from "../../src/code-intelligence/lsp/lsp-symbol-index.ts";
-import { TreeSitterSymbolIndex } from "../../src/code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { TreeSitterSymbolIndex } from "../../src/code-intelligence/tree-sitter/tree-sitter-symbol-index.ts";
 
 const LECTOR_ROOT = new URL("../..", import.meta.url).pathname;
 const TS_FIXTURE_DIR = join(LECTOR_ROOT, "test/fixtures/test-case-shapes/typescript");

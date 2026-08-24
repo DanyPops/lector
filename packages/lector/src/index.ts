@@ -63,7 +63,7 @@ export type { CodeIntelligencePort } from "./code-intelligence/port.ts";
 export type { SymbolDeclarationSnapshot } from "./code-intelligence/symbol-declaration-snapshot.ts";
 export type { SymbolIndexPort } from "./code-intelligence/symbol-index-port.ts";
 export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./code-intelligence/symbol-query.ts";
-export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./code-intelligence/tree-sitter/tree-sitter-symbol-index.ts";
 export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./code-intelligence/typescript-compiler-symbol-index.ts";
 export {
 	AdaptiveWarmIndexResourcePolicy,

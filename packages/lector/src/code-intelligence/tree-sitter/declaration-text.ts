@@ -1,6 +1,6 @@
 import type { SymbolDeclarationSnapshot } from "../../code-intelligence/symbol-declaration-snapshot.ts";
+import { declarationKindsForExtension } from "./tree-sitter-symbol-index.ts";
 import { parserForExtension } from "./typescript-parser.ts";
-import { DECLARATION_KINDS } from "./typescript-tree-sitter-symbol-index.ts";
 
 const NOT_FOUND: SymbolDeclarationSnapshot = { found: false };
 
@@ -20,7 +20,7 @@ export async function extractDeclarationSnapshot(content: string, extension: str
 	const parser = await parserForExtension(extension);
 	if (!parser) throw new TypeError(`no tree-sitter grammar registered for extension "${extension}"`);
 	const tree = parser.parse(content);
-	for (const spec of DECLARATION_KINDS) {
+	for (const spec of declarationKindsForExtension(extension)) {
 		for (const node of tree.rootNode.descendantsOfType(spec.nodeType)) {
 			const nameNode = node.childForFieldName("name");
 			if (nameNode?.text !== symbolName) continue;

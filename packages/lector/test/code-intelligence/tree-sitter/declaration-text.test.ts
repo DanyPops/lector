@@ -39,4 +39,18 @@ describe("extractDeclarationSnapshot", () => {
 		const result = await extractDeclarationSnapshot(content, ".ts", "greet");
 		expect(result.found).toBe(false);
 	});
+
+	it("extracts a real Python function declaration -- a distinct grammar with its own node types, not a TypeScript-shaped one", async () => {
+		const content = "def greet(name):\n    return f'hi {name}'\n";
+		const result = await extractDeclarationSnapshot(content, ".py", "greet");
+		expect(result.found).toBe(true);
+		expect(result.text).toBe("def greet(name):\n    return f'hi {name}'");
+	});
+
+	it("matches a real Python class declaration by name, not just functions", async () => {
+		const content = "class Widget:\n    size = 1\n";
+		const result = await extractDeclarationSnapshot(content, ".py", "Widget");
+		expect(result.found).toBe(true);
+		expect(result.text).toContain("class Widget");
+	});
 });

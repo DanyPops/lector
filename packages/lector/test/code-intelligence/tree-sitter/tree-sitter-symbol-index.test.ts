@@ -2,11 +2,11 @@
  * TreeSitterSymbolIndex: no subprocess, no "No Project." gotcha, always
  * current -- dogfooded against Lector's own source, same as the LSP backend.
  */
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TreeSitterSymbolIndex } from "../../../src/code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { TreeSitterSymbolIndex } from "../../../src/code-intelligence/tree-sitter/tree-sitter-symbol-index.ts";
 import { InMemoryContentCache } from "../../../src/content-cache/in-memory-content-cache.ts";
 import type { ContentCacheEntry, ContentCachePort, ContentSymbol } from "../../../src/content-cache/port.ts";
 import type { ContentHash } from "../../../src/content-identity/content-hash.ts";
@@ -34,6 +34,46 @@ class CountingContentCache implements ContentCachePort {
 }
 
 const LECTOR_ROOT = new URL("../../..", import.meta.url).pathname;
+
+describe("TreeSitterSymbolIndex scoped to a non-TypeScript language", () => {
+	let root: string | undefined;
+
+	afterEach(() => {
+		if (root) rmSync(root, { recursive: true, force: true });
+		root = undefined;
+	});
+
+	it("extracts real Python function/class declarations, reporting Python-specific provenance", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-treesitter-python-"));
+		writeFileSync(join(root, "widget.py"), "class Widget:\n    def process(self) -> None:\n        pass\n\n\ndef run_widget() -> None:\n    pass\n");
+		const index = new TreeSitterSymbolIndex(root, new InMemoryContentCache(), {
+			language: { languageId: "python", backend: "tree-sitter-python", extensions: [".py"] },
+		});
+
+		const result = await index.findSymbols("widget");
+
+		expect(result.provenance).toMatchObject({ fidelity: "structural", backend: "tree-sitter-python", languageId: "python", authority: "parser" });
+		expect(result.symbols.map((symbol) => ({ name: symbol.name, kind: symbol.kind }))).toEqual(
+			expect.arrayContaining([
+				{ name: "Widget", kind: "class" },
+				{ name: "run_widget", kind: "function" },
+			]),
+		);
+	});
+
+	it("never returns a TypeScript file's own symbols once scoped to Python's extensions only", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-treesitter-python-scope-"));
+		writeFileSync(join(root, "widget.py"), "def run_widget() -> None:\n    pass\n");
+		writeFileSync(join(root, "widget.ts"), "export function runWidget(): void {}\n");
+		const index = new TreeSitterSymbolIndex(root, new InMemoryContentCache(), {
+			language: { languageId: "python", backend: "tree-sitter-python", extensions: [".py"] },
+		});
+
+		const result = await index.findSymbols("widget");
+
+		expect(result.symbols.map((symbol) => symbol.name)).toEqual(["run_widget"]);
+	});
+});
 
 describe("TreeSitterSymbolIndex against Lector's own source", () => {
 	it("finds a real function declaration by name", async () => {

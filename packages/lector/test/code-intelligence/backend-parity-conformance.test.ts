@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TYPESCRIPT_DESCRIPTOR } from "../../src/code-intelligence/language-server-descriptor.ts";
 import { LspSymbolIndex } from "../../src/code-intelligence/lsp/lsp-symbol-index.ts";
-import { TreeSitterSymbolIndex } from "../../src/code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { TreeSitterSymbolIndex } from "../../src/code-intelligence/tree-sitter/tree-sitter-symbol-index.ts";
 
 let fixtureRoot: string | undefined;
 let lspIndex: LspSymbolIndex | undefined;

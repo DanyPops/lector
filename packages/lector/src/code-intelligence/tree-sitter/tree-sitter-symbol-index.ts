@@ -20,6 +20,8 @@ export interface TreeSitterSymbolIndexOptions {
 	readonly maxFileBytes?: number;
 	readonly maxTotalBytes?: number;
 	readonly maxResults?: number;
+	/** Scopes this index to one language's own file extensions and declares its own provenance/declaration-kind table -- used when wrapping a single failed language server (e.g. a Python-only structural fallback), as opposed to the unscoped default (every extension with a registered grammar, TypeScript's own long-standing behavior). */
+	readonly language?: { readonly languageId: string; readonly backend: string; readonly extensions: readonly string[] };
 }
 
 function positiveLimit(value: number | undefined, fallback: number, field: string): number {
@@ -43,10 +45,21 @@ export const DECLARATION_KINDS: readonly DeclarationKind[] = [
 	{ nodeType: "method_definition", kind: "method" },
 ];
 
+/** Top-level and class-member declaration shapes in tree-sitter's Python grammar -- Python has no separate interface/enum/type-alias declaration syntax the way TypeScript does, so only function/class definitions are extracted. */
+export const PYTHON_DECLARATION_KINDS: readonly DeclarationKind[] = [
+	{ nodeType: "function_definition", kind: "function" },
+	{ nodeType: "class_definition", kind: "class" },
+];
+
+/** Selects the right declaration-kind table for a given source file extension -- extends to a new language by adding one entry here, not by branching extraction logic. Exported for reuse by every other tree-sitter-backed adapter that extracts named declarations (declaration-text.ts's own cross-version symbol comparison), not just this file's own findSymbols. */
+export function declarationKindsForExtension(extension: string): readonly DeclarationKind[] {
+	return extension === ".py" ? PYTHON_DECLARATION_KINDS : DECLARATION_KINDS;
+}
+
 /** Content-derived only -- no path, so the extraction result is valid caching material regardless of which file currently holds this content. */
-function extractContentSymbols(root: Parser.SyntaxNode): ContentSymbol[] {
+function extractContentSymbols(root: Parser.SyntaxNode, declarationKinds: readonly DeclarationKind[]): ContentSymbol[] {
 	const results: ContentSymbol[] = [];
-	for (const spec of DECLARATION_KINDS) {
+	for (const spec of declarationKinds) {
 		for (const node of root.descendantsOfType(spec.nodeType)) {
 			const nameNode = node.childForFieldName("name");
 			if (!nameNode) continue;
@@ -85,20 +98,14 @@ function toWorkspaceSymbols(symbols: readonly ContentSymbol[], relativePath: str
  * read to compute it.
  */
 export class TreeSitterSymbolIndex implements SymbolIndexPort {
-	readonly provenance: IntelligenceProvenance = {
-		fidelity: "structural",
-		backend: "tree-sitter-typescript-javascript",
-		languageId: "typescript-javascript",
-		authority: "parser",
-		freshness: "content-hash",
-		limitations: ["no cross-file identity", "no type information", "syntax recovery may include malformed declarations"],
-	};
+	readonly provenance: IntelligenceProvenance;
 	private readonly rootPath: string;
 	private readonly contentCache: ContentCachePort;
 	private readonly maxFiles: number;
 	private readonly maxFileBytes: number;
 	private readonly maxTotalBytes: number;
 	private readonly maxResults: number;
+	private readonly allowedExtensions: ReadonlySet<string> | undefined;
 
 	constructor(rootPath: string, contentCache: ContentCachePort = new InMemoryContentCache(), options: TreeSitterSymbolIndexOptions = {}) {
 		this.rootPath = rootPath;
@@ -107,9 +114,27 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 		this.maxFileBytes = positiveLimit(options.maxFileBytes, DEFAULT_MAX_FILE_BYTES, "maxFileBytes");
 		this.maxTotalBytes = positiveLimit(options.maxTotalBytes, DEFAULT_MAX_TOTAL_BYTES, "maxTotalBytes");
 		this.maxResults = positiveLimit(options.maxResults, DEFAULT_MAX_RESULTS, "maxResults");
+		this.allowedExtensions = options.language ? new Set(options.language.extensions) : undefined;
+		this.provenance = options.language
+			? {
+					fidelity: "structural",
+					backend: options.language.backend,
+					languageId: options.language.languageId,
+					authority: "parser",
+					freshness: "content-hash",
+					limitations: ["no cross-file identity", "no type information", "syntax recovery may include malformed declarations"],
+				}
+			: {
+					fidelity: "structural",
+					backend: "tree-sitter-typescript-javascript",
+					languageId: "typescript-javascript",
+					authority: "parser",
+					freshness: "content-hash",
+					limitations: ["no cross-file identity", "no type information", "syntax recovery may include malformed declarations"],
+				};
 	}
 
-	private async contentSymbolsFor(wasmPath: string, content: string): Promise<ContentSymbol[]> {
+	private async contentSymbolsFor(wasmPath: string, content: string, declarationKinds: readonly DeclarationKind[]): Promise<ContentSymbol[]> {
 		const hash = contentHashOf(content);
 
 		// Reading the file already required reading its content -- warm the fs lens for this
@@ -123,7 +148,7 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 
 		const parser = await parserForWasmPath(wasmPath);
 		const tree = parser.parse(content);
-		const symbols = extractContentSymbols(tree.rootNode);
+		const symbols = extractContentSymbols(tree.rootNode, declarationKinds);
 		await this.contentCache.putSymbols(hash, symbols);
 		return symbols;
 	}
@@ -132,12 +157,15 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 		const maxResults = Math.min(positiveLimit(bounds.maxResults, this.maxResults, "maxResults"), this.maxResults);
 		const lowerQuery = query.toLowerCase();
 		const results: WorkspaceSymbol[] = [];
-		const files = findSourceFiles(this.rootPath, (extension) => wasmPathForExtension(extension) !== undefined, this.maxFiles);
+		const matchesScope = (extension: string) =>
+			wasmPathForExtension(extension) !== undefined && (!this.allowedExtensions || this.allowedExtensions.has(extension));
+		const files = findSourceFiles(this.rootPath, matchesScope, this.maxFiles);
 		let totalBytes = 0;
 		let truncated = files.length === this.maxFiles;
 
 		for (const relativePath of files) {
-			const wasmPath = wasmPathForExtension(extname(relativePath));
+			const extension = extname(relativePath);
+			const wasmPath = wasmPathForExtension(extension);
 			if (!wasmPath) continue;
 
 			let content: string;
@@ -154,7 +182,7 @@ export class TreeSitterSymbolIndex implements SymbolIndexPort {
 				continue;
 			}
 
-			const contentSymbols = await this.contentSymbolsFor(wasmPath, content);
+			const contentSymbols = await this.contentSymbolsFor(wasmPath, content, declarationKindsForExtension(extension));
 			for (const symbol of toWorkspaceSymbols(contentSymbols, relativePath)) {
 				if (!symbol.name.toLowerCase().includes(lowerQuery)) continue;
 				if (results.length === maxResults) {

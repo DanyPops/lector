@@ -1,1 +1,2 @@
-def unfinished(
+def unfinished(value):
+    return value.

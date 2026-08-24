@@ -22,7 +22,9 @@ export function wasmPathForExtension(extension: string): string | undefined {
 				? "tree-sitter-wasms/out/tree-sitter-tsx.wasm"
 				: extension === ".js" || extension === ".jsx" || extension === ".mjs" || extension === ".cjs"
 					? "tree-sitter-wasms/out/tree-sitter-javascript.wasm"
-					: undefined;
+					: extension === ".py"
+						? "tree-sitter-wasms/out/tree-sitter-python.wasm"
+						: undefined;
 	return specifier ? fileURLToPath(import.meta.resolve(specifier)) : undefined;
 }
 

@@ -116,9 +116,11 @@ describe("createLectorService's workspace.compareSymbolAcrossVersions", () => {
 	});
 
 	it("rejects an unsupported file extension before touching git or tree-sitter", async () => {
+		// .rs has no registered tree-sitter grammar in wasmPathForExtension -- distinct from .py,
+		// which gained real tree-sitter support and so is no longer a valid "unsupported" example.
 		root = buildRepo();
-		writeFileSync(join(root, "a.py"), "def greet():\n\treturn 'hi'\n");
-		git(root, "add", "a.py");
+		writeFileSync(join(root, "a.rs"), 'fn greet() -> &\'static str {\n\t"hi"\n}\n');
+		git(root, "add", "a.rs");
 		git(root, "commit", "-q", "-m", "v1");
 		const v1 = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root }).toString().trim();
 
@@ -126,8 +128,34 @@ describe("createLectorService's workspace.compareSymbolAcrossVersions", () => {
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
 
 		await expect(
-			service.dispatch("workspace.compareSymbolAcrossVersions", { workspaceId, path: "a.py", symbolName: "greet", fromRef: v1, maxBytes: 10_000 }),
+			service.dispatch("workspace.compareSymbolAcrossVersions", { workspaceId, path: "a.rs", symbolName: "greet", fromRef: v1, maxBytes: 10_000 }),
 		).rejects.toBeInstanceOf(SymbolComparisonUnsupportedLanguage);
+	});
+
+	it("compares a real Python symbol's own declaration text across two committed versions -- newly supported now that .py has a registered tree-sitter grammar", async () => {
+		root = buildRepo();
+		writeFileSync(join(root, "a.py"), "def greet():\n    return 'hi'\n");
+		git(root, "add", "a.py");
+		git(root, "commit", "-q", "-m", "v1");
+		const v1 = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root }).toString().trim();
+		writeFileSync(join(root, "a.py"), "def greet():\n    return 'hello'\n");
+		git(root, "add", "a.py");
+		git(root, "commit", "-q", "-m", "v2");
+
+		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
+
+		const result = await service.dispatch("workspace.compareSymbolAcrossVersions", {
+			workspaceId,
+			path: "a.py",
+			symbolName: "greet",
+			fromRef: v1,
+			maxBytes: 10_000,
+		});
+
+		expect(result.status).toBe("changed");
+		expect(result.diff).toContain("'hi'");
+		expect(result.diff).toContain("'hello'");
 	});
 
 	it("rejects NotAGitRepository for a plain (non-git) registered workspace", async () => {

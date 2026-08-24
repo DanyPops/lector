@@ -5,7 +5,8 @@ import type { Logger } from "@danypops/vehicle-server/logging";
 import { FallbackCodeIntelligenceIndex } from "./code-intelligence/fallback-code-intelligence-index.ts";
 import { LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./code-intelligence/language-server-descriptor.ts";
 import { LspSymbolIndex } from "./code-intelligence/lsp/lsp-symbol-index.ts";
-import { TreeSitterSymbolIndex } from "./code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { TreeSitterSymbolIndex } from "./code-intelligence/tree-sitter/tree-sitter-symbol-index.ts";
+import { wasmPathForExtension } from "./code-intelligence/tree-sitter/typescript-parser.ts";
 import { TypeScriptCompilerSymbolIndex } from "./code-intelligence/typescript-compiler-symbol-index.ts";
 import type { WarmIndexResourcePolicy } from "./code-intelligence/warm-index-resource-policy.ts";
 import { BoundedJobExecutor } from "./concurrency/bounded-job-executor.ts";
@@ -276,8 +277,23 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		options.createSymbolIndex ??
 		((rootPath: string, descriptor: LanguageServerDescriptor, seedFile?: string) => {
 			const semantic = new LspSymbolIndex(rootPath, descriptor, seedFile, { contentCache, logger, provisioner: options.languageServerProvisioner });
-			if (descriptor.languageId !== "typescript") return semantic;
-			return new FallbackCodeIntelligenceIndex(semantic, [new TypeScriptCompilerSymbolIndex(rootPath), new TreeSitterSymbolIndex(rootPath, contentCache)]);
+			if (descriptor.languageId === "typescript") {
+				return new FallbackCodeIntelligenceIndex(semantic, [new TypeScriptCompilerSymbolIndex(rootPath), new TreeSitterSymbolIndex(rootPath, contentCache)]);
+			}
+			// Every other language falls back to a tree-sitter grammar when one is registered
+			// (wasmPathForExtension) -- scoped to that language's own extensions so it never
+			// silently reports another language's symbols under this descriptor's own provenance.
+			// A language with no registered grammar yet (e.g. Go, Rust, C/C++) has no structural
+			// fallback at all: a failed semantic server surfaces its own real error, honestly,
+			// rather than a fabricated empty result.
+			if (descriptor.extensions.some((extension) => wasmPathForExtension(extension) !== undefined)) {
+				return new FallbackCodeIntelligenceIndex(semantic, [
+					new TreeSitterSymbolIndex(rootPath, contentCache, {
+						language: { languageId: descriptor.languageId, backend: `tree-sitter-${descriptor.languageId}`, extensions: descriptor.extensions },
+					}),
+				]);
+			}
+			return semantic;
 		});
 	const warmIndexes = new WarmIndexRegistry<WorkspaceId>({
 		descriptors: LANGUAGE_SERVER_DESCRIPTORS,

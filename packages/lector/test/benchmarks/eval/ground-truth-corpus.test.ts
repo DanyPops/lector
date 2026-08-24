@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { GROUND_TRUTH_CORPUS } from "../../../benchmarks/eval/ground-truth-corpus.ts";
-import { TreeSitterSymbolIndex } from "../../../src/code-intelligence/tree-sitter/typescript-tree-sitter-symbol-index.ts";
+import { TreeSitterSymbolIndex } from "../../../src/code-intelligence/tree-sitter/tree-sitter-symbol-index.ts";
 import { materializeTypeScriptReferenceFixture, type TypeScriptReferenceFixture } from "../../support/typescript-reference-fixture.ts";
 
 let fixture: TypeScriptReferenceFixture | undefined;
