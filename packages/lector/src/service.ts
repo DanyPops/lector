@@ -12,6 +12,9 @@ import { BoundedJobExecutor } from "./concurrency/bounded-job-executor.ts";
 import { SerialExecutionQueue } from "./concurrency/serial-execution-queue.ts";
 import { InMemoryContentCache } from "./content-cache/in-memory-content-cache.ts";
 import type { ContentCachePort } from "./content-cache/port.ts";
+import { CratesIoPackageSourceResolver } from "./crates-io-registry/crates-io-package-source-resolver.ts";
+import { CratesIoRegistryClient } from "./crates-io-registry/crates-io-registry-client.ts";
+import type { CratesIoRegistryPort } from "./crates-io-registry/port.ts";
 import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "./external-search/external-search-result.ts";
 import { EXTERNAL_SEARCH_PERMISSIONS, registerExternalSearchOperations } from "./external-search/operation-registration.ts";
 import { InMemoryExternalSearchCache } from "./external-search-cache/in-memory-external-search-cache.ts";
@@ -50,6 +53,7 @@ import { PypiRegistryClient } from "./pypi-registry/pypi-registry-client.ts";
 import { PythonLockfileVersionResolver } from "./python-package-version-resolver/python-lockfile-version-resolver.ts";
 import { REPO_LIST_CACHE_PERMISSIONS, REPO_WRITE_PERMISSIONS, registerRepoFetchOperations } from "./repo-fetcher/operation-registration.ts";
 import type { RepoFetcherPort } from "./repo-fetcher/port.ts";
+import { RustCargoLockVersionResolver } from "./rust-crate-version-resolver/rust-cargo-lock-version-resolver.ts";
 import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
 import type { SearchCachePort } from "./search-cache/port.ts";
 import { type AnnotationHandlerDeps, AnnotationHandlers } from "./service/annotation-handlers.ts";
@@ -191,6 +195,8 @@ export interface LectorServiceOptions {
 	createPypiRegistry?: () => PypiRegistryPort;
 	/** Factory for the GOPROXY client backing package.resolveSource's own Go module existence checks. Defaults to a real GoProxyClient against proxy.golang.org. Called once at construction and reused -- tests inject a fixture-server-pointed instance instead of hitting the real proxy. */
 	createGoProxy?: () => GoProxyClient;
+	/** Factory for the crates.io registry client backing package.resolveSource's own Rust crate repository lookups. Defaults to a real CratesIoRegistryClient. Called once at construction and reused -- tests inject a fixture-server-pointed instance instead of hitting the real registry. */
+	createCratesIoRegistry?: () => CratesIoRegistryPort;
 	/** Factory for the port backing search.githubRepos. Defaults to a real GithubSearchClient (GITHUB_TOKEN if configured, else GitHub's tighter unauthenticated rate limit). Called once at construction and reused. */
 	createGithubSearch?: () => GithubSearchPort;
 	/** Factory for the port backing search.sourcegraphCode. Defaults to a real SourcegraphSearchClient against public sourcegraph.com. Called once at construction and reused. */
@@ -335,6 +341,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const npmRegistry = options.createNpmRegistry?.() ?? new NpmRegistryClient();
 	const pypiRegistry = options.createPypiRegistry?.() ?? new PypiRegistryClient();
 	const goProxy = options.createGoProxy?.() ?? new GoProxyClient();
+	const cratesIoRegistry = options.createCratesIoRegistry?.() ?? new CratesIoRegistryClient();
 	const packageSourceResolver =
 		options.createPackageSourceResolver?.() ??
 		(repoFetcher
@@ -342,6 +349,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 					new NpmPackageSourceResolver({ versions: new NpmLockfileVersionResolver(), registry: npmRegistry, repositories: repoFetcher }),
 					new PypiPackageSourceResolver({ versions: new PythonLockfileVersionResolver(), registry: pypiRegistry, repositories: repoFetcher }),
 					new GoModuleSourceResolver({ versions: new GoModuleLockfileVersionResolver(), proxy: goProxy, repositories: repoFetcher }),
+					new CratesIoPackageSourceResolver({ versions: new RustCargoLockVersionResolver(), registry: cratesIoRegistry, repositories: repoFetcher }),
 				])
 			: undefined);
 	const packageSourceIndex = options.createPackageSourceIndex?.() ?? new InMemoryPackageSourceIndex();

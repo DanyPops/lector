@@ -1,35 +1,12 @@
-import type { RepoReference } from "../repo-fetcher/repo-reference.ts";
+import { gitRepositoryReference, type NormalizedGitRepository, normalizeGitRepositoryUrl } from "../package-source/normalize-git-repository-url.ts";
 
-export interface NormalizedPypiRepository {
-	readonly url: string;
-	readonly host: string;
-	readonly owner: string;
-	readonly repo: string;
-}
+export type NormalizedPypiRepository = NormalizedGitRepository;
 
 /** Checked case-insensitively, in priority order, before falling back to scanning every project_urls value -- the community-recognized labels PyPI's own project page gives special treatment to. */
 const REPOSITORY_LABEL_PRIORITY = ["source code", "source", "repository", "code", "github"];
 
-/** Parses any `https://host/owner/repo[.git]` URL into its own real parts -- exported for reuse against a direct-VCS install's own `directSource` URL, not only PyPI's project_urls, since the same owner/repo shape is what a RepoReference needs either way. */
-export function parseOwnerRepoUrl(raw: string): NormalizedPypiRepository | null {
-	let parsed: URL;
-	try {
-		parsed = new URL(raw);
-	} catch {
-		return null;
-	}
-	if (!["https:", "http:"].includes(parsed.protocol) || parsed.search || parsed.hash || parsed.username || parsed.password) return null;
-	const segments = parsed.pathname
-		.replace(/^\//, "")
-		.replace(/\.git$/, "")
-		.split("/")
-		.filter(Boolean);
-	if (segments.length !== 2) return null;
-	const [owner, repo] = segments;
-	if (!owner || !repo || owner === "." || owner === ".." || repo === "." || repo === "..") return null;
-	const host = parsed.hostname.toLowerCase();
-	return { url: `https://${host}/${owner}/${repo}.git`, host, owner, repo };
-}
+/** Parses any `https://host/owner/repo[.git]` URL into its own real parts -- exported for reuse against a direct-VCS install's own `directSource` URL, not only PyPI's project_urls, since the same owner/repo shape is what a RepoReference needs either way. Delegates to the shared cross-ecosystem parser; kept as its own named export since PyPI-specific call sites already depend on this exact name. */
+export const parseOwnerRepoUrl = normalizeGitRepositoryUrl;
 
 /**
  * PyPI's own JSON API has no single canonical "repository" field the way npm's `repository` does
@@ -54,6 +31,4 @@ export function normalizePypiRepository(projectUrls: Readonly<Record<string, str
 	return null;
 }
 
-export function pypiRepositoryReference(repository: NormalizedPypiRepository, ref: string): RepoReference {
-	return { host: repository.host, owner: repository.owner, repo: repository.repo, ref };
-}
+export const pypiRepositoryReference = gitRepositoryReference;
