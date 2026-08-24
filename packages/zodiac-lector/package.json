@@ -1,6 +1,6 @@
 {
   "name": "@danypops/zodiac-lector",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Package-owned Lector contribution for Zodiac workspace resources",
   "keywords": ["zodiac", "lector", "code-intelligence"],
   "license": "MIT",
