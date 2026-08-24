@@ -69,6 +69,11 @@ describe("Lector Zodiac contribution contract", () => {
 				{ id: "lector.git.compare-symbol", title: "Compare Symbol Across Revisions" },
 			],
 			resourceSchemes: ["lector"],
+			// Opts Lector into Zodiac's own agent-invokable integration.invoke
+			// dispatch path -- the exact same authorized-per-call gate
+			// (authorizeAgentCommand/tool-grant) any other agent command goes
+			// through, not a bypass of it.
+			capabilities: ["agent-invokable"],
 		});
 		const registered = host();
 		await contribution.activate(registered.api);

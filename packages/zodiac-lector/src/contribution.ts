@@ -348,6 +348,12 @@ export function createLectorZodiacContribution(options: { operations?: LectorOpe
 			title: "Lector",
 			commands: [...COMMANDS, ...SEMANTIC_COMMANDS, ...CALL_GRAPH_COMMANDS, ...GIT_COMMANDS],
 			resourceSchemes: ["lector"],
+			// Opts into Zodiac's own agent-invokable integration.invoke dispatch
+			// path -- every command above becomes callable by an authorized
+			// agent session through the identical per-call
+			// authorizeAgentCommand/tool-grant gate a human dispatch goes
+			// through, not a bypass of it.
+			capabilities: ["agent-invokable"],
 		}),
 		activate(host: ContributionHost) {
 			if (unregister.length > 0) throw new Error("Lector contribution is already active");
