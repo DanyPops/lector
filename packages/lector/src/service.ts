@@ -24,6 +24,9 @@ import { GIT_READ_PERMISSIONS, GIT_WORKTREE_WRITE_PERMISSIONS, registerGitOperat
 import type { GitPort } from "./git/port.ts";
 import { GithubSearchClient } from "./github-search/github-search-client.ts";
 import type { GithubSearchPort } from "./github-search/port.ts";
+import { GoModuleSourceResolver } from "./go-module-registry/go-module-source-resolver.ts";
+import { GoProxyClient } from "./go-module-registry/go-proxy-client.ts";
+import { GoModuleLockfileVersionResolver } from "./go-module-version-resolver/go-module-lockfile-version-resolver.ts";
 import { NpmLockfileVersionResolver } from "./installed-package-version-resolver/npm-lockfile-version-resolver.ts";
 import type { LanguageServerProvisionerPort } from "./lsp-provisioning/port.ts";
 import {
@@ -186,6 +189,8 @@ export interface LectorServiceOptions {
 	createNpmRegistry?: () => NpmRegistryPort;
 	/** Factory for the PyPI registry client backing package.resolveSource's own PyPI version lookups. Defaults to a real PypiRegistryClient. Called once at construction and reused -- tests inject a fixture-server-pointed instance instead of hitting the real registry. */
 	createPypiRegistry?: () => PypiRegistryPort;
+	/** Factory for the GOPROXY client backing package.resolveSource's own Go module existence checks. Defaults to a real GoProxyClient against proxy.golang.org. Called once at construction and reused -- tests inject a fixture-server-pointed instance instead of hitting the real proxy. */
+	createGoProxy?: () => GoProxyClient;
 	/** Factory for the port backing search.githubRepos. Defaults to a real GithubSearchClient (GITHUB_TOKEN if configured, else GitHub's tighter unauthenticated rate limit). Called once at construction and reused. */
 	createGithubSearch?: () => GithubSearchPort;
 	/** Factory for the port backing search.sourcegraphCode. Defaults to a real SourcegraphSearchClient against public sourcegraph.com. Called once at construction and reused. */
@@ -329,12 +334,14 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const repoFetcher = options.createRepoFetcher?.();
 	const npmRegistry = options.createNpmRegistry?.() ?? new NpmRegistryClient();
 	const pypiRegistry = options.createPypiRegistry?.() ?? new PypiRegistryClient();
+	const goProxy = options.createGoProxy?.() ?? new GoProxyClient();
 	const packageSourceResolver =
 		options.createPackageSourceResolver?.() ??
 		(repoFetcher
 			? new CompositePackageSourceResolver([
 					new NpmPackageSourceResolver({ versions: new NpmLockfileVersionResolver(), registry: npmRegistry, repositories: repoFetcher }),
 					new PypiPackageSourceResolver({ versions: new PythonLockfileVersionResolver(), registry: pypiRegistry, repositories: repoFetcher }),
+					new GoModuleSourceResolver({ versions: new GoModuleLockfileVersionResolver(), proxy: goProxy, repositories: repoFetcher }),
 				])
 			: undefined);
 	const packageSourceIndex = options.createPackageSourceIndex?.() ?? new InMemoryPackageSourceIndex();
