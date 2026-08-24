@@ -71,8 +71,16 @@ jobs:
 
       - run: bun install --frozen-lockfile
       - run: bun run lint
-      - run: bun run --filter '*' typecheck
-      - run: bun run --filter '*' test
+      # Scoped to the tagged package's own directory, not every workspace
+      # package -- a release tag proves that one package's own suite, not
+      # the whole monorepo's ever-growing aggregate one, fits comfortably
+      # inside this job's fixed timeout-minutes budget. zodiac-lector-v0.0.7's
+      # own publish run hit exactly this timeout mid-suite and never
+      # published as a direct result of the unscoped '*' filter.
+      - working-directory: ${{ steps.package.outputs.dir }}
+        run: bun run typecheck
+      - working-directory: ${{ steps.package.outputs.dir }}
+        run: bun run test
 
       - uses: actions/setup-node@v6
         with:
