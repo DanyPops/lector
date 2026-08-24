@@ -16,6 +16,12 @@ import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
 import { symbolSearchResult, TEST_SEMANTIC_PROVENANCE } from "./support/intelligence-provenance.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
+// Scoped to src/, not the whole package root: workspace.registerPath's own real language
+// discovery over the package root now finds Python/Go/Rust/C++ too (real reference fixtures
+// under test/fixtures/), contending for a real per-language warm-index admission slot even
+// though createSymbolIndex is faked below -- src/ itself stays genuinely single-language.
+const LECTOR_ROOT = new URL("../src", import.meta.url).pathname;
+
 let cleanup: (() => void | Promise<void>) | undefined;
 afterEach(async () => {
 	await cleanup?.();
@@ -42,7 +48,7 @@ describe("LectorService.reapIdleSymbolIndexes", () => {
 		};
 		const service = createLectorService(new Map([["bootstrap", new InMemoryWorkspace()]]), { createSymbolIndex: () => fakeIndex });
 
-		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: process.cwd() });
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: LECTOR_ROOT });
 		await service.dispatch("workspace.findSymbols", { workspaceId, query: "anything" }); // warms the fake index
 
 		await sleep(30);
@@ -64,7 +70,7 @@ describe("LectorService.reapIdleSymbolIndexes", () => {
 			},
 		});
 
-		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: process.cwd() });
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: LECTOR_ROOT });
 		await service.dispatch("workspace.findSymbols", { workspaceId, query: "anything" });
 		expect(spawnCount).toBe(1);
 
@@ -116,7 +122,7 @@ describe("daemon's periodic idle-eviction maintenance task", () => {
 		};
 
 		const client = clientFor(daemon.host, daemon.port, token);
-		const { workspaceId } = await client.call("workspace.registerPath", { path: process.cwd() });
+		const { workspaceId } = await client.call("workspace.registerPath", { path: LECTOR_ROOT });
 		await client.call("workspace.findSymbols", { workspaceId, query: "anything" });
 		expect(closed).toBe(false);
 
