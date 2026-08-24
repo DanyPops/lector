@@ -63,6 +63,8 @@ jobs:
           sudo apt-get install --yes -o Acquire::Retries=3 clangd ripgrep
           rustup component add rust-analyzer
           go install golang.org/x/tools/gopls@v0.23.0
+          go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest
+          go install github.com/sourcegraph/zoekt/cmd/zoekt@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           # bash-language-server resolves by bare name against PATH (see language-server-descriptor.ts):
           # its own pinned editorconfig dependency carries an unpatched ReDoS/OOM chain, so it is a
