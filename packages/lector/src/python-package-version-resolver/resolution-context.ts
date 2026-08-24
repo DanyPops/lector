@@ -8,12 +8,15 @@ const READ_CHUNK_BYTES = 64 * 1024;
 /** Recursive depth of an already-parsed JSON/TOML structure -- checked post-parse rather than by
  * scanning raw text, since both syntaxes here are parsed by Bun's own native (V8-backed) parsers,
  * already hardened against malicious input, and the byte-size bound below runs first regardless. */
+function childValues(value: object): readonly unknown[] {
+	return Array.isArray(value) ? value : Object.values(value);
+}
+
 function parsedNesting(value: unknown, depth = 0): number {
-	if (Array.isArray(value)) return value.reduce((max, item) => Math.max(max, parsedNesting(item, depth + 1)), depth);
-	if (typeof value === "object" && value !== null) {
-		return Object.values(value).reduce((max, item) => Math.max(max, parsedNesting(item, depth + 1)), depth);
-	}
-	return depth;
+	if (typeof value !== "object" || value === null) return depth;
+	let max = depth;
+	for (const item of childValues(value)) max = Math.max(max, parsedNesting(item, depth + 1));
+	return max;
 }
 
 /** Bounds every real filesystem read and every parser's own entry/diagnostic count against one caller-supplied budget, shared across every lockfile a single resolve() call reads. */

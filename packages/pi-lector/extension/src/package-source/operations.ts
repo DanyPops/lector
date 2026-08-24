@@ -7,7 +7,13 @@ export interface PackageSourceListPage {
 }
 
 export interface PackageSourceOperations {
-	resolve(directory: string, name: string, requestedVersion: string | null, registry: string | null): Promise<PackageSourceOperationResult>;
+	resolve(
+		directory: string,
+		name: string,
+		requestedVersion: string | null,
+		registry: string | null,
+		ecosystem?: PackageEcosystem,
+	): Promise<PackageSourceOperationResult>;
 	list(options: { ecosystem?: PackageEcosystem; text?: string; maxResults: number; cursor?: string }): Promise<PackageSourceListPage>;
 	remove(ecosystem: PackageEcosystem, registry: string | null, name: string, resolvedVersion: string): Promise<{ removed: boolean }>;
 	clean(ecosystem: PackageEcosystem | undefined): Promise<{ removed: number; skipped: number }>;
@@ -15,12 +21,12 @@ export interface PackageSourceOperations {
 
 export function createLectorPackageSourceOperations(): PackageSourceOperations {
 	return {
-		async resolve(directory, name, requestedVersion, registry) {
+		async resolve(directory, name, requestedVersion, registry, ecosystem = "npm") {
 			const client = await lectorClient();
 			return client.callOnce("package.resolveSource", {
 				request: {
 					projectRoot: directory,
-					coordinate: { ecosystem: "npm", registry, name, requestedVersion },
+					coordinate: { ecosystem, registry, name, requestedVersion },
 				},
 				bounds: DEFAULT_PACKAGE_SOURCE_BOUNDS,
 			});

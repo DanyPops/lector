@@ -1792,17 +1792,22 @@ export default function (pi: ExtensionAPI) {
 			name: "package_source",
 			label: "Package Source",
 			description:
-				"Resolve, list, remove, or clean bookkeeping for installed npm packages resolved to verified exact repository source. action=resolve uses the project's lockfile, bounded registry metadata, and an exact Git ref/commit; registers verified source as a read-only workspace for the other Lector tools. action=list reports every package coordinate already resolved this way -- no re-resolution, no network. action=remove drops one bookkeeping entry by its exact ecosystem/name/resolvedVersion; refuses if it is still a currently-registered workspace. action=clean removes every non-in-use entry, optionally scoped to one ecosystem. Neither remove nor clean deletes the underlying repo_cache disk entry -- use repo_cache(action=evict) for that, since a monorepo can share one checkout across several package coordinates.",
+				"Resolve, list, remove, or clean bookkeeping for installed packages (npm, pypi, ...) resolved to verified exact repository source. action=resolve uses the project's own lockfile-family, bounded registry metadata, and an exact Git ref/commit (or, for an editable/direct-VCS/local install, the already-known source directly, no registry lookup needed); registers verified source as a read-only workspace for the other Lector tools. action=list reports every package coordinate already resolved this way -- no re-resolution, no network. action=remove drops one bookkeeping entry by its exact ecosystem/name/resolvedVersion; refuses if it is still a currently-registered workspace. action=clean removes every non-in-use entry, optionally scoped to one ecosystem. Neither remove nor clean deletes the underlying repo_cache disk entry -- use repo_cache(action=evict) for that, since a monorepo can share one checkout across several package coordinates.",
 			promptSnippet: "Resolve, list, remove, or clean verified package source bookkeeping",
 			parameters: Type.Object({
 				action: Type.Optional(Type.Union([Type.Literal("resolve"), Type.Literal("list"), Type.Literal("remove"), Type.Literal("clean")])),
-				directory: Type.Optional(Type.String({ description: "Required for action=resolve -- project directory containing the npm-family lockfile" })),
+				directory: Type.Optional(Type.String({ description: "Required for action=resolve -- project directory containing the package's own lockfile-family" })),
 				name: Type.Optional(Type.String({ description: "Required for action=resolve/remove -- installed package name, including scope when present" })),
 				version: Type.Optional(
 					Type.String({ description: "action=resolve only -- exact installed version; required when the lockfile contains several versions" }),
 				),
-				registry: Type.Optional(Type.String({ description: "npm registry URL; defaults to the public npm registry" })),
-				ecosystem: Type.Optional(Type.String({ description: "Required for action=remove; optional filter for action=list/clean" })),
+				registry: Type.Optional(Type.String({ description: "Registry URL; defaults to the ecosystem's own public registry (npm registry / pypi.org)" })),
+				ecosystem: Type.Optional(
+					Type.String({
+						description:
+							"npm/pypi/cargo/go/maven/conan/vcpkg/nuget/swiftpm -- action=resolve defaults to npm; required for action=remove; optional filter for action=list/clean",
+					}),
+				),
 				resolvedVersion: Type.Optional(Type.String({ description: "Required for action=remove -- the exact resolved version to remove" })),
 				text: Type.Optional(Type.String({ description: "action=list only -- case-insensitive substring match across ecosystem/name/resolvedVersion" })),
 				maxResults: Type.Optional(Type.Number({ description: "Required for action=list -- maximum entries to return in this page" })),
@@ -1835,7 +1840,13 @@ export default function (pi: ExtensionAPI) {
 				}
 				if (!params.directory || !params.name) throw new Error("package_source action=resolve requires directory and name");
 				const directory = resolve(cwd, params.directory);
-				const result = await packageSourceOperations.resolve(directory, params.name, params.version ?? null, params.registry ?? null);
+				const result = await packageSourceOperations.resolve(
+					directory,
+					params.name,
+					params.version ?? null,
+					params.registry ?? null,
+					optionalPackageEcosystem(params.ecosystem),
+				);
 				return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "resolve", result } };
 			},
 			renderCall(args, theme, context) {

@@ -36,10 +36,15 @@ import { NpmPackageSourceResolver } from "./npm-registry/npm-package-source-reso
 import { NpmRegistryClient } from "./npm-registry/npm-registry-client.ts";
 import type { NpmRegistryPort } from "./npm-registry/port.ts";
 import { dispatchThroughOperationRegistry } from "./operation-dispatch/dispatch-through-registry.ts";
+import { CompositePackageSourceResolver } from "./package-source/composite-package-source-resolver.ts";
 import { InMemoryPackageSourceIndex } from "./package-source/in-memory-package-source-index.ts";
 import type { PackageSourceIndexPort } from "./package-source/index-port.ts";
 import type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 import { RelativeWorkspacePath } from "./path-safety/assert-absolute-path.ts";
+import type { PypiRegistryPort } from "./pypi-registry/port.ts";
+import { PypiPackageSourceResolver } from "./pypi-registry/pypi-package-source-resolver.ts";
+import { PypiRegistryClient } from "./pypi-registry/pypi-registry-client.ts";
+import { PythonLockfileVersionResolver } from "./python-package-version-resolver/python-lockfile-version-resolver.ts";
 import { REPO_LIST_CACHE_PERMISSIONS, REPO_WRITE_PERMISSIONS, registerRepoFetchOperations } from "./repo-fetcher/operation-registration.ts";
 import type { RepoFetcherPort } from "./repo-fetcher/port.ts";
 import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
@@ -179,6 +184,8 @@ export interface LectorServiceOptions {
 	createPackageSourceIndex?: () => PackageSourceIndexPort;
 	/** Factory for the npm registry client backing both package.resolveSource's version lookups and search.npmPackages. Defaults to a real NpmRegistryClient. Called once at construction and reused -- tests inject a fixture-server-pointed instance instead of hitting the real registry. */
 	createNpmRegistry?: () => NpmRegistryPort;
+	/** Factory for the PyPI registry client backing package.resolveSource's own PyPI version lookups. Defaults to a real PypiRegistryClient. Called once at construction and reused -- tests inject a fixture-server-pointed instance instead of hitting the real registry. */
+	createPypiRegistry?: () => PypiRegistryPort;
 	/** Factory for the port backing search.githubRepos. Defaults to a real GithubSearchClient (GITHUB_TOKEN if configured, else GitHub's tighter unauthenticated rate limit). Called once at construction and reused. */
 	createGithubSearch?: () => GithubSearchPort;
 	/** Factory for the port backing search.sourcegraphCode. Defaults to a real SourcegraphSearchClient against public sourcegraph.com. Called once at construction and reused. */
@@ -321,9 +328,15 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	// between calls for no benefit (the index itself is what makes rehydration correct at all).
 	const repoFetcher = options.createRepoFetcher?.();
 	const npmRegistry = options.createNpmRegistry?.() ?? new NpmRegistryClient();
+	const pypiRegistry = options.createPypiRegistry?.() ?? new PypiRegistryClient();
 	const packageSourceResolver =
 		options.createPackageSourceResolver?.() ??
-		(repoFetcher ? new NpmPackageSourceResolver({ versions: new NpmLockfileVersionResolver(), registry: npmRegistry, repositories: repoFetcher }) : undefined);
+		(repoFetcher
+			? new CompositePackageSourceResolver([
+					new NpmPackageSourceResolver({ versions: new NpmLockfileVersionResolver(), registry: npmRegistry, repositories: repoFetcher }),
+					new PypiPackageSourceResolver({ versions: new PythonLockfileVersionResolver(), registry: pypiRegistry, repositories: repoFetcher }),
+				])
+			: undefined);
 	const packageSourceIndex = options.createPackageSourceIndex?.() ?? new InMemoryPackageSourceIndex();
 	const githubSearch = options.createGithubSearch?.() ?? new GithubSearchClient();
 	const sourcegraphSearch = options.createSourcegraphSearch?.() ?? new SourcegraphSearchClient();

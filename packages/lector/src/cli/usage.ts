@@ -137,8 +137,9 @@ export const USAGE = `Usage:
   lector workspace repo-cache-evict <owner>/<repo>[@ref] [--host <host>] [--json]
     removes one cached repo checkout from disk and the cache index; refuses if it is still a
     currently-registered workspace
-  lector package source <project-dir> <package-name> [--version <exact-version>] [--registry <url>] [--json]
-    resolves an installed npm package to verified exact repository source and registers it read-only
+  lector package source <project-dir> <package-name> [--ecosystem <e>] [--version <exact-version>] [--registry <url>] [--json]
+    resolves an installed package (--ecosystem npm/pypi/..., default npm) to verified exact
+    repository source and registers it read-only
   lector package list-sources [--ecosystem <e>] [--query <text>] --max-results <n> [--cursor <c>] [--json]
     lists every package coordinate this daemon has already resolved to a verified source
     workspace -- no re-resolution, no network -- bounded and paginated via --cursor

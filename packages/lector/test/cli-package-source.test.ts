@@ -84,4 +84,27 @@ describe("lector CLI package-source parity", () => {
 		expect(human).toContain(sourceRoot);
 		expect(human.length).toBeLessThan(1_000);
 	});
+
+	it("resolves a non-npm ecosystem via --ecosystem, defaulting to npm when omitted", async () => {
+		isolated = isolatedLectorPaths();
+		projectRoot = mkdtempSync(join(tmpdir(), "lector-cli-package-project-"));
+		sourceRoot = mkdtempSync(join(tmpdir(), "lector-cli-package-source-"));
+		writeFileSync(join(sourceRoot, "index.ts"), "export const widget = 1;\n");
+		daemon = await startLectorDaemon({
+			workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]),
+			paths: isolated.paths,
+			createPackageSourceResolver: () => new FixedResolver(),
+		});
+
+		const pypiJson = JSON.parse(await runCli(["package", "source", projectRoot, "widget", "--ecosystem", "pypi", "--version", "1.2.3", "--json"])) as {
+			outcome: PackageSourceOutcome;
+		};
+		expect(pypiJson.outcome.status).toBe("verified");
+		if (pypiJson.outcome.status === "verified") expect(pypiJson.outcome.coordinate.ecosystem).toBe("pypi");
+
+		const defaultJson = JSON.parse(await runCli(["package", "source", projectRoot, "widget", "--version", "1.2.3", "--json"])) as {
+			outcome: PackageSourceOutcome;
+		};
+		if (defaultJson.outcome.status === "verified") expect(defaultJson.outcome.coordinate.ecosystem).toBe("npm");
+	});
 });

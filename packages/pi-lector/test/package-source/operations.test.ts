@@ -51,6 +51,21 @@ describe("Lector-backed package source operation", () => {
 		expect(read.content).toContain("widget");
 	});
 
+	it("resolves a non-npm ecosystem when explicitly requested, defaulting to npm when omitted", async () => {
+		sourceRoot = mkdtempSync(join(tmpdir(), "pi-lector-package-source-"));
+		writeFileSync(join(sourceRoot, "index.ts"), "export const widget = 1;\n");
+		const daemon = await startIsolatedLectorDaemon({ createPackageSourceResolver: () => new FixedResolver() });
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+
+		const pypiResult = await createLectorPackageSourceOperations().resolve("/consumer", "widget", "1.2.3", null, "pypi");
+		expect(pypiResult.outcome.status).toBe("verified");
+		if (pypiResult.outcome.status === "verified") expect(pypiResult.outcome.coordinate.ecosystem).toBe("pypi");
+
+		const defaultResult = await createLectorPackageSourceOperations().resolve("/consumer", "widget2", "1.2.3", null);
+		if (defaultResult.outcome.status === "verified") expect(defaultResult.outcome.coordinate.ecosystem).toBe("npm");
+	});
+
 	it("lists a resolved source, then refuses removal while it is still registered", async () => {
 		sourceRoot = mkdtempSync(join(tmpdir(), "pi-lector-package-source-"));
 		writeFileSync(join(sourceRoot, "index.ts"), "export const widget = 1;\n");

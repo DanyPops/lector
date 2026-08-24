@@ -15,7 +15,7 @@ export async function runPackageSource(projectDir: string | undefined, packageNa
 		request: {
 			projectRoot: resolve(projectDir),
 			coordinate: {
-				ecosystem: "npm",
+				ecosystem: parseEcosystemFlag(flags) ?? "npm",
 				registry: flagValue(flags, "--registry") ?? null,
 				name: packageName,
 				requestedVersion: flagValue(flags, "--version") ?? null,
