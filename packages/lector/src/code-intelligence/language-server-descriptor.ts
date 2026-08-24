@@ -141,6 +141,14 @@ export const CPP_DESCRIPTOR: LanguageServerDescriptor = {
 	args: [],
 	rootMarkers: ["compile_commands.json", "compile_flags.txt", "CMakeLists.txt"],
 	commonSeedCandidates: ["main.cpp", "main.c", "src/main.cpp", "src/main.c"],
+	// clangd's own background indexer resolves cross-header types (e.g. a return type declared in
+	// an #included header) asynchronously after didOpen -- hover/goToDefinition immediately after
+	// open can otherwise see a shallow, not-yet-resolved answer (see LspSymbolIndex.ensureFileOpen's
+	// own doc comment). The generic 1000ms default was observed producing an intermittent wrong-
+	// answer flake under CI's constrained CPU budget specifically (GitHub's ubuntu-latest runner:
+	// 4 vCPUs, versus a typical dev machine's own far higher core count) -- matching the same
+	// reasoning already applied to rust-analyzer's own settleMs below.
+	settleMs: 3000,
 };
 
 export const BASH_DESCRIPTOR: LanguageServerDescriptor = {

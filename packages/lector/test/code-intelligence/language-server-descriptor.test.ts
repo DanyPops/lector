@@ -44,4 +44,8 @@ describe("managed language-server descriptors", () => {
 		expect(PYTHON_DESCRIPTOR.workspaceReadyTimeoutMs).toBe(90_000);
 		expect(TYPESCRIPT_DESCRIPTOR.workspaceReadyTimeoutMs).toBeUndefined(); // unset languages still fall back to LspSymbolIndex's own 30s default
 	});
+
+	it("gives clangd a longer post-open settle than the generic default, matching rust-analyzer's own precedent -- cross-header hover/definition resolution needs its background indexer to catch up, and the generic default was observed producing an intermittent wrong-answer flake under CI's own constrained CPU budget", () => {
+		expect(CPP_DESCRIPTOR.settleMs).toBeGreaterThanOrEqual(3000);
+	});
 });
