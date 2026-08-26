@@ -64,6 +64,7 @@
 			"name": "lector",
 			"displayName": "Lector filesystem & code-intelligence service",
 			"binPath": "src/cli.ts",
+			"runtime": "bun",
 			"args": ["serve"],
 			"handleFilename": "handle.json",
 			"restartOnFailure": true,
