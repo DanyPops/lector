@@ -114,9 +114,16 @@ describe("ExplorerComponent", () => {
 	it("reveals an initial active entry so Enter reopens that file", async () => {
 		const tui = fakeTui();
 		let result: ExplorerResult | undefined;
-		const component = new ExplorerComponent(tui, fakeTheme, fakeSession(fakeTree()), "", (next) => {
-			result = next;
-		}, "readme.md");
+		const component = new ExplorerComponent(
+			tui,
+			fakeTheme,
+			fakeSession(fakeTree()),
+			"",
+			(next) => {
+				result = next;
+			},
+			"readme.md",
+		);
 		await tick();
 		await component.handleInput("\r");
 		expect(result).toMatchObject({ kind: "open-file", absolutePath: "/repo/readme.md", viewState: { relativePath: "", selectedEntryName: "readme.md" } });

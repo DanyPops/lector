@@ -16,9 +16,7 @@ export interface ExplorerViewState {
 }
 
 /** Reports why the Explorer closed plus its latest restorable location when the host supports view-state persistence. */
-export type ExplorerResult =
-	| { kind: "quit"; viewState?: ExplorerViewState }
-	| { kind: "open-file"; absolutePath: string; viewState?: ExplorerViewState };
+export type ExplorerResult = { kind: "quit"; viewState?: ExplorerViewState } | { kind: "open-file"; absolutePath: string; viewState?: ExplorerViewState };
 
 /** Joins a directory-relative name onto `directory` ("" means the resolved root itself). */
 export function joinExplorerPath(directory: string, name: string): string {
@@ -60,7 +58,14 @@ export class ExplorerComponent implements Component {
 	private statusMessage = "";
 	private confirming: PendingConfirmation | undefined;
 
-	constructor(tui: TUI, theme: EditorTheme, session: DirectoryExplorerSession, initialRelativePath: string, done: (result: ExplorerResult) => void, initialSelectedEntryName?: string) {
+	constructor(
+		tui: TUI,
+		theme: EditorTheme,
+		session: DirectoryExplorerSession,
+		initialRelativePath: string,
+		done: (result: ExplorerResult) => void,
+		initialSelectedEntryName?: string,
+	) {
 		this.tui = tui;
 		this.theme = theme;
 		this.session = session;
@@ -128,9 +133,10 @@ export class ExplorerComponent implements Component {
 		const text = this.entries.length > 0 ? this.entries.map((entry) => formatExplorerLine(entry)).join("\n") : "";
 		this.state = new EditorState(text);
 		const selectedIndex = selectedEntryName === undefined ? -1 : this.entries.findIndex((entry) => entry.name === selectedEntryName);
-		if (selectedIndex >= 0) {
+		const selectedEntry = selectedIndex >= 0 ? this.entries[selectedIndex] : undefined;
+		if (selectedEntry) {
 			this.state.cursorLine = selectedIndex + 1;
-			this.state.cursorCharacter = `${this.entries[selectedIndex]!.id} `.length + 1;
+			this.state.cursorCharacter = `${selectedEntry.id} `.length + 1;
 			this.scrollToKeepCursorVisible();
 		}
 		this.confirming = undefined;
@@ -216,9 +222,7 @@ export class ExplorerComponent implements Component {
 	private viewState(): ExplorerViewState {
 		const parsed = parseExplorerLine(this.state.currentLineText);
 		const entry = !parsed || parsed.id === null ? undefined : this.entries.find((candidate) => candidate.id === parsed.id);
-		return entry
-			? { relativePath: this.currentPath, selectedEntryName: entry.name }
-			: { relativePath: this.currentPath };
+		return entry ? { relativePath: this.currentPath, selectedEntryName: entry.name } : { relativePath: this.currentPath };
 	}
 
 	private scrollToKeepCursorVisible(): void {
