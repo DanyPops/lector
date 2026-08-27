@@ -31,7 +31,7 @@
 export type { DirectoryExplorerSession } from "./directory-explorer-operations.ts";
 export { type EditorAction, type EditorMode, EditorState } from "./editor-state.ts";
 export type { EditorTheme } from "./editor-theme.ts";
-export { ExplorerComponent, type ExplorerResult, joinExplorerPath } from "./explorer-component.ts";
+export { ExplorerComponent, type ExplorerResult, type ExplorerViewState, joinExplorerPath } from "./explorer-component.ts";
 // runExplorerFlow is pure orchestration over the two interfaces above (browse, open a file into
 // the real editor, return to the explorer at that file's own directory once it quits) -- exported
 // for the same reason ExplorerComponent/DirectoryExplorerSession are: any real host can drive this

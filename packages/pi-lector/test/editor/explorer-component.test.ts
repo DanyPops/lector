@@ -111,6 +111,17 @@ describe("ExplorerComponent", () => {
 		expect(result).toBeUndefined();
 	});
 
+	it("reveals an initial active entry so Enter reopens that file", async () => {
+		const tui = fakeTui();
+		let result: ExplorerResult | undefined;
+		const component = new ExplorerComponent(tui, fakeTheme, fakeSession(fakeTree()), "", (next) => {
+			result = next;
+		}, "readme.md");
+		await tick();
+		await component.handleInput("\r");
+		expect(result).toMatchObject({ kind: "open-file", absolutePath: "/repo/readme.md", viewState: { relativePath: "", selectedEntryName: "readme.md" } });
+	});
+
 	it("Enter on a directory line navigates into it", async () => {
 		const tui = fakeTui();
 		const component = new ExplorerComponent(tui, fakeTheme, fakeSession(fakeTree()), "", () => undefined);
@@ -128,7 +139,7 @@ describe("ExplorerComponent", () => {
 		await tick();
 		await component.handleInput("j"); // move to readme.md
 		await component.handleInput("\r");
-		expect(result).toEqual({ kind: "open-file", absolutePath: "/repo/readme.md" });
+		expect(result).toEqual({ kind: "open-file", absolutePath: "/repo/readme.md", viewState: { relativePath: "", selectedEntryName: "readme.md" } });
 	});
 
 	it("'-' navigates back to the parent directory", async () => {
@@ -217,6 +228,6 @@ describe("ExplorerComponent", () => {
 		});
 		await tick();
 		for (const key of [":", "q", "\r"]) await component.handleInput(key);
-		expect(result).toEqual({ kind: "quit" });
+		expect(result).toEqual({ kind: "quit", viewState: { relativePath: "", selectedEntryName: "src" } });
 	});
 });

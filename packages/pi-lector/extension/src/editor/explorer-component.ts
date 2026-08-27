@@ -9,7 +9,16 @@ import type { EditorTheme } from "./editor-theme.ts";
 import type { ExplorerDiff, ExplorerEntry } from "./explorer-diff.ts";
 import { diffExplorerLines, formatExplorerLine, parseExplorerLine } from "./explorer-diff.ts";
 
-export type ExplorerResult = { kind: "quit" } | { kind: "open-file"; absolutePath: string };
+/** Restores one Workspace's directory and active entry when its Explorer becomes visible again. */
+export interface ExplorerViewState {
+	readonly relativePath: string;
+	readonly selectedEntryName?: string;
+}
+
+/** Reports why the Explorer closed plus its latest restorable location when the host supports view-state persistence. */
+export type ExplorerResult =
+	| { kind: "quit"; viewState?: ExplorerViewState }
+	| { kind: "open-file"; absolutePath: string; viewState?: ExplorerViewState };
 
 /** Joins a directory-relative name onto `directory` ("" means the resolved root itself). */
 export function joinExplorerPath(directory: string, name: string): string {
@@ -51,12 +60,12 @@ export class ExplorerComponent implements Component {
 	private statusMessage = "";
 	private confirming: PendingConfirmation | undefined;
 
-	constructor(tui: TUI, theme: EditorTheme, session: DirectoryExplorerSession, initialRelativePath: string, done: (result: ExplorerResult) => void) {
+	constructor(tui: TUI, theme: EditorTheme, session: DirectoryExplorerSession, initialRelativePath: string, done: (result: ExplorerResult) => void, initialSelectedEntryName?: string) {
 		this.tui = tui;
 		this.theme = theme;
 		this.session = session;
 		this.done = done;
-		this.pending = this.loadDirectory(initialRelativePath).catch((error: unknown) => this.reportError(error));
+		this.pending = this.loadDirectory(initialRelativePath, initialSelectedEntryName).catch((error: unknown) => this.reportError(error));
 	}
 
 	private pending: Promise<void> = Promise.resolve();
@@ -111,13 +120,19 @@ export class ExplorerComponent implements Component {
 		this.tui.requestRender();
 	}
 
-	private async loadDirectory(relativePath: string): Promise<void> {
+	private async loadDirectory(relativePath: string, selectedEntryName?: string): Promise<void> {
 		const listing = await this.session.listDirectory(relativePath);
 		this.currentPath = relativePath;
 		this.nextId = 1;
 		this.entries = listing.entries.map((entry) => ({ id: this.nextId++, name: entry.name, kind: entry.kind }));
 		const text = this.entries.length > 0 ? this.entries.map((entry) => formatExplorerLine(entry)).join("\n") : "";
 		this.state = new EditorState(text);
+		const selectedIndex = selectedEntryName === undefined ? -1 : this.entries.findIndex((entry) => entry.name === selectedEntryName);
+		if (selectedIndex >= 0) {
+			this.state.cursorLine = selectedIndex + 1;
+			this.state.cursorCharacter = `${this.entries[selectedIndex]!.id} `.length + 1;
+			this.scrollToKeepCursorVisible();
+		}
 		this.confirming = undefined;
 		this.statusMessage = "";
 		this.tui.requestRender();
@@ -133,12 +148,17 @@ export class ExplorerComponent implements Component {
 			await this.loadDirectory(joinExplorerPath(this.currentPath, entry.name));
 			return;
 		}
-		this.done({ kind: "open-file", absolutePath: join(this.session.root, joinExplorerPath(this.currentPath, entry.name)) });
+		this.done({
+			kind: "open-file",
+			absolutePath: join(this.session.root, joinExplorerPath(this.currentPath, entry.name)),
+			viewState: { relativePath: this.currentPath, selectedEntryName: entry.name },
+		});
 	}
 
 	private async navigateToParent(): Promise<void> {
 		if (this.currentPath === "") return; // already at the resolved root -- v1 never widens scope above it
-		await this.loadDirectory(parentExplorerPath(this.currentPath));
+		const childName = posix.basename(this.currentPath);
+		await this.loadDirectory(parentExplorerPath(this.currentPath), childName);
 	}
 
 	private async performAction(action: EditorAction): Promise<void> {
@@ -149,14 +169,14 @@ export class ExplorerComponent implements Component {
 				this.state.dirty = false;
 				if (diffs.length === 0) {
 					this.statusMessage = "no changes";
-					if (action.kind === "save-and-quit") this.done({ kind: "quit" });
+					if (action.kind === "save-and-quit") this.done({ kind: "quit", viewState: this.viewState() });
 					return;
 				}
 				this.confirming = { diffs, andQuit: action.kind === "save-and-quit" };
 				return;
 			}
 			case "quit":
-				this.done({ kind: "quit" });
+				this.done({ kind: "quit", viewState: this.viewState() });
 				return;
 			case "hover":
 				this.statusMessage = "hover is not applicable in the file explorer";
@@ -186,11 +206,19 @@ export class ExplorerComponent implements Component {
 			return;
 		}
 		if (andQuit) {
-			this.done({ kind: "quit" });
+			this.done({ kind: "quit", viewState: this.viewState() });
 			return;
 		}
 		await this.loadDirectory(this.currentPath);
 		this.statusMessage = "applied";
+	}
+
+	private viewState(): ExplorerViewState {
+		const parsed = parseExplorerLine(this.state.currentLineText);
+		const entry = !parsed || parsed.id === null ? undefined : this.entries.find((candidate) => candidate.id === parsed.id);
+		return entry
+			? { relativePath: this.currentPath, selectedEntryName: entry.name }
+			: { relativePath: this.currentPath };
 	}
 
 	private scrollToKeepCursorVisible(): void {

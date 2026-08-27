@@ -67,6 +67,26 @@ describe("runExplorerFlow", () => {
 		expect(explorerCalls).toEqual(["", "src"]);
 	});
 
+	it("returns to the edited file and exposes the final Workspace view state", async () => {
+		const session = fakeSession("/repo");
+		const explorerCalls: Array<{ relativePath: string; selectedEntryName: string | undefined }> = [];
+		let call = 0;
+		const host: ExplorerFlowHost = {
+			showExplorer: async (_session, relativePath, selectedEntryName): Promise<ExplorerResult> => {
+				explorerCalls.push({ relativePath, selectedEntryName });
+				call++;
+				return call === 1 ? { kind: "open-file", absolutePath: "/repo/src/index.ts" } : { kind: "quit" };
+			},
+			showEditor: async () => undefined,
+		};
+		const finalState = await runExplorerFlow(session, host);
+		expect(explorerCalls).toEqual([
+			{ relativePath: "", selectedEntryName: undefined },
+			{ relativePath: "src", selectedEntryName: "index.ts" },
+		]);
+		expect(finalState).toEqual({ relativePath: "src", selectedEntryName: "index.ts" });
+	});
+
 	it("calls showEditor with the real absolute path before returning to the explorer", async () => {
 		const session = fakeSession("/repo");
 		const editorCalls: string[] = [];
