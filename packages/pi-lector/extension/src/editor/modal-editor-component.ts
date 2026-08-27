@@ -1,6 +1,6 @@
 import { extname } from "node:path";
-import type { HighlightSpan } from "@danypops/lector";
-import { highlightSpans } from "@danypops/lector";
+import type { ContentHash, HighlightSpan } from "@danypops/lector";
+import { contentHashOf, highlightSpans } from "@danypops/lector";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -10,12 +10,30 @@ import type { EditorTheme } from "./editor-theme.ts";
 
 export type { EditorTheme } from "./editor-theme.ts";
 
+export interface EditorBufferSnapshot {
+	readonly text: string;
+	readonly hash: ContentHash;
+	readonly dirty: boolean;
+}
+
+export interface EditorHoverRequest {
+	readonly line: number;
+	readonly character: number;
+	readonly buffer: EditorBufferSnapshot;
+}
+
+export type EditorHoverOutcome =
+	| { readonly kind: "ready"; readonly hover?: { readonly contents: string } }
+	| { readonly kind: "stale-active-buffer"; readonly bufferHash: ContentHash };
+
 export interface ModalEditorHost {
 	filePath: string;
 	/** Saves the buffer's current text through Lector's hash-guarded write. Throws (surfaced as a status message, not a crash) on a genuinely concurrent external change. */
 	save(text: string): Promise<void>;
-	/** Real hover info from Lector's existing code-intelligence operation, or undefined when there is none at this position. */
+	/** Resolves hover against the saved file for hosts that do not expose active-buffer semantics. */
 	hover(line: number, character: number): Promise<{ contents: string } | undefined>;
+	/** Resolves hover against the supplied active-buffer snapshot or reports that semantic evidence is stale. */
+	hoverSnapshot?(request: EditorHoverRequest): Promise<EditorHoverOutcome>;
 }
 
 const CAPTURE_COLOR: Record<string, ThemeColor> = {
@@ -111,9 +129,29 @@ export class ModalEditorComponent implements Component {
 				this.done();
 				return;
 			case "hover": {
-				const hover = await this.host.hover(this.state.cursorLine, this.state.cursorCharacter);
-				const firstLine = hover?.contents.split("\n")[0];
-				this.statusMessage = firstLine ?? "no hover info at this position";
+				const text = this.state.buffer.text;
+				const request = {
+					line: this.state.cursorLine,
+					character: this.state.cursorCharacter,
+					buffer: { text, hash: contentHashOf(text), dirty: this.state.dirty },
+				};
+				const outcome = this.host.hoverSnapshot
+					? await this.host.hoverSnapshot(request)
+					: { kind: "ready" as const, hover: await this.host.hover(request.line, request.character) };
+				switch (outcome.kind) {
+					case "ready": {
+						const firstLine = outcome.hover?.contents.split("\n")[0];
+						this.statusMessage = firstLine ?? "no hover info at this position";
+						break;
+					}
+					case "stale-active-buffer":
+						this.statusMessage = "stale active buffer: save or discard changes before semantic queries";
+						break;
+					default: {
+						const exhaustive: never = outcome;
+						throw new Error(`Unhandled hover outcome: ${JSON.stringify(exhaustive)}`);
+					}
+				}
 				break;
 			}
 			default: {

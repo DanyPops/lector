@@ -38,4 +38,10 @@ export { ExplorerComponent, type ExplorerResult, joinExplorerPath } from "./expl
 // exact, already-tested loop without re-deriving it, instead of only this package's own Pi
 // extension entry point being able to.
 export { type ExplorerFlowHost, runExplorerFlow } from "./explorer-flow.ts";
-export { ModalEditorComponent, type ModalEditorHost } from "./modal-editor-component.ts";
+export {
+	type EditorBufferSnapshot,
+	type EditorHoverOutcome,
+	type EditorHoverRequest,
+	ModalEditorComponent,
+	type ModalEditorHost,
+} from "./modal-editor-component.ts";

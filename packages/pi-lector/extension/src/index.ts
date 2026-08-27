@@ -496,6 +496,11 @@ export default function (pi: ExtensionAPI) {
 						const result = await codeIntelligenceOperations.hover(absolutePath, line, character);
 						return result.hover;
 					},
+					hoverSnapshot: async (request) => {
+						if (request.buffer.dirty) return { kind: "stale-active-buffer", bufferHash: request.buffer.hash };
+						const result = await codeIntelligenceOperations.hover(absolutePath, request.line, request.character);
+						return { kind: "ready", hover: result.hover };
+					},
 				};
 				return new ModalEditorComponent(tui, theme, host, session.content, () => done(undefined));
 			}, editorOverlayOptions);
