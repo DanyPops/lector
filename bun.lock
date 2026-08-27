@@ -63,9 +63,9 @@
     },
     "packages/pi-lector": {
       "name": "@danypops/pi-lector",
-      "version": "0.13.6",
+      "version": "0.13.7",
       "dependencies": {
-        "@danypops/lector": "^0.19.9",
+        "@danypops/lector": "^0.20.0",
         "@danypops/vehicle-client": "^0.10.3",
         "@danypops/vehicle-core": "^0.17.1",
         "malevich-tui-components": "^0.32.1",
