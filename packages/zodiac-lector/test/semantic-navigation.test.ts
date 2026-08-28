@@ -144,6 +144,77 @@ describe("Lector Zodiac semantic navigation", () => {
 		});
 	}, 30_000);
 
+	it("projects bounded context and symbol candidates with explicit cache completeness", async () => {
+		const operations: LectorOperations = {
+			call: async (operation) => {
+				if (operation === "workspace.registerPath") return { workspaceId: "ws", created: true };
+				if (operation === "workspace.cacheStatus") return { status: "not-cached", reason: "no-completed-generation" };
+				if (operation === "workspace.localizeContext")
+					return {
+						queryTerms: ["cache"],
+						candidates: [
+							{
+								name: "refreshCache",
+								kind: "function",
+								role: "production",
+								path: "/tmp/project/src/cache.ts",
+								line: 7,
+								character: 3,
+								score: 25,
+								reasons: [{ kind: "symbol-name", detail: "symbol name contains: cache", score: 14 }],
+							},
+						],
+						totalCandidates: 1,
+						truncated: false,
+						completeness: { lexical: "complete", graph: "unavailable", deadlineReached: false, candidateLimitReached: false },
+					};
+				if (operation === "workspace.findSymbols")
+					return {
+						symbols: [{ name: "refreshCache", kind: "function", location: { path: "/tmp/project/src/cache.ts", line: 7, character: 3 } }],
+						truncated: false,
+						completeness: "partial",
+						provenance: {
+							fidelity: "structural",
+							backend: "tree-sitter",
+							languageId: "typescript",
+							authority: "parser",
+							freshness: "filesystem-snapshot",
+							limitations: [],
+						},
+					};
+				throw new Error(`unexpected operation: ${operation}`);
+			},
+		};
+		const registered = host();
+		await createLectorZodiacContribution({ operations }).activate(registered.api);
+		await command(registered.commands, "lector.workspace.open").execute({ path: "/tmp/project" });
+		const context = reference(
+			await command(registered.commands, "lector.context.localize").execute({
+				workspaceId: "ws",
+				query: "cache",
+				maxSymbols: 5,
+				maxBytes: 20_000,
+				maxDepth: 2,
+				deadlineMs: 1_000,
+				cacheBounds: { maxFiles: 100, maxSymbolsPerFile: 50 },
+			}),
+		);
+		expect(await read(registered.provider(), context)).toMatchObject({
+			kind: "context-candidates",
+			status: "partial",
+			provenance: { cacheStatus: "not-cached" },
+			items: [{ target: { path: "src/cache.ts", line: 7, character: 3 } }],
+		});
+		const symbols = reference(
+			await command(registered.commands, "lector.symbol.find").execute({ workspaceId: "ws", query: "refresh", maxResults: 5, maxBytes: 20_000 }),
+		);
+		expect(await read(registered.provider(), symbols)).toMatchObject({
+			kind: "symbol-results",
+			status: "partial",
+			items: [{ target: { path: "src/cache.ts", line: 7, character: 3 } }],
+		});
+	});
+
 	it("preserves degraded/stale provenance, caps result resources, and cancels without caching late work", async () => {
 		let finish: ((value: unknown) => void) | undefined;
 		const operations: LectorOperations = {

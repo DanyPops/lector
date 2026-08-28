@@ -17,6 +17,8 @@ const MAX_RESOURCE_ENTRIES = 10_000;
 const SEMANTIC_COMMAND_BINDINGS = [
 	{ id: "lector.search.text", title: "Search Text", operation: "workspace.searchText" },
 	{ id: "lector.search.files", title: "Find Files", operation: "workspace.findFiles" },
+	{ id: "lector.context.localize", title: "Localize Context", operation: "workspace.localizeContext" },
+	{ id: "lector.symbol.find", title: "Find Symbols", operation: "workspace.findSymbols" },
 	{ id: "lector.symbol.hover", title: "Show Hover", operation: "workspace.hover" },
 	{ id: "lector.symbol.definition", title: "Go to Definition", operation: "workspace.goToDefinition" },
 	{ id: "lector.symbol.references", title: "Find References", operation: "workspace.findReferences" },
@@ -266,6 +268,153 @@ export function createSemanticNavigationContribution(operations: LectorOperation
 				if (!output || !Array.isArray(output.paths) || !output.paths.every((path) => typeof path === "string") || typeof output.truncated !== "boolean")
 					return failure("invalid-response", "Lector returned an invalid file-search result");
 				return cache("file-results", "Files", { kind: "file-results", status: "ready", items: output.paths, truncated: output.truncated }, output.paths.length);
+			}
+			if (operation === "workspace.localizeContext") {
+				const cacheBounds = record(parsed.cacheBounds);
+				if (
+					!nonEmptyString(parsed.workspaceId) ||
+					!nonEmptyString(parsed.query) ||
+					!positiveInteger(parsed.maxSymbols, 500) ||
+					!positiveInteger(parsed.maxBytes, MAX_RESOURCE_BYTES) ||
+					!positiveInteger(parsed.maxDepth, 5) ||
+					!positiveInteger(parsed.deadlineMs, 30_000) ||
+					!cacheBounds ||
+					!positiveInteger(cacheBounds.maxFiles, 10_000) ||
+					!positiveInteger(cacheBounds.maxSymbolsPerFile, 10_000)
+				)
+					return failure("invalid-input", "Context localization requires explicit query, output, deadline, and cache bounds");
+				const root = workspaceRoots.get(parsed.workspaceId);
+				if (!root) return failure("workspace-not-open", "Workspace must be opened before context localization");
+				const cacheOutput = record(
+					await callWithCancellation(
+						operations,
+						"workspace.cacheStatus",
+						{ workspaceId: parsed.workspaceId, maxFiles: cacheBounds.maxFiles, maxSymbolsPerFile: cacheBounds.maxSymbolsPerFile },
+						signal,
+					),
+				);
+				const rawCacheStatus = cacheOutput?.status;
+				if (
+					rawCacheStatus !== "cached" &&
+					rawCacheStatus !== "partial" &&
+					rawCacheStatus !== "caching" &&
+					rawCacheStatus !== "waiting-for-resources" &&
+					rawCacheStatus !== "not-cached"
+				)
+					return failure("invalid-response", "Lector returned an invalid symbol-graph cache status");
+				const cacheStatus = rawCacheStatus === "waiting-for-resources" ? "caching" : rawCacheStatus;
+				const output = record(
+					await callWithCancellation(
+						operations,
+						operation,
+						{
+							workspaceId: parsed.workspaceId,
+							query: parsed.query,
+							maxSymbols: parsed.maxSymbols,
+							maxBytes: parsed.maxBytes,
+							maxDepth: parsed.maxDepth,
+							deadlineMs: parsed.deadlineMs,
+						},
+						signal,
+					),
+				);
+				const completeness = record(output?.completeness);
+				if (
+					!output ||
+					!Array.isArray(output.candidates) ||
+					typeof output.truncated !== "boolean" ||
+					!completeness ||
+					typeof completeness.deadlineReached !== "boolean" ||
+					typeof completeness.candidateLimitReached !== "boolean"
+				)
+					return failure("invalid-response", "Lector returned an invalid context-localization result");
+				const items: Record<string, unknown>[] = [];
+				for (const value of output.candidates) {
+					const candidate = record(value);
+					const path = projectPath(root, candidate?.path);
+					if (
+						!candidate ||
+						!path ||
+						!positiveInteger(candidate.line) ||
+						!positiveInteger(candidate.character) ||
+						typeof candidate.score !== "number" ||
+						!Array.isArray(candidate.reasons)
+					)
+						return failure("invalid-response", "Lector returned an invalid context candidate");
+					items.push({ ...candidate, path, target: { path, line: candidate.line, character: candidate.character, positionEncoding: "one-based-code-unit" } });
+				}
+				const status =
+					completeness.deadlineReached === true
+						? "stale"
+						: cacheStatus === "cached" && completeness.lexical === "complete" && completeness.graph === "complete"
+							? "ready"
+							: "partial";
+				return cache(
+					"context-candidates",
+					`Context: ${parsed.query}`,
+					{
+						kind: "context-candidates",
+						status,
+						provenance: { source: "lector-localize-context", cacheStatus, ...(nonEmptyString(cacheOutput?.reason) ? { staleReason: cacheOutput.reason } : {}) },
+						queryTerms: Array.isArray(output.queryTerms) ? output.queryTerms : [],
+						items,
+						totalCandidates: output.totalCandidates,
+						truncated: output.truncated,
+						completeness,
+						bounds: {
+							maxSymbols: parsed.maxSymbols,
+							maxBytes: parsed.maxBytes,
+							maxDepth: parsed.maxDepth,
+							deadlineMs: parsed.deadlineMs,
+							cacheBounds: { maxFiles: cacheBounds.maxFiles, maxSymbolsPerFile: cacheBounds.maxSymbolsPerFile },
+						},
+					},
+					items.length,
+				);
+			}
+			if (operation === "workspace.findSymbols") {
+				if (
+					!nonEmptyString(parsed.workspaceId) ||
+					!nonEmptyString(parsed.query) ||
+					!positiveInteger(parsed.maxResults, 10_000) ||
+					!positiveInteger(parsed.maxBytes, MAX_RESOURCE_BYTES)
+				)
+					return failure("invalid-input", "Symbol search requires workspaceId, query, and bounded maxResults/maxBytes");
+				const root = workspaceRoots.get(parsed.workspaceId);
+				if (!root) return failure("workspace-not-open", "Workspace must be opened before symbol search");
+				const output = record(
+					await callWithCancellation(operations, operation, { workspaceId: parsed.workspaceId, query: parsed.query, maxResults: parsed.maxResults }, signal),
+				);
+				const source = provenance(output?.provenance);
+				if (!output || !source || !Array.isArray(output.symbols) || typeof output.truncated !== "boolean")
+					return failure("invalid-response", "Lector returned an invalid symbol-search result");
+				const items: Record<string, unknown>[] = [];
+				for (const value of output.symbols) {
+					const symbol = record(value);
+					const location = record(symbol?.location);
+					const path = projectPath(root, location?.path);
+					if (!symbol || !location || !path || !positiveInteger(location.line) || !positiveInteger(location.character))
+						return failure("invalid-response", "Lector returned a symbol outside the workspace");
+					items.push({
+						...symbol,
+						location: { path, line: location.line, character: location.character },
+						target: { path, line: location.line, character: location.character, positionEncoding: "one-based-code-unit" },
+					});
+				}
+				const status = output.completeness === "partial" ? "partial" : semanticStatus(source);
+				return cache(
+					"symbol-results",
+					`Symbols: ${parsed.query}`,
+					{
+						kind: "symbol-results",
+						status,
+						provenance: source,
+						items,
+						truncated: output.truncated,
+						bounds: { maxResults: parsed.maxResults, maxBytes: parsed.maxBytes },
+					},
+					items.length,
+				);
 			}
 
 			if (!nonEmptyString(parsed.workspaceId) || !nonEmptyString(parsed.path))
