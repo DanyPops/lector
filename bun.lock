@@ -23,7 +23,7 @@
     },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.20.0",
+      "version": "0.20.2",
       "bin": {
         "lector": "src/cli-bootstrap.ts",
       },
