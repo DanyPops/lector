@@ -1,16 +1,20 @@
+import type { CodeActionPreview, CodeActionPreviewId } from "../code-intelligence/code-action.ts";
 import type { SymbolComparisonStatus } from "../code-intelligence/compare-symbol-declarations.ts";
 import type { Diagnostic } from "../code-intelligence/diagnostic.ts";
 import type { DocumentHighlight } from "../code-intelligence/document-highlight.ts";
 import type { DocumentSymbolEntry } from "../code-intelligence/document-symbol.ts";
 import type { Hover } from "../code-intelligence/hover.ts";
+import type { ImpactAnalysisResult } from "../code-intelligence/impact-analysis.ts";
 import type { IntelligenceProvenance } from "../code-intelligence/intelligence-provenance.ts";
 import type { DataFlowHint } from "../code-intelligence/tree-sitter/data-flow-hints.ts";
+import type { TypeHierarchyEntry } from "../code-intelligence/type-hierarchy.ts";
 import type { NarrowedType } from "../code-intelligence/typescript-narrowed-type.ts";
 import type { JobSnapshot } from "../concurrency/bounded-job-executor.ts";
 import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../external-search/external-search-result.ts";
 import type { GitDiffResult } from "../git/diff-result.ts";
 import type { GitGrepResult } from "../git/grep-result.ts";
+import type { GitHistoryGrepResult } from "../git/history-grep-result.ts";
 import type { GitListFilesResult } from "../git/list-files-result.ts";
 import type { GitLogEntry } from "../git/log-entry.ts";
 import type { GitStatusSummary } from "../git/status.ts";
@@ -39,6 +43,7 @@ import type { RenameRange } from "../workspace/workspace-edit.ts";
 import type { WorkspaceMapResult } from "../workspace/workspace-map.ts";
 import type { WorkspaceQueryOutcome } from "../workspace/workspace-query-outcome.ts";
 import type { SymbolSearchResult, WorkspaceLocation } from "../workspace/workspace-symbol.ts";
+import type { DiagnosticValidationResult, GitDiagnosticValidationResult } from "./diagnostic-validation-coordinator.ts";
 import type { JobTopic, JobWatchId, WorkspaceId } from "./errors.ts";
 import type { ActiveCachingJobSummary } from "./symbol-graph/cache-query-handlers.ts";
 
@@ -68,6 +73,13 @@ export type OperationName =
 	| "workspace.prepareCallHierarchy"
 	| "workspace.incomingCalls"
 	| "workspace.outgoingCalls"
+	| "workspace.prepareTypeHierarchy"
+	| "workspace.supertypes"
+	| "workspace.subtypes"
+	| "workspace.impactAnalysis"
+	| "workspace.diagnosticDelta"
+	| "workspace.previewCodeActions"
+	| "workspace.applyCodeAction"
 	| "workspace.populateSymbolGraph"
 	| "workspace.reachableFrom"
 	| "workspace.symbolEdgesFrom"
@@ -85,6 +97,7 @@ export type OperationName =
 	| "workspace.gitDiff"
 	| "workspace.gitShowFile"
 	| "workspace.gitGrep"
+	| "workspace.gitGrepHistory"
 	| "workspace.gitListFiles"
 	| "workspace.gitIsAncestor"
 	| "workspace.gitWorktreeAdd"
@@ -151,6 +164,13 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.prepareCallHierarchy",
 	"workspace.incomingCalls",
 	"workspace.outgoingCalls",
+	"workspace.prepareTypeHierarchy",
+	"workspace.supertypes",
+	"workspace.subtypes",
+	"workspace.impactAnalysis",
+	"workspace.diagnosticDelta",
+	"workspace.previewCodeActions",
+	"workspace.applyCodeAction",
 	"workspace.populateSymbolGraph",
 	"workspace.reachableFrom",
 	"workspace.symbolEdgesFrom",
@@ -168,6 +188,7 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.gitDiff",
 	"workspace.gitShowFile",
 	"workspace.gitGrep",
+	"workspace.gitGrepHistory",
 	"workspace.gitListFiles",
 	"workspace.gitIsAncestor",
 	"workspace.gitWorktreeAdd",
@@ -256,6 +277,35 @@ export interface OperationInputs {
 	"workspace.prepareCallHierarchy": WorkspacePosition;
 	"workspace.incomingCalls": WorkspacePosition & { maxResults?: number; maxBytes?: number };
 	"workspace.outgoingCalls": WorkspacePosition & { maxResults?: number; maxBytes?: number };
+	"workspace.prepareTypeHierarchy": WorkspacePosition & { maxResults?: number; maxBytes?: number; deadlineMs?: number };
+	"workspace.supertypes": WorkspacePosition & { maxResults?: number; maxBytes?: number; deadlineMs?: number };
+	"workspace.subtypes": WorkspacePosition & { maxResults?: number; maxBytes?: number; deadlineMs?: number };
+	"workspace.diagnosticDelta": {
+		workspaceId: WorkspaceId;
+		source: { kind: "transaction"; transactionId: string } | { kind: "git"; ref: string };
+		maxResults?: number;
+		maxBytes?: number;
+		maxDepth?: number;
+		maxNodes?: number;
+		maxEdges?: number;
+		deadlineMs?: number;
+		maxFiles?: number;
+		maxSymbolsPerFile?: number;
+		autoPopulate?: boolean;
+	};
+	"workspace.impactAnalysis": {
+		workspaceId: WorkspaceId;
+		source: { kind: "git"; ref?: string } | { kind: "mutation"; transactionId: string };
+		maxDepth?: number;
+		maxNodes?: number;
+		maxEdges?: number;
+		maxBytes?: number;
+		deadlineMs?: number;
+		coverage?: readonly { testPath: string; coveredPaths: readonly string[] }[];
+		autoPopulate?: boolean;
+		maxFiles: number;
+		maxSymbolsPerFile: number;
+	};
 	/**
 	 * allowBroadRoot is an explicit, auditable opt-in past classifyAutoPopulationRoot's own refusal
 	 * -- see BroadNonProjectRoot. retryTimeBudgetMs, when given, retries a WorkspaceChangedDuringPopulation
@@ -319,6 +369,20 @@ export interface OperationInputs {
 	};
 	"workspace.prepareRename": WorkspacePosition;
 	"workspace.rename": WorkspacePosition & { newName: string };
+	"workspace.previewCodeActions": {
+		workspaceId: WorkspaceId;
+		path: string;
+		range: { start: { line: number; character: number }; end: { line: number; character: number } };
+		diagnostics?: readonly Diagnostic[];
+		only?: readonly string[];
+		includeCommandActions?: boolean;
+		maxActions: number;
+		maxEdits: number;
+		maxFiles: number;
+		maxBytes: number;
+		deadlineMs: number;
+	};
+	"workspace.applyCodeAction": { workspaceId: WorkspaceId; previewId: CodeActionPreviewId };
 	"workspace.gitStatus": { workspaceId: WorkspaceId };
 	"workspace.gitLog": { workspaceId: WorkspaceId; maxCount: number };
 	"workspace.gitDiff": { workspaceId: WorkspaceId; ref?: string; maxBytes: number };
@@ -326,6 +390,17 @@ export interface OperationInputs {
 	"workspace.gitShowFile": { workspaceId: WorkspaceId; ref: string; path: string };
 	/** Text search across `ref`'s own tree, no checkout -- the ref-scoped equivalent of workspace.searchText. pathspecs narrows the search (grep's own glob-based pathspec matching). */
 	"workspace.gitGrep": { workspaceId: WorkspaceId; ref: string; pattern: string; pathspecs?: readonly string[]; maxMatches: number; maxBytes: number };
+	/** Bounded regex search across commit trees reachable from all refs, with deterministic topological paging and exact path/line/text deduplication. */
+	"workspace.gitGrepHistory": {
+		workspaceId: WorkspaceId;
+		pattern: string;
+		pathspecs?: readonly string[];
+		commitOffset: number;
+		maxCommits: number;
+		maxMatches: number;
+		maxBytes: number;
+		deadlineMs: number;
+	};
 	/** Every file path in `ref`'s own tree, no checkout. pathspecs narrows the listing (ls-tree's own prefix-based pathspec matching, not glob-based like gitGrep's). */
 	"workspace.gitListFiles": { workspaceId: WorkspaceId; ref: string; pathspecs?: readonly string[]; maxResults: number };
 	/** True iff ancestorRef is a real ancestor of (or the exact same commit as) ref -- the backport/reachability check a "was this fix ported to release-X" question actually needs. */
@@ -406,6 +481,10 @@ export interface OperationInputs {
 		title: string;
 		body: string;
 		anchors: readonly { path: string; line: number; character: number }[];
+		/** See workspace.createAnnotation; refresh uses the same bounded anchor-recovery semantics. */
+		autoPopulate?: boolean;
+		maxFiles?: number;
+		maxSymbolsPerFile?: number;
 	};
 	"workspace.scrubAnnotation": { workspaceId: WorkspaceId; id: AnnotationId };
 	"workspace.restoreAnnotation": { workspaceId: WorkspaceId; id: AnnotationId };
@@ -469,6 +548,11 @@ export interface OperationOutputs {
 	"workspace.prepareCallHierarchy": Provenanced<{ items: readonly CallHierarchyEntry[] }>;
 	"workspace.incomingCalls": Provenanced<{ calls: readonly IncomingCall[]; truncated: boolean }>;
 	"workspace.outgoingCalls": Provenanced<{ calls: readonly OutgoingCall[]; truncated: boolean }>;
+	"workspace.prepareTypeHierarchy": Provenanced<{ items: readonly TypeHierarchyEntry[]; truncated: boolean }>;
+	"workspace.supertypes": Provenanced<{ items: readonly TypeHierarchyEntry[]; truncated: boolean }>;
+	"workspace.subtypes": Provenanced<{ items: readonly TypeHierarchyEntry[]; truncated: boolean }>;
+	"workspace.impactAnalysis": ImpactAnalysisResult;
+	"workspace.diagnosticDelta": (DiagnosticValidationResult | GitDiagnosticValidationResult) & { truncated: boolean };
 	"workspace.populateSymbolGraph": PopulateSymbolGraphResult;
 	"workspace.reachableFrom": { symbols: readonly SymbolNode[]; truncated: boolean };
 	"workspace.symbolEdgesFrom": { symbols: readonly SymbolNode[]; truncated: boolean };
@@ -479,15 +563,23 @@ export interface OperationOutputs {
 	"workspace.cacheWalkedFiles": { files: readonly string[]; totalCount: number; nextOffset: number; truncated: boolean };
 	"workspace.cacheFailures": { failures: readonly SymbolGraphPopulationFailure[]; totalCount: number; nextOffset: number; truncated: boolean };
 	/** steps carries full before/after file content internally for mutation-history recording -- deliberately excluded from the wire response, which stays the small movedTo/filesUpdated/caveats summary every caller already expects. */
-	"workspace.referenceBasedRename": Omit<ReferenceBasedRenameOutcome, "steps">;
+	"workspace.referenceBasedRename": Omit<ReferenceBasedRenameOutcome, "steps"> & { transactionId: string };
 	"workspace.prepareRename": Provenanced<{ range: RenameRange | null }>;
-	"workspace.rename": Provenanced<{ touchedPaths: readonly string[] }>;
+	"workspace.rename": Provenanced<{ touchedPaths: readonly string[]; transactionId?: string }>;
+	"workspace.previewCodeActions": Provenanced<{ actions: readonly CodeActionPreview[]; truncated: boolean; deadlineReached: boolean }>;
+	"workspace.applyCodeAction": Provenanced<{
+		touchedPaths: readonly string[];
+		transactionId?: string;
+		/** Commands are previewed but remain outside the atomic file-edit transaction. */
+		pendingCommand?: { readonly title: string; readonly command: string };
+	}>;
 	"workspace.gitStatus": GitStatusSummary;
 	"workspace.gitLog": { entries: readonly GitLogEntry[] };
 	"workspace.gitDiff": GitDiffResult;
 	/** Undefined content means path did not exist at ref -- a real, expected case, never an error. */
 	"workspace.gitShowFile": { content: string | undefined };
 	"workspace.gitGrep": GitGrepResult;
+	"workspace.gitGrepHistory": GitHistoryGrepResult;
 	"workspace.gitListFiles": GitListFilesResult;
 	"workspace.gitIsAncestor": { isAncestor: boolean };
 	/**

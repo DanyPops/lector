@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
 import type { CodeIntelligencePort } from "../src/code-intelligence/port.ts";
 import { TreeSitterSymbolIndex } from "../src/code-intelligence/tree-sitter/tree-sitter-symbol-index.ts";
+import { TypeHierarchyUnavailable } from "../src/code-intelligence/type-hierarchy.ts";
 import { DocumentHighlightsNotSupported } from "../src/service/errors.ts";
 import { type ClosableSymbolIndex, CodeIntelligenceUnavailable, createLectorService, type LectorService } from "../src/service.ts";
 
@@ -70,6 +71,9 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 		await expect(service.dispatch("workspace.prepareCallHierarchy", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.incomingCalls", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 		await expect(service.dispatch("workspace.outgoingCalls", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
+		await expect(service.dispatch("workspace.prepareTypeHierarchy", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
+		await expect(service.dispatch("workspace.supertypes", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
+		await expect(service.dispatch("workspace.subtypes", at)).rejects.toBeInstanceOf(CodeIntelligenceUnavailable);
 	}, 20_000);
 
 	it("rejects workspace.documentHighlights with DocumentHighlightsNotSupported when the negotiated backend implements code intelligence but not documentHighlights itself", async () => {
@@ -107,6 +111,56 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 		const at = { workspaceId, path: join(fixtureRoot, "src/math.ts"), line: 1, character: 17 };
 
 		await expect(service.dispatch("workspace.documentHighlights", at)).rejects.toBeInstanceOf(DocumentHighlightsNotSupported);
+		await expect(service.dispatch("workspace.prepareTypeHierarchy", at)).rejects.toBeInstanceOf(TypeHierarchyUnavailable);
+	}, 20_000);
+
+	it("routes and bounds type-hierarchy operations", async () => {
+		fixtureRoot = buildFixture();
+		const path = join(fixtureRoot, "src/math.ts");
+		const provenance = {
+			fidelity: "semantic",
+			backend: "fixture",
+			languageId: "typescript",
+			authority: "language-server",
+			freshness: "live-process",
+			limitations: [],
+		} as const;
+		const item = (name: string) => ({
+			name,
+			kind: "class",
+			location: { path, line: 1, character: 1 },
+			range: { path, start: { line: 1, character: 1 }, end: { line: 1, character: 2 } },
+		});
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolIndex: (): ClosableSymbolIndex & CodeIntelligencePort => ({
+				provenance,
+				findSymbols: async () => ({ symbols: [], truncated: false, provenance }),
+				goToDefinition: async () => [],
+				goToImplementation: async () => [],
+				findReferences: async () => [],
+				hover: async () => undefined,
+				documentSymbols: async () => [],
+				diagnostics: async () => [],
+				prepareCallHierarchy: async () => [],
+				incomingCalls: async () => [],
+				outgoingCalls: async () => [],
+				prepareTypeHierarchy: async () => [item("Root"), item("Other")],
+				supertypes: async () => [item("Base")],
+				subtypes: async () => [item("Child")],
+				close: async () => {},
+			}),
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		const at = { workspaceId, path, line: 1, character: 1 };
+		await expect(service.dispatch("workspace.prepareTypeHierarchy", { ...at, maxResults: 1 })).resolves.toMatchObject({
+			items: [{ name: "Root" }],
+			truncated: true,
+			provenance,
+		});
+		await expect(service.dispatch("workspace.supertypes", at)).resolves.toMatchObject({ items: [{ name: "Base" }], truncated: false });
+		await expect(service.dispatch("workspace.subtypes", at)).resolves.toMatchObject({ items: [{ name: "Child" }], truncated: false });
+		await expect(service.dispatch("workspace.subtypes", { ...at, deadlineMs: 120_001 })).rejects.toThrow("deadlineMs");
 	}, 20_000);
 
 	it("waits for real pushed diagnostics after each edit through the error-and-clear loop", async () => {

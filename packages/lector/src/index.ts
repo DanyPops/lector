@@ -11,8 +11,17 @@ export {
 	remoteErrorIs,
 	resolveLectorDaemonConnection,
 } from "./client.ts";
+export {
+	type CodeActionPreview,
+	type CodeActionPreviewId,
+	type CodeActionQuery,
+	CodeActionsUnavailable,
+	codeActionPreviewId,
+	type SemanticCodeAction,
+} from "./code-intelligence/code-action.ts";
 export type { SymbolComparisonStatus, SymbolDeclarationComparison } from "./code-intelligence/compare-symbol-declarations.ts";
 export type { Diagnostic, DiagnosticSeverity } from "./code-intelligence/diagnostic.ts";
+export { type ChangedDiagnostic, type DiagnosticDelta, diagnosticDelta } from "./code-intelligence/diagnostic-delta.ts";
 export { diagnostics } from "./code-intelligence/diagnostics.ts";
 export type { DocumentSymbolEntry } from "./code-intelligence/document-symbol.ts";
 export { documentSymbols } from "./code-intelligence/document-symbols.ts";
@@ -22,6 +31,7 @@ export { goToDefinition } from "./code-intelligence/go-to-definition.ts";
 export { goToImplementation } from "./code-intelligence/go-to-implementation.ts";
 export type { Hover } from "./code-intelligence/hover.ts";
 export { hoverAt } from "./code-intelligence/hover-at.ts";
+export { changedSymbolImpact, type ImpactAnalysisResult, type TestAssociationEvidence } from "./code-intelligence/impact-analysis.ts";
 export type {
 	IntelligenceFidelity,
 	IntelligenceProvenance,
@@ -55,6 +65,7 @@ export {
 	LanguageFileOutsideWorkspace,
 	LanguageServerExecutableUnavailable,
 	LanguageServerPositionEncodingUnsupported,
+	LanguageServerTypeHierarchyUnavailable,
 	LanguageServerWorkspaceNotReady,
 	LspSymbolIndex,
 	type LspSymbolIndexOptions,
@@ -65,6 +76,7 @@ export type { SymbolDeclarationSnapshot } from "./code-intelligence/symbol-decla
 export type { SymbolIndexPort } from "./code-intelligence/symbol-index-port.ts";
 export { assertBoundedSymbolQuery, InvalidSymbolQuery, MAX_SYMBOL_QUERY_BYTES } from "./code-intelligence/symbol-query.ts";
 export { TreeSitterSymbolIndex, type TreeSitterSymbolIndexOptions } from "./code-intelligence/tree-sitter/tree-sitter-symbol-index.ts";
+export { prepareTypeHierarchy, subtypes, supertypes, type TypeHierarchyEntry, TypeHierarchyUnavailable } from "./code-intelligence/type-hierarchy.ts";
 export { TypeScriptCompilerSymbolIndex, type TypeScriptCompilerSymbolIndexOptions } from "./code-intelligence/typescript-compiler-symbol-index.ts";
 export {
 	AdaptiveWarmIndexResourcePolicy,
@@ -113,6 +125,8 @@ export type { FileWatcherPort } from "./file-watcher/port.ts";
 export { WatchLimitExceeded, type WatchRegistration, WatchRegistry } from "./file-watcher/watch-registry.ts";
 export { assertSafeGitArgument, UnsafeGitArgument } from "./git/assert-safe-git-argument.ts";
 export type { GitDiffResult } from "./git/diff-result.ts";
+export type { GitHistoryGrepBounds, GitHistoryGrepMatch, GitHistoryGrepResult } from "./git/history-grep-result.ts";
+export { InvalidGitSearchPattern } from "./git/invalid-search-pattern.ts";
 export { LocalGit } from "./git/local-git.ts";
 export type { GitLogEntry } from "./git/log-entry.ts";
 export type { GitPort } from "./git/port.ts";
@@ -261,6 +275,8 @@ export {
 	type ClosableSymbolIndex,
 	CodeIntelligenceUnavailable,
 	createLectorService,
+	DiagnosticValidationNotFound,
+	ImpactAnalysisRequiresFreshGraph,
 	InvalidJobInput,
 	InvalidWorkspaceRoot,
 	JobWaitTooLong,
@@ -329,12 +345,21 @@ export type {
 export { deriveSymbolNodeId, type SymbolNodeId } from "./symbol-graph/symbol-node-id.ts";
 export { assertSafeGlobPattern, UnsafeGlobPattern } from "./text-search/assert-safe-glob-pattern.ts";
 export { assertSafeSearchQuery, UnsafeSearchQuery } from "./text-search/assert-safe-search-query.ts";
+export { FffIndexedTextEngineFactory, type FffIndexedTextEngineOptions } from "./text-search/fff-indexed-text-engine.ts";
 export { findFiles } from "./text-search/find-files.ts";
 export type { FindFilesResult } from "./text-search/find-files-result.ts";
-export type { FindFilesOptions, TextSearchOptions, TextSearchPort } from "./text-search/port.ts";
+export {
+	IndexedSearchQueryBypass,
+	type IndexedTextEngine,
+	type IndexedTextEngineFactory,
+	IndexedTextSearch,
+	type IndexedTextSearchOptions,
+	type IndexedTextStatus,
+} from "./text-search/indexed-text-search.ts";
+export type { FindFilesOptions, TextSearchOptions, TextSearchPort, TextSearchWorkspaceOrigin } from "./text-search/port.ts";
 export { RipgrepTextSearch } from "./text-search/ripgrep-text-search.ts";
 export { searchText } from "./text-search/search-text.ts";
-export type { TextSearchMatch, TextSearchResult } from "./text-search/text-search-result.ts";
+export type { LexicalSearchProvenance, TextSearchMatch, TextSearchResult } from "./text-search/text-search-result.ts";
 export { lectorVersion } from "./version.ts";
 export {
 	type ApplyPatchRequest,

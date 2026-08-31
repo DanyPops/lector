@@ -112,7 +112,9 @@ describe("annotation error mapping", () => {
 				?.errors.map((failure) => failure.code)
 				.sort();
 
-		expect(codesFor("workspace.createAnnotation")).toEqual(["unknown-workspace", "annotation-requires-anchors", "unknown-annotation-anchor"].sort());
+		const anchorErrors = ["unknown-workspace", "annotation-requires-anchors", "unknown-annotation-anchor", "auto-populate-requires-bounds"].sort();
+		expect(codesFor("workspace.createAnnotation")).toEqual(anchorErrors);
+		expect(codesFor("workspace.refreshAnnotation")).toEqual(anchorErrors);
 		expect(codesFor("workspace.getAnnotation")).toEqual(["unknown-workspace"]);
 		expect(codesFor("workspace.containAnnotation")).toEqual(["unknown-workspace", "unknown-annotation-for-containment", "annotation-containment-cycle"].sort());
 	});

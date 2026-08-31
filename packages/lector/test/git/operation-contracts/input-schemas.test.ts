@@ -2,6 +2,7 @@
 import { describe, expect, it } from "bun:test";
 import {
 	gitDiffInputSchema,
+	gitGrepHistoryInputSchema,
 	gitGrepInputSchema,
 	gitIsAncestorInputSchema,
 	gitListFilesInputSchema,
@@ -116,6 +117,42 @@ describe("Git input schemas", () => {
 		it("rejects a missing maxMatches", () => {
 			const result = gitGrepInputSchema.safeParse({ workspaceId: "ws", ref: "HEAD", pattern: "foo", maxBytes: 1000 });
 			expect(result).toEqual({ success: false, issues: [{ path: ["maxMatches"], message: "maxMatches must be a positive safe integer" }] });
+		});
+	});
+
+	describe("gitGrepHistoryInputSchema", () => {
+		const valid = {
+			workspaceId: "ws",
+			pattern: "foo.*bar",
+			commitOffset: 0,
+			maxCommits: 100,
+			maxMatches: 50,
+			maxBytes: 100_000,
+			deadlineMs: 5_000,
+		};
+
+		it("accepts an explicitly bounded history search", () => {
+			expect(gitGrepHistoryInputSchema.safeParse(valid)).toEqual({ success: true, value: { ...valid, pathspecs: undefined } });
+		});
+
+		it("accepts bounded pathspecs", () => {
+			expect(gitGrepHistoryInputSchema.safeParse({ ...valid, pathspecs: ["src/*.ts"] })).toEqual({
+				success: true,
+				value: { ...valid, pathspecs: ["src/*.ts"] },
+			});
+		});
+
+		it("rejects absent or excessive resource bounds", () => {
+			expect(gitGrepHistoryInputSchema.safeParse({ ...valid, maxCommits: undefined }).success).toBe(false);
+			expect(gitGrepHistoryInputSchema.safeParse({ ...valid, maxCommits: 513 }).success).toBe(false);
+			expect(gitGrepHistoryInputSchema.safeParse({ ...valid, maxMatches: 10_001 }).success).toBe(false);
+			expect(gitGrepHistoryInputSchema.safeParse({ ...valid, maxBytes: 8 * 1024 * 1024 + 1 }).success).toBe(false);
+			expect(gitGrepHistoryInputSchema.safeParse({ ...valid, deadlineMs: 120_001 }).success).toBe(false);
+		});
+
+		it("rejects an unbounded pathspec collection and oversized pattern", () => {
+			expect(gitGrepHistoryInputSchema.safeParse({ ...valid, pathspecs: Array.from({ length: 65 }, () => "*.ts") }).success).toBe(false);
+			expect(gitGrepHistoryInputSchema.safeParse({ ...valid, pattern: "x".repeat(4_097) }).success).toBe(false);
 		});
 	});
 

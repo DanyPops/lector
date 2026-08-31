@@ -19,6 +19,7 @@ export interface WorkspaceLifecycleHandlerDeps {
 	readonly warmIndexes: WarmIndexRegistry<WorkspaceId>;
 	readonly graphRefresh: WorkspaceGraphRelease;
 	readonly watchHandlers: Pick<WorkspaceWatchHandlers, "hasActiveWatch" | "releaseWorkspace">;
+	readonly releaseTextSearch?: (rootPath: string) => void;
 }
 
 export interface WorkspaceLifecycleHandlers {
@@ -80,7 +81,8 @@ async function registerPath(registry: MutableRegistry, input: OperationInputs["w
 export function createWorkspaceLifecycleHandlers(deps: WorkspaceLifecycleHandlerDeps): WorkspaceLifecycleHandlers {
 	return {
 		async "workspace.release"(registry, input) {
-			if (!registry.has(input.workspaceId)) throw new UnknownWorkspace(input.workspaceId);
+			const entry = registry.get(input.workspaceId);
+			if (!entry) throw new UnknownWorkspace(input.workspaceId);
 			if (deps.watchHandlers.hasActiveWatch(input.workspaceId)) throw new WorkspaceReleaseBlocked(input.workspaceId, "active-watch");
 
 			let closedIndexes: number;
@@ -100,6 +102,7 @@ export function createWorkspaceLifecycleHandlers(deps: WorkspaceLifecycleHandler
 			}
 
 			const closedWatch = deps.watchHandlers.releaseWorkspace(input.workspaceId);
+			if (entry.rootPath) deps.releaseTextSearch?.(entry.rootPath);
 			registry.delete(input.workspaceId);
 			return { workspaceId: input.workspaceId, closedIndexes, closedGraph, closedWatch };
 		},

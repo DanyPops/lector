@@ -67,6 +67,21 @@ describe("LspSymbolIndex against a server that declares pull-model diagnostics",
 
 		await index.diagnostics(filePath);
 
-		expect(index.capabilities?.diagnosticProvider).toEqual({ interFileDependencies: false, workspaceDiagnostics: false, identifier: undefined });
+		expect(index.capabilities?.diagnosticProvider).toEqual({ interFileDependencies: false, workspaceDiagnostics: true, identifier: undefined });
+	});
+
+	it("prefers a bounded workspace/diagnostic pull when the server advertises it", async () => {
+		cwd = mkdtempSync(join(tmpdir(), "lector-workspace-diagnostics-"));
+		const first = join(cwd, "first.ts");
+		const second = join(cwd, "second.ts");
+		writeFileSync(first, "const first = 1;\n");
+		writeFileSync(second, "const second = 2;\n");
+		index = new LspSymbolIndex(cwd, PULL_DIAGNOSTICS_DESCRIPTOR);
+		await index.documentSymbols(first);
+		await index.documentSymbols(second);
+
+		const diagnostics = await index.workspaceDiagnostics(2, 1, 5_000);
+		expect(diagnostics.map(({ range }) => range.path).sort()).toEqual([first, second].sort());
+		expect(diagnostics.every(({ code }) => code === "WS0001")).toBe(true);
 	});
 });

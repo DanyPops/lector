@@ -10,6 +10,9 @@ describe("parseServerCapabilities", () => {
 				renameProvider: false,
 				prepareRenameProvider: false,
 				documentHighlightProvider: false,
+				codeActionProvider: false,
+				codeActionResolveProvider: false,
+				typeHierarchyProvider: false,
 				workspaceFileOperations: { willRename: false, didRename: false, willDelete: false, didDelete: false, willCreate: false, didCreate: false },
 				diagnosticProvider: undefined,
 			});
@@ -42,6 +45,21 @@ describe("parseServerCapabilities", () => {
 		expect(parseServerCapabilities({ documentHighlightProvider: {} }).documentHighlightProvider).toBe(true);
 		expect(parseServerCapabilities({ documentHighlightProvider: false }).documentHighlightProvider).toBe(false);
 		expect(parseServerCapabilities({}).documentHighlightProvider).toBe(false);
+	});
+
+	it("parses code-action support and lazy resolve capability", () => {
+		expect(parseServerCapabilities({ codeActionProvider: true })).toMatchObject({ codeActionProvider: true, codeActionResolveProvider: false });
+		expect(parseServerCapabilities({ codeActionProvider: { resolveProvider: true } })).toMatchObject({
+			codeActionProvider: true,
+			codeActionResolveProvider: true,
+		});
+		expect(parseServerCapabilities({ codeActionProvider: false })).toMatchObject({ codeActionProvider: false, codeActionResolveProvider: false });
+	});
+
+	it("treats typeHierarchyProvider true or an options object as supported", () => {
+		expect(parseServerCapabilities({ typeHierarchyProvider: true }).typeHierarchyProvider).toBe(true);
+		expect(parseServerCapabilities({ typeHierarchyProvider: {} }).typeHierarchyProvider).toBe(true);
+		expect(parseServerCapabilities({ typeHierarchyProvider: false }).typeHierarchyProvider).toBe(false);
 	});
 
 	it("reads workspace file-operation capabilities by presence, not by their (often empty) options object", () => {

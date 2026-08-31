@@ -57,6 +57,28 @@ export interface GitGrepInput {
 	readonly maxBytes: number;
 }
 
+export interface GitGrepHistoryInput {
+	readonly workspaceId: string;
+	readonly pattern: string;
+	readonly pathspecs?: readonly string[];
+	readonly commitOffset: number;
+	readonly maxCommits: number;
+	readonly maxMatches: number;
+	readonly maxBytes: number;
+	readonly deadlineMs: number;
+}
+
+export const GIT_HISTORY_SEARCH_LIMITS = {
+	maxPatternCharacters: 4_096,
+	maxPathspecs: 64,
+	maxPathspecCharacters: 1_024,
+	maxCommitOffset: 1_000_000,
+	maxCommits: 512,
+	maxMatches: 10_000,
+	maxBytes: 8 * 1024 * 1024,
+	maxDeadlineMs: 120_000,
+} as const;
+
 export interface GitListFilesInput {
 	readonly workspaceId: string;
 	readonly ref: string;
@@ -183,6 +205,69 @@ export const gitGrepInputSchema: VehicleSchemaCodec<GitGrepInput> = defineVehicl
 				pathspecs: value.pathspecs,
 				maxMatches: value.maxMatches,
 				maxBytes: value.maxBytes,
+			},
+		};
+	},
+});
+
+export const gitGrepHistoryInputSchema: VehicleSchemaCodec<GitGrepHistoryInput> = defineVehicleSchema({
+	jsonSchema: {
+		type: "object",
+		properties: {
+			workspaceId: { type: "string" },
+			pattern: { type: "string", maxLength: GIT_HISTORY_SEARCH_LIMITS.maxPatternCharacters },
+			pathspecs: {
+				type: "array",
+				items: { type: "string", maxLength: GIT_HISTORY_SEARCH_LIMITS.maxPathspecCharacters },
+				maxItems: GIT_HISTORY_SEARCH_LIMITS.maxPathspecs,
+			},
+			commitOffset: { type: "number", minimum: 0, maximum: GIT_HISTORY_SEARCH_LIMITS.maxCommitOffset },
+			maxCommits: { type: "number", minimum: 1, maximum: GIT_HISTORY_SEARCH_LIMITS.maxCommits },
+			maxMatches: { type: "number", minimum: 1, maximum: GIT_HISTORY_SEARCH_LIMITS.maxMatches },
+			maxBytes: { type: "number", minimum: 1, maximum: GIT_HISTORY_SEARCH_LIMITS.maxBytes },
+			deadlineMs: { type: "number", minimum: 1, maximum: GIT_HISTORY_SEARCH_LIMITS.maxDeadlineMs },
+		},
+		required: ["workspaceId", "pattern", "commitOffset", "maxCommits", "maxMatches", "maxBytes", "deadlineMs"],
+		additionalProperties: false,
+	},
+	safeParse(value) {
+		if (!isPlainObject(value)) return notAnObjectIssue();
+		if (!isNonEmptyString(value.workspaceId)) return schemaIssue("workspaceId", "workspaceId must be a non-empty string");
+		if (!isNonEmptyString(value.pattern) || value.pattern.length > GIT_HISTORY_SEARCH_LIMITS.maxPatternCharacters)
+			return schemaIssue("pattern", `pattern must contain 1-${GIT_HISTORY_SEARCH_LIMITS.maxPatternCharacters} characters`);
+		if (value.pathspecs !== undefined) {
+			if (!isStringArray(value.pathspecs)) return schemaIssue("pathspecs", "pathspecs must be an array of strings when given");
+			if (value.pathspecs.length > GIT_HISTORY_SEARCH_LIMITS.maxPathspecs)
+				return schemaIssue("pathspecs", `pathspecs must contain at most ${GIT_HISTORY_SEARCH_LIMITS.maxPathspecs} entries`);
+			if (value.pathspecs.some((pathspec) => pathspec.length === 0 || pathspec.length > GIT_HISTORY_SEARCH_LIMITS.maxPathspecCharacters))
+				return schemaIssue("pathspecs", `each pathspec must contain 1-${GIT_HISTORY_SEARCH_LIMITS.maxPathspecCharacters} characters`);
+		}
+		if (
+			!Number.isSafeInteger(value.commitOffset) ||
+			typeof value.commitOffset !== "number" ||
+			value.commitOffset < 0 ||
+			value.commitOffset > GIT_HISTORY_SEARCH_LIMITS.maxCommitOffset
+		)
+			return schemaIssue("commitOffset", `commitOffset must be a safe integer from 0-${GIT_HISTORY_SEARCH_LIMITS.maxCommitOffset}`);
+		if (!isPositiveSafeInteger(value.maxCommits) || value.maxCommits > GIT_HISTORY_SEARCH_LIMITS.maxCommits)
+			return schemaIssue("maxCommits", `maxCommits must be a positive safe integer at most ${GIT_HISTORY_SEARCH_LIMITS.maxCommits}`);
+		if (!isPositiveSafeInteger(value.maxMatches) || value.maxMatches > GIT_HISTORY_SEARCH_LIMITS.maxMatches)
+			return schemaIssue("maxMatches", `maxMatches must be a positive safe integer at most ${GIT_HISTORY_SEARCH_LIMITS.maxMatches}`);
+		if (!isPositiveSafeInteger(value.maxBytes) || value.maxBytes > GIT_HISTORY_SEARCH_LIMITS.maxBytes)
+			return schemaIssue("maxBytes", `maxBytes must be a positive safe integer at most ${GIT_HISTORY_SEARCH_LIMITS.maxBytes}`);
+		if (!isPositiveSafeInteger(value.deadlineMs) || value.deadlineMs > GIT_HISTORY_SEARCH_LIMITS.maxDeadlineMs)
+			return schemaIssue("deadlineMs", `deadlineMs must be a positive safe integer at most ${GIT_HISTORY_SEARCH_LIMITS.maxDeadlineMs}`);
+		return {
+			success: true,
+			value: {
+				workspaceId: value.workspaceId,
+				pattern: value.pattern,
+				pathspecs: value.pathspecs,
+				commitOffset: value.commitOffset,
+				maxCommits: value.maxCommits,
+				maxMatches: value.maxMatches,
+				maxBytes: value.maxBytes,
+				deadlineMs: value.deadlineMs,
 			},
 		};
 	},

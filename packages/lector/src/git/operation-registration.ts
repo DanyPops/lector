@@ -2,6 +2,7 @@
 import { bindVehicleOperation, defineErrorMapping, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { UnsafeGitArgument } from "../git/assert-safe-git-argument.ts";
+import { InvalidGitSearchPattern } from "../git/invalid-search-pattern.ts";
 import { GitRevisionNotFound } from "../git/revision-not-found.ts";
 import { WORKSPACE_READ_PERMISSION, WORKSPACE_WRITE_PERMISSION } from "../operation-dispatch/permissions.ts";
 import { UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR, UNKNOWN_WORKSPACE_ERROR_MAPPING } from "../operation-dispatch/workspace-errors.ts";
@@ -11,6 +12,7 @@ import type { GitWorktreeHandlers } from "../service/git-worktree-handlers.ts";
 import type { MutableRegistry } from "../service/workspace-registry.ts";
 import {
 	gitDiffInputSchema,
+	gitGrepHistoryInputSchema,
 	gitGrepInputSchema,
 	gitIsAncestorInputSchema,
 	gitListFilesInputSchema,
@@ -28,6 +30,8 @@ const WRITE_PERMISSIONS = [WORKSPACE_WRITE_PERMISSION];
 
 /** Provisional bounds, not yet tuned per-operation against real usage -- a later, risk-prioritized pass. */
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 8_192, maxResponseBytes: 8 * 1024 * 1024 };
+/** History search enforces its caller-supplied deadline internally; the registry ceiling allows the largest accepted deadline to finish cleanup. */
+const HISTORY_SEARCH_LIMITS = { defaultTimeoutMs: 120_000, maxTimeoutMs: 120_000, maxRequestBytes: 128 * 1024, maxResponseBytes: 8 * 1024 * 1024 };
 /** A real `git worktree add`/`remove` (disk I/O, possibly a first-time clone-sized checkout) needs materially more headroom than the read-only status/log/diff queries above. */
 const WORKTREE_LIMITS = { defaultTimeoutMs: 30_000, maxTimeoutMs: 120_000, maxRequestBytes: 8_192, maxResponseBytes: 8_192 };
 
@@ -42,6 +46,10 @@ const TIER1_REF_ERRORS = [
 	...GIT_REPOSITORY_ERRORS,
 	{ code: "unsafe-git-argument", description: 'ref (or ancestorRef) starts with "-" (git argv-flag injection guard)' },
 	{ code: "git-revision-not-found", description: "ref (or ancestorRef) does not resolve in this repository" },
+];
+const HISTORY_SEARCH_ERRORS = [
+	...GIT_REPOSITORY_ERRORS,
+	{ code: "invalid-git-search-pattern", description: "pattern is not a valid extended regular expression" },
 ];
 const WORKTREE_ADD_ERRORS = [
 	...GIT_REPOSITORY_ERRORS,
@@ -69,6 +77,12 @@ const mapTier1RefError = defineErrorMapping([
 	{ errorClass: NotAGitRepository, category: "validation", code: "not-a-git-repository" },
 	{ errorClass: UnsafeGitArgument, category: "validation", code: "unsafe-git-argument" },
 	{ errorClass: GitRevisionNotFound, category: "validation", code: "git-revision-not-found" },
+]);
+const mapHistorySearchError = defineErrorMapping([
+	UNKNOWN_WORKSPACE_ERROR_MAPPING,
+	{ errorClass: SymbolQueryUnavailable, category: "unavailable", code: "symbol-query-unavailable" },
+	{ errorClass: NotAGitRepository, category: "validation", code: "not-a-git-repository" },
+	{ errorClass: InvalidGitSearchPattern, category: "validation", code: "invalid-git-search-pattern" },
 ]);
 const mapWorktreeAddError = defineErrorMapping([
 	UNKNOWN_WORKSPACE_ERROR_MAPPING,
@@ -177,6 +191,25 @@ export function registerGitOperations(
 	operationRegistry.register(
 		OWNER,
 		bindVehicleOperation(gitGrep, () => (context) => mapTier1RefError(() => handlers["workspace.gitGrep"](registry, context.input))),
+	);
+
+	const gitGrepHistory = defineVehicleOperation({
+		name: "workspace.gitGrepHistory",
+		version: 1,
+		description:
+			"Bounded extended-regex search across commit trees reachable from every ref, in deterministic topological pages. " +
+			"Excludes binary files and deduplicates exact path/line/text tuples while retaining commit provenance.",
+		input: gitGrepHistoryInputSchema,
+		output: passthroughVehicleSchema,
+		permissions: READ_PERMISSIONS,
+		effect: "read",
+		idempotency: { mode: "safe" },
+		limits: HISTORY_SEARCH_LIMITS,
+		errors: HISTORY_SEARCH_ERRORS,
+	});
+	operationRegistry.register(
+		OWNER,
+		bindVehicleOperation(gitGrepHistory, () => (context) => mapHistorySearchError(() => handlers["workspace.gitGrepHistory"](registry, context.input))),
 	);
 
 	const gitListFiles = defineVehicleOperation({

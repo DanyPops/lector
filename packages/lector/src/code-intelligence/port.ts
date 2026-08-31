@@ -2,11 +2,13 @@ import type { FileChangeEvent } from "../file-watcher/file-change-event.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../symbol-graph/call-hierarchy.ts";
 import type { ParsedWorkspaceEdit, RenameRange } from "../workspace/workspace-edit.ts";
 import type { WorkspaceLocation } from "../workspace/workspace-symbol.ts";
+import type { CodeActionQuery, SemanticCodeAction } from "./code-action.ts";
 import type { Diagnostic } from "./diagnostic.ts";
 import type { DocumentHighlight } from "./document-highlight.ts";
 import type { DocumentSymbolEntry } from "./document-symbol.ts";
 import type { Hover } from "./hover.ts";
 import type { IntelligenceProvenance } from "./intelligence-provenance.ts";
+import type { TypeHierarchyEntry } from "./type-hierarchy.ts";
 
 /**
  * CodeIntelligencePort -- the role a driven adapter plays for the semantic,
@@ -45,14 +47,28 @@ export interface CodeIntelligencePort {
 	 * doc comment for what specifically was and wasn't proven safe).
 	 */
 	documentSymbols(path: string, options?: { settleMs?: number }): Promise<DocumentSymbolEntry[]>;
-	/** Every diagnostic currently known for one file, as of the server's last analysis (push-based, not a live re-check). */
-	diagnostics(path: string): Promise<Diagnostic[]>;
+	/** Every diagnostic currently known for one file, as of the server's last analysis. */
+	diagnostics(path: string, options?: { timeoutMs?: number }): Promise<Diagnostic[]>;
+	/** Optional bounded workspace/diagnostic pull. Backends without an honest workspace-wide pull omit it. */
+	workspaceDiagnostics?(maxFiles: number, maxDiagnosticsPerFile: number, timeoutMs: number): Promise<Diagnostic[]>;
+	/** Current synchronized LSP document version, when the backend tracks one. */
+	documentVersion?(path: string): number | undefined;
+	/** Optional bounded textDocument/codeAction retrieval. */
+	codeActions?(query: CodeActionQuery): Promise<SemanticCodeAction[]>;
+	/** Optional lazy codeAction/resolve for an action returned by codeActions. */
+	resolveCodeAction?(action: SemanticCodeAction, timeoutMs: number): Promise<SemanticCodeAction>;
 	/** The call-hierarchy root(s) the symbol at `at` resolves to -- usually zero or one. */
 	prepareCallHierarchy(at: WorkspaceLocation): Promise<CallHierarchyEntry[]>;
 	/** Every real caller of the symbol at `at`, project-wide. */
 	incomingCalls(at: WorkspaceLocation): Promise<IncomingCall[]>;
 	/** Every function/method the symbol at `at` itself calls. See documentSymbols's doc comment for `options.settleMs`. */
 	outgoingCalls(at: WorkspaceLocation, options?: { settleMs?: number }): Promise<OutgoingCall[]>;
+	/** Optional: resolves the type-hierarchy root at `at` when the backend supports LSP type hierarchy. */
+	prepareTypeHierarchy?(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]>;
+	/** Optional: resolves every direct supertype of the type at `at`. */
+	supertypes?(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]>;
+	/** Optional: resolves every direct subtype of the type at `at`. */
+	subtypes?(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]>;
 	/**
 	 * Optional hint that the caller is done with `path` for now -- a backend
 	 * that keeps a bounded number of documents open (e.g. an LSP process) may

@@ -6,7 +6,7 @@ import type { ContentHash } from "../content-identity/content-hash.ts";
  * rename (workspace.rename's own multi-file WorkspaceEdit) and reference-based file rename --
  * both produce several entries sharing one transactionId, never a lone untagged entry.
  */
-export type MutationOperation = "exactEdit" | "lineEdit" | "applyPatch" | "revert" | "delete" | "rename";
+export type MutationOperation = "exactEdit" | "lineEdit" | "applyPatch" | "revert" | "delete" | "rename" | "code-action";
 
 /**
  * One entry in a file's append-only mutation history. Never mutated or deleted once recorded --

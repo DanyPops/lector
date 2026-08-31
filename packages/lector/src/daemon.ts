@@ -17,12 +17,14 @@ import {
 	type WarmIndexResourceSnapshotPort,
 } from "./code-intelligence/warm-index-resource-policy.ts";
 import { resolveLectorPaths } from "./constants.ts";
+import { EXTERNAL_SEARCH_PERMISSION } from "./external-search/operation-registration.ts";
 import type { GithubSearchPort } from "./github-search/port.ts";
 import { InstallLocation } from "./lsp-provisioning/install-location.ts";
 import { LanguageServerProvisioner } from "./lsp-provisioning/language-server-provisioner.ts";
 import type { LanguageServerProvisionerPort } from "./lsp-provisioning/port.ts";
 import { resolveLspProvisioningRoot } from "./lsp-provisioning/resolve-lsp-provisioning-root.ts";
 import type { NpmRegistryPort } from "./npm-registry/port.ts";
+import { WORKSPACE_READ_PERMISSION, WORKSPACE_WRITE_PERMISSION } from "./operation-dispatch/permissions.ts";
 import type { PackageSourceResolverPort } from "./package-source/resolver-port.ts";
 import { GitRepoFetcher } from "./repo-fetcher/git-repo-fetcher.ts";
 import type { RepoFetcherPort } from "./repo-fetcher/port.ts";
@@ -46,7 +48,18 @@ import type { WorkspacePort } from "./workspace/port.ts";
  * for any existing LectorClient.
  */
 export function buildLectorApp(service: LectorService, token: string, logger?: Logger): { fetch(request: Request): Promise<Response> } {
-	const vehicleApp = createVehicleHttpApp({ registry: service.operationRegistry, token, logger });
+	const vehicleApp = createVehicleHttpApp({
+		registry: service.operationRegistry,
+		token,
+		logger,
+		invocationAuthority: {
+			mode: "attested",
+			resolve: () => ({
+				permissions: [WORKSPACE_READ_PERMISSION, WORKSPACE_WRITE_PERMISSION, EXTERNAL_SEARCH_PERMISSION],
+				principal: { id: "lector-authenticated-client" },
+			}),
+		},
+	});
 	return {
 		async fetch(request: Request): Promise<Response> {
 			if (!requireBearerToken(request, token)) return errorResponse("unauthorized", 401);
@@ -274,6 +287,7 @@ function prepare(options: LectorDaemonOptions): {
 		// SearchCachePort adapter can only be one or the other, service.ts's own safe default is
 		// in-memory-only.
 		createSearchCache: () => new TieredSearchCache(new InMemorySearchCache(), new SqliteSearchCache(join(dirname(paths.database), "search-cache.db"))),
+		textIndexCacheRoot: join(dirname(paths.database), "text-index-cache"),
 		publish: (topic, payload) => pushChannel.publish(topic, payload),
 	});
 	// Wired directly onto the same registry every real lector operation is already registered

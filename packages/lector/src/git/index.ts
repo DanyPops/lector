@@ -1,5 +1,7 @@
 export { assertSafeGitArgument, UnsafeGitArgument } from "./assert-safe-git-argument.ts";
 export type { GitDiffResult } from "./diff-result.ts";
+export type { GitHistoryGrepBounds, GitHistoryGrepMatch, GitHistoryGrepResult } from "./history-grep-result.ts";
+export { InvalidGitSearchPattern } from "./invalid-search-pattern.ts";
 export { LocalGit } from "./local-git.ts";
 export type { GitLogEntry } from "./log-entry.ts";
 export type { GitPort } from "./port.ts";

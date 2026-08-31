@@ -1,9 +1,13 @@
 import { rm } from "node:fs/promises";
 import simpleGit from "simple-git";
+import { boundListFromStart, jsonByteSize } from "../bounds/bound-list.ts";
 import { truncateUtf8 } from "../bounds/truncate-utf8.ts";
 import { assertSafeGitArgument } from "./assert-safe-git-argument.ts";
+import { runBoundedGitCommand } from "./bounded-git-command.ts";
 import type { GitDiffResult } from "./diff-result.ts";
 import type { GitGrepMatch, GitGrepResult } from "./grep-result.ts";
+import type { GitHistoryGrepBounds, GitHistoryGrepMatch, GitHistoryGrepResult } from "./history-grep-result.ts";
+import { InvalidGitSearchPattern } from "./invalid-search-pattern.ts";
 import type { GitListFilesResult } from "./list-files-result.ts";
 import type { GitLogEntry } from "./log-entry.ts";
 import type { GitPort } from "./port.ts";
@@ -24,7 +28,7 @@ import { parseUnifiedGitDiff } from "./unified-diff.ts";
 export class LocalGit implements GitPort {
 	private readonly git: ReturnType<typeof simpleGit>;
 
-	constructor(cwd: string) {
+	constructor(private readonly cwd: string) {
 		this.git = simpleGit(cwd);
 	}
 
@@ -63,7 +67,7 @@ export class LocalGit implements GitPort {
 	}
 
 	async diff(ref: string | undefined, maxBytes: number): Promise<GitDiffResult> {
-		const args: string[] = ["--relative"];
+		const args: string[] = ["--relative", "--find-renames"];
 		if (ref !== undefined) {
 			assertSafeGitArgument(ref);
 			args.push(ref);
@@ -169,6 +173,120 @@ export class LocalGit implements GitPort {
 			matches.push({ path: path ?? "", line: Number(lineNumber), text: text ?? "" });
 		}
 		return { matches: matches.slice(0, maxMatches), truncated: bounded.truncated || matches.length > maxMatches };
+	}
+
+	async grepHistory(
+		pattern: string,
+		pathspecs: readonly string[] | undefined,
+		bounds: GitHistoryGrepBounds,
+		signal?: AbortSignal,
+	): Promise<GitHistoryGrepResult> {
+		signal?.throwIfAborted();
+		const deadlineController = new AbortController();
+		let deadlineReached = false;
+		const deadlineTimer = setTimeout(() => {
+			deadlineReached = true;
+			deadlineController.abort(new DOMException("Git history search deadline exceeded", "TimeoutError"));
+		}, bounds.deadlineMs);
+		const operationController = new AbortController();
+		const cancelFromCaller = () => operationController.abort(signal?.reason);
+		const cancelFromDeadline = () => operationController.abort(deadlineController.signal.reason);
+		signal?.addEventListener("abort", cancelFromCaller, { once: true });
+		deadlineController.signal.addEventListener("abort", cancelFromDeadline, { once: true });
+		const provenance = {
+			scope: "all-refs" as const,
+			traversal: "topo-order" as const,
+			binaryFiles: "excluded" as const,
+			deduplication: "path-line-text" as const,
+			commitOffset: bounds.commitOffset,
+		};
+		try {
+			const revList = await runBoundedGitCommand(
+				this.cwd,
+				["rev-list", "--topo-order", "--all", `--skip=${bounds.commitOffset}`, `--max-count=${bounds.maxCommits + 1}`, "--"],
+				(bounds.maxCommits + 1) * 65,
+				operationController.signal,
+			).catch((error: unknown) => {
+				if (deadlineReached) return undefined;
+				throw error;
+			});
+			if (!revList) {
+				return { matches: [], scannedCommits: 0, commitsTruncated: false, truncated: false, deadlineReached: true, provenance };
+			}
+			if (revList.exitCode !== 0) throw new Error(revList.stderr || "git rev-list failed");
+			const listedCommits = revList.stdout.split("\n").filter((line) => line.length > 0);
+			const commitsTruncated = listedCommits.length > bounds.maxCommits;
+			const commits = listedCommits.slice(0, bounds.maxCommits);
+			if (commits.length === 0) {
+				return { matches: [], scannedCommits: 0, commitsTruncated, truncated: false, deadlineReached, provenance };
+			}
+
+			const grepArgs = ["grep", "-n", "-z", "-I", "-E", "-e", pattern, ...commits, "--", ...(pathspecs ?? [])];
+			const grep = await runBoundedGitCommand(this.cwd, grepArgs, bounds.maxBytes, operationController.signal).catch((error: unknown) => {
+				if (deadlineReached) return undefined;
+				throw error;
+			});
+			if (!grep) {
+				return {
+					matches: [],
+					scannedCommits: commits.length,
+					commitsTruncated,
+					nextCommitOffset: commitsTruncated ? bounds.commitOffset + commits.length : undefined,
+					truncated: true,
+					deadlineReached: true,
+					provenance,
+				};
+			}
+			if (grep.exitCode !== 0 && grep.exitCode !== 1 && !grep.stdoutTruncated) {
+				if (/regular expression|regexp|unmatched|invalid repetition/i.test(grep.stderr)) throw new InvalidGitSearchPattern();
+				throw new Error(grep.stderr || "git grep failed");
+			}
+
+			const matchesByLocation = new Map<string, GitHistoryGrepMatch>();
+			let matchesTruncated = false;
+			let cursor = 0;
+			while (cursor < grep.stdout.length) {
+				const sourceEnd = grep.stdout.indexOf("\0", cursor);
+				if (sourceEnd === -1) break;
+				const lineEnd = grep.stdout.indexOf("\0", sourceEnd + 1);
+				if (lineEnd === -1) break;
+				const textEnd = grep.stdout.indexOf("\n", lineEnd + 1);
+				if (textEnd === -1) break;
+				const source = grep.stdout.slice(cursor, sourceEnd);
+				const separator = source.indexOf(":");
+				const commit = separator === -1 ? "" : source.slice(0, separator);
+				const path = separator === -1 ? "" : source.slice(separator + 1);
+				const lineNumber = grep.stdout.slice(sourceEnd + 1, lineEnd);
+				const text = grep.stdout.slice(lineEnd + 1, textEnd);
+				cursor = textEnd + 1;
+				if (!/^[0-9a-f]{40,64}$/.test(commit) || path.length === 0 || !/^\d+$/.test(lineNumber)) continue;
+				const key = `${path}\0${lineNumber}\0${text}`;
+				const existing = matchesByLocation.get(key);
+				if (existing) {
+					matchesByLocation.set(key, { ...existing, occurrences: existing.occurrences + 1 });
+					continue;
+				}
+				if (matchesByLocation.size >= bounds.maxMatches) {
+					matchesTruncated = true;
+					continue;
+				}
+				matchesByLocation.set(key, { path, line: Number(lineNumber), text, commit, occurrences: 1 });
+			}
+			const boundedMatches = boundListFromStart([...matchesByLocation.values()], bounds.maxMatches, bounds.maxBytes, jsonByteSize);
+			return {
+				matches: boundedMatches.page,
+				scannedCommits: commits.length,
+				commitsTruncated,
+				nextCommitOffset: commitsTruncated ? bounds.commitOffset + commits.length : undefined,
+				truncated: grep.stdoutTruncated || grep.stderrTruncated || matchesTruncated || boundedMatches.truncated,
+				deadlineReached,
+				provenance,
+			};
+		} finally {
+			clearTimeout(deadlineTimer);
+			signal?.removeEventListener("abort", cancelFromCaller);
+			deadlineController.signal.removeEventListener("abort", cancelFromDeadline);
+		}
 	}
 
 	async listFiles(ref: string, pathspecs: readonly string[] | undefined, maxResults: number): Promise<GitListFilesResult> {

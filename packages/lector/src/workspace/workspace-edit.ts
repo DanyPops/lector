@@ -33,6 +33,8 @@ export function parsePrepareRenameResult(raw: unknown, path: string): RenameRang
 export interface TextEditOperation {
 	readonly kind: "text";
 	readonly path: string;
+	/** LSP document version the server computed this edit against; absent for a plain changes map. */
+	readonly version?: number | null;
 	readonly edits: readonly { readonly range: { readonly start: LspLikePosition; readonly end: LspLikePosition }; readonly newText: string }[];
 }
 export interface CreateFileOperation {
@@ -138,7 +140,15 @@ function parseDocumentChangeEntry(raw: unknown): WorkspaceEditOperation {
 	if (!isRecord(raw.textDocument) || typeof raw.textDocument.uri !== "string") {
 		throw new UnsupportedWorkspaceEditVariant("TextDocumentEdit missing textDocument.uri");
 	}
-	return { kind: "text", path: fileUriToPath(raw.textDocument.uri), edits: parseTextEdits(raw.edits) };
+	if (raw.textDocument.version !== null && typeof raw.textDocument.version !== "number") {
+		throw new UnsupportedWorkspaceEditVariant("TextDocumentEdit missing numeric or null textDocument.version");
+	}
+	return {
+		kind: "text",
+		path: fileUriToPath(raw.textDocument.uri),
+		version: raw.textDocument.version,
+		edits: parseTextEdits(raw.edits),
+	};
 }
 
 /**

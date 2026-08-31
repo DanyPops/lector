@@ -96,6 +96,14 @@ export class MutationHistoryCoordinator {
 		};
 	}
 
+	/** Returns a bounded transaction's immutable entries for read-only analyses. */
+	async listTransaction(workspaceId: WorkspaceId, transactionId: string): Promise<readonly MutationHistoryEntry[]> {
+		if (!this.deps.registry.has(workspaceId)) throw new UnknownWorkspace(workspaceId);
+		const entries = await this.store(workspaceId).listByTransaction(transactionId);
+		if (entries.length === 0) throw new MutationTransactionNotFound(transactionId);
+		return entries.slice(0, MAX_MUTATION_HISTORY_RESULTS);
+	}
+
 	private store(workspaceId: WorkspaceId): MutationHistoryPort {
 		let store = this.stores.get(workspaceId);
 		if (!store) {

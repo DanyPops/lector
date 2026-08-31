@@ -63,6 +63,7 @@ describe("parseWorkspaceEdit", () => {
 			{
 				kind: "text",
 				path: "/repo/a.ts",
+				version: 3,
 				edits: [{ range: { start: { line: 1, character: 5 }, end: { line: 1, character: 8 } }, newText: "renamed" }],
 			},
 		]);
@@ -82,6 +83,7 @@ describe("parseWorkspaceEdit", () => {
 			{
 				kind: "text",
 				path: "/repo/a.ts",
+				version: 1,
 				edits: [{ range: { start: { line: 1, character: 5 }, end: { line: 1, character: 8 } }, newText: "x" }],
 			},
 			{ kind: "rename", fromPath: "/repo/old.ts", toPath: "/repo/renamed.ts", overwrite: true, ignoreIfExists: false },

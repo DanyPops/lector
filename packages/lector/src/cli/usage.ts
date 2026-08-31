@@ -68,7 +68,21 @@ export const USAGE = `Usage:
   lector workspace hover <workspace-id> <path> <line> <character> [--json]
   lector workspace document-symbols <workspace-id> <path> [--json]
   lector workspace diagnostics <workspace-id> <path> [--json]
+  lector workspace diagnostic-delta <workspace-id> <transaction|git> <transaction-id|ref>
+    --max-results <n> --max-bytes <n> [--max-depth <n> --max-nodes <n> --max-edges <n>
+    --deadline-ms <n> --max-files <n> --max-symbols-per-file <n> --auto-populate] [--json]
   lector workspace call-hierarchy <prepare|incoming|outgoing> <workspace-id> <path> <line> <character> [--json]
+  lector workspace type-hierarchy <prepare|supertypes|subtypes> <workspace-id> <path> <line> <character>
+    [--max-results <n>] [--max-bytes <n>] [--deadline-ms <n>] [--json]
+  lector workspace code-actions preview <workspace-id> <path> <start-line> <start-character> <end-line> <end-character>
+    --max-actions <n> --max-edits <n> --max-files <n> --max-bytes <n> --deadline-ms <n>
+    [--only <kind,...>] [--include-command-actions] [--json]
+  lector workspace code-actions apply <workspace-id> <preview-id> [--json]
+    applies only the previewed WorkspaceEdit, hash/version guarded and recorded as an atomic transaction;
+    command-only actions require preview opt-in and remain unavailable to guarded apply
+  lector workspace impact <workspace-id> (--ref <ref> | --transaction-id <id>) --max-depth <n>
+    --max-nodes <n> --max-edges <n> --max-bytes <n> --deadline-ms <n>
+    --max-files <n> --max-symbols-per-file <n> [--auto-populate] [--json]
   lector workspace populate-symbol-graph <workspace-id> --max-files <n> --max-symbols-per-file <n>
     [--background] [--wait-ms <n>] [--json]
     --background submits a bounded process-lifetime job; --wait-ms waits briefly for a fast result
@@ -92,6 +106,8 @@ export const USAGE = `Usage:
     [--max-results <n>] [--json]
   lector workspace annotation refresh <workspace-id> <annotation-id> --subtype <s> --title <t> --body <text>
     --anchor <path>:<line>:<character> (repeatable, at least one required) [--json]
+    [--auto-populate --max-files <n> --max-symbols-per-file <n>] uses the same bounded, not-cached-only
+    anchor recovery as annotation create
   lector workspace annotation scrub <workspace-id> <annotation-id> [--json]
   lector workspace annotation restore <workspace-id> <annotation-id> [--json]
   lector workspace annotation contain <workspace-id> <parent-id> <child-id> [--json]
@@ -121,6 +137,11 @@ export const USAGE = `Usage:
   lector workspace git-status <workspace-id> [--json]
   lector workspace git-log <workspace-id> --max-count <n> [--json]
   lector workspace git-diff <workspace-id> [--ref <ref>] --max-bytes <n> [--json]
+  lector workspace git-grep-history <workspace-id> <extended-regex> --commit-offset <n>
+    --max-commits <n> --max-matches <n> --max-bytes <n> --deadline-ms <n>
+    [--pathspec <glob>]... [--json]
+    searches commit trees reachable from all refs in deterministic topological pages; excludes
+    binary files and deduplicates exact path/line/text matches while preserving commit provenance
   lector workspace compare-symbol <workspace-id> --path <p> --symbol <name> --from-ref <ref>
     [--to-ref <ref>] --max-bytes <n> [--json]
     tree-sitter syntactic tier only: a real unified diff of one symbol's own declaration text

@@ -3,6 +3,7 @@ import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import picomatch from "picomatch";
+import type { CodeActionCommand, CodeActionQuery, SemanticCodeAction } from "../../code-intelligence/code-action.ts";
 import { type Diagnostic, type DiagnosticSeverity, mergeDiagnostics } from "../../code-intelligence/diagnostic.ts";
 import type { DocumentHighlight, DocumentHighlightKind } from "../../code-intelligence/document-highlight.ts";
 import type { DocumentSymbolEntry } from "../../code-intelligence/document-symbol.ts";
@@ -14,6 +15,7 @@ import { type ParsedServerCapabilities, parseServerCapabilities, shouldSyncDocum
 import type { CodeIntelligencePort } from "../../code-intelligence/port.ts";
 import type { SymbolIndexPort } from "../../code-intelligence/symbol-index-port.ts";
 import { resolveSystemExecutable } from "../../code-intelligence/system-executable-resolution.ts";
+import type { TypeHierarchyEntry } from "../../code-intelligence/type-hierarchy.ts";
 import type { DiagnosticRegistration, FileSystemWatcherPattern } from "../../concurrency/dynamic-capability-registry.ts";
 import {
 	DynamicCapabilityRegistry,
@@ -127,6 +129,20 @@ export class LanguageServerWorkspaceNotReady extends Error {
 		const state = progressTrackingSaturated ? "progress tracking capacity was exceeded" : `${activeProgressCount} progress tokens remain active`;
 		super(`language server ${backendId} workspace indexing did not finish within ${timeoutMs}ms (${state})`);
 		this.name = "LanguageServerWorkspaceNotReady";
+	}
+}
+
+export class LanguageServerCodeActionsUnavailable extends Error {
+	constructor(readonly backendId: string) {
+		super(`language server ${backendId} does not support code actions`);
+		this.name = "LanguageServerCodeActionsUnavailable";
+	}
+}
+
+export class LanguageServerTypeHierarchyUnavailable extends Error {
+	constructor(readonly backendId: string) {
+		super(`language server ${backendId} does not support type hierarchy`);
+		this.name = "LanguageServerTypeHierarchyUnavailable";
 	}
 }
 
@@ -249,6 +265,8 @@ interface LspCallHierarchyItem {
 	data?: unknown;
 }
 
+type LspTypeHierarchyItem = LspCallHierarchyItem;
+
 interface LspCallHierarchyIncomingCall {
 	from: LspCallHierarchyItem;
 	fromRanges: LspRange[];
@@ -323,9 +341,21 @@ interface LspUnchangedDocumentDiagnosticReport {
 	resultId: string;
 }
 type LspDocumentDiagnosticReport = LspFullDocumentDiagnosticReport | LspUnchangedDocumentDiagnosticReport;
+interface LspWorkspaceFullDocumentDiagnosticReport extends LspFullDocumentDiagnosticReport {
+	uri: string;
+}
+interface LspWorkspaceUnchangedDocumentDiagnosticReport extends LspUnchangedDocumentDiagnosticReport {
+	uri: string;
+}
+type LspWorkspaceDocumentDiagnosticReport = LspWorkspaceFullDocumentDiagnosticReport | LspWorkspaceUnchangedDocumentDiagnosticReport;
+interface LspWorkspaceDiagnosticReport {
+	items: LspWorkspaceDocumentDiagnosticReport[];
+}
 
 /** LSP DiagnosticSeverity is 1-4; the spec recommends treating an absent severity as an error. */
 const RUNTIME_EXECUTABLE = realpathSync(process.execPath);
+
+const LSP_DIAGNOSTIC_SEVERITY_CODES: Readonly<Record<DiagnosticSeverity, number>> = { error: 1, warning: 2, information: 3, hint: 4 };
 
 const LSP_DIAGNOSTIC_SEVERITY_NAMES: Readonly<Record<number, DiagnosticSeverity>> = {
 	1: "error",
@@ -439,6 +469,42 @@ function normalizeCallHierarchyItem(item: LspCallHierarchyItem): CallHierarchyEn
 		detail: item.detail,
 		location: toWorkspaceLocation(item.uri, item.selectionRange.start),
 		range: toCodeRange(path, item.range),
+	};
+}
+
+function normalizeTypeHierarchyItem(item: LspTypeHierarchyItem): TypeHierarchyEntry {
+	return normalizeCallHierarchyItem(item);
+}
+
+function parseCodeAction(path: string, raw: unknown): SemanticCodeAction | undefined {
+	if (!isRecord(raw) || typeof raw.title !== "string") return undefined;
+	const diagnostics = Array.isArray(raw.diagnostics)
+		? raw.diagnostics.flatMap((item) => {
+				const parsed = parseLspDiagnostic(item);
+				return parsed ? [normalizeDiagnostic(path, parsed)] : [];
+			})
+		: [];
+	let command: CodeActionCommand | undefined;
+	if (typeof raw.command === "string") {
+		command = { title: raw.title, command: raw.command, ...(Array.isArray(raw.arguments) ? { arguments: raw.arguments } : {}) };
+	} else if (isRecord(raw.command) && typeof raw.command.title === "string" && typeof raw.command.command === "string") {
+		command = {
+			title: raw.command.title,
+			command: raw.command.command,
+			...(Array.isArray(raw.command.arguments) ? { arguments: raw.command.arguments } : {}),
+		};
+	}
+	const disabledReason = isRecord(raw.disabled) && typeof raw.disabled.reason === "string" ? raw.disabled.reason : undefined;
+	return {
+		path,
+		title: raw.title,
+		...(typeof raw.kind === "string" ? { kind: raw.kind } : {}),
+		preferred: raw.isPreferred === true,
+		...(disabledReason ? { disabledReason } : {}),
+		diagnostics,
+		...(raw.edit !== undefined ? { edit: parseWorkspaceEdit(raw.edit) } : {}),
+		...(command ? { command } : {}),
+		...(raw.data !== undefined ? { data: raw.data } : {}),
 	};
 }
 
@@ -976,9 +1042,14 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	 * slower cold-start). The single seam every query request goes through, so a future query
 	 * method added to this class cannot forget the wait the way 9 of 11 once did.
 	 */
-	private async requestWhenReady<T>(proc: LanguageServerProcess, method: string, params: unknown): Promise<T> {
+	private async requestWhenReady<T>(
+		proc: LanguageServerProcess,
+		method: string,
+		params: unknown,
+		options?: { signal?: AbortSignal; timeoutMs?: number },
+	): Promise<T> {
 		await this.waitForWorkspaceReady();
-		return proc.request<T>(method, params);
+		return proc.request<T>(method, params, options);
 	}
 
 	private async restartForSeed(seedFile: string): Promise<LanguageServerProcess> {
@@ -1110,7 +1181,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		return results.map((item) => normalizeDocumentSymbol(resolvedPath, item));
 	}
 
-	async diagnostics(path: string): Promise<Diagnostic[]> {
+	async diagnostics(path: string, options?: { timeoutMs?: number }): Promise<Diagnostic[]> {
 		const proc = await this.ensureInitialized(path);
 		const resolvedPath = this.resolveTargetPath(path);
 		await this.ensureFileOpen(proc, resolvedPath);
@@ -1123,10 +1194,11 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		const identifiers = this.diagnosticPullIdentifiers();
 		if (identifiers.length > 0) {
 			let pulled: Diagnostic[] = [];
-			for (const identifier of identifiers) pulled = mergeDiagnostics(pulled, await this.pullDiagnostics(proc, resolvedPath, identifier));
+			for (const identifier of identifiers) pulled = mergeDiagnostics(pulled, await this.pullDiagnostics(proc, resolvedPath, identifier, options?.timeoutMs));
 			return mergeDiagnostics(this.latestDiagnostics.get(resolvedPath) ?? [], pulled);
 		}
-		if (!this.latestDiagnostics.has(resolvedPath)) await this.waitForDiagnosticsNotification(resolvedPath, DIAGNOSTICS_WAIT_TIMEOUT_MS);
+		if (!this.latestDiagnostics.has(resolvedPath))
+			await this.waitForDiagnosticsNotification(resolvedPath, Math.min(options?.timeoutMs ?? DIAGNOSTICS_WAIT_TIMEOUT_MS, DIAGNOSTICS_WAIT_TIMEOUT_MS));
 		return this.latestDiagnostics.get(resolvedPath) ?? [];
 	}
 
@@ -1147,13 +1219,90 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	/** Requests textDocument/diagnostic directly rather than waiting on the server's own push timing. Returns [] for an "unchanged" report -- Lector never sends previousResultId, so it has nothing cached under that resultId to fall back to besides what push already holds. */
-	private async pullDiagnostics(proc: LanguageServerProcess, path: string, identifier?: string): Promise<Diagnostic[]> {
-		const report = await proc.request<LspDocumentDiagnosticReport | null>("textDocument/diagnostic", {
-			textDocument: { uri: pathToFileURL(path).href },
-			...(identifier !== undefined ? { identifier } : {}),
-		});
+	private async pullDiagnostics(proc: LanguageServerProcess, path: string, identifier?: string, timeoutMs?: number): Promise<Diagnostic[]> {
+		const report = await proc.request<LspDocumentDiagnosticReport | null>(
+			"textDocument/diagnostic",
+			{
+				textDocument: { uri: pathToFileURL(path).href },
+				...(identifier !== undefined ? { identifier } : {}),
+			},
+			timeoutMs !== undefined ? { timeoutMs } : undefined,
+		);
 		if (report?.kind !== "full") return [];
 		return report.items.map((item) => normalizeDiagnostic(path, item));
+	}
+
+	documentVersion(path: string): number | undefined {
+		return this.openedFiles.get(this.resolveTargetPath(path))?.version;
+	}
+
+	async codeActions(query: CodeActionQuery): Promise<SemanticCodeAction[]> {
+		const proc = await this.ensureInitialized(query.path);
+		if (!this.negotiatedCapabilities?.codeActionProvider) throw new LanguageServerCodeActionsUnavailable(this.descriptor.backendId);
+		const resolvedPath = this.resolveTargetPath(query.path);
+		await this.ensureFileOpen(proc, resolvedPath);
+		const diagnostics = query.diagnostics.map((diagnostic) => ({
+			range: {
+				start: toLspPosition(diagnostic.range.start.line, diagnostic.range.start.character),
+				end: toLspPosition(diagnostic.range.end.line, diagnostic.range.end.character),
+			},
+			severity: LSP_DIAGNOSTIC_SEVERITY_CODES[diagnostic.severity],
+			message: diagnostic.message,
+			...(diagnostic.source !== undefined ? { source: diagnostic.source } : {}),
+			...(diagnostic.code !== undefined ? { code: diagnostic.code } : {}),
+		}));
+		const result = await this.requestWhenReady<unknown>(
+			proc,
+			"textDocument/codeAction",
+			{
+				textDocument: { uri: pathToFileURL(resolvedPath).href },
+				range: {
+					start: toLspPosition(query.range.start.line, query.range.start.character),
+					end: toLspPosition(query.range.end.line, query.range.end.character),
+				},
+				context: { diagnostics, ...(query.only ? { only: query.only } : {}) },
+			},
+			{ timeoutMs: query.timeoutMs },
+		);
+		return Array.isArray(result) ? result.slice(0, query.maxActions + 1).flatMap((item) => parseCodeAction(resolvedPath, item) ?? []) : [];
+	}
+
+	async resolveCodeAction(action: SemanticCodeAction, timeoutMs: number): Promise<SemanticCodeAction> {
+		const proc = await this.ensureInitialized();
+		if (!this.negotiatedCapabilities?.codeActionResolveProvider) return action;
+		const result = await proc.request<unknown>(
+			"codeAction/resolve",
+			{
+				title: action.title,
+				...(action.kind ? { kind: action.kind } : {}),
+				...(action.command ? { command: action.command } : {}),
+				...(action.data !== undefined ? { data: action.data } : {}),
+			},
+			{ timeoutMs },
+		);
+		return parseCodeAction(action.path, result) ?? action;
+	}
+
+	async workspaceDiagnostics(maxFiles: number, maxDiagnosticsPerFile: number, timeoutMs: number): Promise<Diagnostic[]> {
+		const proc = await this.ensureInitialized();
+		if (!this.negotiatedCapabilities?.diagnosticProvider?.workspaceDiagnostics) {
+			throw new Error(`language server ${this.descriptor.backendId} does not support workspace diagnostics`);
+		}
+		const report = await proc.request<LspWorkspaceDiagnosticReport | null>("workspace/diagnostic", { previousResultIds: [] }, { timeoutMs });
+		const diagnostics: Diagnostic[] = [];
+		for (const item of (report?.items ?? []).slice(0, positiveLimit(maxFiles, maxFiles, "maxFiles"))) {
+			if (item.kind !== "full") continue;
+			let path: string;
+			try {
+				path = fileURLToPath(item.uri);
+			} catch {
+				continue;
+			}
+			for (const diagnostic of item.items.slice(0, positiveLimit(maxDiagnosticsPerFile, maxDiagnosticsPerFile, "maxDiagnosticsPerFile"))) {
+				diagnostics.push(normalizeDiagnostic(path, diagnostic));
+			}
+		}
+		return diagnostics;
 	}
 
 	/** Raw LSP items, `data` intact -- callHierarchy/incomingCalls|outgoingCalls need the exact item prepareCallHierarchy returned, not a normalized copy. */
@@ -1171,6 +1320,36 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		const proc = await this.ensureInitialized(at.path);
 		const items = await this.prepareCallHierarchyRaw(proc, at);
 		return items.map((item) => normalizeCallHierarchyItem(item));
+	}
+
+	private async prepareTypeHierarchyRaw(proc: LanguageServerProcess, at: WorkspaceLocation): Promise<LspTypeHierarchyItem[]> {
+		if (!this.negotiatedCapabilities?.typeHierarchyProvider) throw new LanguageServerTypeHierarchyUnavailable(this.descriptor.backendId);
+		const resolvedPath = this.resolveTargetPath(at.path);
+		await this.ensureFileOpen(proc, resolvedPath);
+		const result = await this.requestWhenReady<LspTypeHierarchyItem[] | null>(proc, "textDocument/prepareTypeHierarchy", {
+			textDocument: { uri: pathToFileURL(resolvedPath).href },
+			position: toLspPosition(at.line, at.character),
+		});
+		return result ?? [];
+	}
+
+	async prepareTypeHierarchy(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]> {
+		const proc = await this.ensureInitialized(at.path);
+		return (await this.prepareTypeHierarchyRaw(proc, at)).map(normalizeTypeHierarchyItem);
+	}
+
+	async supertypes(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]> {
+		const proc = await this.ensureInitialized(at.path);
+		const roots = await this.prepareTypeHierarchyRaw(proc, at);
+		const results = await Promise.all(roots.map((item) => this.requestWhenReady<LspTypeHierarchyItem[] | null>(proc, "typeHierarchy/supertypes", { item })));
+		return results.flatMap((items) => items ?? []).map(normalizeTypeHierarchyItem);
+	}
+
+	async subtypes(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]> {
+		const proc = await this.ensureInitialized(at.path);
+		const roots = await this.prepareTypeHierarchyRaw(proc, at);
+		const results = await Promise.all(roots.map((item) => this.requestWhenReady<LspTypeHierarchyItem[] | null>(proc, "typeHierarchy/subtypes", { item })));
+		return results.flatMap((items) => items ?? []).map(normalizeTypeHierarchyItem);
 	}
 
 	async prepareRename(at: WorkspaceLocation): Promise<RenameRange | null> {

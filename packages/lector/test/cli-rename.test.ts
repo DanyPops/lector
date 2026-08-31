@@ -64,9 +64,25 @@ describe("lector CLI workspace prepare-rename / rename", () => {
 
 		const renamed = JSON.parse(await runCli(["workspace", "rename", registered.workspaceId, mathPath, "1", "17", "sum", "--json"])) as {
 			touchedPaths: readonly string[];
+			transactionId: string;
 		};
+		const delta = JSON.parse(
+			await runCli([
+				"workspace",
+				"diagnostic-delta",
+				registered.workspaceId,
+				"transaction",
+				renamed.transactionId,
+				"--max-results",
+				"100",
+				"--max-bytes",
+				"100000",
+				"--json",
+			]),
+		) as { transactionId: string; introduced: readonly unknown[]; resolved: readonly unknown[]; changed: readonly unknown[] };
 
 		expect(renamed.touchedPaths).toContain(mathPath);
+		expect(delta).toMatchObject({ transactionId: renamed.transactionId, introduced: [], resolved: [], changed: [] });
 		expect(readFileSync(mathPath, "utf8")).toContain("export function sum");
-	}, 20_000);
+	}, 30_000);
 });

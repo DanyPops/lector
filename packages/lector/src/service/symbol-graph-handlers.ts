@@ -5,6 +5,7 @@ import type { SerialExecutionQueue } from "../concurrency/serial-execution-queue
 import type { GitPort } from "../git/port.ts";
 import type { RepoFetcherPort } from "../repo-fetcher/port.ts";
 import type { PopulateSymbolGraphResult } from "../symbol-graph/populate-symbol-graph.ts";
+import type { DiagnosticValidationCoordinator } from "./diagnostic-validation-coordinator.ts";
 import type { WorkspaceId } from "./errors.ts";
 import type { GraphRefreshCoordinator } from "./graph-refresh-coordinator.ts";
 import type { MutationHistoryCoordinator } from "./mutation-history-handlers.ts";
@@ -30,6 +31,7 @@ export interface SymbolGraphHandlerDeps {
 	readonly renameMutationBarrier: SerialExecutionQueue;
 	readonly publish: (topic: string, payload: unknown) => void;
 	readonly mutationHistory: MutationHistoryCoordinator;
+	readonly diagnosticValidation?: DiagnosticValidationCoordinator;
 	/** Late-bound: WorkspaceWatchHandlers and this factory are mutually dependent (this needs
 	 * ensureOsWatcher, WorkspaceWatchHandlers needs scheduleGraphRefresh below) -- the caller
 	 * passes an initially-no-op indirection and rebinds it once both objects exist. */
@@ -145,6 +147,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 		warmIndexes,
 		renameMutationBarrier,
 		mutationHistory,
+		diagnosticValidation: deps.diagnosticValidation,
 		cacheStatus: cacheQuery.handlers["workspace.cacheStatus"],
 		populateSymbolGraph: population["workspace.populateSymbolGraph"],
 	});

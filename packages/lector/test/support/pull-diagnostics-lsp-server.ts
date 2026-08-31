@@ -11,6 +11,7 @@
 import { encodeJsonRpcMessage, type JsonRpcMessage, JsonRpcStreamDecoder } from "../../src/code-intelligence/lsp/json-rpc-stream.ts";
 
 const decoder = new JsonRpcStreamDecoder();
+const openedUris = new Set<string>();
 
 function respond(id: number | string, result: unknown): void {
 	process.stdout.write(encodeJsonRpcMessage({ jsonrpc: "2.0", id, result }));
@@ -36,6 +37,7 @@ function handle(message: JsonRpcMessage): void {
 	if (message.method === "textDocument/didOpen") {
 		const uri = extractOpenedUri(message.params);
 		if (uri) {
+			openedUris.add(uri);
 			// Fires after the file is actually opened, like a real server's own analysis timing.
 			setTimeout(() => {
 				notify("textDocument/publishDiagnostics", {
@@ -60,13 +62,24 @@ function handle(message: JsonRpcMessage): void {
 		// to exercise. A real server wanting both pull and push diagnostics needs both
 		// capabilities declared, not just diagnosticProvider.
 		respond(message.id, {
-			capabilities: { textDocumentSync: 1, diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } },
+			capabilities: { textDocumentSync: 1, diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: true } },
 		});
 		return;
 	}
 
 	if (message.method === "shutdown") {
 		respond(message.id, null);
+		return;
+	}
+
+	if (message.method === "workspace/diagnostic") {
+		respond(message.id, {
+			items: [...openedUris].map((uri) => ({
+				uri,
+				kind: "full",
+				items: [{ range, severity: 1, message: "workspace: project error", source: "mock", code: "WS0001" }],
+			})),
+		});
 		return;
 	}
 

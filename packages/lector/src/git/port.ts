@@ -1,5 +1,6 @@
 import type { GitDiffResult } from "./diff-result.ts";
 import type { GitGrepResult } from "./grep-result.ts";
+import type { GitHistoryGrepBounds, GitHistoryGrepResult } from "./history-grep-result.ts";
 import type { GitListFilesResult } from "./list-files-result.ts";
 import type { GitLogEntry } from "./log-entry.ts";
 import type { GitStatusSummary } from "./status.ts";
@@ -53,6 +54,13 @@ export interface GitPort {
 	 * `*.go` glob); omitted searches every file in the tree. Bounded by maxMatches and maxBytes.
 	 */
 	grep(ref: string, pattern: string, pathspecs: readonly string[] | undefined, maxMatches: number, maxBytes: number): Promise<GitGrepResult>;
+	/**
+	 * Searches commit trees reachable from every ref in deterministic topological order. Exact
+	 * path/line/text tuples are deduplicated across the selected bounded commit page while retaining
+	 * the newest commit and occurrence count. Binary files are excluded. `commitOffset` and
+	 * `maxCommits` page through history without unbounded process fan-out.
+	 */
+	grepHistory(pattern: string, pathspecs: readonly string[] | undefined, bounds: GitHistoryGrepBounds, signal?: AbortSignal): Promise<GitHistoryGrepResult>;
 	/**
 	 * Every file path present in `ref`'s own tree, scoped to this GitPort's own workspace root
 	 * (same cwd-scoping as grep/diff/showFile). `pathspecs` narrows the listing; omitted lists the

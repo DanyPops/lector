@@ -62,8 +62,21 @@ export async function runWorkspaceAnnotationList(workspaceId: string | undefined
 export async function runWorkspaceAnnotationRefresh(workspaceId: string | undefined, id: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !id) fail(USAGE);
 	const { subtype, title, body, anchors } = requireAnnotationFields(flags);
+	const autoPopulate = hasFlag(flags, "--auto-populate");
+	const maxFiles = positiveIntegerFlag(flags, "--max-files");
+	const maxSymbolsPerFile = positiveIntegerFlag(flags, "--max-symbols-per-file");
 	const client = await connectLectorClient();
-	const { annotation } = await client.call("workspace.refreshAnnotation", { workspaceId, id, subtype, title, body, anchors });
+	const { annotation } = await client.call("workspace.refreshAnnotation", {
+		workspaceId,
+		id,
+		subtype,
+		title,
+		body,
+		anchors,
+		...(autoPopulate ? { autoPopulate } : {}),
+		...(maxFiles !== undefined ? { maxFiles } : {}),
+		...(maxSymbolsPerFile !== undefined ? { maxSymbolsPerFile } : {}),
+	});
 	if (hasFlag(flags, "--json")) {
 		console.log(JSON.stringify(annotation ?? null));
 		return;

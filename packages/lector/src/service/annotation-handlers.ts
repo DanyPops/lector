@@ -126,20 +126,27 @@ export class AnnotationHandlers {
 		return (await store.setStatus(annotation.id, wantedStatus)) ?? annotation;
 	}
 
+	private async populateForAnchors(
+		registry: MutableRegistry,
+		operation: "workspace.createAnnotation" | "workspace.refreshAnnotation",
+		input: { workspaceId: WorkspaceId; autoPopulate?: boolean; maxFiles?: number; maxSymbolsPerFile?: number },
+	): Promise<void> {
+		if (!input.autoPopulate) return;
+		if (input.maxFiles === undefined || input.maxSymbolsPerFile === undefined) throw new AutoPopulateRequiresBounds(operation);
+		const { maxFiles, maxSymbolsPerFile } = input;
+		// Only "not-cached" is safe to recover from automatically. Partial and in-flight states
+		// represent real incomplete work or a population already underway, so another blind retry
+		// would hide provenance or duplicate expensive language-server work.
+		const status = await this.deps.cacheStatus(registry, { workspaceId: input.workspaceId, maxFiles, maxSymbolsPerFile });
+		if (status.status === "not-cached") await this.deps.populateSymbolGraph(registry, { workspaceId: input.workspaceId, maxFiles, maxSymbolsPerFile });
+	}
+
 	private async create(
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.createAnnotation"],
 	): Promise<OperationOutputs["workspace.createAnnotation"]> {
 		const workspace = resolveWorkspace(registry, input.workspaceId);
-		if (input.autoPopulate) {
-			if (input.maxFiles === undefined || input.maxSymbolsPerFile === undefined) throw new AutoPopulateRequiresBounds("workspace.createAnnotation");
-			const { maxFiles, maxSymbolsPerFile } = input;
-			// Only "not-cached" is safe to recover from automatically -- see
-			// workspace.referenceBasedRename's own autoPopulate doc comment for why "partial" and any
-			// in-flight population status are never retried here regardless of this flag.
-			const status = await this.deps.cacheStatus(registry, { workspaceId: input.workspaceId, maxFiles, maxSymbolsPerFile });
-			if (status.status === "not-cached") await this.deps.populateSymbolGraph(registry, { workspaceId: input.workspaceId, maxFiles, maxSymbolsPerFile });
-		}
+		await this.populateForAnchors(registry, "workspace.createAnnotation", input);
 		const anchors = await this.anchors(this.deps.graph(input.workspaceId), workspace, input.anchors);
 		return { annotation: await this.store(input.workspaceId).create({ subtype: input.subtype, title: input.title, body: input.body, anchors }) };
 	}
@@ -164,6 +171,7 @@ export class AnnotationHandlers {
 		input: OperationInputs["workspace.refreshAnnotation"],
 	): Promise<OperationOutputs["workspace.refreshAnnotation"]> {
 		const workspace = resolveWorkspace(registry, input.workspaceId);
+		await this.populateForAnchors(registry, "workspace.refreshAnnotation", input);
 		const anchors = await this.anchors(this.deps.graph(input.workspaceId), workspace, input.anchors);
 		return { annotation: await this.store(input.workspaceId).refresh(input.id, { subtype: input.subtype, title: input.title, body: input.body, anchors }) };
 	}

@@ -12,6 +12,7 @@ import { WorkspaceEntryNotFound } from "../../workspace/raw-read.ts";
 import type { ParsedWorkspaceEdit } from "../../workspace/workspace-edit.ts";
 import { MAX_POPULATE_RETRY_BUDGET_MS } from "../bounds.ts";
 import { requireCodeIntelligence } from "../code-intelligence-handlers.ts";
+import type { DiagnosticValidationCoordinator } from "../diagnostic-validation-coordinator.ts";
 import { ReferenceBasedRenameRequiresFreshGraph, RenameNotSupported, SymbolQueryUnavailable, UnknownWorkspace, type WorkspaceId } from "../errors.ts";
 import type { MutationHistoryCoordinator } from "../mutation-history-handlers.ts";
 import type { OperationInputs, OperationOutputs } from "../operations.ts";
@@ -23,6 +24,7 @@ export interface RenameHandlerDeps {
 	readonly warmIndexes: WarmIndexRegistry<WorkspaceId>;
 	readonly renameMutationBarrier: SerialExecutionQueue;
 	readonly mutationHistory: MutationHistoryCoordinator;
+	readonly diagnosticValidation?: DiagnosticValidationCoordinator;
 	readonly cacheStatus: (registry: MutableRegistry, input: OperationInputs["workspace.cacheStatus"]) => Promise<OperationOutputs["workspace.cacheStatus"]>;
 	readonly populateSymbolGraph: (
 		registry: MutableRegistry,
@@ -44,7 +46,7 @@ export interface RenameHandlers {
 
 /** referenceBasedRename/prepareRename/rename -- the only operations needing BOTH a fully-cached graph (referenceBasedRename checks cacheStatus, optionally triggers populateSymbolGraph) and a live warm index. */
 export function createRenameHandlers(deps: RenameHandlerDeps): RenameHandlers {
-	const { registry, warmIndexes, renameMutationBarrier, mutationHistory, cacheStatus, populateSymbolGraph } = deps;
+	const { registry, warmIndexes, renameMutationBarrier, mutationHistory, diagnosticValidation, cacheStatus, populateSymbolGraph } = deps;
 
 	/** Every top-level document symbol's own selectionRange -- deliberately not descending into `children` (a class method can't itself be reached via a module specifier, only the file's own top-level exports can be). */
 	function flattenTopLevelPositions(symbols: readonly DocumentSymbolEntry[], path: string): Array<{ path: string; line: number; character: number }> {
@@ -131,9 +133,16 @@ export function createRenameHandlers(deps: RenameHandlerDeps): RenameHandlers {
 				referencingFiles,
 			});
 
+			const changedPaths = [fromPath, toPath, ...referencingFiles.map((file) => file.path)];
+			const affectedPaths = diagnosticValidation ? await diagnosticValidation.affectedPaths(input.workspaceId, changedPaths, 2, 500, 5_000) : [];
+			const baseline = diagnosticValidation ? await diagnosticValidation.capture(input.workspaceId, affectedPaths, 30_000) : undefined;
 			const outcome = await applyReferenceBasedRename(entry.port, plan);
-			await mutationHistory.recordTransaction(input.workspaceId, "rename", outcome.steps);
-			return { movedTo: outcome.movedTo, filesUpdated: outcome.filesUpdated, caveats: outcome.caveats };
+			const transactionId = await mutationHistory.recordTransaction(input.workspaceId, "rename", outcome.steps);
+			if (diagnosticValidation && baseline) {
+				const after = await diagnosticValidation.capture(input.workspaceId, affectedPaths, 30_000);
+				diagnosticValidation.record(transactionId, baseline, after);
+			}
+			return { movedTo: outcome.movedTo, filesUpdated: outcome.filesUpdated, caveats: outcome.caveats, transactionId };
 		});
 	}
 
@@ -173,6 +182,9 @@ export function createRenameHandlers(deps: RenameHandlerDeps): RenameHandlers {
 				expectedHashes.set(path, read.exists ? contentHashOf(read.content) : null);
 			}
 
+			const affectedPaths = diagnosticValidation ? await diagnosticValidation.affectedPaths(input.workspaceId, collectTouchedPaths(edit), 2, 500, 5_000) : [];
+			const baseline = diagnosticValidation ? await diagnosticValidation.capture(input.workspaceId, affectedPaths, 30_000) : undefined;
+
 			await index.notifyFilesWillRename?.(renamePairs);
 			await index.notifyFilesWillCreate?.(createPaths);
 			await index.notifyFilesWillDelete?.(deletePaths);
@@ -180,9 +192,13 @@ export function createRenameHandlers(deps: RenameHandlerDeps): RenameHandlers {
 			index.notifyFilesDidRename?.(renamePairs);
 			index.notifyFilesDidCreate?.(createPaths);
 			index.notifyFilesDidDelete?.(deletePaths);
-			if (outcome.steps.length > 0) await mutationHistory.recordTransaction(input.workspaceId, "rename", outcome.steps);
+			const transactionId = outcome.steps.length > 0 ? await mutationHistory.recordTransaction(input.workspaceId, "rename", outcome.steps) : undefined;
+			if (diagnosticValidation && baseline && transactionId) {
+				const after = await diagnosticValidation.capture(input.workspaceId, affectedPaths, 30_000);
+				diagnosticValidation.record(transactionId, baseline, after);
+			}
 
-			return { touchedPaths: outcome.touchedPaths, provenance: index.provenance };
+			return { touchedPaths: outcome.touchedPaths, ...(transactionId ? { transactionId } : {}), provenance: index.provenance };
 		});
 	}
 

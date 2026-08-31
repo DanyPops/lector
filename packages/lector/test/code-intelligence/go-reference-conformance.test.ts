@@ -9,6 +9,7 @@ import { goToImplementation } from "../../src/code-intelligence/go-to-implementa
 import { hoverAt } from "../../src/code-intelligence/hover-at.ts";
 import { GO_DESCRIPTOR } from "../../src/code-intelligence/language-server-descriptor.ts";
 import { LspSymbolIndex } from "../../src/code-intelligence/lsp/lsp-symbol-index.ts";
+import { subtypes, supertypes } from "../../src/code-intelligence/type-hierarchy.ts";
 import { outgoingCalls } from "../../src/symbol-graph/outgoing-calls.ts";
 import { findWorkspaceSymbols } from "../../src/workspace/find-workspace-symbols.ts";
 import { findPositionOf } from "../support/find-position.ts";
@@ -82,6 +83,18 @@ describe("Go reference fixture backend conformance", () => {
 			character: interfaceDeclaration.character + "type ".length + 1,
 		});
 		expect(implementations.map(({ path }) => path)).toContain(stripeFile);
+		const processorPosition = {
+			path: paymentFile,
+			line: interfaceDeclaration.line,
+			character: interfaceDeclaration.character + "type ".length + 1,
+		};
+		expect((await subtypes(lsp, processorPosition)).map(({ name }) => name)).toContain("StripeProcessor");
+		const stripeDeclaration = findPositionOf(stripeFile, "type StripeProcessor struct");
+		expect(
+			(await supertypes(lsp, { path: stripeFile, line: stripeDeclaration.line, character: stripeDeclaration.character + "type ".length + 1 })).map(
+				({ name }) => name,
+			),
+		).toContain("PaymentProcessor");
 
 		const checkoutDeclaration = findPositionOf(checkoutFile, "func RunCheckout(processor");
 		const checkoutPosition = {
@@ -93,6 +106,15 @@ describe("Go reference fixture backend conformance", () => {
 		expect(hover?.contents).toContain("RunCheckout");
 		const references = await findReferences(lsp, checkoutPosition, true);
 		expect(references.filter(({ path }) => path === checkoutFile).length).toBeGreaterThan(1);
+		expect(await lsp.prepareRename(checkoutPosition)).not.toBeNull();
+		const renameEdit = await lsp.rename(checkoutPosition, "RunCheckoutRenamed");
+		expect(renameEdit.operations).toContainEqual(
+			expect.objectContaining({
+				kind: "text",
+				path: checkoutFile,
+				edits: expect.arrayContaining([expect.objectContaining({ newText: "RunCheckoutRenamed" })]),
+			}),
+		);
 
 		const twiceDeclaration = findPositionOf(checkoutFile, "func RunCheckoutTwice(processor");
 		const callees = await outgoingCalls(lsp, {

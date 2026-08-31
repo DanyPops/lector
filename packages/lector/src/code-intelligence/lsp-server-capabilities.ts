@@ -25,6 +25,9 @@ export interface ParsedServerCapabilities {
 	readonly renameProvider: boolean;
 	readonly prepareRenameProvider: boolean;
 	readonly documentHighlightProvider: boolean;
+	readonly codeActionProvider: boolean;
+	readonly codeActionResolveProvider: boolean;
+	readonly typeHierarchyProvider: boolean;
 	readonly workspaceFileOperations: WorkspaceFileOperationCapabilities;
 	/** undefined means the server never declared pull-model diagnostics at all -- distinct from declaring it with both flags false. */
 	readonly diagnosticProvider: DiagnosticProviderCapabilities | undefined;
@@ -54,6 +57,13 @@ export function parseServerCapabilities(raw: unknown): ParsedServerCapabilities 
 
 	const documentHighlightProviderValue = capabilities.documentHighlightProvider;
 	const documentHighlightProvider = documentHighlightProviderValue === true || isRecord(documentHighlightProviderValue);
+
+	const codeActionProviderValue = capabilities.codeActionProvider;
+	const codeActionProvider = codeActionProviderValue === true || isRecord(codeActionProviderValue);
+	const codeActionResolveProvider = isRecord(codeActionProviderValue) && codeActionProviderValue.resolveProvider === true;
+
+	const typeHierarchyProviderValue = capabilities.typeHierarchyProvider;
+	const typeHierarchyProvider = typeHierarchyProviderValue === true || isRecord(typeHierarchyProviderValue);
 
 	const workspace = isRecord(capabilities.workspace) ? capabilities.workspace : {};
 	const fileOperations = isRecord(workspace.fileOperations) ? workspace.fileOperations : {};
@@ -86,6 +96,9 @@ export function parseServerCapabilities(raw: unknown): ParsedServerCapabilities 
 		renameProvider,
 		prepareRenameProvider,
 		documentHighlightProvider,
+		codeActionProvider,
+		codeActionResolveProvider,
+		typeHierarchyProvider,
 		workspaceFileOperations,
 		diagnosticProvider,
 	};

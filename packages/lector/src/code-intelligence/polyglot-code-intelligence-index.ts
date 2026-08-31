@@ -1,4 +1,5 @@
 import { extname } from "node:path";
+import type { CodeActionQuery, SemanticCodeAction } from "../code-intelligence/code-action.ts";
 import type { Diagnostic } from "../code-intelligence/diagnostic.ts";
 import type { DocumentHighlight } from "../code-intelligence/document-highlight.ts";
 import type { DocumentSymbolEntry } from "../code-intelligence/document-symbol.ts";
@@ -7,6 +8,7 @@ import type { IntelligenceProvenance, IntelligenceSourceOutcome, SymbolSearchBou
 import type { LanguageServerDescriptor } from "../code-intelligence/language-server-descriptor.ts";
 import type { CodeIntelligencePort } from "../code-intelligence/port.ts";
 import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts";
+import { type TypeHierarchyEntry, TypeHierarchyUnavailable } from "../code-intelligence/type-hierarchy.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../symbol-graph/call-hierarchy.ts";
 import type { ParsedWorkspaceEdit, RenameRange } from "../workspace/workspace-edit.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../workspace/workspace-symbol.ts";
@@ -123,8 +125,44 @@ export class PolyglotCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 		return this.indexForPath(path).documentSymbols(path, options);
 	}
 
-	diagnostics(path: string): Promise<Diagnostic[]> {
-		return this.indexForPath(path).diagnostics(path);
+	diagnostics(path: string, options?: { timeoutMs?: number }): Promise<Diagnostic[]> {
+		return this.indexForPath(path).diagnostics(path, options);
+	}
+
+	documentVersion(path: string): number | undefined {
+		return this.indexForPath(path).documentVersion?.(path);
+	}
+
+	codeActions(query: CodeActionQuery): Promise<SemanticCodeAction[]> {
+		const index = this.indexForPath(query.path);
+		if (!index.codeActions) throw new Error(`no code-intelligence backend for "${query.path}" supports code actions`);
+		return index.codeActions(query);
+	}
+
+	resolveCodeAction(action: SemanticCodeAction, timeoutMs: number): Promise<SemanticCodeAction> {
+		return this.indexForPath(action.path).resolveCodeAction?.(action, timeoutMs) ?? Promise.resolve(action);
+	}
+
+	async workspaceDiagnostics(maxFiles: number, maxDiagnosticsPerFile: number, timeoutMs: number): Promise<Diagnostic[]> {
+		const diagnostics: Diagnostic[] = [];
+		const paths = new Set<string>();
+		let supported = false;
+		for (const { index } of this.entries) {
+			if (!supportsCodeIntelligence(index) || !index.workspaceDiagnostics) continue;
+			try {
+				const result = await index.workspaceDiagnostics(maxFiles, maxDiagnosticsPerFile, timeoutMs);
+				supported = true;
+				for (const diagnostic of result) {
+					paths.add(diagnostic.range.path);
+					if (paths.size > maxFiles) break;
+					diagnostics.push(diagnostic);
+				}
+			} catch {
+				// Continue to another language backend; document diagnostics remain the caller's fallback.
+			}
+		}
+		if (!supported) throw new Error("no language backend supports workspace diagnostics");
+		return diagnostics;
 	}
 
 	prepareCallHierarchy(at: WorkspaceLocation): Promise<CallHierarchyEntry[]> {
@@ -137,6 +175,24 @@ export class PolyglotCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 
 	outgoingCalls(at: WorkspaceLocation, options?: { settleMs?: number }): Promise<OutgoingCall[]> {
 		return this.indexForPath(at.path).outgoingCalls(at, options);
+	}
+
+	prepareTypeHierarchy(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]> {
+		const index = this.indexForPath(at.path);
+		if (!index.prepareTypeHierarchy) throw new TypeHierarchyUnavailable();
+		return index.prepareTypeHierarchy(at);
+	}
+
+	supertypes(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]> {
+		const index = this.indexForPath(at.path);
+		if (!index.supertypes) throw new TypeHierarchyUnavailable();
+		return index.supertypes(at);
+	}
+
+	subtypes(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]> {
+		const index = this.indexForPath(at.path);
+		if (!index.subtypes) throw new TypeHierarchyUnavailable();
+		return index.subtypes(at);
 	}
 
 	releaseFile(path: string): Promise<void> {

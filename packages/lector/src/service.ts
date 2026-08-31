@@ -1,7 +1,13 @@
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import type { Logger } from "@danypops/vehicle-server/logging";
+import {
+	CODE_ACTION_APPLY_PERMISSIONS,
+	CODE_ACTION_PREVIEW_PERMISSIONS,
+	registerCodeActionOperations,
+} from "./code-intelligence/code-action-operation-registration.ts";
+import { diagnosticDelta } from "./code-intelligence/diagnostic-delta.ts";
 import { FallbackCodeIntelligenceIndex } from "./code-intelligence/fallback-code-intelligence-index.ts";
 import { LANGUAGE_SERVER_DESCRIPTORS, type LanguageServerDescriptor } from "./code-intelligence/language-server-descriptor.ts";
 import { LspSymbolIndex } from "./code-intelligence/lsp/lsp-symbol-index.ts";
@@ -59,13 +65,17 @@ import { InMemorySearchCache } from "./search-cache/in-memory-search-cache.ts";
 import type { SearchCachePort } from "./search-cache/port.ts";
 import { type AnnotationHandlerDeps, AnnotationHandlers } from "./service/annotation-handlers.ts";
 import { DISPATCH_SLOW_WARN_THRESHOLD_MS } from "./service/bounds.ts";
+import { CodeActionHandlers } from "./service/code-action-handler.ts";
 import { createCodeIntelligenceHandlers } from "./service/code-intelligence-handlers.ts";
 import { createCrossWorkspaceHandlers } from "./service/cross-workspace-handlers.ts";
-import { SymbolQueryUnavailable, UnknownWorkspace, UnsupportedLanguage, type WorkspaceId } from "./service/errors.ts";
+import { createDiagnosticDeltaHandler } from "./service/diagnostic-delta-handler.ts";
+import { DiagnosticValidationCoordinator } from "./service/diagnostic-validation-coordinator.ts";
+import { deriveWorkspaceId, SymbolQueryUnavailable, UnknownWorkspace, UnsupportedLanguage, type WorkspaceId } from "./service/errors.ts";
 import { createExternalSearchHandlers } from "./service/external-search-handlers.ts";
 import { createGitHandlers } from "./service/git-handlers.ts";
 import { createGitWorktreeHandlers } from "./service/git-worktree-handlers.ts";
 import { GraphRefreshCoordinator } from "./service/graph-refresh-coordinator.ts";
+import { createImpactAnalysisHandler } from "./service/impact-analysis-handler.ts";
 import { createLocalizeContextHandler } from "./service/localize-context-handler.ts";
 import { MutationHistoryCoordinator } from "./service/mutation-history-handlers.ts";
 import { OPERATION_NAMES, type OperationInputs, type OperationName, type OperationOutputs } from "./service/operations.ts";
@@ -85,6 +95,8 @@ import type { SymbolAnnotationPort } from "./symbol-annotation/port.ts";
 import { InMemorySymbolGraph } from "./symbol-graph/in-memory-symbol-graph.ts";
 import type { PopulateSymbolGraphResult } from "./symbol-graph/populate-symbol-graph.ts";
 import type { SymbolGraphPort } from "./symbol-graph/port.ts";
+import { FffIndexedTextEngineFactory } from "./text-search/fff-indexed-text-engine.ts";
+import { IndexedTextSearch } from "./text-search/indexed-text-search.ts";
 import type { TextSearchPort } from "./text-search/port.ts";
 import { RipgrepTextSearch } from "./text-search/ripgrep-text-search.ts";
 import { lectorVersion } from "./version.ts";
@@ -204,8 +216,30 @@ export interface LectorServiceOptions {
 	createSourcegraphSearch?: () => SourcegraphSearchPort;
 	/** Factory for each external-search source's own short-TTL result cache. Defaults to a fresh InMemoryExternalSearchCache per source (github/npm/sourcegraph each get their own instance, never shared -- their result shapes differ). */
 	createExternalSearchCache?: <T extends object>() => ExternalSearchCachePort<T>;
-	/** Factory for the port backing workspace.searchText. Defaults to RipgrepTextSearch -- cheap to construct, no disk dependency, safe like createGitPort's default. Called once at construction and reused. */
+	/** Factory for the port backing workspace.searchText. Defaults to bounded FFF indexing with ripgrep fallback. Called once at construction and reused. */
 	createTextSearch?: () => TextSearchPort;
+	/** Maximum concurrent resident lexical-index builds. Defaults to 1. */
+	maxConcurrentTextIndexBuilds?: number;
+	/** Maximum queued resident lexical-index builds. Defaults to 8. */
+	maxQueuedTextIndexBuilds?: number;
+	/** Maximum workspaces retaining resident lexical-index state. Defaults to 64. */
+	maxTrackedTextIndexes?: number;
+	/** Per-build deadline. Defaults to 120 seconds. */
+	textIndexBuildTimeoutMs?: number;
+	/** Per-query native search deadline. Defaults to 5 seconds. */
+	textIndexSearchTimeoutMs?: number;
+	/** Daemon-owned root for bounded persisted freshness identities. */
+	textIndexCacheRoot?: string;
+	/** Maximum files admitted to one resident lexical index. Defaults to 100,000. */
+	textIndexMaxFiles?: number;
+	/** Maximum aggregate source bytes admitted to one resident lexical index. Defaults to 2 GiB. */
+	textIndexMaxSourceBytes?: number;
+	/** Maximum individual source-file bytes admitted to one resident lexical index. Defaults to 16 MiB. */
+	textIndexMaxSingleFileBytes?: number;
+	/** Maximum persisted freshness identities. Defaults to 64. */
+	textIndexMaxPersistedIdentities?: number;
+	/** Maximum aggregate JSON bytes for persisted freshness identities. Defaults to 256 KiB. */
+	textIndexMaxPersistedIdentityBytes?: number;
 	/** Factory for the port backing workspace.watch's real OS-level watching. Defaults to NodeFsFileWatcher. Called once per workspace, lazily, on its first active watch -- never for a workspace nobody has asked to watch. */
 	createFileWatcher?: () => FileWatcherPort;
 	/** Publishes a real file-change event to workspace.watch's own PushChannel topic. Defaults to a no-op -- a host without a real push transport (most embedders, most tests) still gets correct watch registration/matching, just no actual delivery. Wired to a real PushChannel.publish by daemon.ts. */
@@ -348,6 +382,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		populateSymbolGraph: (registry, input) => annotationPopulateSymbolGraph(registry, input),
 	});
 	const mutationHistory = new MutationHistoryCoordinator({ registry, createStore: options.createMutationHistory, fileOperations: warmIndexes });
+	const diagnosticValidation = new DiagnosticValidationCoordinator(warmIndexes, ensureSymbolGraph);
 
 	const createGitPort = options.createGitPort ?? ((rootPath: string) => new LocalGit(rootPath));
 	// Constructed once, not per-call -- reconstructing would rehydrate the same on-disk index
@@ -375,7 +410,26 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const githubSearchCache = createExternalSearchCache<GithubRepoSearchResult>();
 	const npmSearchCache = createExternalSearchCache<{ candidates: readonly NpmPackageCandidate[] }>();
 	const sourcegraphSearchCache = createExternalSearchCache<{ candidates: readonly SourcegraphCodeCandidate[] }>();
-	const textSearch = options.createTextSearch?.() ?? new RipgrepTextSearch();
+	const textSearch: TextSearchPort =
+		options.createTextSearch?.() ??
+		new IndexedTextSearch(
+			new RipgrepTextSearch(),
+			new FffIndexedTextEngineFactory({
+				cacheRoot: options.textIndexCacheRoot ?? join(tmpdir(), "lector-text-index-cache"),
+				buildTimeoutMs: options.textIndexBuildTimeoutMs ?? 120_000,
+				searchTimeoutMs: options.textIndexSearchTimeoutMs ?? 5_000,
+				maxFiles: options.textIndexMaxFiles ?? 100_000,
+				maxSourceBytes: options.textIndexMaxSourceBytes ?? 2 * 1024 * 1024 * 1024,
+				maxSingleFileBytes: options.textIndexMaxSingleFileBytes ?? 16 * 1024 * 1024,
+				maxPersistedIdentities: options.textIndexMaxPersistedIdentities ?? 64,
+				maxPersistedIdentityBytes: options.textIndexMaxPersistedIdentityBytes ?? 256 * 1024,
+			}),
+			{
+				maxConcurrentBuilds: options.maxConcurrentTextIndexBuilds ?? 1,
+				maxQueuedBuilds: options.maxQueuedTextIndexBuilds ?? 8,
+				maxTrackedWorkspaces: options.maxTrackedTextIndexes ?? 64,
+			},
+		);
 	const searchCache = options.createSearchCache?.() ?? new InMemorySearchCache();
 	const createFileWatcher = options.createFileWatcher ?? (() => new NodeFsFileWatcher());
 	const publish = options.publish ?? (() => {});
@@ -400,6 +454,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		renameMutationBarrier,
 		publish,
 		mutationHistory,
+		diagnosticValidation,
 		homeDir: options.homeDir,
 		sleep: options.populateRetrySleep,
 		now: options.populateRetryNow,
@@ -417,9 +472,19 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		scheduleGraphRefresh: (workspaceId) => {
 			graphRefresh.schedule(workspaceId, () => symbolGraphHandlers.scheduleGraphRefresh(workspaceId));
 		},
+		invalidateTextSearch: (workspaceId, rootPath) => {
+			textSearch.invalidate?.(rootPath);
+			void searchCache.invalidateWorkspace(workspaceId);
+		},
 	});
 	ensureOsWatcher = (workspaceId, rootPath) => workspaceWatchHandlers.ensureOsWatcher(workspaceId, rootPath);
-	const workspaceLifecycleHandlers = createWorkspaceLifecycleHandlers({ registry, warmIndexes, graphRefresh, watchHandlers: workspaceWatchHandlers });
+	const workspaceLifecycleHandlers = createWorkspaceLifecycleHandlers({
+		registry,
+		warmIndexes,
+		graphRefresh,
+		watchHandlers: workspaceWatchHandlers,
+		releaseTextSearch: (rootPath) => textSearch.releaseWorkspace?.(rootPath),
+	});
 	const gitHandlers = createGitHandlers({ registry, createGitPort, logger });
 	const gitWorktreeHandlers = createGitWorktreeHandlers({
 		registry,
@@ -442,6 +507,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		| "workspace.gitDiff"
 		| "workspace.gitShowFile"
 		| "workspace.gitGrep"
+		| "workspace.gitGrepHistory"
 		| "workspace.gitListFiles"
 		| "workspace.gitIsAncestor"
 		| "workspace.gitWorktreeAdd"
@@ -452,6 +518,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		"workspace.gitDiff": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitDiff", 1, input, GIT_READ_PERMISSIONS),
 		"workspace.gitShowFile": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitShowFile", 1, input, GIT_READ_PERMISSIONS),
 		"workspace.gitGrep": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.gitGrep", 1, input, GIT_READ_PERMISSIONS),
+		"workspace.gitGrepHistory": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.gitGrepHistory", 1, input, GIT_READ_PERMISSIONS),
 		"workspace.gitListFiles": (_registry, input) =>
 			dispatchThroughOperationRegistry(operationRegistry, "workspace.gitListFiles", 1, input, GIT_READ_PERMISSIONS),
 		"workspace.gitIsAncestor": (_registry, input) =>
@@ -528,7 +596,31 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			dispatchThroughOperationRegistry(operationRegistry, "search.sourcegraphCode", 1, input, EXTERNAL_SEARCH_PERMISSIONS),
 	};
 	const codeIntelligenceHandlers = createCodeIntelligenceHandlers({ warmIndexes });
-	const workspaceFileHandlers = createWorkspaceFileHandlers({ contentCache, mutationHistory, warmIndexes, textSearch, searchCache });
+	const codeActionHandlers = new CodeActionHandlers({
+		registry,
+		warmIndexes,
+		mutationBarrier: renameMutationBarrier,
+		mutationHistory,
+		diagnosticValidation,
+	});
+	registerCodeActionOperations(operationRegistry, registry, codeActionHandlers);
+	const registryCodeActionHandlers: Pick<OperationHandlers, "workspace.previewCodeActions" | "workspace.applyCodeAction"> = {
+		"workspace.previewCodeActions": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.previewCodeActions", 1, input, CODE_ACTION_PREVIEW_PERMISSIONS),
+		"workspace.applyCodeAction": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.applyCodeAction", 1, input, CODE_ACTION_APPLY_PERMISSIONS),
+	};
+	const workspaceFileHandlers = createWorkspaceFileHandlers({
+		contentCache,
+		mutationHistory,
+		warmIndexes,
+		textSearch,
+		searchCache,
+		prepareTextSearch: (workspaceId, rootPath, origin) => {
+			textSearch.registerWorkspace?.(rootPath, origin);
+			workspaceWatchHandlers.ensureOsWatcher(workspaceId, rootPath);
+		},
+	});
 	const crossWorkspaceHandlers = createCrossWorkspaceHandlers({
 		registry,
 		findSymbols: (input) => codeIntelligenceHandlers["workspace.findSymbols"](registry, input),
@@ -539,11 +631,84 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const localizeContextHandler = createLocalizeContextHandler(textSearch, ensureSymbolGraph, (workspaceId) =>
 		annotationHandlers.storeForWorkspace(workspaceId),
 	);
+	const impactAnalysisHandler = createImpactAnalysisHandler({
+		graph: ensureSymbolGraph,
+		createGitPort,
+		mutationHistory,
+		warmIndexes,
+		cacheStatus: symbolGraphHandlers.handlers["workspace.cacheStatus"],
+		populateSymbolGraph: symbolGraphHandlers.handlers["workspace.populateSymbolGraph"],
+		supertypes: codeIntelligenceHandlers["workspace.supertypes"],
+		subtypes: codeIntelligenceHandlers["workspace.subtypes"],
+	});
+	const diagnosticDeltaHandler = createDiagnosticDeltaHandler(diagnosticValidation, async (input) => {
+		if (
+			input.maxDepth === undefined ||
+			input.maxNodes === undefined ||
+			input.maxEdges === undefined ||
+			input.deadlineMs === undefined ||
+			input.maxFiles === undefined ||
+			input.maxSymbolsPerFile === undefined
+		) {
+			throw new TypeError("git diagnostic delta requires maxDepth, maxNodes, maxEdges, deadlineMs, maxFiles, and maxSymbolsPerFile");
+		}
+		const impact = await impactAnalysisHandler(registry, {
+			workspaceId: input.workspaceId,
+			source: input.source,
+			maxDepth: input.maxDepth,
+			maxNodes: input.maxNodes,
+			maxEdges: input.maxEdges,
+			maxBytes: input.maxBytes,
+			deadlineMs: input.deadlineMs,
+			maxFiles: input.maxFiles,
+			maxSymbolsPerFile: input.maxSymbolsPerFile,
+			...(input.autoPopulate !== undefined ? { autoPopulate: input.autoPopulate } : {}),
+		});
+		const workspaceEntry = registry.get(input.workspaceId);
+		if (!workspaceEntry?.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
+		const affectedPaths = [
+			...new Set([...impact.changedSymbols.map(({ symbol }) => symbol.location.path), ...impact.impactedSymbols.map(({ symbol }) => symbol.location.path)]),
+		].sort();
+		const worktree = await gitWorktreeHandlers["workspace.gitWorktreeAdd"](registry, {
+			workspaceId: input.workspaceId,
+			ref: input.source.ref,
+		});
+		const baselineWorkspaceId = deriveWorkspaceId(worktree.path);
+		const baselinePaths = affectedPaths.map((path) => join(worktree.path, relative(workspaceEntry.rootPath ?? "", path)));
+		try {
+			const [beforeRaw, after] = await Promise.all([
+				diagnosticValidation.capture(baselineWorkspaceId, baselinePaths, input.deadlineMs),
+				diagnosticValidation.capture(input.workspaceId, affectedPaths, input.deadlineMs),
+			]);
+			const currentPathByBaseline = new Map(baselinePaths.map((path, index) => [path, affectedPaths[index] ?? path]));
+			const before = beforeRaw.files.flatMap((file) =>
+				file.diagnostics.map((diagnostic) => ({
+					...diagnostic,
+					range: { ...diagnostic.range, path: currentPathByBaseline.get(diagnostic.range.path) ?? diagnostic.range.path },
+				})),
+			);
+			const afterDiagnostics = after.files.flatMap((file) => file.diagnostics);
+			const provenance = [...beforeRaw.files, ...after.files]
+				.flatMap((file) => (file.provenance ? [file.provenance] : []))
+				.filter((candidate, index, values) => values.findIndex((value) => JSON.stringify(value) === JSON.stringify(candidate)) === index);
+			return {
+				source: input.source,
+				...diagnosticDelta(before, afterDiagnostics),
+				affectedPaths,
+				completeness:
+					beforeRaw.completeness === "complete" && after.completeness === "complete" && !impact.truncated && !impact.deadlineReached ? "complete" : "partial",
+				provenance,
+			};
+		} finally {
+			if (worktree.created) await gitWorktreeHandlers["workspace.gitWorktreeRemove"](registry, { workspaceId: baselineWorkspaceId });
+		}
+	});
 
 	const handlers: OperationHandlers = {
 		...workspaceFileHandlers,
 		...workspaceLifecycleHandlers,
 		...codeIntelligenceHandlers,
+		...registryCodeActionHandlers,
 		...symbolGraphHandlers.handlers,
 		...gitHandlers,
 		...registryGitHandlers,
@@ -559,6 +724,8 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...workspaceWatchHandlers.handlers,
 		"workspace.map": workspaceMapHandler,
 		"workspace.localizeContext": localizeContextHandler,
+		"workspace.impactAnalysis": impactAnalysisHandler,
+		"workspace.diagnosticDelta": diagnosticDeltaHandler,
 	};
 
 	return {
@@ -602,6 +769,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		async close(): Promise<void> {
 			jobs.close();
 			workspaceWatchHandlers.close();
+			textSearch.close?.();
 			await Promise.all([warmIndexes.closeAll(), graphRefresh.close(), annotationHandlers.close()]);
 		},
 		async reapIdleSymbolIndexes(maxIdleMs: number): Promise<number> {
@@ -617,6 +785,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 }
 
 export { JobCapacityExceeded, JobNotFound } from "./concurrency/bounded-job-executor.ts";
+export { DiagnosticValidationNotFound } from "./service/diagnostic-delta-handler.ts";
 export type { WorkspaceId } from "./service/errors.ts";
 export {
 	AnnotationContainmentCycle,
@@ -649,6 +818,7 @@ export {
 	WorkspaceChangedDuringPopulation,
 	WorkspaceReleaseBlocked,
 } from "./service/errors.ts";
+export { ImpactAnalysisRequiresFreshGraph } from "./service/impact-analysis-handler.ts";
 export type { OperationInputs, OperationName, OperationOutputs } from "./service/operations.ts";
 export { OPERATION_NAMES } from "./service/operations.ts";
 export type { ClosableSymbolIndex, WarmIndexProcessCostRecorder } from "./service/warm-index-registry.ts";

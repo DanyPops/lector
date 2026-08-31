@@ -60,6 +60,7 @@ describe("Lector daemon's /vehicle/* surface (createVehicleHttpApp, additive alo
 				"workspace.gitDiff",
 				"workspace.gitShowFile",
 				"workspace.gitGrep",
+				"workspace.gitGrepHistory",
 				"workspace.gitListFiles",
 				"workspace.gitIsAncestor",
 				"workspace.gitWorktreeAdd",
@@ -80,6 +81,8 @@ describe("Lector daemon's /vehicle/* surface (createVehicleHttpApp, additive alo
 				"workspace.containAnnotation",
 				"workspace.uncontainAnnotation",
 				"workspace.annotationTree",
+				"workspace.previewCodeActions",
+				"workspace.applyCodeAction",
 				"search.githubRepos",
 				"search.npmPackages",
 				"search.sourcegraphCode",
@@ -97,6 +100,14 @@ describe("Lector daemon's /vehicle/* surface (createVehicleHttpApp, additive alo
 		git(root, "commit", "-q", "-m", "initial commit");
 
 		service = createLectorService(new Map(), { allowDynamicOnly: true });
+		const observedAuthority: unknown[] = [];
+		service.operationRegistry.useExecutionMiddleware({
+			id: "observe-http-authority",
+			async intercept(request, next) {
+				observedAuthority.push({ permissions: request.permissions, principal: request.principal });
+				return next(request.input);
+			},
+		});
 		const isolated = isolatedLectorPaths();
 		const token = ensureAuthToken(isolated.paths.token, "Lector");
 		const daemon = await startDaemon({
@@ -120,10 +131,17 @@ describe("Lector daemon's /vehicle/* surface (createVehicleHttpApp, additive alo
 			"workspace.gitLog",
 			1,
 			{ workspaceId, maxCount: 10 },
-			{ permissions: ["workspace:read"] },
+			{ permissions: ["forged:grant"], principal: { id: "forged-client" } },
 		)) as typeof legacyResult;
 		expect(vehicleResult).toEqual(legacyResult);
 		expect(vehicleResult.entries[0]?.message).toBe("initial commit");
+		expect(observedAuthority).toEqual([
+			{ permissions: ["workspace:read"], principal: undefined },
+			{
+				permissions: ["workspace:read", "workspace:write", "external-search:read"],
+				principal: { id: "lector-authenticated-client" },
+			},
+		]);
 
 		// /api/v1/ops keeps working entirely unchanged for a non-migrated operation too --
 		// this endpoint addition is purely additive, no existing behavior moved.

@@ -21,6 +21,10 @@ export interface GitHandlers {
 	"workspace.gitDiff": (registry: MutableRegistry, input: OperationInputs["workspace.gitDiff"]) => Promise<OperationOutputs["workspace.gitDiff"]>;
 	"workspace.gitShowFile": (registry: MutableRegistry, input: OperationInputs["workspace.gitShowFile"]) => Promise<OperationOutputs["workspace.gitShowFile"]>;
 	"workspace.gitGrep": (registry: MutableRegistry, input: OperationInputs["workspace.gitGrep"]) => Promise<OperationOutputs["workspace.gitGrep"]>;
+	"workspace.gitGrepHistory": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.gitGrepHistory"],
+	) => Promise<OperationOutputs["workspace.gitGrepHistory"]>;
 	"workspace.gitListFiles": (
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.gitListFiles"],
@@ -36,9 +40,9 @@ export interface GitHandlers {
 }
 
 /**
- * workspace.gitStatus/gitLog/gitDiff/gitShowFile/gitGrep/gitListFiles/gitIsAncestor/
- * compareSymbolAcrossVersions -- every real git query, backed by GitPort. gitShowFile/gitGrep/
- * gitListFiles/gitIsAncestor are Tier 1 of the cross-branch verification surface: real answers
+ * workspace.gitStatus/gitLog/gitDiff/gitShowFile/gitGrep/gitGrepHistory/gitListFiles/
+ * gitIsAncestor/compareSymbolAcrossVersions -- every real git query, backed by GitPort.
+ * gitShowFile/gitGrep/gitGrepHistory/gitListFiles/gitIsAncestor are Tier 1 of the cross-branch verification surface: real answers
  * about another ref's own tree with no checkout and no registered workspace of its own, unlike
  * gitWorktreeAdd's Tier 2 (a real, disposable project at that ref, for semantic queries).
  */
@@ -114,6 +118,18 @@ export function createGitHandlers(deps: GitHandlerDeps): GitHandlers {
 			return runGitOperation("workspace.gitGrep", async () => {
 				const git = await requireGitRepository(input.workspaceId);
 				return git.grep(input.ref, input.pattern, input.pathspecs, input.maxMatches, input.maxBytes);
+			});
+		},
+		"workspace.gitGrepHistory"(_registry, input) {
+			return runGitOperation("workspace.gitGrepHistory", async () => {
+				const git = await requireGitRepository(input.workspaceId);
+				return git.grepHistory(input.pattern, input.pathspecs, {
+					commitOffset: input.commitOffset,
+					maxCommits: input.maxCommits,
+					maxMatches: input.maxMatches,
+					maxBytes: input.maxBytes,
+					deadlineMs: input.deadlineMs,
+				});
 			});
 		},
 		"workspace.gitListFiles"(_registry, input) {

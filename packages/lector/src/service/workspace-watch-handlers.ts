@@ -15,6 +15,7 @@ export interface WorkspaceWatchHandlerDeps {
 	readonly closeWarmIndexForRootMarkerChange: (workspaceId: WorkspaceId, changedPath: string) => Promise<void>;
 	readonly isGraphWatched: (workspaceId: WorkspaceId) => boolean;
 	readonly scheduleGraphRefresh: (workspaceId: WorkspaceId) => void;
+	readonly invalidateTextSearch?: (workspaceId: WorkspaceId, rootPath: string) => void;
 }
 
 export class WorkspaceWatchHandlers {
@@ -48,7 +49,11 @@ export class WorkspaceWatchHandlers {
 		void this.deps.closeWarmIndexForRootMarkerChange(workspaceId, event.path);
 		this.deps.notifyWarmIndexes(workspaceId, event);
 		const isGitInternal = event.path === ".git" || event.path.startsWith(".git/");
-		if (!isGitInternal && this.deps.isGraphWatched(workspaceId)) this.deps.scheduleGraphRefresh(workspaceId);
+		if (!isGitInternal) {
+			const rootPath = this.deps.registry.get(workspaceId)?.rootPath;
+			if (rootPath) this.deps.invalidateTextSearch?.(workspaceId, rootPath);
+			if (this.deps.isGraphWatched(workspaceId)) this.deps.scheduleGraphRefresh(workspaceId);
+		}
 	}
 
 	private async watch(registry: MutableRegistry, input: OperationInputs["workspace.watch"]): Promise<OperationOutputs["workspace.watch"]> {

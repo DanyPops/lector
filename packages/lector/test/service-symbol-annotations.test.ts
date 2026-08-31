@@ -119,6 +119,42 @@ describe("createLectorService's annotation operations", () => {
 		expect(annotation.anchors[0]?.path).toBe(path);
 	}, 20_000);
 
+	it("refreshAnnotation auto-populates once when a new anchor falls outside the completed generation", async () => {
+		fixtureRoot = buildTypeScriptFixture();
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolIndex: (rootPath, descriptor, seedFile) => new LspSymbolIndex(rootPath, descriptor, seedFile),
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: fixtureRoot });
+		const originalPath = join(fixtureRoot, "src", "a.ts");
+		const { annotation } = await service.dispatch("workspace.createAnnotation", {
+			workspaceId,
+			subtype: "note",
+			title: "original anchor",
+			body: "created after the first bounded population",
+			anchors: [{ path: originalPath, line: 1, character: 17 }],
+			autoPopulate: true,
+			maxFiles: 100,
+			maxSymbolsPerFile: 50,
+		});
+
+		const addedPath = join(fixtureRoot, "src", "added.ts");
+		writeFileSync(addedPath, "export function added() {}\n");
+		const { annotation: refreshed } = await service.dispatch("workspace.refreshAnnotation", {
+			workspaceId,
+			id: annotation.id,
+			subtype: "note",
+			title: "new anchor",
+			body: "refreshed after bounded on-demand population",
+			anchors: [{ path: addedPath, line: 1, character: 17 }],
+			autoPopulate: true,
+			maxFiles: 100,
+			maxSymbolsPerFile: 50,
+		});
+
+		expect(refreshed?.anchors[0]?.path).toBe(addedPath);
+	}, 30_000);
+
 	it("createAnnotation: without autoPopulate still throws UnknownAnnotationAnchor against a never-populated workspace -- opt-in stays opt-in", async () => {
 		fixtureRoot = buildTypeScriptFixture();
 		service = createLectorService(new Map(), {

@@ -1,5 +1,5 @@
 import { connectLectorClient } from "../../../client.ts";
-import { fail, flagValue, hasFlag, requiredIntFlag } from "../../flags.ts";
+import { collectFlagValues, fail, flagValue, hasFlag, requiredIntFlag } from "../../flags.ts";
 import { USAGE } from "../../usage.ts";
 import type { ActionHandler } from "../action-handler.ts";
 
@@ -52,6 +52,37 @@ export async function runWorkspaceGitDiff(workspaceId: string | undefined, flags
 	if (result.truncated) console.log("... (truncated)");
 }
 
+export async function runWorkspaceGitGrepHistory(workspaceId: string | undefined, pattern: string | undefined, flags: string[]): Promise<void> {
+	if (!workspaceId || !pattern) fail(USAGE);
+	const commitOffset = requiredIntFlag(flags, "--commit-offset");
+	const maxCommits = requiredIntFlag(flags, "--max-commits");
+	const maxMatches = requiredIntFlag(flags, "--max-matches");
+	const maxBytes = requiredIntFlag(flags, "--max-bytes");
+	const deadlineMs = requiredIntFlag(flags, "--deadline-ms");
+	const pathspecs = collectFlagValues(flags, "--pathspec");
+	const client = await connectLectorClient();
+	const result = await client.call("workspace.gitGrepHistory", {
+		workspaceId,
+		pattern,
+		pathspecs: pathspecs.length > 0 ? pathspecs : undefined,
+		commitOffset,
+		maxCommits,
+		maxMatches,
+		maxBytes,
+		deadlineMs,
+	});
+	if (hasFlag(flags, "--json")) {
+		console.log(JSON.stringify(result));
+		return;
+	}
+	for (const match of result.matches) {
+		console.log(`${match.commit.slice(0, 8)} ${match.path}:${match.line}:${match.text}${match.occurrences > 1 ? ` (${match.occurrences} commits)` : ""}`);
+	}
+	if (result.nextCommitOffset !== undefined) console.log(`next commit offset: ${result.nextCommitOffset}`);
+	if (result.deadlineReached) console.log("... (deadline reached)");
+	else if (result.truncated) console.log("... (truncated)");
+}
+
 export async function runWorkspaceCompareSymbol(workspaceId: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId) fail(USAGE);
 	const path = flagValue(flags, "--path");
@@ -86,6 +117,10 @@ export const GIT_ACTIONS: Record<string, ActionHandler> = {
 	"git-diff": (actionArgs) => {
 		const [gitWorkspaceId, ...gitFlags] = actionArgs;
 		return runWorkspaceGitDiff(gitWorkspaceId, gitFlags);
+	},
+	"git-grep-history": (actionArgs) => {
+		const [gitWorkspaceId, pattern, ...gitFlags] = actionArgs;
+		return runWorkspaceGitGrepHistory(gitWorkspaceId, pattern, gitFlags);
 	},
 	"compare-symbol": (actionArgs) => {
 		// Same reasoning as git-status/git-log/git-diff above -- --path is a flag here, not a positional.

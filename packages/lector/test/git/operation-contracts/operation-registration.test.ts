@@ -71,6 +71,62 @@ describe("registerGitOperations", () => {
 		expect(vehicleDiff).toEqual(directDiff);
 	});
 
+	it("exposes bounded full-history grep with direct-handler parity", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-vehicle-git-history-"));
+		git(root, "init", "-q", "--initial-branch=main");
+		git(root, "config", "user.email", "t@t.com");
+		git(root, "config", "user.name", "t");
+		writeFileSync(join(root, "a.txt"), "historical needle\n");
+		git(root, "add", "a.txt");
+		git(root, "commit", "-q", "-m", "historical");
+		writeFileSync(join(root, "a.txt"), "current value\n");
+		git(root, "commit", "-qam", "current");
+		const { registry, handlers, vehicleRegistry } = buildFixture(root);
+		const input = {
+			workspaceId: "ws",
+			pattern: "needle",
+			commitOffset: 0,
+			maxCommits: 20,
+			maxMatches: 20,
+			maxBytes: 20_000,
+			deadlineMs: 5_000,
+		};
+
+		const direct = await handlers["workspace.gitGrepHistory"](registry, input);
+		const vehicle = await vehicleRegistry.invoke("workspace.gitGrepHistory", 1, input, { permissions: READ_PERMISSIONS });
+		expect(vehicle).toEqual(direct);
+		expect(direct.matches).toContainEqual(expect.objectContaining({ path: "a.txt", line: 1, text: "historical needle" }));
+	});
+
+	it("maps an invalid history-search regex to a validation error", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-vehicle-git-history-invalid-"));
+		git(root, "init", "-q", "--initial-branch=main");
+		git(root, "config", "user.email", "t@t.com");
+		git(root, "config", "user.name", "t");
+		writeFileSync(join(root, "a.txt"), "needle\n");
+		git(root, "add", "a.txt");
+		git(root, "commit", "-q", "-m", "initial");
+		const { vehicleRegistry } = buildFixture(root);
+		const error = await vehicleRegistry
+			.invoke(
+				"workspace.gitGrepHistory",
+				1,
+				{
+					workspaceId: "ws",
+					pattern: "(",
+					commitOffset: 0,
+					maxCommits: 20,
+					maxMatches: 20,
+					maxBytes: 20_000,
+					deadlineMs: 5_000,
+				},
+				{ permissions: READ_PERMISSIONS },
+			)
+			.catch((failure: unknown) => failure);
+		expect(isVehicleError(error)).toBe(true);
+		expect(error).toMatchObject({ code: "invalid-git-search-pattern", category: "validation" });
+	});
+
 	it("a NotAGitRepository failure survives as invoke()'s VehicleError.cause", async () => {
 		root = mkdtempSync(join(tmpdir(), "lector-vehicle-git-pilot-plain-"));
 		const { registry, handlers, vehicleRegistry } = buildFixture(root);

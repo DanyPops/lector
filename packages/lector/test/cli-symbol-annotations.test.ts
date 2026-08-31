@@ -117,6 +117,68 @@ describe("lector CLI annotation commands", () => {
 		expect(created.anchors).toHaveLength(1);
 	}, 30_000);
 
+	it("annotation refresh supports the same bounded auto-population flags as create", async () => {
+		isolated = isolatedLectorPaths();
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		const { workspaceId, path, line, character } = await registerWithoutPopulating();
+		const created = JSON.parse(
+			await runCli([
+				"workspace",
+				"annotation",
+				"create",
+				workspaceId,
+				"--subtype",
+				"note",
+				"--title",
+				"original",
+				"--body",
+				"original anchor",
+				"--anchor",
+				`${path}:${line}:${character}`,
+				"--auto-populate",
+				"--max-files",
+				"10",
+				"--max-symbols-per-file",
+				"10",
+				"--json",
+			]),
+		) as SymbolAnnotation;
+
+		const projectRoot = fixtureRoot;
+		if (!projectRoot) throw new Error("fixture root was not initialized");
+		const addedPath = join(projectRoot, "added.ts");
+		writeFileSync(addedPath, "export function added() {}\n");
+		const found = JSON.parse(await runCli(["workspace", "document-symbols", workspaceId, addedPath, "--json"])) as { symbols: DocumentSymbolEntry[] };
+		const added = found.symbols.find((symbol) => symbol.name === "added");
+		if (!added) throw new Error("fixture symbol 'added' was not found by workspace.documentSymbols");
+
+		const refreshed = JSON.parse(
+			await runCli([
+				"workspace",
+				"annotation",
+				"refresh",
+				workspaceId,
+				created.id,
+				"--subtype",
+				"note",
+				"--title",
+				"refreshed",
+				"--body",
+				"new anchor",
+				"--anchor",
+				`${addedPath}:${added.selectionRange.start.line}:${added.selectionRange.start.character}`,
+				"--auto-populate",
+				"--max-files",
+				"10",
+				"--max-symbols-per-file",
+				"10",
+				"--json",
+			]),
+		) as SymbolAnnotation;
+
+		expect(refreshed.anchors[0]?.path).toBe(addedPath);
+	}, 30_000);
+
 	it("creates, gets, lists, refreshes, scrubs, and restores an annotation end-to-end against a real daemon", async () => {
 		isolated = isolatedLectorPaths();
 		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });

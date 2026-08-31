@@ -11,6 +11,7 @@ import type { LanguageServerDescriptor } from "../code-intelligence/language-ser
 import type { CodeIntelligencePort } from "../code-intelligence/port.ts";
 import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts";
 import { assertBoundedSymbolQuery } from "../code-intelligence/symbol-query.ts";
+import { prepareTypeHierarchy, subtypes, supertypes } from "../code-intelligence/type-hierarchy.ts";
 import { incomingCalls as incomingCallsQuery } from "../symbol-graph/incoming-calls.ts";
 import { outgoingCalls as outgoingCallsQuery } from "../symbol-graph/outgoing-calls.ts";
 import { prepareCallHierarchy as prepareCallHierarchyQuery } from "../symbol-graph/prepare-call-hierarchy.ts";
@@ -81,6 +82,12 @@ export interface CodeIntelligenceHandlers {
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.outgoingCalls"],
 	) => Promise<OperationOutputs["workspace.outgoingCalls"]>;
+	"workspace.prepareTypeHierarchy": (
+		registry: MutableRegistry,
+		input: OperationInputs["workspace.prepareTypeHierarchy"],
+	) => Promise<OperationOutputs["workspace.prepareTypeHierarchy"]>;
+	"workspace.supertypes": (registry: MutableRegistry, input: OperationInputs["workspace.supertypes"]) => Promise<OperationOutputs["workspace.supertypes"]>;
+	"workspace.subtypes": (registry: MutableRegistry, input: OperationInputs["workspace.subtypes"]) => Promise<OperationOutputs["workspace.subtypes"]>;
 	"workspace.hasWarmIndex": (
 		registry: MutableRegistry,
 		input: OperationInputs["workspace.hasWarmIndex"],
@@ -112,6 +119,23 @@ export async function requireCodeIntelligence(
 		throw new CodeIntelligenceUnavailable(input.workspaceId);
 	}
 	return { value: { index, descriptor }, [Symbol.asyncDispose]: () => lease[Symbol.asyncDispose]() };
+}
+
+const DEFAULT_TYPE_HIERARCHY_DEADLINE_MS = 10_000;
+const MAX_TYPE_HIERARCHY_DEADLINE_MS = 120_000;
+
+async function withTypeHierarchyDeadline<T>(operation: Promise<T>, deadlineMs: number): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			operation,
+			new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(() => reject(new DOMException(`Type hierarchy deadline exceeded after ${deadlineMs}ms`, "TimeoutError")), deadlineMs);
+			}),
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
 }
 
 export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps): CodeIntelligenceHandlers {
@@ -234,6 +258,33 @@ export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps
 			const maxBytes = resolveBound(input.maxBytes, DEFAULT_LOCATION_BYTES, MAX_LOCATION_BYTES, "maxBytes");
 			const { page, truncated } = boundListFromStart(calls, maxResults, maxBytes, jsonByteSize);
 			return { calls: page, truncated, provenance: lease.value.index.provenance };
+		},
+		async "workspace.prepareTypeHierarchy"(_registry, input) {
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const deadlineMs = resolveBound(input.deadlineMs, DEFAULT_TYPE_HIERARCHY_DEADLINE_MS, MAX_TYPE_HIERARCHY_DEADLINE_MS, "deadlineMs");
+			const items = await withTypeHierarchyDeadline(prepareTypeHierarchy(lease.value.index, input), deadlineMs);
+			const maxResults = resolveBound(input.maxResults, DEFAULT_LOCATION_RESULTS, MAX_LOCATION_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_LOCATION_BYTES, MAX_LOCATION_BYTES, "maxBytes");
+			const { page, truncated } = boundListFromStart(items, maxResults, maxBytes, jsonByteSize);
+			return { items: page, truncated, provenance: lease.value.index.provenance };
+		},
+		async "workspace.supertypes"(_registry, input) {
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const deadlineMs = resolveBound(input.deadlineMs, DEFAULT_TYPE_HIERARCHY_DEADLINE_MS, MAX_TYPE_HIERARCHY_DEADLINE_MS, "deadlineMs");
+			const items = await withTypeHierarchyDeadline(supertypes(lease.value.index, input), deadlineMs);
+			const maxResults = resolveBound(input.maxResults, DEFAULT_LOCATION_RESULTS, MAX_LOCATION_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_LOCATION_BYTES, MAX_LOCATION_BYTES, "maxBytes");
+			const { page, truncated } = boundListFromStart(items, maxResults, maxBytes, jsonByteSize);
+			return { items: page, truncated, provenance: lease.value.index.provenance };
+		},
+		async "workspace.subtypes"(_registry, input) {
+			await using lease = await requireCodeIntelligence(warmIndexes, input);
+			const deadlineMs = resolveBound(input.deadlineMs, DEFAULT_TYPE_HIERARCHY_DEADLINE_MS, MAX_TYPE_HIERARCHY_DEADLINE_MS, "deadlineMs");
+			const items = await withTypeHierarchyDeadline(subtypes(lease.value.index, input), deadlineMs);
+			const maxResults = resolveBound(input.maxResults, DEFAULT_LOCATION_RESULTS, MAX_LOCATION_RESULTS, "maxResults");
+			const maxBytes = resolveBound(input.maxBytes, DEFAULT_LOCATION_BYTES, MAX_LOCATION_BYTES, "maxBytes");
+			const { page, truncated } = boundListFromStart(items, maxResults, maxBytes, jsonByteSize);
+			return { items: page, truncated, provenance: lease.value.index.provenance };
 		},
 		// Never spawns -- a caller deciding whether to enrich a result with LSP-backed info must not
 		// pay a cold-start cost just to check. With a path, checks that file's own language; without

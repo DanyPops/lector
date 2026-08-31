@@ -4,7 +4,13 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { WORKSPACE_READ_PERMISSION, WORKSPACE_WRITE_PERMISSION } from "../operation-dispatch/permissions.ts";
 import { UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR, UNKNOWN_WORKSPACE_ERROR_MAPPING } from "../operation-dispatch/workspace-errors.ts";
 import type { AnnotationHandlers } from "../service/annotation-handlers.ts";
-import { AnnotationContainmentCycle, AnnotationRequiresAnchors, UnknownAnnotationAnchor, UnknownAnnotationForContainment } from "../service/errors.ts";
+import {
+	AnnotationContainmentCycle,
+	AnnotationRequiresAnchors,
+	AutoPopulateRequiresBounds,
+	UnknownAnnotationAnchor,
+	UnknownAnnotationForContainment,
+} from "../service/errors.ts";
 import type { MutableRegistry } from "../service/workspace-registry.ts";
 import {
 	annotationTreeInputSchema,
@@ -27,10 +33,11 @@ const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes:
 
 const REQUIRES_ANCHORS_ERROR = { code: "annotation-requires-anchors", description: "an annotation requires at least one anchor" };
 const UNKNOWN_ANCHOR_ERROR = { code: "unknown-annotation-anchor", description: "an anchor position does not resolve to a real, currently-known symbol" };
+const AUTO_POPULATE_BOUNDS_ERROR = { code: "auto-populate-requires-bounds", description: "auto-population requires explicit file and symbol bounds" };
 const UNKNOWN_CONTAINMENT_ERROR = { code: "unknown-annotation-for-containment", description: "parentId or childId does not name an existing annotation" };
 const CONTAINMENT_CYCLE_ERROR = { code: "annotation-containment-cycle", description: "the requested containment would create a cycle" };
 
-const ANCHOR_ERRORS = [UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR, REQUIRES_ANCHORS_ERROR, UNKNOWN_ANCHOR_ERROR];
+const ANCHOR_ERRORS = [UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR, REQUIRES_ANCHORS_ERROR, UNKNOWN_ANCHOR_ERROR, AUTO_POPULATE_BOUNDS_ERROR];
 const WORKSPACE_ONLY_ERRORS = [UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR];
 const CONTAINMENT_ERRORS = [UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR, UNKNOWN_CONTAINMENT_ERROR, CONTAINMENT_CYCLE_ERROR];
 
@@ -39,6 +46,7 @@ const mapAnnotationError = defineErrorMapping([
 	UNKNOWN_WORKSPACE_ERROR_MAPPING,
 	{ errorClass: AnnotationRequiresAnchors, category: "validation", code: "annotation-requires-anchors" },
 	{ errorClass: UnknownAnnotationAnchor, category: "not_found", code: "unknown-annotation-anchor" },
+	{ errorClass: AutoPopulateRequiresBounds, category: "validation", code: "auto-populate-requires-bounds" },
 	{ errorClass: UnknownAnnotationForContainment, category: "not_found", code: "unknown-annotation-for-containment" },
 	{ errorClass: AnnotationContainmentCycle, category: "conflict", code: "annotation-containment-cycle" },
 ]);

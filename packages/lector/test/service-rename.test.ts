@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspSymbolIndex } from "../src/code-intelligence/lsp/lsp-symbol-index.ts";
-import { createLectorService, type LectorService } from "../src/service.ts";
+import { createLectorService, DiagnosticValidationNotFound, type LectorService } from "../src/service.ts";
 
 let fixtureRoot: string | undefined;
 let service: LectorService | undefined;
@@ -44,6 +44,20 @@ async function buildService(): Promise<{ service: LectorService; workspaceId: st
 }
 
 describe("createLectorService's workspace.prepareRename/workspace.rename", () => {
+	it("rejects an unknown transaction diagnostic baseline explicitly", async () => {
+		fixtureRoot = buildFixture();
+		const built = await buildService();
+		service = built.service;
+		await expect(
+			service.dispatch("workspace.diagnosticDelta", {
+				workspaceId: built.workspaceId,
+				source: { kind: "transaction", transactionId: "missing" },
+				maxResults: 100,
+				maxBytes: 100_000,
+			}),
+		).rejects.toBeInstanceOf(DiagnosticValidationNotFound);
+	}, 20_000);
+
 	it("prepareRename reports a real declaration's own renameable range", async () => {
 		fixtureRoot = buildFixture();
 		const built = await buildService();
@@ -77,6 +91,34 @@ describe("createLectorService's workspace.prepareRename/workspace.rename", () =>
 		expect([...outcome.touchedPaths].sort()).toEqual([join(fixtureRoot, "src", "consumer.ts"), join(fixtureRoot, "src", "math.ts")].sort());
 		expect(readFileSync(join(fixtureRoot, "src", "math.ts"), "utf8")).toContain("export function sum");
 		expect(readFileSync(join(fixtureRoot, "src", "consumer.ts"), "utf8")).toContain("sum(1, 2)");
+		expect(outcome.transactionId).toBeDefined();
+		const delta = await service.dispatch("workspace.diagnosticDelta", {
+			workspaceId: built.workspaceId,
+			source: { kind: "transaction", transactionId: outcome.transactionId ?? "" },
+			maxResults: 100,
+			maxBytes: 100_000,
+		});
+		expect(delta).toMatchObject({
+			transactionId: outcome.transactionId,
+			resolved: [],
+			changed: [],
+			completeness: "complete",
+			revert: { operation: "workspace.revertMutationTransaction", transactionId: outcome.transactionId },
+		});
+		expect(delta.introduced.map(({ code }) => code)).toEqual([2440, 2554]);
+		expect(delta.affectedPaths).toEqual([join(fixtureRoot, "src", "consumer.ts"), join(fixtureRoot, "src", "math.ts")].sort());
+		const bounded = await service.dispatch("workspace.diagnosticDelta", {
+			workspaceId: built.workspaceId,
+			source: { kind: "transaction", transactionId: outcome.transactionId ?? "" },
+			maxResults: 1,
+			maxBytes: 100_000,
+		});
+		expect(bounded.introduced).toHaveLength(1);
+		expect(bounded.truncated).toBe(true);
+		if (!("revert" in delta)) throw new Error("expected transaction diagnostic delta");
+		await service.dispatch(delta.revert.operation, { workspaceId: built.workspaceId, transactionId: delta.revert.transactionId });
+		expect(readFileSync(join(fixtureRoot, "src", "math.ts"), "utf8")).toContain("export function add");
+		expect(readFileSync(join(fixtureRoot, "src", "consumer.ts"), "utf8")).toContain("add(1, 2)");
 	}, 20_000);
 
 	it("prepareRename returns a null range, not an error, for a position with nothing renameable", async () => {

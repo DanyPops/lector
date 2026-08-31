@@ -33,6 +33,7 @@ export interface WorkspaceFileHandlerDeps {
 	readonly warmIndexes: WarmIndexRegistry<WorkspaceId>;
 	readonly textSearch: TextSearchPort;
 	readonly searchCache: SearchCachePort;
+	readonly prepareTextSearch?: (workspaceId: WorkspaceId, rootPath: string, origin: "local" | "remote") => void;
 }
 
 export interface WorkspaceFileHandlers {
@@ -76,7 +77,7 @@ export interface WorkspaceFileHandlers {
  * operation (see code-intelligence-handlers.ts / symbol-graph-handlers.ts).
  */
 export function createWorkspaceFileHandlers(deps: WorkspaceFileHandlerDeps): WorkspaceFileHandlers {
-	const { contentCache, mutationHistory, warmIndexes, textSearch, searchCache } = deps;
+	const { contentCache, mutationHistory, warmIndexes, textSearch, searchCache, prepareTextSearch } = deps;
 
 	return {
 		"workspace.listDirectory": (registry, input) => listDirectory(resolveFileTree(registry, input.workspaceId), input.path),
@@ -158,6 +159,7 @@ export function createWorkspaceFileHandlers(deps: WorkspaceFileHandlerDeps): Wor
 			const entry = registry.get(input.workspaceId);
 			if (!entry) throw new UnknownWorkspace(input.workspaceId);
 			if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
+			prepareTextSearch?.(input.workspaceId, entry.rootPath, entry.origin);
 			return searchTextQuery(textSearch, searchCache, entry.rootPath, input.workspaceId, input.query, {
 				maxMatches: input.maxMatches,
 				maxBytes: input.maxBytes,
@@ -167,6 +169,7 @@ export function createWorkspaceFileHandlers(deps: WorkspaceFileHandlerDeps): Wor
 			const entry = registry.get(input.workspaceId);
 			if (!entry) throw new UnknownWorkspace(input.workspaceId);
 			if (!entry.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
+			prepareTextSearch?.(input.workspaceId, entry.rootPath, entry.origin);
 			return findFilesQuery(textSearch, entry.rootPath, input.patterns, { maxResults: input.maxResults, maxBytes: input.maxBytes });
 		},
 	};

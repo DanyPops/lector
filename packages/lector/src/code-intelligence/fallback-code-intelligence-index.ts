@@ -1,3 +1,4 @@
+import type { CodeActionQuery, SemanticCodeAction } from "../code-intelligence/code-action.ts";
 import type { Diagnostic } from "../code-intelligence/diagnostic.ts";
 import type { DocumentHighlight } from "../code-intelligence/document-highlight.ts";
 import type { DocumentSymbolEntry } from "../code-intelligence/document-symbol.ts";
@@ -5,6 +6,7 @@ import type { Hover } from "../code-intelligence/hover.ts";
 import type { IntelligenceProvenance, SymbolSearchBounds } from "../code-intelligence/intelligence-provenance.ts";
 import type { CodeIntelligencePort } from "../code-intelligence/port.ts";
 import type { SymbolIndexPort } from "../code-intelligence/symbol-index-port.ts";
+import { type TypeHierarchyEntry, TypeHierarchyUnavailable } from "../code-intelligence/type-hierarchy.ts";
 import type { FileChangeEvent } from "../file-watcher/file-change-event.ts";
 import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../symbol-graph/call-hierarchy.ts";
 import type { ParsedWorkspaceEdit, RenameRange } from "../workspace/workspace-edit.ts";
@@ -66,8 +68,22 @@ export class FallbackCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 	documentSymbols(path: string, options?: { settleMs?: number }): Promise<DocumentSymbolEntry[]> {
 		return this.primary.documentSymbols(path, options);
 	}
-	diagnostics(path: string): Promise<Diagnostic[]> {
-		return this.primary.diagnostics(path);
+	diagnostics(path: string, options?: { timeoutMs?: number }): Promise<Diagnostic[]> {
+		return this.primary.diagnostics(path, options);
+	}
+	documentVersion(path: string): number | undefined {
+		return this.primary.documentVersion?.(path);
+	}
+	codeActions(query: CodeActionQuery): Promise<SemanticCodeAction[]> {
+		if (!this.primary.codeActions) throw new Error("the primary code-intelligence backend does not support code actions");
+		return this.primary.codeActions(query);
+	}
+	resolveCodeAction(action: SemanticCodeAction, timeoutMs: number): Promise<SemanticCodeAction> {
+		return this.primary.resolveCodeAction?.(action, timeoutMs) ?? Promise.resolve(action);
+	}
+	workspaceDiagnostics(maxFiles: number, maxDiagnosticsPerFile: number, timeoutMs: number): Promise<Diagnostic[]> {
+		if (!this.primary.workspaceDiagnostics) throw new Error("the primary code-intelligence backend does not support workspace diagnostics");
+		return this.primary.workspaceDiagnostics(maxFiles, maxDiagnosticsPerFile, timeoutMs);
 	}
 	prepareCallHierarchy(at: WorkspaceLocation): Promise<CallHierarchyEntry[]> {
 		return this.primary.prepareCallHierarchy(at);
@@ -77,6 +93,18 @@ export class FallbackCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 	}
 	outgoingCalls(at: WorkspaceLocation, options?: { settleMs?: number }): Promise<OutgoingCall[]> {
 		return this.primary.outgoingCalls(at, options);
+	}
+	prepareTypeHierarchy(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]> {
+		if (!this.primary.prepareTypeHierarchy) throw new TypeHierarchyUnavailable();
+		return this.primary.prepareTypeHierarchy(at);
+	}
+	supertypes(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]> {
+		if (!this.primary.supertypes) throw new TypeHierarchyUnavailable();
+		return this.primary.supertypes(at);
+	}
+	subtypes(at: WorkspaceLocation): Promise<TypeHierarchyEntry[]> {
+		if (!this.primary.subtypes) throw new TypeHierarchyUnavailable();
+		return this.primary.subtypes(at);
 	}
 	releaseFile(path: string): Promise<void> {
 		return this.primary.releaseFile?.(path) ?? Promise.resolve();

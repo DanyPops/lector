@@ -116,6 +116,14 @@ describe("mock: the automatic watcher's own git-repository gate, via a fake GitP
 			addWorktree: async () => ({ commit: "0".repeat(40) }),
 			removeWorktree: async () => {},
 			grep: async () => ({ matches: [], truncated: false }),
+			grepHistory: async () => ({
+				matches: [],
+				scannedCommits: 0,
+				commitsTruncated: false,
+				truncated: false,
+				deadlineReached: false,
+				provenance: { scope: "all-refs", traversal: "topo-order", binaryFiles: "excluded", deduplication: "path-line-text", commitOffset: 0 },
+			}),
 			listFiles: async () => ({ paths: [], truncated: false }),
 			isAncestor: async () => false,
 		};
@@ -152,6 +160,14 @@ describe("mock: the automatic watcher's own git-repository gate, via a fake GitP
 			addWorktree: async () => ({ commit: "0".repeat(40) }),
 			removeWorktree: async () => {},
 			grep: async () => ({ matches: [], truncated: false }),
+			grepHistory: async () => ({
+				matches: [],
+				scannedCommits: 0,
+				commitsTruncated: false,
+				truncated: false,
+				deadlineReached: false,
+				provenance: { scope: "all-refs", traversal: "topo-order", binaryFiles: "excluded", deduplication: "path-line-text", commitOffset: 0 },
+			}),
 			listFiles: async () => ({ paths: [], truncated: false }),
 			isAncestor: async () => false,
 		};
@@ -190,6 +206,14 @@ describe("mock: a remote-origin (repo.fetch) workspace is always treated as git-
 			addWorktree: async () => ({ commit: "0".repeat(40) }),
 			removeWorktree: async () => {},
 			grep: async () => ({ matches: [], truncated: false }),
+			grepHistory: async () => ({
+				matches: [],
+				scannedCommits: 0,
+				commitsTruncated: false,
+				truncated: false,
+				deadlineReached: false,
+				provenance: { scope: "all-refs", traversal: "topo-order", binaryFiles: "excluded", deduplication: "path-line-text", commitOffset: 0 },
+			}),
 			listFiles: async () => ({ paths: [], truncated: false }),
 			isAncestor: async () => false,
 		};
