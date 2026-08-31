@@ -14,7 +14,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
 
@@ -55,7 +55,7 @@ jobs:
 
       - name: Install system test dependencies
         # A short per-step timeout plus apt's own retries fails fast and clearly on a slow/broken
-        # mirror instead of silently consuming the whole job's 20-minute budget with no indication
+        # mirror instead of silently consuming the whole job's 40-minute budget with no indication
         # of which step or why.
         timeout-minutes: 5
         run: |
