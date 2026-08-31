@@ -81,8 +81,25 @@ jobs:
       # published as a direct result of the unscoped '*' filter.
       - working-directory: ${{ steps.package.outputs.dir }}
         run: bun run typecheck
-      - working-directory: ${{ steps.package.outputs.dir }}
+      - name: Run measured Lector correctness tests
+        if: steps.package.outputs.dir == 'packages/lector'
+        timeout-minutes: 20
+        working-directory: packages/lector
+        run: bun run test:release
+
+      - name: Run package tests
+        if: steps.package.outputs.dir != 'packages/lector'
+        working-directory: ${{ steps.package.outputs.dir }}
         run: bun run test
+
+      - name: Upload Lector test timing
+        if: always() && steps.package.outputs.dir == 'packages/lector'
+        uses: actions/upload-artifact@v7
+        with:
+          name: lector-test-timing-${{ github.run_id }}
+          path: packages/lector/test-results/
+          if-no-files-found: error
+          retention-days: 30
 
       - uses: actions/setup-node@v6
         with:

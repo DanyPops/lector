@@ -7,10 +7,13 @@ export function formatTestTimingReport(report: TestTimingReport): string {
 	const lines: string[] = [];
 	lines.push(`${report.timedTestCount} timed tests, ${report.totalDurationMs.toFixed(2)}ms total`);
 	lines.push("");
+	lines.push("Duration by layer:");
+	for (const layer of report.layers) lines.push(`  ${layer.totalMs.toFixed(2)}ms  (${layer.fileCount} files, ${layer.testCount} tests)  ${layer.layer}`);
+	lines.push("");
 	lines.push(`Slowest ${report.slowestTests.length} individual tests:`);
 	for (const test of report.slowestTests) lines.push(`  ${test.durationMs?.toFixed(2)}ms  ${test.file} :: ${test.name}`);
 	lines.push("");
 	lines.push(`Slowest ${report.slowestFiles.length} files by total test duration:`);
-	for (const file of report.slowestFiles) lines.push(`  ${file.totalMs.toFixed(2)}ms  (${file.testCount} tests)  ${file.file}`);
+	for (const file of report.slowestFiles) lines.push(`  ${file.totalMs.toFixed(2)}ms  (${file.testCount} tests, ${file.layer})  ${file.file}`);
 	return lines.join("\n");
 }

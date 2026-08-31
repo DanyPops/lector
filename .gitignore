@@ -7,3 +7,4 @@ pi-setup.json
 # Generated benchmark artifacts (see packages/lector/benchmarks/harness/report-schema.ts) --
 # reproducible from source, never checked in.
 packages/lector/benchmarks/.results/
+packages/lector/test-results/

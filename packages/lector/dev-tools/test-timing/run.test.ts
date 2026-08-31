@@ -20,7 +20,9 @@ describe("runInstrumentedTests", () => {
 			const stdoutChunks: string[] = [];
 			const stderrChunks: string[] = [];
 			const reportTexts: string[] = [];
-			const { exitCode, report } = await runInstrumentedTests([dir], {
+			const jsonOut = join(dir, "results", "timing.json");
+			const junitOut = join(dir, "results", "junit.xml");
+			const { exitCode, report } = await runInstrumentedTests(["--json-out", jsonOut, "--junit-out", junitOut, dir], {
 				writeStdout: (chunk) => stdoutChunks.push(chunk),
 				writeStderr: (chunk) => stderrChunks.push(chunk),
 				printReport: (text) => reportTexts.push(text),
@@ -33,6 +35,9 @@ describe("runInstrumentedTests", () => {
 			// stdout/stderr live still sees it, same as running bun test directly would show.
 			expect(stdoutChunks.join("") + stderrChunks.join("")).toContain("group > passes");
 			expect(reportTexts.join("")).toContain("group > passes");
+			const machineReport = await Bun.file(jsonOut).json();
+			expect(machineReport).toMatchObject({ schemaVersion: 1, exitCode: 0, report: { timedTestCount: 1 } });
+			expect(await Bun.file(junitOut).text()).toContain('file="');
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

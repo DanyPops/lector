@@ -84,6 +84,8 @@ describe("parseBunTestOutput", () => {
 	});
 
 	it("uses '(unknown file)' when a test result line appears with no preceding file header", () => {
-		expect(parseBunTestOutput("(pass) orphaned test [1.00ms]\n")).toEqual([{ file: "(unknown file)", name: "orphaned test", outcome: "pass", durationMs: 1.0 }]);
+		expect(parseBunTestOutput("(pass) orphaned test [1.00ms]\n")).toEqual([
+			{ file: "(unknown file)", name: "orphaned test", outcome: "pass", durationMs: 1.0 },
+		]);
 	});
 });

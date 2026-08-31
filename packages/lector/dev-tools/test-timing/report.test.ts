@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { buildTestTimingReport } from "./report.ts";
 import type { TestTimingEntry } from "./parse-bun-test-output.ts";
+import { buildTestTimingReport } from "./report.ts";
 
 function entry(overrides: Partial<TestTimingEntry> = {}): TestTimingEntry {
 	return { file: "a.test.ts", name: "some test", outcome: "pass", durationMs: 1, ...overrides };
@@ -8,7 +8,11 @@ function entry(overrides: Partial<TestTimingEntry> = {}): TestTimingEntry {
 
 describe("buildTestTimingReport", () => {
 	it("ranks individual tests slowest-first", () => {
-		const report = buildTestTimingReport([entry({ name: "slow", durationMs: 100 }), entry({ name: "fast", durationMs: 1 }), entry({ name: "mid", durationMs: 50 })]);
+		const report = buildTestTimingReport([
+			entry({ name: "slow", durationMs: 100 }),
+			entry({ name: "fast", durationMs: 1 }),
+			entry({ name: "mid", durationMs: 50 }),
+		]);
 		expect(report.slowestTests.map((t) => t.name)).toEqual(["slow", "mid", "fast"]);
 	});
 
@@ -35,12 +39,33 @@ describe("buildTestTimingReport", () => {
 		expect(a?.testCount).toBe(2);
 	});
 
+	it("reports every file and aggregates reproducible totals by test layer", () => {
+		const report = buildTestTimingReport([
+			entry({ file: "dev-tools/test-timing/report.test.ts", durationMs: 10 }),
+			entry({ file: "test/service-rename.test.ts", durationMs: 100 }),
+			entry({ file: "test/service-rename.test.ts", durationMs: 20 }),
+			entry({ file: "test/benchmarks/eval/retrieval.test.ts", durationMs: 50 }),
+		]);
+
+		expect(report.files).toEqual([
+			{ file: "test/service-rename.test.ts", layer: "integration", totalMs: 120, testCount: 2 },
+			{ file: "test/benchmarks/eval/retrieval.test.ts", layer: "evaluation", totalMs: 50, testCount: 1 },
+			{ file: "dev-tools/test-timing/report.test.ts", layer: "unit", totalMs: 10, testCount: 1 },
+		]);
+		expect(report.layers).toEqual([
+			{ layer: "integration", totalMs: 120, testCount: 2, fileCount: 1 },
+			{ layer: "evaluation", totalMs: 50, testCount: 1, fileCount: 1 },
+			{ layer: "unit", totalMs: 10, testCount: 1, fileCount: 1 },
+		]);
+	});
+
 	it("ranks files slowest-first by total duration, bounded to topSlowestFiles", () => {
 		const report = buildTestTimingReport(
 			[entry({ file: "slow.test.ts", durationMs: 500 }), entry({ file: "fast.test.ts", durationMs: 1 }), entry({ file: "mid.test.ts", durationMs: 50 })],
 			{ topSlowestFiles: 2 },
 		);
 		expect(report.slowestFiles.map((f) => f.file)).toEqual(["slow.test.ts", "mid.test.ts"]);
+		expect(report.files).toHaveLength(3);
 	});
 
 	it("reports the real total duration and timed test count across every entry, not just the bounded top lists", () => {

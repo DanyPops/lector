@@ -3,7 +3,7 @@ import { formatTestTimingReport } from "./format-report.ts";
 import type { TestTimingReport } from "./report.ts";
 
 function report(overrides: Partial<TestTimingReport> = {}): TestTimingReport {
-	return { slowestTests: [], slowestFiles: [], totalDurationMs: 0, timedTestCount: 0, ...overrides };
+	return { slowestTests: [], slowestFiles: [], files: [], layers: [], filesTruncated: false, totalDurationMs: 0, timedTestCount: 0, ...overrides };
 }
 
 describe("formatTestTimingReport", () => {
@@ -17,10 +17,21 @@ describe("formatTestTimingReport", () => {
 	});
 
 	it("lists each slow file with its total duration and test count", () => {
-		const text = formatTestTimingReport(report({ slowestFiles: [{ file: "a.test.ts", totalMs: 500, testCount: 4 }], timedTestCount: 4, totalDurationMs: 500 }));
+		const text = formatTestTimingReport(
+			report({ slowestFiles: [{ file: "a.test.ts", layer: "component", totalMs: 500, testCount: 4 }], timedTestCount: 4, totalDurationMs: 500 }),
+		);
 		expect(text).toContain("a.test.ts");
 		expect(text).toContain("500");
 		expect(text).toContain("4");
+	});
+
+	it("reports totals by layer", () => {
+		const text = formatTestTimingReport(
+			report({ layers: [{ layer: "integration", totalMs: 750, testCount: 8, fileCount: 2 }], timedTestCount: 8, totalDurationMs: 750 }),
+		);
+		expect(text).toContain("integration");
+		expect(text).toContain("750");
+		expect(text).toContain("2 files");
 	});
 
 	it("reports the real overall total duration and timed test count", () => {

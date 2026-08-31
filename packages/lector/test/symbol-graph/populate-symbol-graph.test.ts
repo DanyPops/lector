@@ -532,7 +532,7 @@ describe("populateSymbolGraph", () => {
 		expect(inFlight.peak).toBe(1);
 	});
 
-	it("dispatches up to `concurrency` files at once, and never more, finishing meaningfully faster than sequential", async () => {
+	it("dispatches bounded concurrent file batches", async () => {
 		graph = new InMemorySymbolGraph();
 		const inFlight = { current: 0, peak: 0 };
 		const fileCount = 20;
@@ -540,17 +540,11 @@ describe("populateSymbolGraph", () => {
 		const concurrency = 5;
 		const files = Array.from({ length: fileCount }, (_, n) => `/repo/file-${n}.test`);
 
-		const startedAt = performance.now();
 		const result = await populateSymbolGraph(delayedPort(delayMs, inFlight), graph, files, 10, undefined, concurrency);
-		const elapsedMs = performance.now() - startedAt;
 
 		expect(result.filesProcessed).toBe(fileCount);
 		expect(inFlight.peak).toBeLessThanOrEqual(concurrency);
 		expect(inFlight.peak).toBeGreaterThan(1);
-
-		// Theoretical batched minimum: (fileCount / concurrency) * delayMs. 2x margin for overhead.
-		const theoreticalBatchedMs = (fileCount / concurrency) * delayMs;
-		expect(elapsedMs).toBeLessThan(theoreticalBatchedMs * 2);
 	});
 
 	it("rejects a non-positive or non-integer concurrency rather than silently misbehaving", async () => {

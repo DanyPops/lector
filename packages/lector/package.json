@@ -49,9 +49,13 @@
 		"lector": "src/cli-bootstrap.ts"
 	},
 	"scripts": {
-		"test": "bun test",
-		"test:fast": "bun test --parallel=4",
-		"test:timing": "bun dev-tools/test-timing/run.ts",
+		"test": "bun dev-tools/test-timing/run.ts --scope correctness",
+		"test:all": "bun dev-tools/test-timing/run.ts --scope all",
+		"test:evaluation": "bun dev-tools/test-timing/run.ts --scope evaluation",
+		"test:performance": "bun dev-tools/test-timing/run.ts --scope performance",
+		"test:release": "bun dev-tools/test-timing/run.ts --scope correctness --top 50 --json-out test-results/timing.json --junit-out test-results/junit.xml",
+		"test:fast": "bun dev-tools/test-timing/run.ts --scope correctness --parallel=4",
+		"test:timing": "bun dev-tools/test-timing/run.ts --scope all",
 		"typecheck": "tsc --noEmit",
 		"cli": "bun src/cli.ts",
 		"serve": "bun src/cli.ts serve",
