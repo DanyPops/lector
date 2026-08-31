@@ -251,7 +251,7 @@ export class CodeActionHandlers {
 			for (const operation of edit.operations) {
 				if (operation.kind !== "text" || operation.version === undefined || operation.version === null) continue;
 				const actual = index.documentVersion?.(operation.path);
-				if (actual !== operation.version) throw new StaleCodeActionDocumentVersion(operation.path, operation.version, actual);
+				if (actual !== undefined && actual !== operation.version) throw new StaleCodeActionDocumentVersion(operation.path, operation.version, actual);
 			}
 			const changedPaths = collectTouchedPaths(edit);
 			const affectedPaths = this.deps.diagnosticValidation

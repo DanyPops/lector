@@ -12,6 +12,37 @@ import { StaleExpectedHash } from "../src/workspace/exact-edit.ts";
 let root: string | undefined;
 let service: LectorService | undefined;
 
+const fixtureProvenance = {
+	fidelity: "semantic",
+	backend: "fixture",
+	languageId: "typescript",
+	authority: "language-server",
+	freshness: "live-process",
+	limitations: [],
+} as const;
+
+function fixtureCodeIntelligenceIndex(options: {
+	documentVersion: NonNullable<CodeIntelligencePort["documentVersion"]>;
+	codeActions: NonNullable<CodeIntelligencePort["codeActions"]>;
+}): ClosableSymbolIndex & CodeIntelligencePort {
+	return {
+		provenance: fixtureProvenance,
+		findSymbols: async () => ({ symbols: [], truncated: false, provenance: fixtureProvenance }),
+		goToDefinition: async () => [],
+		goToImplementation: async () => [],
+		findReferences: async () => [],
+		hover: async () => undefined,
+		documentSymbols: async () => [],
+		diagnostics: async () => [],
+		prepareCallHierarchy: async () => [],
+		incomingCalls: async () => [],
+		outgoingCalls: async () => [],
+		documentVersion: options.documentVersion,
+		codeActions: options.codeActions,
+		close: async () => {},
+	};
+}
+
 afterEach(async () => {
 	await service?.close();
 	service = undefined;
@@ -68,77 +99,106 @@ describe("workspace code actions", () => {
 		expect(readFileSync(path, "utf8")).toContain("export function load");
 	}, 30_000);
 
+	it("applies an unchanged edit when the synchronized document version is unavailable", async () => {
+		root = mkdtempSync(join(tmpdir(), "lector-unavailable-version-code-action-"));
+		const path = join(root, "action.ts");
+		writeFileSync(path, "export const value = 1;\n");
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createSymbolIndex: () =>
+				fixtureCodeIntelligenceIndex({
+					documentVersion: () => undefined,
+					codeActions: async () => [
+						{
+							path,
+							title: "Insert marker",
+							preferred: true,
+							diagnostics: [],
+							edit: {
+								operations: [
+									{
+										kind: "text" as const,
+										path,
+										version: 1,
+										edits: [{ range: { start: { line: 1, character: 1 }, end: { line: 1, character: 1 } }, newText: "// fixed\n" }],
+									},
+								],
+							},
+						},
+					],
+				}),
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
+		const result = await service.dispatch("workspace.previewCodeActions", {
+			workspaceId,
+			path,
+			range: { start: { line: 1, character: 1 }, end: { line: 1, character: 1 } },
+			maxActions: 10,
+			maxEdits: 10,
+			maxFiles: 10,
+			maxBytes: 10_000,
+			deadlineMs: 1_000,
+		});
+		const action = result.actions[0];
+		if (!action) throw new Error("expected code action");
+
+		await service.dispatch("workspace.applyCodeAction", { workspaceId, previewId: action.id });
+
+		expect(readFileSync(path, "utf8")).toStartWith("// fixed");
+	}, 20_000);
+
 	it("keeps command-only actions opt-in and denies guarded apply", async () => {
 		root = mkdtempSync(join(tmpdir(), "lector-command-code-action-"));
 		const path = join(root, "action.ts");
 		writeFileSync(path, "export const value = 1;\n");
-		const provenance = {
-			fidelity: "semantic",
-			backend: "fixture",
-			languageId: "typescript",
-			authority: "language-server",
-			freshness: "live-process",
-			limitations: [],
-		} as const;
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
-			createSymbolIndex: (): ClosableSymbolIndex & CodeIntelligencePort => ({
-				provenance,
-				findSymbols: async () => ({ symbols: [], truncated: false, provenance }),
-				goToDefinition: async () => [],
-				goToImplementation: async () => [],
-				findReferences: async () => [],
-				hover: async () => undefined,
-				documentSymbols: async () => [],
-				diagnostics: async () => [],
-				prepareCallHierarchy: async () => [],
-				incomingCalls: async () => [],
-				outgoingCalls: async () => [],
-				documentVersion: () => 1,
-				codeActions: async (query) => {
-					if (query.only?.includes("source.outside")) {
-						return [
-							{
-								path,
-								title: "Edit outside",
-								preferred: false,
-								diagnostics: [],
-								edit: {
-									operations: [
-										{
-											kind: "text" as const,
-											path: join(tmpdir(), "outside-code-action.ts"),
-											edits: [{ range: { start: { line: 1, character: 1 }, end: { line: 1, character: 1 } }, newText: "x" }],
-										},
-									],
+			createSymbolIndex: () =>
+				fixtureCodeIntelligenceIndex({
+					documentVersion: () => 1,
+					codeActions: async (query) => {
+						if (query.only?.includes("source.outside")) {
+							return [
+								{
+									path,
+									title: "Edit outside",
+									preferred: false,
+									diagnostics: [],
+									edit: {
+										operations: [
+											{
+												kind: "text" as const,
+												path: join(tmpdir(), "outside-code-action.ts"),
+												edits: [{ range: { start: { line: 1, character: 1 }, end: { line: 1, character: 1 } }, newText: "x" }],
+											},
+										],
+									},
 								},
-							},
-						];
-					}
-					if (query.only?.includes("source.stale-version")) {
-						return [
-							{
-								path,
-								title: "Stale version",
-								preferred: false,
-								diagnostics: [],
-								edit: {
-									operations: [
-										{
-											kind: "text" as const,
-											path,
-											version: 2,
-											edits: [{ range: { start: { line: 1, character: 1 }, end: { line: 1, character: 1 } }, newText: "x" }],
-										},
-									],
+							];
+						}
+						if (query.only?.includes("source.stale-version")) {
+							return [
+								{
+									path,
+									title: "Stale version",
+									preferred: false,
+									diagnostics: [],
+									edit: {
+										operations: [
+											{
+												kind: "text" as const,
+												path,
+												version: 2,
+												edits: [{ range: { start: { line: 1, character: 1 }, end: { line: 1, character: 1 } }, newText: "x" }],
+											},
+										],
+									},
 								},
-							},
-						];
-					}
-					return [{ path, title: "Run generator", preferred: false, diagnostics: [], command: { title: "Run generator", command: "fixture.generate" } }];
-				},
-				close: async () => {},
-			}),
+							];
+						}
+						return [{ path, title: "Run generator", preferred: false, diagnostics: [], command: { title: "Run generator", command: "fixture.generate" } }];
+					},
+				}),
 		});
 		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
 		const request = {
