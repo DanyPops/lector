@@ -23,7 +23,7 @@
     },
     "packages/lector": {
       "name": "@danypops/lector",
-      "version": "0.20.3",
+      "version": "0.20.4",
       "bin": {
         "lector": "src/cli-bootstrap.ts",
       },
@@ -65,7 +65,7 @@
       "name": "@danypops/pi-lector",
       "version": "0.13.10",
       "dependencies": {
-        "@danypops/lector": "^0.20.3",
+        "@danypops/lector": "^0.20.4",
         "@danypops/vehicle-client": "^0.10.8",
         "@danypops/vehicle-core": "^0.19.1",
         "malevich-tui-components": "^0.32.1",

@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/lector",
-	"version": "0.20.3",
+	"version": "0.20.4",
 	"description": "Platform-neutral filesystem & code-intelligence capability: core, service, and driven adapters",
 	"keywords": ["filesystem", "code-intelligence", "language-server", "tree-sitter", "daemon", "cli"],
 	"license": "MIT",
