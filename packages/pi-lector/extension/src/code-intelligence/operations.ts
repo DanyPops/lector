@@ -1,5 +1,9 @@
 import type { JobSnapshot, OperationInputs, OperationOutputs, PopulateSymbolGraphResult, SymbolEdgeKind, SymbolNode } from "@danypops/lector";
 import { lectorClient, withWorkspace, workspaceForCodeIntelligencePath, workspaceForPathOrDirectory } from "../lector-client.ts";
+import { invokeLectorVehicleOperation, type LectorVehicleCall } from "../vehicle-client.ts";
+
+const CODE_ACTION_PREVIEW_PERMISSIONS = ["workspace:read"];
+const CODE_ACTION_APPLY_PERMISSIONS = ["workspace:write"];
 
 /**
  * Thin wrappers over Lector's code-intelligence operations: goToDefinition,
@@ -34,9 +38,50 @@ export interface CodeIntelligenceOperations {
 	hover(path: string, line: number, character: number): Promise<OperationOutputs["workspace.hover"]>;
 	documentSymbols(path: string): Promise<OperationOutputs["workspace.documentSymbols"]>;
 	diagnostics(path: string): Promise<OperationOutputs["workspace.diagnostics"]>;
+	previewCodeActions(
+		path: string,
+		input: Omit<OperationInputs["workspace.previewCodeActions"], "workspaceId" | "path">,
+		call: LectorVehicleCall,
+	): Promise<OperationOutputs["workspace.previewCodeActions"]>;
+	applyCodeAction(
+		path: string,
+		previewId: OperationInputs["workspace.applyCodeAction"]["previewId"],
+		call: LectorVehicleCall,
+	): Promise<OperationOutputs["workspace.applyCodeAction"]>;
+	diagnosticDelta(
+		path: string,
+		source: OperationInputs["workspace.diagnosticDelta"]["source"],
+		bounds?: Omit<OperationInputs["workspace.diagnosticDelta"], "workspaceId" | "source">,
+	): Promise<OperationOutputs["workspace.diagnosticDelta"]>;
 	prepareCallHierarchy(path: string, line: number, character: number): Promise<OperationOutputs["workspace.prepareCallHierarchy"]>;
 	incomingCalls(path: string, line: number, character: number): Promise<OperationOutputs["workspace.incomingCalls"]>;
 	outgoingCalls(path: string, line: number, character: number): Promise<OperationOutputs["workspace.outgoingCalls"]>;
+	prepareTypeHierarchy(
+		path: string,
+		line: number,
+		character: number,
+		bounds?: Pick<OperationInputs["workspace.prepareTypeHierarchy"], "maxResults" | "maxBytes" | "deadlineMs">,
+	): Promise<OperationOutputs["workspace.prepareTypeHierarchy"]>;
+	supertypes(
+		path: string,
+		line: number,
+		character: number,
+		bounds?: Pick<OperationInputs["workspace.supertypes"], "maxResults" | "maxBytes" | "deadlineMs">,
+	): Promise<OperationOutputs["workspace.supertypes"]>;
+	subtypes(
+		path: string,
+		line: number,
+		character: number,
+		bounds?: Pick<OperationInputs["workspace.subtypes"], "maxResults" | "maxBytes" | "deadlineMs">,
+	): Promise<OperationOutputs["workspace.subtypes"]>;
+	impactAnalysis(
+		path: string,
+		source: OperationInputs["workspace.impactAnalysis"]["source"],
+		bounds: Pick<
+			OperationInputs["workspace.impactAnalysis"],
+			"maxDepth" | "maxNodes" | "maxEdges" | "maxBytes" | "deadlineMs" | "coverage" | "autoPopulate" | "maxFiles" | "maxSymbolsPerFile"
+		>,
+	): Promise<OperationOutputs["workspace.impactAnalysis"]>;
 	/**
 	 * Not exposed as a standalone Pi tool -- every workspace auto-populates on first touch via
 	 * monitorWorkspaceCache (workspace-cache/operations.ts). Kept here as an internal capability
@@ -46,7 +91,14 @@ export interface CodeIntelligenceOperations {
 	populateSymbolGraph(path: string, maxFiles: number, maxSymbolsPerFile: number, waitMs?: number): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
 	/** Not exposed as a standalone Pi tool -- see populateSymbolGraph. */
 	jobStatus(jobId: string): Promise<JobSnapshot<PopulateSymbolGraphResult>>;
-	reachableFrom(path: string, line: number, character: number, maxDepth: number, kind?: SymbolEdgeKind): Promise<readonly SymbolNode[]>;
+	reachableFrom(
+		path: string,
+		line: number,
+		character: number,
+		maxDepth: number,
+		kind?: SymbolEdgeKind,
+		autoPopulation?: Pick<OperationInputs["workspace.reachableFrom"], "autoPopulate" | "maxFiles" | "maxSymbolsPerFile">,
+	): Promise<readonly SymbolNode[]>;
 	/** Never spawns a symbol index -- safe to call opportunistically (e.g. before deciding whether to enrich a result). */
 	hasWarmIndex(path: string): Promise<boolean>;
 	workspaceMap(path: string, maxNodes: number, maxEdges: number, maxEntries: number, maxBytes: number): Promise<OperationOutputs["workspace.map"]>;
@@ -120,6 +172,36 @@ export function createLectorCodeIntelligenceOperations(ownerId?: string): CodeIn
 				},
 			);
 		},
+		async previewCodeActions(path, input, call) {
+			return withWorkspace(
+				() => workspaceForCodeIntelligencePath(path),
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<OperationOutputs["workspace.previewCodeActions"]>(
+						"workspace.previewCodeActions",
+						{ workspaceId, path, ...input },
+						CODE_ACTION_PREVIEW_PERMISSIONS,
+						call,
+					),
+			);
+		},
+		async applyCodeAction(path, previewId, call) {
+			return withWorkspace(
+				() => workspaceForCodeIntelligencePath(path),
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<OperationOutputs["workspace.applyCodeAction"]>(
+						"workspace.applyCodeAction",
+						{ workspaceId, previewId },
+						CODE_ACTION_APPLY_PERMISSIONS,
+						call,
+					),
+			);
+		},
+		async diagnosticDelta(path, source, bounds) {
+			return withWorkspace(
+				() => workspaceForPathOrDirectory(path),
+				async ({ workspaceId }) => (await lectorClient()).call("workspace.diagnosticDelta", { workspaceId, source, ...bounds }),
+			);
+		},
 		async prepareCallHierarchy(path, line, character) {
 			return withWorkspace(
 				() => workspaceForCodeIntelligencePath(path),
@@ -147,6 +229,30 @@ export function createLectorCodeIntelligenceOperations(ownerId?: string): CodeIn
 				},
 			);
 		},
+		async prepareTypeHierarchy(path, line, character, bounds) {
+			return withWorkspace(
+				() => workspaceForCodeIntelligencePath(path),
+				async ({ workspaceId }) => (await lectorClient()).call("workspace.prepareTypeHierarchy", { workspaceId, path, line, character, ...bounds }),
+			);
+		},
+		async supertypes(path, line, character, bounds) {
+			return withWorkspace(
+				() => workspaceForCodeIntelligencePath(path),
+				async ({ workspaceId }) => (await lectorClient()).call("workspace.supertypes", { workspaceId, path, line, character, ...bounds }),
+			);
+		},
+		async subtypes(path, line, character, bounds) {
+			return withWorkspace(
+				() => workspaceForCodeIntelligencePath(path),
+				async ({ workspaceId }) => (await lectorClient()).call("workspace.subtypes", { workspaceId, path, line, character, ...bounds }),
+			);
+		},
+		async impactAnalysis(path, source, bounds) {
+			return withWorkspace(
+				() => workspaceForPathOrDirectory(path),
+				async ({ workspaceId }) => (await lectorClient()).call("workspace.impactAnalysis", { workspaceId, source, ...bounds }),
+			);
+		},
 		async populateSymbolGraph(path, maxFiles, maxSymbolsPerFile, waitMs = 500) {
 			return withWorkspace(
 				() => workspaceForPathOrDirectory(path),
@@ -167,12 +273,12 @@ export function createLectorCodeIntelligenceOperations(ownerId?: string): CodeIn
 			const { job } = await client.call("job.status", { jobId });
 			return job;
 		},
-		async reachableFrom(path, line, character, maxDepth, kind) {
+		async reachableFrom(path, line, character, maxDepth, kind, autoPopulation) {
 			return withWorkspace(
 				() => workspaceForCodeIntelligencePath(path),
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
-					const { symbols } = await client.call("workspace.reachableFrom", { workspaceId, path, line, character, maxDepth, kind });
+					const { symbols } = await client.call("workspace.reachableFrom", { workspaceId, path, line, character, maxDepth, kind, ...autoPopulation });
 					return symbols;
 				},
 			);

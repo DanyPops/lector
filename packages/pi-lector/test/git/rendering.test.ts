@@ -220,6 +220,34 @@ describe("formatGitResult -- grep-ref", () => {
 	});
 });
 
+describe("formatGitResult -- grep-history", () => {
+	it("shows commit provenance, occurrence counts, and continuation", () => {
+		const details: GitToolDetails = {
+			action: "grep-history",
+			historyGrep: {
+				matches: [{ path: "a.go", line: 12, text: "historical needle", commit: "1234567890abcdef", occurrences: 3 }],
+				scannedCommits: 20,
+				commitsTruncated: true,
+				nextCommitOffset: 20,
+				truncated: false,
+				deadlineReached: false,
+				provenance: {
+					scope: "all-refs",
+					traversal: "topo-order",
+					binaryFiles: "excluded",
+					deduplication: "path-line-text",
+					commitOffset: 0,
+				},
+			},
+		};
+		const text = formatGitResult(details, false, theme);
+		expect(text).toContain("12345678");
+		expect(text).toContain("a.go:12");
+		expect(text).toContain("3 commits");
+		expect(text).toContain("next commit offset: 20");
+	});
+});
+
 describe("formatGitResult -- ls-ref", () => {
 	it("shows a clear message when there are no files", () => {
 		const details: GitToolDetails = { action: "ls-ref", listFiles: { paths: [], truncated: false } };

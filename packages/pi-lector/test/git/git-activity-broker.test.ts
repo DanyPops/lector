@@ -66,4 +66,39 @@ describe("git tool (status/log/diff): real end-to-end Activity Broker proof", ()
 		const statusEvents = events.filter((e) => e.refs.operation === "workspace.gitStatus");
 		expect(statusEvents.map((e) => e.type)).toEqual(["vehicle.operation.started", "vehicle.operation.completed"]);
 	}, 20_000);
+
+	it("runs grep-history through the registered git tool with every bound explicit", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		setLectorVehicleClientConnectorForTests(() => Promise.resolve(new RemoteVehicleClient({ baseUrl: daemon.baseUrl, token: daemon.token })));
+
+		repoRoot = mkdtempSync(join(tmpdir(), "pi-lector-git-history-tool-"));
+		git(repoRoot, "init", "-q", "--initial-branch=main");
+		git(repoRoot, "config", "user.email", "t@t.com");
+		git(repoRoot, "config", "user.name", "t");
+		writeFileSync(join(repoRoot, "a.txt"), "historical needle\n");
+		git(repoRoot, "add", "a.txt");
+		git(repoRoot, "commit", "-q", "-m", "historical");
+		writeFileSync(join(repoRoot, "a.txt"), "current value\n");
+		git(repoRoot, "commit", "-qam", "current");
+
+		const harness = createExtensionHarness(lectorExtension, { cwd: repoRoot });
+		await harness.boot();
+		try {
+			const result = (await harness.invokeTool("git", {
+				action: "grep-history",
+				directory: repoRoot,
+				pattern: "historical needle",
+				commitOffset: 0,
+				maxCommits: 20,
+				maxMatches: 20,
+				maxBytes: 20_000,
+				deadlineMs: 5_000,
+			})) as { details: { historyGrep: { matches: readonly { text: string }[] } } };
+			expect(result.details.historyGrep.matches).toContainEqual(expect.objectContaining({ text: "historical needle" }));
+		} finally {
+			await harness.shutdown();
+		}
+	}, 20_000);
 });

@@ -162,6 +162,28 @@ describe("Lector-backed git operations", () => {
 		expect(removed.workspaceId).toBeTruthy();
 	}, 20_000);
 
+	it("grepHistory finds code removed from the working tree with bounded provenance", async () => {
+		await wireDaemon();
+		repoRoot = buildRepo();
+		writeFileSync(join(repoRoot, "a.txt"), "historical needle\n");
+		git(repoRoot, "commit", "-qam", "historical");
+		writeFileSync(join(repoRoot, "a.txt"), "current value\n");
+		git(repoRoot, "commit", "-qam", "current");
+		ctx = await realExtensionContext(repoRoot);
+		const call = { toolName: "git", toolCallId: "history", context: ctx };
+
+		const result = await createLectorGitOperations().grepHistory(
+			repoRoot,
+			"historical needle",
+			undefined,
+			{ commitOffset: 0, maxCommits: 20, maxMatches: 20, maxBytes: 20_000, deadlineMs: 5_000 },
+			call,
+		);
+
+		expect(result.matches).toContainEqual(expect.objectContaining({ path: "a.txt", line: 1, text: "historical needle" }));
+		expect(result.provenance.scope).toBe("all-refs");
+	}, 20_000);
+
 	it("showFile/grep/listFiles/isAncestor answer real cross-branch questions with no checkout, via a running Lector daemon", async () => {
 		await wireDaemon();
 		repoRoot = buildRepoWithBranch();

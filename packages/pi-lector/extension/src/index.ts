@@ -31,7 +31,7 @@ import type {
 	WorkspaceLocation,
 	WorkspaceMapResult,
 } from "@danypops/lector";
-import { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS, PACKAGE_ECOSYSTEMS } from "@danypops/lector";
+import { codeActionPreviewId, DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS, PACKAGE_ECOSYSTEMS } from "@danypops/lector";
 import {
 	type AgentToolResult,
 	createEditToolDefinition,
@@ -56,6 +56,12 @@ import {
 	type CallHierarchyToolDetails,
 	formatCallHierarchyCall,
 	formatCallHierarchyResult,
+	formatCodeActionApplyCall,
+	formatCodeActionApplyResult,
+	formatCodeActionPreviewCall,
+	formatCodeActionPreviewResult,
+	formatDiagnosticDeltaCall,
+	formatDiagnosticDeltaResult,
 	formatDiagnosticsCall,
 	formatDiagnosticsResult,
 	formatDocumentSymbolsCall,
@@ -68,8 +74,12 @@ import {
 	formatGoToImplementationResult,
 	formatHoverCall,
 	formatHoverResult,
+	formatImpactAnalysisCall,
+	formatImpactAnalysisResult,
 	formatReachableFromCall,
 	formatReachableFromResult,
+	formatTypeHierarchyCall,
+	formatTypeHierarchyResult,
 	formatWorkspaceMapCall,
 	formatWorkspaceMapResult,
 } from "./code-intelligence/rendering.ts";
@@ -775,6 +785,186 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		registerLectorTool({
+			name: "code_action_preview",
+			label: "Code Action Preview",
+			description:
+				"Request bounded language-server code actions for one range. Returns opaque preview ids, affected files, exact edits, provenance, and truncation status. This operation is read-only; use code_action_apply separately to mutate files.",
+			promptSnippet: "Preview bounded language-server fixes for one range",
+			promptGuidelines: ["Preview first, inspect every affected path/edit, then pass exactly one returned previewId to code_action_apply."],
+			parameters: Type.Object({
+				path: Type.String({ description: "Absolute or cwd-relative file path" }),
+				startLine: Type.Number({ description: "1-indexed range start line" }),
+				startCharacter: Type.Number({ description: "1-indexed range start character" }),
+				endLine: Type.Number({ description: "1-indexed range end line" }),
+				endCharacter: Type.Number({ description: "1-indexed range end character" }),
+				only: Type.Optional(Type.Array(Type.String(), { maxItems: 20, description: "Code-action kinds such as quickfix" })),
+				includeCommandActions: Type.Optional(Type.Boolean({ description: "Include command-only actions in preview; guarded apply still denies them" })),
+				maxActions: Type.Number({ description: "Maximum actions" }),
+				maxEdits: Type.Number({ description: "Maximum edits per action" }),
+				maxFiles: Type.Number({ description: "Maximum affected files per action" }),
+				maxBytes: Type.Number({ description: "Maximum response JSON bytes" }),
+				deadlineMs: Type.Number({ description: "Wall-clock deadline in milliseconds" }),
+			}),
+			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<OperationOutputs["workspace.previewCodeActions"]>> {
+				const path = resolve(cwd, params.path);
+				const vehicleCall: LectorVehicleCall = { toolName: "code_action_preview", toolCallId, signal, context: ctx };
+				const result = await codeIntelligenceOperations.previewCodeActions(
+					path,
+					{
+						range: {
+							start: { line: params.startLine, character: params.startCharacter },
+							end: { line: params.endLine, character: params.endCharacter },
+						},
+						...(params.only ? { only: params.only } : {}),
+						...(params.includeCommandActions !== undefined ? { includeCommandActions: params.includeCommandActions } : {}),
+						maxActions: params.maxActions,
+						maxEdits: params.maxEdits,
+						maxFiles: params.maxFiles,
+						maxBytes: params.maxBytes,
+						deadlineMs: params.deadlineMs,
+					},
+					vehicleCall,
+				);
+				const text = result.actions
+					.map((action) => `${action.id} ${action.kind ?? "action"} ${action.title} -- ${action.affectedPaths.join(", ") || "command only"}`)
+					.join("\n");
+				return { content: [{ type: "text", text: text || "No code actions." }], details: result };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatCodeActionPreviewCall(args, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Finding code actions..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "code_action_preview failed"), 0, 0);
+				}
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatCodeActionPreviewResult(result.details, expanded, theme));
+				return text;
+			},
+		});
+
+		registerLectorTool({
+			name: "code_action_apply",
+			label: "Apply Code Action",
+			description:
+				"Apply one previously previewed language-server WorkspaceEdit atomically with workspace containment, document-version and content-hash guards. Returns a transaction id for exact transaction-aware revert. Command-only actions are denied.",
+			promptSnippet: "Atomically apply one previewed language-server edit",
+			promptGuidelines: ["Use only after inspecting code_action_preview; retain transactionId for diagnostic_delta and revert."],
+			parameters: Type.Object({
+				path: Type.String({ description: "The same file path used to obtain the preview" }),
+				previewId: Type.String({ description: "Opaque id returned by code_action_preview" }),
+			}),
+			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<OperationOutputs["workspace.applyCodeAction"]>> {
+				const vehicleCall: LectorVehicleCall = { toolName: "code_action_apply", toolCallId, signal, context: ctx };
+				const result = await codeIntelligenceOperations.applyCodeAction(resolve(cwd, params.path), codeActionPreviewId(params.previewId), vehicleCall);
+				const text = [
+					...result.touchedPaths,
+					...(result.transactionId ? [`transaction ${result.transactionId}`] : []),
+					...(result.pendingCommand ? [`pending command ${result.pendingCommand.command}`] : []),
+				].join("\n");
+				return { content: [{ type: "text", text: text || "Code action made no file changes." }], details: result };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatCodeActionApplyCall(args, theme));
+				return text;
+			},
+			renderResult(result, { isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Applying code action..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "code_action_apply failed"), 0, 0);
+				}
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatCodeActionApplyResult(result.details, theme));
+				return text;
+			},
+		});
+
+		registerLectorTool({
+			name: "diagnostic_delta",
+			label: "Diagnostic Delta",
+			description:
+				"Return only diagnostics introduced, resolved, or changed by one atomic mutation transaction or git-ref diff across its bounded affected-file cone, with completeness and provenance. Transaction results include the exact safe revert operation.",
+			promptSnippet: "Inspect diagnostic changes caused by a transaction or git diff",
+			promptGuidelines: [
+				"Use source=transaction with the id returned by an atomic mutation, or source=git with a baseline ref; unchanged diagnostics are omitted.",
+			],
+			parameters: Type.Object({
+				path: Type.String({ description: "Project directory or a path inside it" }),
+				source: Type.String({ description: "transaction | git" }),
+				sourceId: Type.String({ description: "Mutation transaction id or git baseline ref" }),
+				maxResults: Type.Optional(Type.Number({ description: "Maximum results per delta class" })),
+				maxBytes: Type.Optional(Type.Number({ description: "Maximum response JSON bytes" })),
+				maxDepth: Type.Optional(Type.Number({ description: "Git source: maximum impact depth" })),
+				maxNodes: Type.Optional(Type.Number({ description: "Git source: maximum graph nodes" })),
+				maxEdges: Type.Optional(Type.Number({ description: "Git source: maximum graph edges" })),
+				deadlineMs: Type.Optional(Type.Number({ description: "Git source: wall-clock deadline" })),
+				maxFiles: Type.Optional(Type.Number({ description: "Git source: maximum graph files" })),
+				maxSymbolsPerFile: Type.Optional(Type.Number({ description: "Git source: maximum declarations per file" })),
+				autoPopulate: Type.Optional(Type.Boolean({ description: "Git source: populate a missing/stale graph" })),
+			}),
+			async execute(_toolCallId, params): Promise<AgentToolResult<OperationOutputs["workspace.diagnosticDelta"]>> {
+				const source =
+					params.source === "transaction"
+						? ({ kind: "transaction", transactionId: params.sourceId } as const)
+						: params.source === "git"
+							? ({ kind: "git", ref: params.sourceId } as const)
+							: undefined;
+				if (!source) throw new TypeError("diagnostic_delta source must be transaction or git");
+				const result = await codeIntelligenceOperations.diagnosticDelta(resolve(cwd, params.path), source, {
+					maxResults: params.maxResults,
+					maxBytes: params.maxBytes,
+					maxDepth: params.maxDepth,
+					maxNodes: params.maxNodes,
+					maxEdges: params.maxEdges,
+					deadlineMs: params.deadlineMs,
+					maxFiles: params.maxFiles,
+					maxSymbolsPerFile: params.maxSymbolsPerFile,
+					autoPopulate: params.autoPopulate,
+				});
+				const text = [
+					...result.introduced.map(
+						(diagnostic) => `introduced ${diagnostic.severity} ${diagnostic.range.path}:${diagnostic.range.start.line} -- ${diagnostic.message}`,
+					),
+					...result.resolved.map(
+						(diagnostic) => `resolved ${diagnostic.severity} ${diagnostic.range.path}:${diagnostic.range.start.line} -- ${diagnostic.message}`,
+					),
+					...result.changed.map(({ before, after }) => `changed ${after.range.path}:${after.range.start.line} -- ${before.message} -> ${after.message}`),
+				].join("\n");
+				return { content: [{ type: "text", text: text || "No diagnostic changes." }], details: result };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatDiagnosticDeltaCall(args, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Comparing diagnostics..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "diagnostic_delta failed"), 0, 0);
+				}
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatDiagnosticDeltaResult(result.details, expanded, theme));
+				return text;
+			},
+		});
+
+		registerLectorTool({
 			name: "call_hierarchy",
 			label: "Call Hierarchy",
 			description:
@@ -836,6 +1026,137 @@ export default function (pi: ExtensionAPI) {
 				const details = result.details as CallHierarchyToolDetails | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(renderIntelligenceSource(formatCallHierarchyResult(details, expanded, theme), details?.provenance, theme));
+				return text;
+			},
+		});
+
+		registerLectorTool({
+			name: "type_hierarchy",
+			label: "Type Hierarchy",
+			description:
+				"Resolve a type at an exact file position, or list its direct supertypes or subtypes. ACTIONS: prepare, supertypes, subtypes. Capability-unavailable is reported distinctly from an empty hierarchy.",
+			promptSnippet: "Resolve a type hierarchy at an exact position",
+			promptGuidelines: ["Use supertypes/subtypes instead of grepping for extends or implements; the language server resolves semantic relationships."],
+			parameters: Type.Object({
+				direction: Type.String({ description: "prepare | supertypes | subtypes" }),
+				...positionParameters,
+				maxResults: Type.Optional(Type.Number({ description: "Maximum hierarchy items (default 1000)" })),
+				maxBytes: Type.Optional(Type.Number({ description: "Maximum JSON bytes (default 1 MiB)" })),
+				deadlineMs: Type.Optional(Type.Number({ description: "Wall-clock deadline in milliseconds (default 10000, maximum 120000)" })),
+			}),
+			async execute(_toolCallId, params): Promise<AgentToolResult<OperationOutputs["workspace.prepareTypeHierarchy"]>> {
+				const path = resolve(cwd, params.path);
+				const bounds = { maxResults: params.maxResults, maxBytes: params.maxBytes, deadlineMs: params.deadlineMs };
+				const result =
+					params.direction === "prepare"
+						? await codeIntelligenceOperations.prepareTypeHierarchy(path, params.line, params.character, bounds)
+						: params.direction === "supertypes"
+							? await codeIntelligenceOperations.supertypes(path, params.line, params.character, bounds)
+							: params.direction === "subtypes"
+								? await codeIntelligenceOperations.subtypes(path, params.line, params.character, bounds)
+								: undefined;
+				if (!result) throw new Error(`unknown type_hierarchy direction: ${String(params.direction)}`);
+				const text =
+					result.items.length === 0
+						? "No type-hierarchy items found."
+						: result.items.map((item) => `${item.kind} ${item.name} -- ${item.location.path}:${item.location.line}:${item.location.character}`).join("\n");
+				return { content: [{ type: "text", text: `${describeIntelligenceSource(result.provenance)}\n${text}` }], details: result };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatTypeHierarchyCall(args, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Resolving type hierarchy..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "type_hierarchy failed"), 0, 0);
+				}
+				const details = result.details;
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(renderIntelligenceSource(formatTypeHierarchyResult(details, expanded, theme), details.provenance, theme));
+				return text;
+			},
+		});
+
+		registerLectorTool({
+			name: "impact_analysis",
+			label: "Impact Analysis",
+			description:
+				"Map a git diff or mutation transaction to changed declarations, semantic callers/references, package boundaries, diagnostics, and related tests. Associations preserve semantic-edge versus filename-heuristic evidence.",
+			promptSnippet: "Find symbols and tests affected by a change",
+			promptGuidelines: [
+				"Use after a mutation or against a git ref to choose targeted verification from explicit evidence rather than filename guesses alone.",
+			],
+			parameters: Type.Object({
+				path: Type.String({ description: "Project directory or a path inside it" }),
+				source: Type.String({ description: "git | mutation" }),
+				ref: Type.Optional(Type.String({ description: "Git ref for source=git" })),
+				transactionId: Type.Optional(Type.String({ description: "Mutation transaction id for source=mutation" })),
+				maxDepth: Type.Number({ description: "Maximum reverse-graph hops" }),
+				maxNodes: Type.Number({ description: "Maximum graph nodes" }),
+				maxEdges: Type.Number({ description: "Maximum graph edges" }),
+				maxBytes: Type.Number({ description: "Maximum response JSON bytes" }),
+				deadlineMs: Type.Number({ description: "Wall-clock deadline in milliseconds" }),
+				maxFiles: Type.Number({ description: "Maximum source files for graph freshness/population" }),
+				maxSymbolsPerFile: Type.Number({ description: "Maximum declarations per source file" }),
+				autoPopulate: Type.Optional(Type.Boolean({ description: "Populate once when no complete graph exists" })),
+				coverage: Type.Optional(
+					Type.Array(
+						Type.Object({
+							testPath: Type.String(),
+							coveredPaths: Type.Array(Type.String(), { maxItems: 1000 }),
+						}),
+						{ maxItems: 1000, description: "Optional test-to-covered-source evidence" },
+					),
+				),
+			}),
+			async execute(_toolCallId, params): Promise<AgentToolResult<OperationOutputs["workspace.impactAnalysis"]>> {
+				const source =
+					params.source === "git"
+						? ({ kind: "git", ...(params.ref !== undefined ? { ref: params.ref } : {}) } as const)
+						: params.source === "mutation" && params.transactionId
+							? ({ kind: "mutation", transactionId: params.transactionId } as const)
+							: undefined;
+				if (!source) throw new TypeError("impact_analysis requires source=git or source=mutation with transactionId");
+				const result = await codeIntelligenceOperations.impactAnalysis(resolve(cwd, params.path), source, {
+					maxDepth: params.maxDepth,
+					maxNodes: params.maxNodes,
+					maxEdges: params.maxEdges,
+					maxBytes: params.maxBytes,
+					deadlineMs: params.deadlineMs,
+					maxFiles: params.maxFiles,
+					maxSymbolsPerFile: params.maxSymbolsPerFile,
+					...(params.autoPopulate !== undefined ? { autoPopulate: params.autoPopulate } : {}),
+					...(params.coverage !== undefined ? { coverage: params.coverage } : {}),
+				});
+				const text = [
+					...result.changedSymbols.map(({ symbol, side }) => `changed ${side} ${symbol.kind} ${symbol.name} -- ${symbol.location.path}`),
+					...result.impactedSymbols.map(({ symbol, depth }) => `impact depth=${depth} ${symbol.kind} ${symbol.name} -- ${symbol.location.path}`),
+					...result.relatedTests.map(({ symbol, evidence }) => `test ${evidence.kind} -- ${symbol.location.path}`),
+				].join("\n");
+				return { content: [{ type: "text", text: text || "No changed symbols resolved." }], details: result };
+			},
+			renderCall(args, theme, context) {
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatImpactAnalysisCall(args, theme));
+				return text;
+			},
+			renderResult(result, { expanded, isPartial }, theme, context) {
+				if (isPartial) return new Text(theme.fg("warning", "Analyzing impact..."), 0, 0);
+				if (context.isError) {
+					const errorText = result.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n");
+					return new Text(theme.fg("error", errorText || "impact_analysis failed"), 0, 0);
+				}
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(formatImpactAnalysisResult(result.details, expanded, theme));
 				return text;
 			},
 		});
@@ -1012,6 +1333,9 @@ export default function (pi: ExtensionAPI) {
 				childId: Type.Optional(Type.String({ description: "The contained annotation's id -- required for contain/uncontain" })),
 				rootId: Type.Optional(Type.String({ description: "The subtree's root annotation id -- required for tree" })),
 				maxDepth: Type.Optional(Type.Number({ description: "Maximum containment hops from rootId to include -- required for tree" })),
+				autoPopulate: Type.Optional(Type.Boolean({ description: "For create/refresh: populate a genuinely not-cached graph once before resolving anchors" })),
+				maxFiles: Type.Optional(Type.Number({ description: "For create/refresh autoPopulate: explicit maximum files to scan" })),
+				maxSymbolsPerFile: Type.Optional(Type.Number({ description: "For create/refresh autoPopulate: explicit maximum declarations per file" })),
 			}),
 			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<SymbolAnnotationToolDetails>> {
 				const path = resolve(cwd, params.path);
@@ -1034,6 +1358,11 @@ export default function (pi: ExtensionAPI) {
 						params.body,
 						resolveAnchorInputs(params.anchors),
 						vehicleCall,
+						{
+							...(params.autoPopulate !== undefined ? { autoPopulate: params.autoPopulate } : {}),
+							...(params.maxFiles !== undefined ? { maxFiles: params.maxFiles } : {}),
+							...(params.maxSymbolsPerFile !== undefined ? { maxSymbolsPerFile: params.maxSymbolsPerFile } : {}),
+						},
 					);
 					details.annotation = annotation;
 					text = formatAnnotationDetail(annotation);
@@ -1063,6 +1392,11 @@ export default function (pi: ExtensionAPI) {
 						params.body,
 						resolveAnchorInputs(params.anchors),
 						vehicleCall,
+						{
+							...(params.autoPopulate !== undefined ? { autoPopulate: params.autoPopulate } : {}),
+							...(params.maxFiles !== undefined ? { maxFiles: params.maxFiles } : {}),
+							...(params.maxSymbolsPerFile !== undefined ? { maxSymbolsPerFile: params.maxSymbolsPerFile } : {}),
+						},
 					);
 					details.annotation = annotation;
 					text = annotation ? formatAnnotationDetail(annotation) : `no annotation "${params.id}"`;
@@ -1169,10 +1503,17 @@ export default function (pi: ExtensionAPI) {
 						description: "Restrict to one edge kind; omit for any kind",
 					}),
 				),
+				autoPopulate: Type.Optional(Type.Boolean({ description: "Populate a genuinely not-cached graph once before traversing" })),
+				maxFiles: Type.Optional(Type.Number({ description: "For autoPopulate: explicit maximum files to scan" })),
+				maxSymbolsPerFile: Type.Optional(Type.Number({ description: "For autoPopulate: explicit maximum declarations per file" })),
 			}),
 			async execute(_toolCallId, params) {
 				const path = resolve(cwd, params.path);
-				const symbols = await codeIntelligenceOperations.reachableFrom(path, params.line, params.character, params.maxDepth, params.kind);
+				const symbols = await codeIntelligenceOperations.reachableFrom(path, params.line, params.character, params.maxDepth, params.kind, {
+					...(params.autoPopulate !== undefined ? { autoPopulate: params.autoPopulate } : {}),
+					...(params.maxFiles !== undefined ? { maxFiles: params.maxFiles } : {}),
+					...(params.maxSymbolsPerFile !== undefined ? { maxSymbolsPerFile: params.maxSymbolsPerFile } : {}),
+				});
 				const text =
 					symbols.length === 0
 						? "Nothing reachable at this position."
@@ -1354,18 +1695,20 @@ export default function (pi: ExtensionAPI) {
 			name: "git",
 			label: "Git",
 			description:
-				"Working tree status, recent commit log, unified diff, one symbol's own declaration diff across two versions, ref-scoped blob/text/ancestry queries with no checkout, and a real disposable checkout at another ref, for a real git repository, in one tool. Fails clearly if `directory` is not inside a git repository. ACTIONS: status (working tree state, ahead/behind tracking), log (recent commits, bounded by maxCount), diff (unified diff against `ref`, defaulting to HEAD, bounded by maxBytes), compare-symbol (a named symbol's own declaration text diffed between fromRef and toRef, or fromRef and the current working tree when toRef is omitted -- tree-sitter syntactic tier only, TypeScript/JavaScript files only, no project-aware cross-reference resolution), show (a path's exact blob content at `ref`, no checkout), grep-ref (text search across `ref`'s own tree, no checkout -- the ref-scoped equivalent of search_code), ls-ref (every file path in `ref`'s own tree, no checkout), is-ancestor (is `ancestorRef` a real ancestor of, or the same commit as, `ref` -- the backport/reachability check \"was this fix ported to this branch\" actually needs), worktree-add (materializes `ref` as a real, read-only project via a detached git worktree and returns its own `directory` -- pass that straight to find_symbols/search_code/this tool itself for full semantic queries against another branch/commit, not just text), worktree-remove (releases and deletes a worktree-add-created checkout -- `directory` is that checkout's own returned directory, not the source repo's).",
+				"Working tree status, recent commit log, unified diff, one symbol's own declaration diff across two versions, ref-scoped blob/text/ancestry queries with no checkout, and a real disposable checkout at another ref, for a real git repository, in one tool. Fails clearly if `directory` is not inside a git repository. ACTIONS: status (working tree state, ahead/behind tracking), log (recent commits, bounded by maxCount), diff (unified diff against `ref`, defaulting to HEAD, bounded by maxBytes), compare-symbol (a named symbol's own declaration text diffed between fromRef and toRef, or fromRef and the current working tree when toRef is omitted -- tree-sitter syntactic tier only, TypeScript/JavaScript files only, no project-aware cross-reference resolution), show (a path's exact blob content at `ref`, no checkout), grep-ref (text search across `ref`'s own tree, no checkout -- the ref-scoped equivalent of search_code), grep-history (bounded extended-regex search across commit trees reachable from all refs, with topological paging and commit provenance), ls-ref (every file path in `ref`'s own tree, no checkout), is-ancestor (is `ancestorRef` a real ancestor of, or the same commit as, `ref` -- the backport/reachability check \"was this fix ported to this branch\" actually needs), worktree-add (materializes `ref` as a real, read-only project via a detached git worktree and returns its own `directory` -- pass that straight to find_symbols/search_code/this tool itself for full semantic queries against another branch/commit, not just text), worktree-remove (releases and deletes a worktree-add-created checkout -- `directory` is that checkout's own returned directory, not the source repo's).",
 			promptSnippet:
 				"Show a repository's status, log, diff, one symbol's diff across versions, a ref-scoped blob/text/ancestry query, or a real checkout at another ref",
 			promptGuidelines: [
-				"maxCount is required for action=log; maxBytes is required for action=diff/compare-symbol/grep-ref -- every bounded query needs its bound stated explicitly, never defaulted silently.",
+				"maxCount is required for action=log; maxBytes is required for action=diff/compare-symbol/grep-ref/grep-history -- every bounded query needs its bound stated explicitly, never defaulted silently.",
 				"path, symbol, and fromRef are required for action=compare-symbol; toRef is optional and means 'the current working tree' when omitted.",
 				"ref is required for action=worktree-add. A repeated worktree-add for the same (directory, ref) reuses the existing checkout unless forceRefresh is set -- use that when ref is a branch that may have moved.",
 				"action=worktree-remove's directory is worktree-add's own returned directory, never the source repo's -- always call it once done with a worktree to reclaim disk.",
-				"ref and path are required for action=show; ref and pattern (maxMatches, maxBytes) are required for action=grep-ref; ref (maxResults) is required for action=ls-ref; ancestorRef and ref are required for action=is-ancestor. None of the four checks anything out -- prefer them over worktree-add/find_symbols for a quick existence/text/ancestry answer.",
+				"ref and path are required for action=show; ref and pattern (maxMatches, maxBytes) are required for action=grep-ref; pattern, commitOffset, maxCommits, maxMatches, maxBytes, and deadlineMs are required for action=grep-history; ref (maxResults) is required for action=ls-ref; ancestorRef and ref are required for action=is-ancestor. These actions inspect Git objects directly with no checkout.",
 			],
 			parameters: Type.Object({
-				action: Type.String({ description: "status | log | diff | compare-symbol | show | grep-ref | ls-ref | is-ancestor | worktree-add | worktree-remove" }),
+				action: Type.String({
+					description: "status | log | diff | compare-symbol | show | grep-ref | grep-history | ls-ref | is-ancestor | worktree-add | worktree-remove",
+				}),
 				directory: Type.String({ description: "Directory inside the repository to check, absolute or relative to the current working directory" }),
 				maxCount: Type.Optional(Type.Number({ description: "Maximum number of commits to return, most recent first -- required for action=log" })),
 				ref: Type.Optional(
@@ -1376,7 +1719,9 @@ export default function (pi: ExtensionAPI) {
 				),
 				maxBytes: Type.Optional(
 					Type.Number({
-						description: "Maximum diff/comparison/grep output size in bytes before truncating -- required for action=diff/compare-symbol/grep-ref",
+						minimum: 1,
+						maximum: 8 * 1024 * 1024,
+						description: "Maximum diff/comparison/grep output size in bytes before truncating -- required for action=diff/compare-symbol/grep-ref/grep-history",
 					}),
 				),
 				path: Type.Optional(
@@ -1392,14 +1737,24 @@ export default function (pi: ExtensionAPI) {
 						description: "action=worktree-add only: recreate an already-reused worktree at ref's current tip instead of returning the existing one",
 					}),
 				),
-				pattern: Type.Optional(Type.String({ description: "Text pattern to search for -- required for action=grep-ref" })),
+				pattern: Type.Optional(
+					Type.String({ maxLength: 4096, description: "Pattern to search for -- required for grep-ref; an extended regular expression for grep-history" }),
+				),
 				pathspecs: Type.Optional(
-					Type.Array(Type.String(), {
+					Type.Array(Type.String({ minLength: 1, maxLength: 1024 }), {
+						maxItems: 64,
 						description:
-							'Narrows action=grep-ref (glob-based, e.g. "*.go") or action=ls-ref (prefix-based, e.g. "pkg/dpll"); omitted searches/lists the whole tree',
+							'Narrows action=grep-ref/grep-history (glob-based, e.g. "*.go") or action=ls-ref (prefix-based, e.g. "pkg/dpll"); omitted searches/lists the whole tree',
 					}),
 				),
-				maxMatches: Type.Optional(Type.Number({ description: "Maximum grep matches to return -- required for action=grep-ref" })),
+				maxMatches: Type.Optional(
+					Type.Number({ minimum: 1, maximum: 10_000, description: "Maximum grep matches to return -- required for action=grep-ref/grep-history" }),
+				),
+				commitOffset: Type.Optional(
+					Type.Number({ minimum: 0, maximum: 1_000_000, description: "Number of topologically ordered commits to skip -- required for action=grep-history" }),
+				),
+				maxCommits: Type.Optional(Type.Number({ minimum: 1, maximum: 512, description: "Maximum commit trees to search -- required for action=grep-history" })),
+				deadlineMs: Type.Optional(Type.Number({ minimum: 1, maximum: 120_000, description: "Wall-clock budget -- required for action=grep-history" })),
 				maxResults: Type.Optional(Type.Number({ description: "Maximum file paths to return -- required for action=ls-ref" })),
 				ancestorRef: Type.Optional(Type.String({ description: "The candidate ancestor ref -- required for action=is-ancestor" })),
 			}),
@@ -1456,6 +1811,32 @@ export default function (pi: ExtensionAPI) {
 					const details: GitToolDetails = { action: "grep-ref", grep };
 					return { content: [{ type: "text", text: JSON.stringify(grep) }], details };
 				}
+				if (params.action === "grep-history") {
+					if (!params.pattern) throw new Error("git action=grep-history requires pattern");
+					if (
+						params.commitOffset === undefined ||
+						params.maxCommits === undefined ||
+						params.maxMatches === undefined ||
+						params.maxBytes === undefined ||
+						params.deadlineMs === undefined
+					)
+						throw new Error("git action=grep-history requires commitOffset, maxCommits, maxMatches, maxBytes, and deadlineMs");
+					const historyGrep = await gitOperations.grepHistory(
+						directory,
+						params.pattern,
+						params.pathspecs,
+						{
+							commitOffset: params.commitOffset,
+							maxCommits: params.maxCommits,
+							maxMatches: params.maxMatches,
+							maxBytes: params.maxBytes,
+							deadlineMs: params.deadlineMs,
+						},
+						vehicleCall,
+					);
+					const details: GitToolDetails = { action: "grep-history", historyGrep };
+					return { content: [{ type: "text", text: JSON.stringify(historyGrep) }], details };
+				}
 				if (params.action === "ls-ref") {
 					if (!params.ref) throw new Error("git action=ls-ref requires ref");
 					if (params.maxResults === undefined) throw new Error("git action=ls-ref requires maxResults");
@@ -1497,7 +1878,7 @@ export default function (pi: ExtensionAPI) {
 			name: "search_code",
 			label: "Search Code",
 			description:
-				"Multi-file text/regex search scoped to a real project directory, backed by ripgrep -- respects .gitignore, skips node_modules/.git/build output. Bounded by maxMatches and maxBytes; results are cached.",
+				"Multi-file text/regex search scoped to a real project directory. Uses a bounded resident FFF index when ready and explicit ripgrep loading/stale/degraded fallback otherwise; respects ignore rules and skips generated dependency output. Bounded by maxMatches and maxBytes; results include lexical provenance.",
 			promptSnippet: "Search a project's files for a pattern",
 			parameters: Type.Object({
 				directory: Type.String({ description: "Directory inside the project to search, absolute or relative to the current working directory" }),
@@ -1508,8 +1889,10 @@ export default function (pi: ExtensionAPI) {
 			async execute(_toolCallId, params) {
 				const directory = resolve(cwd, params.directory);
 				const result = await searchOperations.search(params.query, directory, params.maxMatches, params.maxBytes);
-				const text =
+				const matches =
 					result.matches.length === 0 ? "No matches found." : result.matches.map((m) => `${m.path}:${m.lineNumber}: ${m.line.replace(/\n$/, "")}`).join("\n");
+				const source = result.provenance ? `lexical via ${result.provenance.backend} (${result.provenance.indexState})\n` : "";
+				const text = `${source}${matches}`;
 				return { content: [{ type: "text", text }], details: { result } };
 			},
 			renderCall(args, theme, context) {
@@ -2114,7 +2497,7 @@ export default function (pi: ExtensionAPI) {
 			name: "search_code_across_projects",
 			label: "Search Code Across Projects",
 			description:
-				"Fans out a ripgrep-backed text/regex search across several explicitly-named project directories at once and reports one outcome per project. Directories are required and explicit -- never every project this daemon happens to have registered, which can include unrelated projects from other concurrent sessions. Each directory resolves to its OWN nearest project root (package.json/tsconfig.json/go.mod/Cargo.toml/...), not the outer repo's git root -- sibling packages under one monorepo stay distinct scopes rather than collapsing into one. A result's collapsedWith lists any other requested directories that genuinely did resolve to the same workspace; empty means it got its own.",
+				"Fans out bounded indexed lexical text/regex search with explicit ripgrep fallback provenance across several explicitly-named project directories at once and reports one outcome per project. Directories are required and explicit -- never every project this daemon happens to have registered, which can include unrelated projects from other concurrent sessions. Each directory resolves to its OWN nearest project root (package.json/tsconfig.json/go.mod/Cargo.toml/...), not the outer repo's git root -- sibling packages under one monorepo stay distinct scopes rather than collapsing into one. A result's collapsedWith lists any other requested directories that genuinely did resolve to the same workspace; empty means it got its own.",
 			promptSnippet: "Search for a pattern across several projects at once",
 			parameters: Type.Object({
 				directories: Type.Array(Type.String(), { description: "Project directories to search, each absolute or relative to the current working directory" }),

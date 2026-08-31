@@ -11,12 +11,18 @@
  * proves the pi-lector wrapper wires workspace resolution and the daemon
  * call correctly.
  */
+
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createExtensionHarness } from "@danypops/pi-extension-harness";
+import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createLectorCodeIntelligenceOperations } from "../../extension/src/code-intelligence/operations.ts";
 import { resetLectorClientForTests, setLectorClientConnectorForTests } from "../../extension/src/lector-client.ts";
+import { type LectorVehicleCall, resetLectorVehicleClientForTests, setLectorVehicleClientConnectorForTests } from "../../extension/src/vehicle-client.ts";
 import { startIsolatedLectorDaemon } from "../support/isolated-lector-daemon.ts";
 
 let projectDir: string | undefined;
@@ -24,6 +30,7 @@ let stopDaemon: (() => Promise<void>) | undefined;
 
 afterEach(async () => {
 	resetLectorClientForTests();
+	resetLectorVehicleClientForTests();
 	await stopDaemon?.();
 	stopDaemon = undefined;
 	if (projectDir) rmSync(projectDir, { recursive: true, force: true });
@@ -33,7 +40,6 @@ afterEach(async () => {
 /** A real-enough git repo fixture: workspaceForPath's project-root boundary is a real .git marker, not the filesystem root fallback. */
 function buildProjectFixture(): { root: string; mathFile: string; brokenFile: string } {
 	const root = mkdtempSync(join(tmpdir(), "pi-lector-code-intelligence-"));
-	mkdirSync(join(root, ".git"));
 	mkdirSync(join(root, "src"));
 	const mathFile = join(root, "src", "math.ts");
 	writeFileSync(
@@ -46,7 +52,19 @@ function buildProjectFixture(): { root: string; mathFile: string; brokenFile: st
 		join(root, "tsconfig.json"),
 		JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "bundler", strict: true }, include: ["src"] }),
 	);
+	execFileSync("git", ["init", "-q"], { cwd: root });
+	execFileSync("git", ["config", "user.email", "fixture@lector.invalid"], { cwd: root });
+	execFileSync("git", ["config", "user.name", "Lector Fixture"], { cwd: root });
+	execFileSync("git", ["add", "-A"], { cwd: root });
+	execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd: root });
 	return { root, mathFile, brokenFile };
+}
+
+async function vehicleCall(cwd: string): Promise<LectorVehicleCall> {
+	const harness = createExtensionHarness(async () => {}, { cwd });
+	await harness.boot();
+	const context: ExtensionContext = harness.ctx;
+	return { toolName: "code_action_preview", toolCallId: "code-action-test", context };
 }
 
 describe("Lector-backed code-intelligence operations", () => {
@@ -139,6 +157,38 @@ describe("Lector-backed code-intelligence operations", () => {
 		expect(diagnostics.diagnostics[0]?.range.path).toBe(brokenFile);
 	}, 20_000);
 
+	it("previews and applies a guarded code action", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		setLectorVehicleClientConnectorForTests(() => Promise.resolve(new RemoteVehicleClient({ baseUrl: daemon.baseUrl, token: daemon.token })));
+		const { root } = buildProjectFixture();
+		projectDir = root;
+		const call = await vehicleCall(root);
+		const path = join(root, "src", "code-action.ts");
+		writeFileSync(path, "export function load(): void {\n\tawait Promise.resolve();\n}\n");
+		const ops = createLectorCodeIntelligenceOperations();
+		const preview = await ops.previewCodeActions(
+			path,
+			{
+				range: { start: { line: 2, character: 2 }, end: { line: 2, character: 7 } },
+				only: ["quickfix"],
+				maxActions: 10,
+				maxEdits: 100,
+				maxFiles: 10,
+				maxBytes: 100_000,
+				deadlineMs: 10_000,
+			},
+			call,
+		);
+		const action = preview.actions.find(({ title }) => /async/i.test(title));
+		expect(action).toBeDefined();
+		if (!action) throw new Error("expected async quick fix");
+		const applied = await ops.applyCodeAction(path, action.id, { ...call, toolName: "code_action_apply" });
+		expect(applied.transactionId).toBeDefined();
+		expect(readFileSync(path, "utf8")).toContain("export async function load");
+	}, 20_000);
+
 	it("prepareCallHierarchy, incomingCalls, and outgoingCalls resolve a real call relationship via a running Lector daemon", async () => {
 		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
@@ -160,6 +210,63 @@ describe("Lector-backed code-intelligence operations", () => {
 		expect(callees.calls.some((call) => call.to.name === "add")).toBe(true);
 	}, 20_000);
 
+	it("type hierarchy preserves capability-unavailable through the Pi wrapper", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const ops = createLectorCodeIntelligenceOperations();
+		await expect(ops.prepareTypeHierarchy(mathFile, 1, 17, { maxResults: 10, maxBytes: 10_000, deadlineMs: 10_000 })).rejects.toThrow(
+			"does not support type hierarchy",
+		);
+	}, 20_000);
+
+	it("impactAnalysis returns changed symbols through the Pi wrapper", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+		const ops = createLectorCodeIntelligenceOperations();
+		await ops.populateSymbolGraph(root, 100, 100, 5_000);
+		writeFileSync(mathFile, (await Bun.file(mathFile).text()).replace("return a + b;", "return a + b + 1;"));
+
+		const result = await ops.impactAnalysis(
+			root,
+			{ kind: "git", ref: "HEAD" },
+			{
+				maxDepth: 2,
+				autoPopulate: true,
+				maxFiles: 100,
+				maxSymbolsPerFile: 100,
+				maxNodes: 100,
+				maxEdges: 1_000,
+				maxBytes: 100_000,
+				deadlineMs: 20_000,
+			},
+		);
+		expect(result.changedSymbols.length).toBeGreaterThan(0);
+		expect(result.source).toEqual({ kind: "git", ref: "HEAD" });
+		const delta = await ops.diagnosticDelta(
+			root,
+			{ kind: "git", ref: "HEAD" },
+			{
+				maxResults: 100,
+				maxDepth: 2,
+				autoPopulate: true,
+				maxFiles: 100,
+				maxSymbolsPerFile: 100,
+				maxNodes: 100,
+				maxEdges: 1_000,
+				maxBytes: 100_000,
+				deadlineMs: 30_000,
+			},
+		);
+		expect(delta.source).toEqual({ kind: "git", ref: "HEAD" });
+	}, 30_000);
+
 	it("populateSymbolGraph and reachableFrom answer a real multi-hop question via a running Lector daemon", async () => {
 		const daemon = await startIsolatedLectorDaemon();
 		stopDaemon = daemon.stop;
@@ -176,6 +283,23 @@ describe("Lector-backed code-intelligence operations", () => {
 
 		// addTwice (line 5) calls add (line 1) -- one hop.
 		const reachable = await ops.reachableFrom(mathFile, 5, 17, 1, "calls");
+		expect(reachable.some((symbol) => symbol.name === "add")).toBe(true);
+	}, 20_000);
+
+	it("reachableFrom auto-populates with explicit bounds through the Pi wrapper", async () => {
+		const daemon = await startIsolatedLectorDaemon();
+		stopDaemon = daemon.stop;
+		setLectorClientConnectorForTests(() => Promise.resolve(daemon.client));
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const ops = createLectorCodeIntelligenceOperations();
+		const reachable = await ops.reachableFrom(mathFile, 5, 17, 1, "calls", {
+			autoPopulate: true,
+			maxFiles: 100,
+			maxSymbolsPerFile: 50,
+		});
+
 		expect(reachable.some((symbol) => symbol.name === "add")).toBe(true);
 	}, 20_000);
 

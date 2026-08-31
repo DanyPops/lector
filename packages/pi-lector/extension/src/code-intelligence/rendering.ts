@@ -5,6 +5,7 @@ import type {
 	Hover,
 	IncomingCall,
 	IntelligenceProvenance,
+	OperationOutputs,
 	OutgoingCall,
 	SymbolNode,
 	WorkspaceLocation,
@@ -27,6 +28,7 @@ const DEFAULT_VISIBLE_LOCATIONS = 8;
 const DEFAULT_VISIBLE_SYMBOLS = 12;
 const DEFAULT_VISIBLE_DIAGNOSTICS = 12;
 const DEFAULT_VISIBLE_CALLS = 12;
+const DEFAULT_VISIBLE_CHANGES = 12;
 
 const DIAGNOSTIC_SEVERITY_COLOR: Record<Diagnostic["severity"], ThemeColor> = {
 	error: "error",
@@ -169,6 +171,123 @@ export function formatDiagnosticsResult(diagnostics: readonly Diagnostic[] | und
 		}),
 	];
 	return lines.join("\n");
+}
+
+function formatPathCall(toolName: string, args: { path?: unknown }, theme: LectorTheme, qualifier = ""): string {
+	const path = typeof args.path === "string" ? args.path : "";
+	return `${theme.fg("toolTitle", theme.bold(toolName))}${qualifier ? ` ${theme.fg("muted", qualifier)}` : ""} ${theme.fg("accent", path)}`;
+}
+
+export function formatCodeActionPreviewCall(
+	args: { path?: unknown; startLine?: unknown; startCharacter?: unknown; endLine?: unknown; endCharacter?: unknown },
+	theme: LectorTheme,
+): string {
+	const range = `${typeof args.startLine === "number" ? args.startLine : "?"}:${typeof args.startCharacter === "number" ? args.startCharacter : "?"}-${typeof args.endLine === "number" ? args.endLine : "?"}:${typeof args.endCharacter === "number" ? args.endCharacter : "?"}`;
+	return formatPathCall("code_action_preview", args, theme, range);
+}
+
+export function formatCodeActionPreviewResult(
+	result: OperationOutputs["workspace.previewCodeActions"] | undefined,
+	expanded: boolean,
+	theme: LectorTheme,
+): string {
+	if (!result || result.actions.length === 0) return theme.fg("dim", "No code actions.");
+	return [
+		theme.fg("muted", `${result.actions.length} code action${result.actions.length === 1 ? "" : "s"}:`),
+		...renderTruncatedList({
+			items: result.actions,
+			expanded,
+			visibleCount: DEFAULT_VISIBLE_CHANGES,
+			formatItem: (action) => {
+				const state = action.disabledReason
+					? theme.fg("warning", `disabled: ${action.disabledReason}`)
+					: action.preferred
+						? theme.fg("success", "preferred")
+						: "";
+				const paths = action.affectedPaths.length > 0 ? action.affectedPaths.join(", ") : "command only";
+				return `  ${theme.bold(action.title)}${action.kind ? ` (${action.kind})` : ""} -- ${paths}${state ? ` -- ${state}` : ""}`;
+			},
+			moreLine: moreLine(theme),
+			truncationWarning: result.truncated || result.deadlineReached ? theme.fg("warning", "results truncated by the requested bounds") : undefined,
+		}),
+	].join("\n");
+}
+
+export function formatCodeActionApplyCall(args: { path?: unknown }, theme: LectorTheme): string {
+	return formatPathCall("code_action_apply", args, theme);
+}
+
+export function formatCodeActionApplyResult(result: OperationOutputs["workspace.applyCodeAction"] | undefined, theme: LectorTheme): string {
+	if (!result) return theme.fg("dim", "No code-action result.");
+	const lines = result.touchedPaths.map((path) => `  ${path}`);
+	if (result.transactionId) lines.push(theme.fg("muted", `transaction ${result.transactionId}`));
+	if (result.pendingCommand) lines.push(theme.fg("warning", `pending command ${result.pendingCommand.command}`));
+	return lines.length > 0 ? lines.join("\n") : theme.fg("dim", "Code action made no file changes.");
+}
+
+export function formatDiagnosticDeltaCall(args: { path?: unknown; source?: unknown }, theme: LectorTheme): string {
+	return formatPathCall("diagnostic_delta", args, theme, typeof args.source === "string" ? args.source : "");
+}
+
+export function formatDiagnosticDeltaResult(result: OperationOutputs["workspace.diagnosticDelta"] | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!result) return theme.fg("dim", "No diagnostic delta.");
+	const changes = [
+		...result.introduced.map((diagnostic) => ({ label: "introduced", diagnostic })),
+		...result.resolved.map((diagnostic) => ({ label: "resolved", diagnostic })),
+		...result.changed.map(({ after }) => ({ label: "changed", diagnostic: after })),
+	];
+	if (changes.length === 0) return theme.fg("success", "No diagnostic changes.");
+	return renderTruncatedList({
+		items: changes,
+		expanded,
+		visibleCount: DEFAULT_VISIBLE_CHANGES,
+		formatItem: ({ label, diagnostic }) =>
+			`${theme.fg(label === "introduced" ? "error" : label === "resolved" ? "success" : "warning", label)} ${formatLocation(theme, diagnostic.range.path, diagnostic.range.start.line, diagnostic.range.start.character)} -- ${diagnostic.message}`,
+		moreLine: moreLine(theme),
+		truncationWarning: result.truncated ? theme.fg("warning", "results truncated by maxResults/maxBytes") : undefined,
+	}).join("\n");
+}
+
+export function formatTypeHierarchyCall(args: { direction?: unknown; path?: unknown; line?: unknown; character?: unknown }, theme: LectorTheme): string {
+	return `${formatPositionalCall("type_hierarchy", args, theme)} ${theme.fg("muted", typeof args.direction === "string" ? args.direction : "")}`;
+}
+
+export function formatTypeHierarchyResult(
+	result: OperationOutputs["workspace.prepareTypeHierarchy"] | undefined,
+	expanded: boolean,
+	theme: LectorTheme,
+): string {
+	if (!result || result.items.length === 0) return theme.fg("dim", "No type-hierarchy items found.");
+	return renderTruncatedList({
+		items: result.items,
+		expanded,
+		visibleCount: DEFAULT_VISIBLE_CALLS,
+		formatItem: (item) => `  ${formatCallHierarchyEntry(item, theme)}${item.detail ? theme.fg("dim", ` -- ${item.detail}`) : ""}`,
+		moreLine: moreLine(theme),
+		truncationWarning: result.truncated ? theme.fg("warning", "results truncated by the requested bounds") : undefined,
+	}).join("\n");
+}
+
+export function formatImpactAnalysisCall(args: { path?: unknown; source?: unknown }, theme: LectorTheme): string {
+	return formatPathCall("impact_analysis", args, theme, typeof args.source === "string" ? args.source : "");
+}
+
+export function formatImpactAnalysisResult(result: OperationOutputs["workspace.impactAnalysis"] | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!result) return theme.fg("dim", "No impact-analysis result.");
+	const impacts = [
+		...result.changedSymbols.map(({ symbol, side }) => ({ label: `changed ${side}`, symbol })),
+		...result.impactedSymbols.map(({ symbol, depth }) => ({ label: `impact depth=${depth}`, symbol })),
+		...result.relatedTests.map(({ symbol, evidence }) => ({ label: `test ${evidence.kind}`, symbol })),
+	];
+	if (impacts.length === 0) return theme.fg("dim", "No changed symbols resolved.");
+	return renderTruncatedList({
+		items: impacts,
+		expanded,
+		visibleCount: DEFAULT_VISIBLE_CHANGES,
+		formatItem: ({ label, symbol }) => `${theme.fg("muted", label)} ${formatCallHierarchyEntry(symbol, theme)}`,
+		moreLine: moreLine(theme),
+		truncationWarning: result.truncated || result.deadlineReached ? theme.fg("warning", "analysis truncated by the requested bounds") : undefined,
+	}).join("\n");
 }
 
 function formatCallHierarchyEntry(entry: { kind: string; name: string; location: WorkspaceLocation }, theme: LectorTheme): string {

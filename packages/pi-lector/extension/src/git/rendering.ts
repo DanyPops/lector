@@ -11,12 +11,24 @@ const DEFAULT_VISIBLE_FILES = 20;
 const DEFAULT_VISIBLE_COMMITS = 10;
 const DEFAULT_VISIBLE_DIFF_LINES = 60;
 
-export type GitAction = "status" | "log" | "diff" | "compare-symbol" | "worktree-add" | "worktree-remove" | "show" | "grep-ref" | "ls-ref" | "is-ancestor";
+export type GitAction =
+	| "status"
+	| "log"
+	| "diff"
+	| "compare-symbol"
+	| "worktree-add"
+	| "worktree-remove"
+	| "show"
+	| "grep-ref"
+	| "grep-history"
+	| "ls-ref"
+	| "is-ancestor";
 
 type SymbolComparison = OperationOutputs["workspace.compareSymbolAcrossVersions"];
 type GitWorktreeAddResult = OperationOutputs["workspace.gitWorktreeAdd"];
 type GitWorktreeRemoveResult = OperationOutputs["workspace.gitWorktreeRemove"];
 type GitGrepResult = OperationOutputs["workspace.gitGrep"];
+type GitHistoryGrepResult = OperationOutputs["workspace.gitGrepHistory"];
 type GitListFilesResult = OperationOutputs["workspace.gitListFiles"];
 
 export interface GitToolDetails {
@@ -29,6 +41,7 @@ export interface GitToolDetails {
 	readonly worktreeRemove?: GitWorktreeRemoveResult;
 	readonly showFile?: { readonly ref: string; readonly path: string; readonly content: string | undefined };
 	readonly grep?: GitGrepResult;
+	readonly historyGrep?: GitHistoryGrepResult;
 	readonly listFiles?: GitListFilesResult;
 	readonly isAncestor?: { readonly ancestorRef: string; readonly ref: string; readonly result: boolean };
 }
@@ -61,10 +74,10 @@ export function formatGitCall(
 		const ref = typeof args.ref === "string" ? args.ref : "";
 		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)} ${ancestorRef} -> ${ref}`;
 	}
-	if (action === "grep-ref") {
-		const ref = typeof args.ref === "string" ? args.ref : "";
+	if (action === "grep-ref" || action === "grep-history") {
+		const ref = action === "grep-ref" && typeof args.ref === "string" ? `${args.ref} ` : "";
 		const pattern = typeof args.pattern === "string" ? args.pattern : "";
-		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)} ${ref} "${pattern}"`;
+		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)} ${ref}"${pattern}"`;
 	}
 	if (action === "show") {
 		const ref = typeof args.ref === "string" ? args.ref : "";
@@ -105,6 +118,30 @@ function formatGitGrepResult(result: GitGrepResult | undefined, expanded: boolea
 	return lines.join("\n");
 }
 
+function formatGitHistoryGrepResult(result: GitHistoryGrepResult | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!result || result.matches.length === 0) {
+		if (result?.deadlineReached) return theme.fg("warning", "No matches before the deadline.");
+		return theme.fg("dim", "No historical matches.");
+	}
+	const lines = renderTruncatedList({
+		items: result.matches,
+		expanded,
+		visibleCount: DEFAULT_VISIBLE_FILES,
+		formatItem: (match) => {
+			const occurrences = match.occurrences > 1 ? ` (${match.occurrences} commits)` : "";
+			return `${theme.fg("muted", match.commit.slice(0, 8))} ${theme.fg("accent", `${match.path}:${match.line}`)}:${match.text}${occurrences}`;
+		},
+		moreLine: moreLine(theme),
+		truncationWarning: result.deadlineReached
+			? theme.fg("warning", "(deadline reached)")
+			: result.truncated
+				? theme.fg("warning", "(bounded by maxMatches/maxBytes)")
+				: undefined,
+	});
+	if (result.nextCommitOffset !== undefined) lines.push(theme.fg("muted", `next commit offset: ${result.nextCommitOffset}`));
+	return lines.join("\n");
+}
+
 function formatGitListFilesResult(result: GitListFilesResult | undefined, expanded: boolean, theme: LectorTheme): string {
 	if (!result || result.paths.length === 0) return theme.fg("dim", "No files.");
 	const lines = renderTruncatedList({
@@ -133,6 +170,7 @@ export function formatGitResult(details: GitToolDetails | undefined, expanded: b
 	if (details.action === "worktree-remove") return formatGitWorktreeRemoveResult(details.worktreeRemove, theme);
 	if (details.action === "show") return formatGitShowFileResult(details.showFile, theme);
 	if (details.action === "grep-ref") return formatGitGrepResult(details.grep, expanded, theme);
+	if (details.action === "grep-history") return formatGitHistoryGrepResult(details.historyGrep, expanded, theme);
 	if (details.action === "ls-ref") return formatGitListFilesResult(details.listFiles, expanded, theme);
 	if (details.action === "is-ancestor") return formatGitIsAncestorResult(details.isAncestor, theme);
 	return formatGitDiffResult(details.result, expanded, theme);

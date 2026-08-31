@@ -83,6 +83,9 @@ export function formatSearchTextAcrossProjectsResult(
 		lines.push(formatOutcomeHeader(entry, theme));
 		const { outcome } = entry;
 		if (outcome.status !== "ready") continue;
+		if (outcome.result.provenance) {
+			lines.push(theme.fg("dim", `  lexical via ${outcome.result.provenance.backend} (${outcome.result.provenance.indexState})`));
+		}
 		if (outcome.result.matches.length === 0) {
 			lines.push(theme.fg("dim", "  no matches"));
 			continue;

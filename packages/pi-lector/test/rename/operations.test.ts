@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createLectorCodeIntelligenceOperations } from "../../extension/src/code-intelligence/operations.ts";
 import { resetLectorClientForTests, setLectorClientConnectorForTests } from "../../extension/src/lector-client.ts";
 import { createRenameOperations } from "../../extension/src/rename/operations.ts";
 import { startIsolatedLectorDaemon } from "../support/isolated-lector-daemon.ts";
@@ -70,5 +71,12 @@ describe("Lector-backed rename operations", () => {
 		expect([...result.touchedPaths].sort()).toEqual([consumerFile, mathFile].sort());
 		expect(readFileSync(mathFile, "utf8")).toContain("export function sum");
 		expect(readFileSync(consumerFile, "utf8")).toContain("sum(1, 2)");
-	}, 20_000);
+		expect(result.transactionId).toBeDefined();
+		const delta = await createLectorCodeIntelligenceOperations().diagnosticDelta(
+			root,
+			{ kind: "transaction", transactionId: result.transactionId ?? "" },
+			{ maxResults: 100, maxBytes: 100_000 },
+		);
+		expect(delta).toMatchObject({ transactionId: result.transactionId, introduced: [], resolved: [], changed: [] });
+	}, 30_000);
 });

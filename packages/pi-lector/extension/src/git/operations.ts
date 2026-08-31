@@ -1,4 +1,4 @@
-import type { GitDiffResult, GitLogEntry, GitStatusSummary, OperationOutputs } from "@danypops/lector";
+import type { GitDiffResult, GitLogEntry, GitStatusSummary, OperationInputs, OperationOutputs } from "@danypops/lector";
 import { lectorClient, withWorkspace, workspaceForDirectory } from "../lector-client.ts";
 import { invokeLectorVehicleOperation, type LectorVehicleCall } from "../vehicle-client.ts";
 
@@ -6,6 +6,8 @@ type SymbolComparison = OperationOutputs["workspace.compareSymbolAcrossVersions"
 type GitWorktreeAddResult = OperationOutputs["workspace.gitWorktreeAdd"];
 type GitWorktreeRemoveResult = OperationOutputs["workspace.gitWorktreeRemove"];
 type GitGrepResult = OperationOutputs["workspace.gitGrep"];
+type GitHistoryGrepResult = OperationOutputs["workspace.gitGrepHistory"];
+type GitHistoryGrepBounds = Omit<OperationInputs["workspace.gitGrepHistory"], "workspaceId" | "pattern" | "pathspecs">;
 type GitListFilesResult = OperationOutputs["workspace.gitListFiles"];
 
 /** Matches GIT_READ_PERMISSIONS' own declared value server-side (git/operation-registration.ts). */
@@ -42,6 +44,14 @@ export interface GitOperations {
 		maxBytes: number,
 		call: LectorVehicleCall,
 	): Promise<GitGrepResult>;
+	/** Bounded extended-regex search across commit trees reachable from every ref, with deterministic topological paging and exact-match deduplication. */
+	grepHistory(
+		directory: string,
+		pattern: string,
+		pathspecs: readonly string[] | undefined,
+		bounds: GitHistoryGrepBounds,
+		call: LectorVehicleCall,
+	): Promise<GitHistoryGrepResult>;
 	/** Every file path in `ref`'s own tree, no checkout -- pathspecs narrows the listing (prefix-based, not glob-based like grep's). */
 	listFiles(directory: string, ref: string, pathspecs: readonly string[] | undefined, maxResults: number, call: LectorVehicleCall): Promise<GitListFilesResult>;
 	/** True iff ancestorRef is a real ancestor of (or the exact same commit as) ref -- the backport/reachability check "was this fix ported to this branch" actually needs. */
@@ -134,6 +144,18 @@ export function createLectorGitOperations(): GitOperations {
 					invokeLectorVehicleOperation<GitGrepResult>(
 						"workspace.gitGrep",
 						{ workspaceId, ref, pattern, pathspecs, maxMatches, maxBytes },
+						GIT_READ_PERMISSIONS,
+						call,
+					),
+			);
+		},
+		async grepHistory(directory, pattern, pathspecs, bounds, call) {
+			return withWorkspace(
+				() => workspaceForDirectory(directory),
+				({ workspaceId }) =>
+					invokeLectorVehicleOperation<GitHistoryGrepResult>(
+						"workspace.gitGrepHistory",
+						{ workspaceId, pattern, pathspecs, ...bounds },
 						GIT_READ_PERMISSIONS,
 						call,
 					),

@@ -13,6 +13,8 @@ export interface AnnotationAnchorInput {
 	readonly character: number;
 }
 
+export type AnnotationAutoPopulationOptions = Pick<OperationInputs["workspace.createAnnotation"], "autoPopulate" | "maxFiles" | "maxSymbolsPerFile">;
+
 /**
  * Thin wrappers over Lector's annotation operations. Every operation resolves its workspace from
  * its own `path` parameter via workspaceForAnnotationPath -- a real project directory or an
@@ -29,6 +31,7 @@ export interface SymbolAnnotationOperations {
 		body: string,
 		anchors: readonly AnnotationAnchorInput[],
 		call: LectorVehicleCall,
+		autoPopulation?: AnnotationAutoPopulationOptions,
 	): Promise<OperationOutputs["workspace.createAnnotation"]>;
 	get(path: string, id: string, call: LectorVehicleCall): Promise<OperationOutputs["workspace.getAnnotation"]>;
 	list(
@@ -44,6 +47,7 @@ export interface SymbolAnnotationOperations {
 		body: string,
 		anchors: readonly AnnotationAnchorInput[],
 		call: LectorVehicleCall,
+		autoPopulation?: AnnotationAutoPopulationOptions,
 	): Promise<OperationOutputs["workspace.refreshAnnotation"]>;
 	scrub(path: string, id: string, call: LectorVehicleCall): Promise<OperationOutputs["workspace.scrubAnnotation"]>;
 	restore(path: string, id: string, call: LectorVehicleCall): Promise<OperationOutputs["workspace.restoreAnnotation"]>;
@@ -54,13 +58,13 @@ export interface SymbolAnnotationOperations {
 
 export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperations {
 	return {
-		async create(path, subtype, title, body, anchors, call) {
+		async create(path, subtype, title, body, anchors, call, autoPopulation) {
 			return withWorkspace(
 				() => workspaceForAnnotationPath(path),
 				({ workspaceId }) =>
 					invokeLectorVehicleOperation<OperationOutputs["workspace.createAnnotation"]>(
 						"workspace.createAnnotation",
-						{ workspaceId, subtype, title, body, anchors },
+						{ workspaceId, subtype, title, body, anchors, ...autoPopulation },
 						ANNOTATION_WRITE_PERMISSIONS,
 						call,
 					),
@@ -90,13 +94,13 @@ export function createLectorSymbolAnnotationOperations(): SymbolAnnotationOperat
 					),
 			);
 		},
-		async refresh(path, id, subtype, title, body, anchors, call) {
+		async refresh(path, id, subtype, title, body, anchors, call, autoPopulation) {
 			return withWorkspace(
 				() => workspaceForAnnotationPath(path),
 				({ workspaceId }) =>
 					invokeLectorVehicleOperation<OperationOutputs["workspace.refreshAnnotation"]>(
 						"workspace.refreshAnnotation",
-						{ workspaceId, id, subtype, title, body, anchors },
+						{ workspaceId, id, subtype, title, body, anchors, ...autoPopulation },
 						ANNOTATION_WRITE_PERMISSIONS,
 						call,
 					),

@@ -108,6 +108,26 @@ describe("Lector-backed annotation operations", () => {
 		expect(restored).toBe(true);
 	}, 20_000);
 
+	it("creates an annotation with explicit bounded auto-population through the Pi wrapper", async () => {
+		await wireDaemon();
+		const { root, mathFile } = buildProjectFixture();
+		projectDir = root;
+
+		const call = await vehicleCall(root);
+		const ops = createLectorSymbolAnnotationOperations();
+		const { annotation } = await ops.create(
+			mathFile,
+			"comment",
+			"bounded population",
+			"resolves a real anchor without a separate population call",
+			[{ path: mathFile, line: 1, character: 17 }],
+			call,
+			{ autoPopulate: true, maxFiles: 10, maxSymbolsPerFile: 10 },
+		);
+
+		expect(annotation.anchors[0]?.path).toBe(mathFile);
+	}, 20_000);
+
 	it("rejects an anchor that does not resolve to a real symbol", async () => {
 		await wireDaemon();
 		const { root, mathFile } = buildProjectFixture();

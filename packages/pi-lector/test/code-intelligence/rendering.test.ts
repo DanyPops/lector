@@ -5,11 +5,27 @@
  * theme approach: asserts on the actual rendered text, no ANSI noise.
  */
 import { describe, expect, it } from "bun:test";
-import type { CallHierarchyEntry, Diagnostic, DocumentSymbolEntry, SymbolNode, WorkspaceLocation, WorkspaceMapResult } from "@danypops/lector";
+import type {
+	CallHierarchyEntry,
+	Diagnostic,
+	DocumentSymbolEntry,
+	IntelligenceProvenance,
+	OperationOutputs,
+	SymbolNode,
+	WorkspaceLocation,
+	WorkspaceMapResult,
+} from "@danypops/lector";
+import { codeActionPreviewId } from "@danypops/lector";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import {
 	formatCallHierarchyCall,
 	formatCallHierarchyResult,
+	formatCodeActionApplyCall,
+	formatCodeActionApplyResult,
+	formatCodeActionPreviewCall,
+	formatCodeActionPreviewResult,
+	formatDiagnosticDeltaCall,
+	formatDiagnosticDeltaResult,
 	formatDiagnosticsCall,
 	formatDiagnosticsResult,
 	formatDocumentSymbolsCall,
@@ -20,8 +36,12 @@ import {
 	formatGoToDefinitionResult,
 	formatHoverCall,
 	formatHoverResult,
+	formatImpactAnalysisCall,
+	formatImpactAnalysisResult,
 	formatReachableFromCall,
 	formatReachableFromResult,
+	formatTypeHierarchyCall,
+	formatTypeHierarchyResult,
 	formatWorkspaceMapCall,
 	formatWorkspaceMapResult,
 } from "../../extension/src/code-intelligence/rendering.ts";
@@ -37,6 +57,34 @@ const plainTheme: LectorTheme = {
 
 function location(overrides: Partial<WorkspaceLocation> = {}): WorkspaceLocation {
 	return { path: "src/domain/exact-edit.ts", line: 12, character: 1, ...overrides };
+}
+
+const provenance: IntelligenceProvenance = {
+	fidelity: "semantic",
+	backend: "typescript-language-server",
+	languageId: "typescript",
+	authority: "language-server",
+	freshness: "live-process",
+	limitations: [],
+};
+
+function sampleDiagnostic(overrides: Partial<Diagnostic> = {}): Diagnostic {
+	return {
+		range: { path: "src/math.ts", start: { line: 2, character: 3 }, end: { line: 2, character: 8 } },
+		severity: "error",
+		message: "Type mismatch.",
+		...overrides,
+	};
+}
+
+function sampleNode(overrides: Partial<SymbolNode> = {}): SymbolNode {
+	return {
+		id: "src/math.ts:1:17" as SymbolNode["id"],
+		name: "add",
+		kind: "function",
+		location: { path: "src/math.ts", line: 1, character: 17 },
+		...overrides,
+	};
 }
 
 describe("formatGoToDefinitionCall/Result", () => {
@@ -301,5 +349,76 @@ describe("formatWorkspaceMapCall/Result", () => {
 	it("notes budget truncation distinctly from display-count truncation", () => {
 		const text = formatWorkspaceMapResult(mapResult({ truncated: true }), false, plainTheme);
 		expect(text).toContain("budget-truncated");
+	});
+});
+
+describe("code-action rendering", () => {
+	it("renders preview and apply outcomes", () => {
+		const preview = {
+			actions: [{ id: codeActionPreviewId("preview-1"), title: "Add missing import", kind: "quickfix", preferred: true, affectedPaths: ["src/math.ts"] }],
+			truncated: false,
+			deadlineReached: false,
+			provenance,
+		} satisfies OperationOutputs["workspace.previewCodeActions"];
+		const applied = { touchedPaths: ["src/math.ts"], transactionId: "tx-1", provenance } satisfies OperationOutputs["workspace.applyCodeAction"];
+		expect(formatCodeActionPreviewCall({ path: "src/math.ts", startLine: 1, startCharacter: 1, endLine: 1, endCharacter: 4 }, plainTheme)).toContain("1:1-1:4");
+		expect(formatCodeActionPreviewResult(preview, false, plainTheme)).toContain("Add missing import");
+		expect(formatCodeActionApplyCall({ path: "src/math.ts" }, plainTheme)).toContain("src/math.ts");
+		expect(formatCodeActionApplyResult(applied, plainTheme)).toContain("tx-1");
+	});
+});
+
+describe("diagnostic-delta rendering", () => {
+	it("renders classified changes", () => {
+		const result = {
+			source: { kind: "git", ref: "HEAD" },
+			affectedPaths: ["src/math.ts"],
+			completeness: "complete",
+			provenance: [provenance],
+			introduced: [sampleDiagnostic()],
+			resolved: [],
+			changed: [],
+			truncated: false,
+		} satisfies OperationOutputs["workspace.diagnosticDelta"];
+		expect(formatDiagnosticDeltaCall({ path: ".", source: "git" }, plainTheme)).toContain("git");
+		const text = formatDiagnosticDeltaResult(result, false, plainTheme);
+		expect(text).toContain("introduced");
+		expect(text).toContain("Type mismatch");
+	});
+});
+
+describe("type-hierarchy rendering", () => {
+	it("renders semantic hierarchy entries", () => {
+		const result = {
+			items: [{ name: "Base", kind: "class", detail: "abstract", location: location({ path: "src/base.ts" }), range: sampleDiagnostic().range }],
+			truncated: false,
+			provenance,
+		} satisfies OperationOutputs["workspace.prepareTypeHierarchy"];
+		expect(formatTypeHierarchyCall({ direction: "supertypes", path: "src/math.ts", line: 1, character: 1 }, plainTheme)).toContain("supertypes");
+		const text = formatTypeHierarchyResult(result, false, plainTheme);
+		expect(text).toContain("Base");
+		expect(text).toContain("abstract");
+	});
+});
+
+describe("impact-analysis rendering", () => {
+	it("renders changed and impacted symbols", () => {
+		const result = {
+			source: { kind: "git", ref: "HEAD" },
+			sourceCompleteness: "complete",
+			graph: { completeness: "complete", provenance },
+			identityCompleteness: "complete",
+			packageBoundaries: [],
+			diagnostics: [],
+			changedSymbols: [{ symbol: sampleNode(), side: "after", status: "modified" }],
+			impactedSymbols: [{ symbol: sampleNode({ name: "caller" }), depth: 1, evidence: { kind: "semantic-edge", depth: 1, edgeKind: "calls" } }],
+			relatedTests: [],
+			truncated: false,
+			deadlineReached: false,
+		} satisfies OperationOutputs["workspace.impactAnalysis"];
+		expect(formatImpactAnalysisCall({ path: ".", source: "git" }, plainTheme)).toContain("impact_analysis");
+		const text = formatImpactAnalysisResult(result, false, plainTheme);
+		expect(text).toContain("add");
+		expect(text).toContain("caller");
 	});
 });

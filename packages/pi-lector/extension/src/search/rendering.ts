@@ -12,7 +12,9 @@ export function formatSearchCall(args: { directory?: unknown; query?: unknown },
 }
 
 export function formatSearchResult(result: TextSearchResult | undefined, expanded: boolean, theme: LectorTheme): string {
-	if (!result || result.matches.length === 0) return theme.fg("dim", "No matches found.");
+	if (!result) return theme.fg("dim", "No matches found.");
+	const provenance = result.provenance ? theme.fg("dim", `lexical via ${result.provenance.backend} (${result.provenance.indexState})`) : undefined;
+	if (result.matches.length === 0) return [provenance, theme.fg("dim", "No matches found.")].filter((line) => line !== undefined).join("\n");
 	const lines = renderTruncatedList({
 		items: result.matches,
 		expanded,
@@ -22,5 +24,5 @@ export function formatSearchResult(result: TextSearchResult | undefined, expande
 		moreLine: (hidden) => theme.fg("dim", `... ${hidden} more (${keyHint("app.tools.expand", "to expand")})`),
 		truncationWarning: result.truncated ? theme.fg("warning", "(search itself was truncated by maxMatches/maxBytes -- results are incomplete)") : undefined,
 	});
-	return lines.join("\n");
+	return [provenance, ...lines].filter((line) => line !== undefined).join("\n");
 }

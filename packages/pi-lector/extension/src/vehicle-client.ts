@@ -29,9 +29,11 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 type VehicleClientConnector = () => Promise<VehicleClient>;
 
-function connectLectorVehicleClient(): Promise<VehicleClient> {
+async function connectLectorVehicleClient(): Promise<VehicleClient> {
 	const { host, port, token } = resolveLectorDaemonConnection();
-	return Promise.resolve(new RemoteVehicleClient({ baseUrl: `http://${host}:${port}`, token }));
+	const client = new RemoteVehicleClient({ baseUrl: `http://${host}:${port}`, token });
+	await client.negotiate({ minimumVersion: 1, maximumVersion: 1, requiredCapabilities: [], optionalCapabilities: [] });
+	return client;
 }
 
 function resolveLectorVehicleIdentity() {
