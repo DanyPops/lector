@@ -29,7 +29,14 @@
  */
 
 export type { DirectoryExplorerSession } from "./directory-explorer-operations.ts";
-export { type EditorAction, type EditorMode, EditorState } from "./editor-state.ts";
+export {
+	type EditorAction,
+	type EditorMode,
+	EditorPositionError,
+	type EditorPositionErrorCode,
+	type EditorSourcePosition,
+	EditorState,
+} from "./editor-state.ts";
 export type { EditorTheme } from "./editor-theme.ts";
 export { ExplorerComponent, type ExplorerResult, type ExplorerViewState, joinExplorerPath } from "./explorer-component.ts";
 // runExplorerFlow is pure orchestration over the two interfaces above (browse, open a file into
@@ -44,4 +51,5 @@ export {
 	type EditorHoverRequest,
 	ModalEditorComponent,
 	type ModalEditorHost,
+	type ModalEditorOptions,
 } from "./modal-editor-component.ts";

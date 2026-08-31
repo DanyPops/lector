@@ -20,6 +20,26 @@ function tick(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+describe("ModalEditorComponent source positioning", () => {
+	it("places the initial cursor and viewport on the requested source", () => {
+		const content = Array.from({ length: 40 }, (_, index) => (index === 29 ? "const target = 1;" : `line ${index + 1}`)).join("\n");
+		const tui = { requestRender: () => {}, terminal: { rows: 8, columns: 80 } } as unknown as TUI;
+		const component = new ModalEditorComponent(
+			tui,
+			fakeTheme,
+			{ filePath: "/repo/src/index.ts", save: async () => undefined, hover: async () => undefined },
+			content,
+			() => undefined,
+			{ initialPosition: { line: 30, character: 7 } },
+		);
+
+		const rendered = component.render(80).join("\n");
+		expect(rendered).toContain("arget = 1;");
+		expect(rendered).toContain("30:7");
+		expect(rendered).not.toContain("line 1\n");
+	});
+});
+
 describe("ModalEditorComponent crash safety", () => {
 	it("surfaces a failing hover as a status message instead of an unhandled rejection", async () => {
 		const unhandledRejections: unknown[] = [];

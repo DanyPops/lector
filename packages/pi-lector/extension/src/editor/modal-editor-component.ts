@@ -4,7 +4,7 @@ import { contentHashOf, highlightSpans } from "@danypops/lector";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { EditorAction } from "./editor-state.ts";
+import type { EditorAction, EditorSourcePosition } from "./editor-state.ts";
 import { EditorState } from "./editor-state.ts";
 import type { EditorTheme } from "./editor-theme.ts";
 
@@ -25,6 +25,11 @@ export interface EditorHoverRequest {
 export type EditorHoverOutcome =
 	| { readonly kind: "ready"; readonly hover?: { readonly contents: string } }
 	| { readonly kind: "stale-active-buffer"; readonly bufferHash: ContentHash };
+
+export interface ModalEditorOptions {
+	/** Positions the cursor using one-based UTF-16 coordinates and scrolls it into the first viewport. */
+	readonly initialPosition?: EditorSourcePosition;
+}
 
 export interface ModalEditorHost {
 	filePath: string;
@@ -65,13 +70,14 @@ export class ModalEditorComponent implements Component {
 	private statusMessage = "";
 	private highlightCache: { text: string; spans: readonly HighlightSpan[] } | undefined;
 
-	constructor(tui: TUI, theme: EditorTheme, host: ModalEditorHost, content: string, done: () => void) {
+	constructor(tui: TUI, theme: EditorTheme, host: ModalEditorHost, content: string, done: () => void, options: ModalEditorOptions = {}) {
 		this.tui = tui;
 		this.theme = theme;
 		this.host = host;
 		this.done = done;
 		this.extension = extname(host.filePath);
-		this.state = new EditorState(content);
+		this.state = new EditorState(content, options.initialPosition);
+		this.scrollToKeepCursorVisible();
 		this.refreshHighlightsSafely();
 	}
 

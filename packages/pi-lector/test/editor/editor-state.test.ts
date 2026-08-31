@@ -9,6 +9,17 @@ describe("EditorState", () => {
 		expect(state.cursorCharacter).toBe(1);
 	});
 
+	it("starts at a validated UTF-16 source position", () => {
+		const state = new EditorState("alpha\nA😀B\nomega", { line: 2, character: 4 });
+		expect(state.cursorLine).toBe(2);
+		expect(state.cursorCharacter).toBe(4);
+	});
+
+	it("rejects an out-of-range source position", () => {
+		expect(() => new EditorState("alpha\nomega", { line: 3, character: 1 })).toThrow("line-out-of-range");
+		expect(() => new EditorState("alpha\nomega", { line: 2, character: 6 })).toThrow("character-out-of-range");
+	});
+
 	describe("normal mode motions", () => {
 		it("h/j/k/l move the cursor", () => {
 			const state = new EditorState("abc\ndef\nghi");

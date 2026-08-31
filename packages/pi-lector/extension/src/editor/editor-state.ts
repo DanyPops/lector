@@ -4,6 +4,26 @@ export type EditorMode = "normal" | "insert" | "command";
 
 export type EditorAction = { kind: "save" } | { kind: "save-and-quit" } | { kind: "quit" } | { kind: "hover" };
 
+export interface EditorSourcePosition {
+	/** One-based line number. */
+	readonly line: number;
+	/** One-based UTF-16 code-unit position within the line. */
+	readonly character: number;
+}
+
+export type EditorPositionErrorCode = "line-out-of-range" | "character-out-of-range";
+
+/** Reports why a requested source position cannot identify a cursor location in the current buffer. */
+export class EditorPositionError extends Error {
+	constructor(
+		readonly code: EditorPositionErrorCode,
+		message: string,
+	) {
+		super(`${code}: ${message}`);
+		this.name = "EditorPositionError";
+	}
+}
+
 const BACKSPACE_KEYS = new Set(["\x7f", "\b"]);
 
 /**
@@ -27,8 +47,25 @@ export class EditorState {
 	private insertPendingJ = false;
 	private yankedLine: string | undefined;
 
-	constructor(content: string) {
+	constructor(content: string, initialPosition?: EditorSourcePosition) {
 		this.buffer = new LiveBuffer(content);
+		if (initialPosition) this.moveToInitialPosition(initialPosition);
+	}
+
+	private moveToInitialPosition(position: EditorSourcePosition): void {
+		if (!Number.isSafeInteger(position.line) || position.line < 1 || position.line > this.buffer.lineCount) {
+			throw new EditorPositionError("line-out-of-range", `Line ${position.line} is outside this ${this.buffer.lineCount}-line buffer`);
+		}
+		const lineLength = this.buffer.lineText(position.line).length;
+		const maxCharacter = Math.max(lineLength, 1);
+		if (!Number.isSafeInteger(position.character) || position.character < 1 || position.character > maxCharacter) {
+			throw new EditorPositionError(
+				"character-out-of-range",
+				`Character ${position.character} is outside line ${position.line}'s ${lineLength} UTF-16 code units`,
+			);
+		}
+		this.cursorLine = position.line;
+		this.cursorCharacter = position.character;
 	}
 
 	get currentLineText(): string {
