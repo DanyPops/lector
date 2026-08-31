@@ -24,6 +24,8 @@ export async function searchText(
 		if (cached) return cached;
 	}
 	const result = await textSearch.search(rootPath, query, options);
-	if (cache) await cache.set(key, result);
+	// Loading/stale/degraded fallbacks are fresh and correct, but caching them would pin the same
+	// query to ripgrep after the durable index becomes ready. Cache stable adapter results only.
+	if (cache && (!result.provenance || result.provenance.indexState === "ready")) await cache.set(key, result);
 	return result;
 }

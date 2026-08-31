@@ -12,4 +12,6 @@ import type { SearchCacheKey } from "./search-cache-key.ts";
 export interface SearchCachePort {
 	get(key: SearchCacheKey): Promise<TextSearchResult | undefined>;
 	set(key: SearchCacheKey, result: TextSearchResult): Promise<void>;
+	/** Invalidates every cached query for one changed workspace. */
+	invalidateWorkspace(workspaceId: string): Promise<void>;
 }

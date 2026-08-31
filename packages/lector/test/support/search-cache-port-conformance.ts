@@ -58,6 +58,17 @@ export function runSearchCachePortConformanceSuite(name: string, harness: Search
 				expect(await cache.get(key({ maxMatches: 1000 }))).toBeUndefined();
 			}));
 
+		it("invalidates only the changed workspace", () =>
+			withCache(async (cache) => {
+				const first = key({ workspaceId: "ws-1" });
+				const second = key({ workspaceId: "ws-2" });
+				await cache.set(first, RESULT);
+				await cache.set(second, RESULT);
+				await cache.invalidateWorkspace("ws-1");
+				expect(await cache.get(first)).toBeUndefined();
+				expect(await cache.get(second)).toEqual(RESULT);
+			}));
+
 		it("a second set for the same key overwrites the first, rather than erroring or ignoring it", () =>
 			withCache(async (cache) => {
 				await cache.set(key(), RESULT);

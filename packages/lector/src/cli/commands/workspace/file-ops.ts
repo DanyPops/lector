@@ -189,6 +189,7 @@ export async function runWorkspaceSearchText(workspaceId: string | undefined, qu
 		console.log(JSON.stringify(result));
 		return;
 	}
+	if (result.provenance) console.log(`lexical via ${result.provenance.backend} (${result.provenance.indexState})`);
 	if (result.matches.length === 0) {
 		console.log(`no matches for "${query}"`);
 		return;

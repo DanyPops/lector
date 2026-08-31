@@ -11,6 +11,13 @@ const MIGRATIONS: Migration[] = [
 			db.exec("CREATE TABLE search_cache (key TEXT PRIMARY KEY, result_json TEXT NOT NULL, expires_at INTEGER NOT NULL)");
 		},
 	},
+	{
+		version: 2,
+		up: (db) => {
+			db.exec("ALTER TABLE search_cache ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''");
+			db.exec("CREATE INDEX search_cache_workspace_idx ON search_cache(workspace_id)");
+		},
+	},
 ];
 
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
@@ -49,9 +56,13 @@ export class SqliteSearchCache implements SearchCachePort {
 	async set(key: SearchCacheKey, result: TextSearchResult): Promise<void> {
 		this.db
 			.query(
-				"INSERT INTO search_cache (key, result_json, expires_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET result_json = excluded.result_json, expires_at = excluded.expires_at",
+				"INSERT INTO search_cache (key, result_json, expires_at, workspace_id) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET result_json = excluded.result_json, expires_at = excluded.expires_at, workspace_id = excluded.workspace_id",
 			)
-			.run(deriveSearchCacheKey(key), JSON.stringify(result), Date.now() + this.ttlMs);
+			.run(deriveSearchCacheKey(key), JSON.stringify(result), Date.now() + this.ttlMs, key.workspaceId);
+	}
+
+	async invalidateWorkspace(workspaceId: string): Promise<void> {
+		this.db.query("DELETE FROM search_cache WHERE workspace_id = ?").run(workspaceId);
 	}
 
 	close(): void {

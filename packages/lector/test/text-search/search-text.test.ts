@@ -49,6 +49,28 @@ describe("searchText", () => {
 		}
 	});
 
+	it("does not cache transient indexed-search fallback states", async () => {
+		const root = buildFixture();
+		try {
+			const inner: TextSearchPort = {
+				search: async () => ({
+					matches: [],
+					truncated: false,
+					provenance: { kind: "lexical", backend: "ripgrep", indexState: "loading" },
+				}),
+				findFiles: async () => ({ paths: [], truncated: false }),
+			};
+			const textSearch = new CountingTextSearch(inner);
+			const cache = new InMemorySearchCache();
+			const options = { maxMatches: 100, maxBytes: 10_000 };
+			await searchText(textSearch, cache, root, "ws-1", "hello", options);
+			await searchText(textSearch, cache, root, "ws-1", "hello", options);
+			expect(textSearch.calls).toBe(2);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	it("with no cache configured, every call invokes the underlying port -- correct, just uncached", async () => {
 		const root = buildFixture();
 		try {

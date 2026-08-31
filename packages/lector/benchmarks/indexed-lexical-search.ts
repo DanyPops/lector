@@ -14,6 +14,7 @@ import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FffIndexedTextEngineFactory } from "../src/text-search/fff-indexed-text-engine.ts";
 import { RipgrepTextSearch } from "../src/text-search/ripgrep-text-search.ts";
 import { runBenchmarkCase } from "./harness/benchmark-runner.ts";
 import { collectEnvironmentMetadata } from "./harness/environment.ts";
@@ -102,6 +103,46 @@ async function main(): Promise<void> {
 			results.fff = { coldBuildMs, residentRssDeltaBytes, warmSearchRun: run };
 		} finally {
 			fff.destroyAll();
+		}
+	}
+
+	// --- Production FFF adapter: bounded inventory, safe build/swap, and persisted freshness identity ---
+	{
+		const cacheRoot = mkdtempSync(join(tmpdir(), "lector-bench-fff-identities-"));
+		const factory = new FffIndexedTextEngineFactory({
+			cacheRoot,
+			buildTimeoutMs: 30_000,
+			searchTimeoutMs: 5_000,
+			maxFiles: CORPUS_FILE_COUNT + 10,
+			maxSourceBytes: 64 * 1024 * 1024,
+			maxSingleFileBytes: 1024 * 1024,
+			maxPersistedIdentities: 4,
+			maxPersistedIdentityBytes: 16 * 1024,
+		});
+		const engine = factory.open(corpus.rootPath);
+		try {
+			const rssBefore = process.memoryUsage().rss;
+			const coldStart = performance.now();
+			await engine.build(new AbortController().signal);
+			const coldBuildMs = performance.now() - coldStart;
+			const residentRssDeltaBytes = process.memoryUsage().rss - rssBefore;
+			const control = await new RipgrepTextSearch().search(corpus.rootPath, SEARCH_QUERY, { maxMatches: CORPUS_FILE_COUNT, maxBytes: 4 * 1024 * 1024 });
+			const candidate = await engine.search(SEARCH_QUERY, { maxMatches: CORPUS_FILE_COUNT, maxBytes: 4 * 1024 * 1024 });
+			const controlLocations = control.matches.map((match) => `${match.path}:${match.lineNumber}`).sort();
+			const candidateLocations = candidate.matches.map((match) => `${match.path}:${match.lineNumber}`).sort();
+			if (JSON.stringify(controlLocations) !== JSON.stringify(candidateLocations)) throw new Error("production FFF adapter differs from the ripgrep control workload");
+			const run = await runBenchmarkCase({
+				name: "fff-guarded-warm-search",
+				mode: "warm",
+				sampleIterations: WARM_SEARCH_SAMPLES,
+				run: () => engine.search(SEARCH_QUERY, { maxMatches: 50, maxBytes: 65_536 }),
+				resultBytes: (result) => result.matches.reduce((sum, match) => sum + Buffer.byteLength(match.line, "utf8"), 0),
+			});
+			runs.push(run);
+			results.fffGuarded = { coldBuildMs, residentRssDeltaBytes, warmSearchRun: run };
+		} finally {
+			engine.close?.();
+			rmSync(cacheRoot, { recursive: true, force: true });
 		}
 	}
 

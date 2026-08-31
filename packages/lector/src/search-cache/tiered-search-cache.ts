@@ -26,4 +26,8 @@ export class TieredSearchCache implements SearchCachePort {
 	async set(key: SearchCacheKey, result: TextSearchResult): Promise<void> {
 		await Promise.all([this.fast.set(key, result), this.durable.set(key, result)]);
 	}
+
+	async invalidateWorkspace(workspaceId: string): Promise<void> {
+		await Promise.all([this.fast.invalidateWorkspace(workspaceId), this.durable.invalidateWorkspace(workspaceId)]);
+	}
 }

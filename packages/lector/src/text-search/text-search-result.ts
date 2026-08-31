@@ -13,8 +13,18 @@ export interface TextSearchMatch {
 	readonly matchEnd: number;
 }
 
+export interface LexicalSearchProvenance {
+	readonly kind: "lexical";
+	readonly backend: "ripgrep" | "fff";
+	readonly indexState: "loading" | "stale" | "ready" | "degraded" | "unavailable" | "bypassed";
+	readonly indexedFiles?: number;
+	readonly indexSizeBytes?: number;
+}
+
 /** `truncated` reports aggregate result loss from maxMatches/maxBytes; an excerpted individual line reports `lineTruncated` on its own match instead. */
 export interface TextSearchResult {
 	readonly matches: readonly TextSearchMatch[];
 	readonly truncated: boolean;
+	/** Distinguishes indexed lexical search from its fresh ripgrep fallback; never semantic provenance. */
+	readonly provenance?: LexicalSearchProvenance;
 }

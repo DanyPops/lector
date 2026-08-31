@@ -18,12 +18,19 @@ export interface FindFilesOptions {
 /**
  * TextSearchPort -- multi-file text/regex search scoped to one workspace root, and the
  * `find`-shaped half of the classic grep+find pair: locating files by path/name pattern
- * rather than by content. Both are lexical (never semantic/LSP-backed), workspace-scoped,
- * and share the same ripgrep-backed adapter -- one port, not two, for two operations that
- * are really the same tool used two ways.
+ * rather than by content. Both are lexical (never semantic/LSP-backed) and workspace-scoped.
+ * An implementation may use a resident content index with a fresh-scan fallback while retaining
+ * the same bounded result contract for both operations.
  */
+export type TextSearchWorkspaceOrigin = "local" | "remote";
+
 export interface TextSearchPort {
 	search(rootPath: string, query: string, options: TextSearchOptions): Promise<TextSearchResult>;
 	/** `patterns` are OR'd together -- a file matching any one of them is included, matching ripgrep's own multi-glob semantics. */
 	findFiles(rootPath: string, patterns: readonly string[], options: FindFilesOptions): Promise<FindFilesResult>;
+	/** Optional durable-index lifecycle; fresh-scan adapters omit these methods. */
+	registerWorkspace?(rootPath: string, origin: TextSearchWorkspaceOrigin): void;
+	invalidate?(rootPath: string): void;
+	releaseWorkspace?(rootPath: string): void;
+	close?(): void;
 }

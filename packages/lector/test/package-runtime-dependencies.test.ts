@@ -26,6 +26,10 @@ describe("published runtime dependencies", () => {
 		}
 	});
 
+	it("ships the resident lexical index backend", () => {
+		expect(packageJson.dependencies).toHaveProperty("@ff-labs/fff-bun");
+	});
+
 	it("ships the bounded npm registry transport", () => {
 		expect(packageJson.dependencies).toHaveProperty("fetch-retry");
 	});

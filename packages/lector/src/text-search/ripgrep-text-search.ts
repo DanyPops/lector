@@ -39,7 +39,7 @@ interface BoundedMatchLine {
 }
 
 /** Keeps the first matched span inside a UTF-8-safe excerpt instead of blindly retaining a giant line prefix that may not contain the match. */
-function boundMatchLine(line: string, matchStart: number, matchEnd: number, maxBytes: number): BoundedMatchLine {
+export function boundMatchLine(line: string, matchStart: number, matchEnd: number, maxBytes: number): BoundedMatchLine {
 	const encoded = Buffer.from(line, "utf8");
 	if (encoded.byteLength <= maxBytes) {
 		return { line, bytes: encoded.byteLength, matchStart, matchEnd, lineTruncated: false, lineStartByte: 0 };
