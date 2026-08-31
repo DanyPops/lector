@@ -13,6 +13,7 @@ import { toLspFileChangeType } from "../../code-intelligence/lsp-file-change-typ
 import { type ParsedServerCapabilities, parseServerCapabilities, shouldSyncDocuments } from "../../code-intelligence/lsp-server-capabilities.ts";
 import type { CodeIntelligencePort } from "../../code-intelligence/port.ts";
 import type { SymbolIndexPort } from "../../code-intelligence/symbol-index-port.ts";
+import { resolveSystemExecutable } from "../../code-intelligence/system-executable-resolution.ts";
 import type { DiagnosticRegistration, FileSystemWatcherPattern } from "../../concurrency/dynamic-capability-registry.ts";
 import {
 	DynamicCapabilityRegistry,
@@ -91,6 +92,18 @@ export class LanguageServerProvisioningUnavailable extends Error {
 	) {
 		super(`language server ${backendId} is unavailable and managed provisioning failed: ${reason}`);
 		this.name = "LanguageServerProvisioningUnavailable";
+	}
+}
+
+export class LanguageServerExecutableUnavailable extends Error {
+	constructor(
+		readonly backendId: string,
+		readonly overrideEnvironmentVariable: string,
+	) {
+		super(
+			`language server ${backendId} executable is unavailable; checked ${overrideEnvironmentVariable}, the daemon PATH, a bounded login shell, and configured toolchain discovery; set ${overrideEnvironmentVariable} to the executable's absolute path`,
+		);
+		this.name = "LanguageServerExecutableUnavailable";
 	}
 }
 
@@ -331,7 +344,15 @@ function resolveLanguageServerCommand(descriptor: LanguageServerDescriptor): { c
 	if (descriptor.launch.kind === "npm-module") {
 		return { command: RUNTIME_EXECUTABLE, args: [fileURLToPath(import.meta.resolve(descriptor.launch.entryModule)), ...descriptor.args] };
 	}
-	return { command: descriptor.launch.command, args: [...descriptor.args] };
+	if (!descriptor.executablePathEnvironmentVariable) return { command: descriptor.launch.command, args: [...descriptor.args] };
+	const resolution = resolveSystemExecutable(descriptor.launch.command, {
+		overrideEnvironmentVariable: descriptor.executablePathEnvironmentVariable,
+		toolchainExecutableDiscovery: descriptor.toolchainExecutableDiscovery,
+	});
+	if (resolution.status === "unavailable") {
+		throw new LanguageServerExecutableUnavailable(descriptor.backendId, descriptor.executablePathEnvironmentVariable);
+	}
+	return { command: resolution.path, args: [...descriptor.args] };
 }
 
 function isMissingExecutable(error: unknown): boolean {

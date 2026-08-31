@@ -20,6 +20,10 @@ export interface LanguageServerDescriptor {
 	/** Per-extension document language ids when one server owns a language family. */
 	readonly documentLanguageIds?: Readonly<Record<string, string>>;
 	readonly launch: LanguageServerLaunch;
+	/** Optional absolute-path override used before process-PATH and bounded login-shell discovery. */
+	readonly executablePathEnvironmentVariable?: string;
+	/** Optional toolchain-native binary discovery used after process-PATH and login-shell lookup. */
+	readonly toolchainExecutableDiscovery?: "go";
 	/** Optional managed source used only after a system-binary spawn fails with ENOENT. */
 	readonly provisioning?: LanguageServerSource;
 	readonly args: readonly string[];
@@ -82,6 +86,8 @@ export const GO_DESCRIPTOR: LanguageServerDescriptor = {
 	extensions: [".go"],
 	// gopls ships via `go install`, not npm.
 	launch: { kind: "system-binary", command: "gopls" },
+	executablePathEnvironmentVariable: "LECTOR_GOPLS_PATH",
+	toolchainExecutableDiscovery: "go",
 	args: ["serve"],
 	rootMarkers: ["go.mod", "go.work"],
 	commonSeedCandidates: ["main.go", "cmd/main.go"],

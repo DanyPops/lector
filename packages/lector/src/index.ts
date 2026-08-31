@@ -53,6 +53,7 @@ export {
 export {
 	LanguageFileLimitExceeded,
 	LanguageFileOutsideWorkspace,
+	LanguageServerExecutableUnavailable,
 	LanguageServerPositionEncodingUnsupported,
 	LanguageServerWorkspaceNotReady,
 	LspSymbolIndex,
