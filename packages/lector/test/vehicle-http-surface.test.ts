@@ -55,6 +55,7 @@ describe("Lector daemon's /vehicle/* surface (createVehicleHttpApp, additive alo
 		const names = manifest.operations.map((op) => op.name).sort();
 		expect(names).toEqual(
 			[
+				"workspace.release",
 				"workspace.gitStatus",
 				"workspace.gitLog",
 				"workspace.gitDiff",
