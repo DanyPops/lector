@@ -49,6 +49,7 @@ import { NpmPackageSourceResolver } from "./npm-registry/npm-package-source-reso
 import { NpmRegistryClient } from "./npm-registry/npm-registry-client.ts";
 import type { NpmRegistryPort } from "./npm-registry/port.ts";
 import { dispatchThroughOperationRegistry } from "./operation-dispatch/dispatch-through-registry.ts";
+import { WORKSPACE_WRITE_PERMISSION } from "./operation-dispatch/permissions.ts";
 import { CompositePackageSourceResolver } from "./package-source/composite-package-source-resolver.ts";
 import { InMemoryPackageSourceIndex } from "./package-source/in-memory-package-source-index.ts";
 import type { PackageSourceIndexPort } from "./package-source/index-port.ts";
@@ -103,6 +104,7 @@ import { lectorVersion } from "./version.ts";
 import { PatchRejected } from "./workspace/apply-patch.ts";
 import { StaleExpectedHash } from "./workspace/exact-edit.ts";
 import { LineEditRace, LineEditRejected } from "./workspace/line-edit.ts";
+import { registerWorkspaceLifecycleOperations } from "./workspace/operation-registration.ts";
 
 import type { WorkspacePort } from "./workspace/port.ts";
 import { WorkspaceEntryNotFound } from "./workspace/raw-read.ts";
@@ -499,6 +501,10 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		version: lectorVersion(),
 		description: "Lector's operation registry.",
 	});
+	registerWorkspaceLifecycleOperations(operationRegistry, registry, workspaceLifecycleHandlers["workspace.release"]);
+	const registryWorkspaceLifecycleHandlers: Pick<OperationHandlers, "workspace.release"> = {
+		"workspace.release": (_registry, input) => dispatchThroughOperationRegistry(operationRegistry, "workspace.release", 1, input, [WORKSPACE_WRITE_PERMISSION]),
+	};
 	registerGitOperations(operationRegistry, registry, gitHandlers, gitWorktreeHandlers);
 	const registryGitHandlers: Pick<
 		OperationHandlers,
@@ -707,6 +713,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const handlers: OperationHandlers = {
 		...workspaceFileHandlers,
 		...workspaceLifecycleHandlers,
+		...registryWorkspaceLifecycleHandlers,
 		...codeIntelligenceHandlers,
 		...registryCodeActionHandlers,
 		...symbolGraphHandlers.handlers,

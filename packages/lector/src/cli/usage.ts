@@ -23,6 +23,9 @@ export const USAGE = `Usage:
   lector service <install|start|stop|restart|status>
     install: writes a user systemd unit (lector serve --dynamic-workspaces), enables + starts it
   lector workspace register <dir> [--json]
+  lector workspace release <workspace-id> [--json]
+    closes idle workspace resources and unregisters the opaque id; refuses while an index lease,
+    background graph job, or live watch still uses the workspace
   lector workspace read <workspace-id> <path> [--json]
   lector workspace edit <workspace-id> <path> --content <text> (--expected-hash <hash> | --create) [--json]
   lector workspace delete <workspace-id> <path> --expected-hash <hash> [--json]

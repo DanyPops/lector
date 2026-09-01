@@ -63,6 +63,39 @@ describe("createLectorService's workspace.release", () => {
 		await expect(service.dispatch("workspace.release", { workspaceId })).resolves.toMatchObject({ workspaceId });
 	});
 
+	it("refuses (active-job) while graph population waits for resource admission", async () => {
+		root = buildRoot();
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			maxActiveSymbolIndexes: 1,
+			reservedForegroundSlots: 1,
+			backgroundAdmissionQueueTimeoutMs: 100,
+		});
+		const { workspaceId } = await service.dispatch("workspace.registerPath", { path: root });
+		const { job } = await service.dispatch("job.submit", {
+			operation: "workspace.populateSymbolGraph",
+			input: { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 },
+			waitMs: 0,
+		});
+		let status = await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 });
+		for (let attempt = 0; attempt < 20 && status.status !== "waiting-for-resources"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			status = await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 });
+		}
+		expect(status.status).toBe("waiting-for-resources");
+
+		const blocked = await service.dispatch("workspace.release", { workspaceId }).catch((error: unknown) => error);
+		expect(blocked).toBeInstanceOf(WorkspaceReleaseBlocked);
+		expect((blocked as WorkspaceReleaseBlocked).reason).toBe("active-job");
+
+		for (let attempt = 0; attempt < 30; attempt++) {
+			const snapshot = await service.dispatch("job.status", { jobId: job.id });
+			if (snapshot.job.status === "failed") break;
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		await expect(service.dispatch("workspace.release", { workspaceId })).resolves.toMatchObject({ workspaceId });
+	});
+
 	it("refuses (active-lease) while a code-intelligence query still holds the warm index, then succeeds once it completes", async () => {
 		root = buildRoot();
 		let release: (() => void) | undefined;

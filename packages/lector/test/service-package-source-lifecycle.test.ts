@@ -182,6 +182,21 @@ describe("createLectorService package-source lifecycle", () => {
 		});
 	});
 
+	it("workspace.release lets cleanSources remove a previously in-use source", async () => {
+		const root = newRoot();
+		service = createLectorService(new Map(), {
+			allowDynamicOnly: true,
+			createPackageSourceResolver: () => new FixedResolver(new Map([["zod", verified("zod", "3.22.0", root)]])),
+		});
+		const resolved = await service.dispatch("package.resolveSource", { request: requestFor("zod"), bounds: DEFAULT_PACKAGE_SOURCE_BOUNDS });
+		await expect(service.dispatch("package.cleanSources", {})).resolves.toEqual({ removed: 0, skipped: 1 });
+
+		expect(resolved.workspaceId).not.toBeNull();
+		await service.dispatch("workspace.release", { workspaceId: resolved.workspaceId as string });
+
+		await expect(service.dispatch("package.cleanSources", {})).resolves.toEqual({ removed: 1, skipped: 0 });
+	});
+
 	it("returns removed:false, not an error, for a key that was never recorded", async () => {
 		service = createLectorService(new Map(), { allowDynamicOnly: true, createPackageSourceResolver: () => new FixedResolver(new Map()) });
 		const result = await service.dispatch("package.removeSource", { ecosystem: "npm", registry: null, name: "never-recorded", resolvedVersion: "1.0.0" });
