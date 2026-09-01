@@ -329,7 +329,7 @@ describe("multi-language dispatch: a polyglot workspace holds one independent wa
 		if (status.status === "cached") expect(status.generation.sources?.map((source) => source.languageId)).toEqual(["typescript", "python", "go"]);
 	}, 30_000);
 
-	it("queues sibling foreground TS/Rust scopes behind a root polyglot background lease without exceeding process capacity", async () => {
+	it("keeps sibling foreground scopes responsive during polyglot population", async () => {
 		const fixture = buildTypescriptRustScopes();
 		fixtureRoot = fixture.root;
 		const backgroundDocuments = deferred<readonly DocumentSymbolEntry[]>();
@@ -366,13 +366,13 @@ describe("multi-language dispatch: a polyglot workspace holds one independent wa
 			waitMs: 0,
 		});
 		await backgroundEntered.promise;
-		expect(service.symbolIndexPoolStatus()).toMatchObject({ active: 2, leased: 2 });
+		expect(service.symbolIndexPoolStatus()).toMatchObject({ active: 1, leased: 1 });
 
 		const typescriptQuery = service.dispatch("workspace.documentSymbols", { workspaceId: tsWorkspace, path: fixture.tsFile });
 		await foregroundEntered.promise;
 		const rustQuery = service.dispatch("workspace.documentSymbols", { workspaceId: rustWorkspace, path: fixture.rustFile });
 		await new Promise((resolve) => setTimeout(resolve, 20));
-		expect(service.symbolIndexPoolStatus()).toMatchObject({ active: 3, leased: 3, waitingForegroundAdmissions: 1 });
+		expect(service.symbolIndexPoolStatus()).toMatchObject({ active: 3, waitingForegroundAdmissions: 0 });
 
 		foregroundDocuments.resolve([]);
 		await Promise.all([typescriptQuery, rustQuery]);

@@ -1,12 +1,13 @@
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
+import { extname } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import type { GitPort } from "../../git/port.ts";
 import type { RepoFetcherPort } from "../../repo-fetcher/port.ts";
 import { computeUpdatedFileContentHashes } from "../../symbol-graph/compute-updated-file-content-hashes.ts";
 import { findDependentFiles } from "../../symbol-graph/find-dependent-files.ts";
 import { mergePopulationResult } from "../../symbol-graph/merge-population-result.ts";
-import { populateSymbolGraph as populateSymbolGraphQuery } from "../../symbol-graph/populate-symbol-graph.ts";
+import { type PopulateSymbolGraphResult, populateSymbolGraph as populateSymbolGraphQuery } from "../../symbol-graph/populate-symbol-graph.ts";
 import { purgeFilesNoLongerWalked } from "../../symbol-graph/purge-stale-graph-entries.ts";
 import { diffFileHashes } from "../../symbol-graph/select-files-to-reprocess.ts";
 import { classifyAutoPopulationRoot } from "../../workspace/classify-auto-population-root.ts";
@@ -149,13 +150,11 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 		// directory and does not survive having it swapped out from under it, and "before"
 		// further down must see the freshly-fetched content, not what was on disk previously.
 		await cacheFreshness.refreshRemoteWorkspaceIfMoved(input.workspaceId, entry, previousGeneration);
-		// "background": populateSymbolGraph is self-scheduled, unlike an interactive query, and must
-		// never be able to grow the warm-index pool past the slots reserved for foreground work --
-		// it queues (bounded, cancellable) instead of competing for admission on equal footing.
-		await using workspaceLease = await warmIndexes.leaseWorkspaceIndex(input.workspaceId, undefined, "background");
-		const workspaceIndex = workspaceLease.value;
-		if (!supportsCodeIntelligence(workspaceIndex.index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
-		const extensions = warmIndexes.sourceExtensions(workspaceIndex.descriptors);
+		// Population leases one language at a time. This keeps the foreground reservation usable even
+		// when a polyglot workspace declares more languages than the background admission ceiling.
+		const workspaceLanguages = warmIndexes.discoverWorkspaceLanguages(input.workspaceId);
+		if (workspaceLanguages.length === 0) throw new CodeIntelligenceUnavailable(input.workspaceId);
+		const extensions = warmIndexes.sourceExtensions(workspaceLanguages.map(({ descriptor }) => descriptor));
 		const before = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 
 		// Delta selection: a file whose content hash matches the previous generation's needs no
@@ -196,35 +195,81 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 		// addNode/addEdge) already refreshes its outgoing edges correctly.
 		for (const file of changed) await graph.removeNodesForFile(file);
 
-		const reprocessResult = await populateSymbolGraphQuery(
-			workspaceIndex.index,
-			graph,
-			filesToReprocess,
-			input.maxSymbolsPerFile,
-			logger,
-			POPULATION_CONCURRENCY,
-			(progress) => {
-				const enriched = { ...progress, filesReused: filesToSkip.length, staleRetries };
-				progressTracker.set(input.workspaceId, enriched);
-				if (progress.filesProcessed === 1 || progress.filesProcessed === progress.filesTotal || progress.filesProcessed % 25 === 0) {
-					logger.debug("symbol graph population progress", {
-						module: "population",
-						operation: "workspace.populateSymbolGraph",
-						filesProcessed: progress.filesProcessed,
-						filesTotal: progress.filesTotal,
-						filesSucceeded: progress.filesSucceeded,
-						filesFailed: progress.filesFailed,
+		const languageResults: PopulateSymbolGraphResult[] = [];
+		const sources = [];
+		for (const { descriptor, seedFile } of workspaceLanguages) {
+			const languageFiles = filesToReprocess.filter((file) => descriptor.extensions.includes(extname(file)));
+			if (languageFiles.length === 0) continue;
+			await using languageLease = await warmIndexes.leaseWarmIndex({
+				workspaceId: input.workspaceId,
+				seedFile,
+				workKind: "background",
+			});
+			if (!supportsCodeIntelligence(languageLease.value.index)) throw new CodeIntelligenceUnavailable(input.workspaceId);
+			sources.push(languageLease.value.index.provenance);
+			const attemptedBeforeLanguage = languageResults.reduce((total, result) => total + result.filesAttempted, 0);
+			const succeededBeforeLanguage = languageResults.reduce((total, result) => total + result.filesProcessed, 0);
+			const failedBeforeLanguage = languageResults.reduce((total, result) => total + result.filesFailed, 0);
+			const symbolsBeforeLanguage = languageResults.reduce((total, result) => total + result.symbolsProcessed, 0);
+			const nodesBeforeLanguage = languageResults.reduce((total, result) => total + result.nodesAdded, 0);
+			const edgesBeforeLanguage = languageResults.reduce((total, result) => total + result.edgesAdded, 0);
+			const languageResult = await populateSymbolGraphQuery(
+				languageLease.value.index,
+				graph,
+				languageFiles,
+				input.maxSymbolsPerFile,
+				logger,
+				POPULATION_CONCURRENCY,
+				(progress) => {
+					const cumulativeProcessed = attemptedBeforeLanguage + progress.filesProcessed;
+					const enriched = {
+						...progress,
+						filesProcessed: cumulativeProcessed,
+						filesTotal: filesToReprocess.length,
+						filesSucceeded: succeededBeforeLanguage + progress.filesSucceeded,
+						filesFailed: failedBeforeLanguage + progress.filesFailed,
+						symbolsProcessed: symbolsBeforeLanguage + progress.symbolsProcessed,
+						nodesAdded: nodesBeforeLanguage + progress.nodesAdded,
+						edgesAdded: edgesBeforeLanguage + progress.edgesAdded,
 						filesReused: filesToSkip.length,
-						symbolsProcessed: progress.symbolsProcessed,
-						nodesAdded: progress.nodesAdded,
-						edgesAdded: progress.edgesAdded,
 						staleRetries,
-						scopeCount: before.coverage.scopes.length,
-						languageCount: before.coverage.languages.length,
-					});
-				}
-			},
-		);
+					};
+					progressTracker.set(input.workspaceId, enriched);
+					if (cumulativeProcessed === 1 || cumulativeProcessed === filesToReprocess.length || cumulativeProcessed % 25 === 0) {
+						logger.debug("symbol graph population progress", {
+							module: "population",
+							operation: "workspace.populateSymbolGraph",
+							filesProcessed: cumulativeProcessed,
+							filesTotal: filesToReprocess.length,
+							filesSucceeded: enriched.filesSucceeded,
+							filesFailed: enriched.filesFailed,
+							filesReused: filesToSkip.length,
+							symbolsProcessed: enriched.symbolsProcessed,
+							nodesAdded: enriched.nodesAdded,
+							edgesAdded: enriched.edgesAdded,
+							staleRetries,
+							scopeCount: before.coverage.scopes.length,
+							languageCount: before.coverage.languages.length,
+						});
+					}
+				},
+			);
+			languageResults.push(languageResult);
+		}
+		const failureCount = languageResults.reduce((total, result) => total + result.failureCount, 0);
+		const failures = languageResults.flatMap((result) => result.failures).slice(0, 100);
+		const reprocessResult: PopulateSymbolGraphResult = {
+			completeness: failureCount === 0 ? "complete" : "partial",
+			filesAttempted: languageResults.reduce((total, result) => total + result.filesAttempted, 0),
+			filesProcessed: languageResults.reduce((total, result) => total + result.filesProcessed, 0),
+			filesFailed: languageResults.reduce((total, result) => total + result.filesFailed, 0),
+			symbolsProcessed: languageResults.reduce((total, result) => total + result.symbolsProcessed, 0),
+			nodesAdded: languageResults.reduce((total, result) => total + result.nodesAdded, 0),
+			edgesAdded: languageResults.reduce((total, result) => total + result.edgesAdded, 0),
+			failureCount,
+			failures,
+			failuresTruncated: failureCount > failures.length,
+		};
 		const after = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		if (after.fingerprint !== before.fingerprint) throw new WorkspaceChangedDuringPopulation(input.workspaceId);
 
@@ -253,13 +298,26 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 		const settled = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		if (settled.fingerprint !== after.fingerprint) throw new WorkspaceChangedDuringPopulation(input.workspaceId);
 		const completedResult = { ...result, sourceGeneration: settled.fingerprint };
+		const generationSources = sources.length > 0 ? sources : (previousGeneration?.sources ?? []);
 		await graph.setGeneration({
 			sourceFingerprint: settled.fingerprint,
 			maxFiles: input.maxFiles,
 			maxSymbolsPerFile: input.maxSymbolsPerFile,
 			completedAt: Date.now(),
-			provenance: workspaceIndex.index.provenance,
-			sources: workspaceIndex.sources,
+			provenance:
+				generationSources.length === 0 && previousGeneration
+					? previousGeneration.provenance
+					: generationSources.length === 1 && generationSources[0]
+						? generationSources[0]
+						: {
+								fidelity: "semantic",
+								backend: "polyglot-language-servers",
+								languageId: "polyglot",
+								authority: "language-server",
+								freshness: "live-process",
+								limitations: [],
+							},
+			sources: generationSources,
 			result: completedResult,
 			gitHeadSha,
 			walkedFiles: settled.absoluteFiles,

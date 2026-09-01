@@ -237,6 +237,10 @@ export class WarmIndexRegistry<WorkspaceKey extends string> {
 		return this.combineLeases({ index: poolLease.value.index, descriptor }, [poolLease]);
 	}
 
+	discoverWorkspaceLanguages(workspaceId: WorkspaceKey): readonly { descriptor: LanguageServerDescriptor; seedFile: string }[] {
+		return discoverWorkspaceDescriptors(this.options.resolveRoot(workspaceId), this.options.descriptors);
+	}
+
 	async leaseWorkspaceIndex(
 		workspaceId: WorkspaceKey,
 		preferredSeedFile?: string,
