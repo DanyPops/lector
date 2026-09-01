@@ -1,4 +1,4 @@
-import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "@danypops/lector";
+import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeSearchResult } from "@danypops/lector";
 import type { LectorTheme } from "../lector-tui-theme.ts";
 import { presentationTitle } from "../presentation/tool-presentation.ts";
 
@@ -45,17 +45,15 @@ export function formatNpmPackageSearchResult(
 	return lines.join("\n");
 }
 
-export function formatSourcegraphCodeSearchResult(
-	result: { candidates: readonly SourcegraphCodeCandidate[] } | undefined,
-	expanded: boolean,
-	theme: LectorTheme,
-): string {
-	if (!result || result.candidates.length === 0) return theme.fg("dim", "no code matches");
+export function formatSourcegraphCodeSearchResult(result: SourcegraphCodeSearchResult | undefined, expanded: boolean, theme: LectorTheme): string {
+	if (!result) return theme.fg("dim", "no code matches");
 	const { visible, more } = boundedCandidates(result.candidates, expanded);
 	const lines = visible.map((candidate) => {
 		const matches = candidate.lineMatches.slice(0, expanded ? candidate.lineMatches.length : 3);
 		return `${theme.fg("accent", `${candidate.repository}/${candidate.path}`)}\n${matches.map((match) => `  ${match.line}: ${match.preview}`).join("\n")}`;
 	});
 	if (more > 0) lines.push(theme.fg("muted", `… ${more} more (expand to show)`));
+	if (result.truncated) lines.push(theme.fg("warning", `partial results · ${result.stopReason ?? "bounded"}`));
+	if (lines.length === 0) return theme.fg("dim", "no code matches");
 	return lines.join("\n");
 }

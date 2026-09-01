@@ -9,7 +9,7 @@ import type {
 	GithubSearchPort,
 	NpmPackageCandidate,
 	NpmRegistryPort,
-	SourcegraphCodeCandidate,
+	SourcegraphCodeSearchResult,
 	SourcegraphSearchPort,
 } from "@danypops/lector";
 import { createExternalSearchOperations } from "../../extension/src/external-search/operations.ts";
@@ -45,15 +45,21 @@ class FakeNpmRegistry implements NpmRegistryPort {
 }
 
 class FakeSourcegraphSearch implements SourcegraphSearchPort {
-	async searchCode(query: string): Promise<readonly SourcegraphCodeCandidate[]> {
-		return [
-			{
-				repository: "github.com/acme/widgets",
-				path: `${query}.ts`,
-				lineMatches: [],
-				url: `https://sourcegraph.com/github.com/acme/widgets/-/blob/${query}.ts`,
-			},
-		];
+	async searchCode(query: string): Promise<SourcegraphCodeSearchResult> {
+		return {
+			candidates: [
+				{
+					repository: "github.com/acme/widgets",
+					path: `${query}.ts`,
+					lineMatches: [],
+					url: `https://sourcegraph.com/github.com/acme/widgets/-/blob/${query}.ts`,
+				},
+			],
+			completeness: "partial",
+			truncated: true,
+			stopReason: "deadline",
+			bytesRead: 100,
+		};
 	}
 }
 
@@ -85,6 +91,7 @@ describe("Lector-backed external search operations", () => {
 
 		const result = await createExternalSearchOperations().sourcegraphCode("widget", 10, await daemon.call("external_search"));
 
+		expect(result).toMatchObject({ completeness: "partial", truncated: true, stopReason: "deadline", bytesRead: 100 });
 		expect(result.candidates).toEqual([
 			{ repository: "github.com/acme/widgets", path: "widget.ts", lineMatches: [], url: "https://sourcegraph.com/github.com/acme/widgets/-/blob/widget.ts" },
 		]);

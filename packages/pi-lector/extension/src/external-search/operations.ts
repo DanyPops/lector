@@ -1,4 +1,4 @@
-import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "@danypops/lector";
+import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeSearchResult } from "@danypops/lector";
 import { invokeLectorVehicleOperation, type LectorVehicleCall } from "../vehicle-client.ts";
 
 /** Matches EXTERNAL_SEARCH_PERMISSIONS' own declared value server-side (external-search/operation-registration.ts). */
@@ -12,7 +12,7 @@ const EXTERNAL_SEARCH_PERMISSIONS = ["external-search:read"];
 export interface ExternalSearchOperations {
 	githubRepos(query: string, maxResults: number, call: LectorVehicleCall): Promise<GithubRepoSearchResult>;
 	npmPackages(query: string, maxResults: number, call: LectorVehicleCall): Promise<{ candidates: readonly NpmPackageCandidate[] }>;
-	sourcegraphCode(query: string, maxResults: number, call: LectorVehicleCall): Promise<{ candidates: readonly SourcegraphCodeCandidate[] }>;
+	sourcegraphCode(query: string, maxResults: number, call: LectorVehicleCall): Promise<SourcegraphCodeSearchResult>;
 }
 
 export function createExternalSearchOperations(): ExternalSearchOperations {
@@ -29,12 +29,7 @@ export function createExternalSearchOperations(): ExternalSearchOperations {
 			);
 		},
 		sourcegraphCode(query, maxResults, call) {
-			return invokeLectorVehicleOperation<{ candidates: readonly SourcegraphCodeCandidate[] }>(
-				"search.sourcegraphCode",
-				{ query, maxResults },
-				EXTERNAL_SEARCH_PERMISSIONS,
-				call,
-			);
+			return invokeLectorVehicleOperation<SourcegraphCodeSearchResult>("search.sourcegraphCode", { query, maxResults }, EXTERNAL_SEARCH_PERMISSIONS, call);
 		},
 	};
 }

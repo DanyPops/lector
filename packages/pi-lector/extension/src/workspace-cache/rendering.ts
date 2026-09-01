@@ -26,7 +26,16 @@ export function formatWorkspaceCacheCall(
 
 function formatResultCounts(result: CacheResultCounts): string {
 	const failed = result.filesFailed > 0 ? `, ${result.filesFailed} failed` : "";
-	return `${result.filesProcessed}/${result.filesAttempted} files${failed}, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`;
+	const reuse = result.filesReused === undefined ? "" : `, ${result.filesReused} reused, ${result.filesReprocessed ?? 0} reprocessed`;
+	const retries = result.staleRetries ? `, ${result.staleRetries} stale ${result.staleRetries === 1 ? "retry" : "retries"}` : "";
+	const coverage = result.sourceCoverage;
+	const scopes = coverage?.scopes
+		.slice(0, 3)
+		.map((entry) => `${entry.scope}:${entry.files}`)
+		.join(", ");
+	const omitted = coverage ? coverage.scopeOmittedCount + Math.max(0, coverage.scopes.length - 3) : 0;
+	const scopeSummary = scopes ? `; coverage ${scopes}${omitted > 0 ? ` (+${omitted} scopes)` : ""}${coverage?.truncated ? " [bounded]" : ""}` : "";
+	return `${result.filesProcessed}/${result.filesAttempted} files${failed}${reuse}${retries}, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges${scopeSummary}`;
 }
 
 export function formatWorkspaceReleaseModelContent(outcome: OperationOutputs["workspace.release"]): string {

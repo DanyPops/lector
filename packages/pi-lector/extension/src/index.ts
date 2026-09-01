@@ -21,7 +21,7 @@ import type {
 	PackageSourceOperationResult,
 	PopulateSymbolGraphResult,
 	RepoFetchResult,
-	SourcegraphCodeCandidate,
+	SourcegraphCodeSearchResult,
 	SymbolAnnotation,
 	SymbolNode,
 	SymbolSearchResult,
@@ -2457,7 +2457,7 @@ export default function (pi: ExtensionAPI) {
 		type ExternalSearchToolDetails =
 			| { readonly action: "github_repos"; readonly result: GithubRepoSearchResult }
 			| { readonly action: "npm_packages"; readonly result: { candidates: readonly NpmPackageCandidate[] } }
-			| { readonly action: "sourcegraph_code"; readonly result: { candidates: readonly SourcegraphCodeCandidate[] } };
+			| { readonly action: "sourcegraph_code"; readonly result: SourcegraphCodeSearchResult };
 
 		const externalSearchOperations = createExternalSearchOperations();
 		registerLectorTool({

@@ -118,6 +118,41 @@ describe("formatWorkspaceCacheStatusResult", () => {
 		expect(text).toContain("2");
 	});
 
+	it("renders bounded coverage and reuse facts", () => {
+		const status: WorkspaceCacheStatus = {
+			status: "cached",
+			generation: {
+				maxFiles: 500,
+				maxSymbolsPerFile: 100,
+				completedAt: 1,
+				walkedFileCount: 2,
+				result: summarizedResult({
+					filesReused: 7,
+					filesReprocessed: 2,
+					staleRetries: 1,
+					sourceCoverage: {
+						scannedEntries: 10,
+						truncated: true,
+						scopes: [
+							{ scope: "packages/a", files: 3 },
+							{ scope: "packages/b", files: 2 },
+							{ scope: "packages/c", files: 1 },
+							{ scope: "packages/d", files: 1 },
+						],
+						scopeOmittedCount: 2,
+						languages: [{ extension: ".ts", files: 7 }],
+						languageOmittedCount: 0,
+					},
+				}),
+			},
+		};
+		const text = formatWorkspaceCacheStatusResult(status, theme);
+		expect(text).toContain("7 reused, 2 reprocessed, 1 stale retry");
+		expect(text).toContain("packages/a:3");
+		expect(text).toContain("+3 scopes");
+		expect(text).toContain("[bounded]");
+	});
+
 	it("renders partial distinctly from cached, with the failed-file count", () => {
 		const status: WorkspaceCacheStatus = {
 			status: "partial",
