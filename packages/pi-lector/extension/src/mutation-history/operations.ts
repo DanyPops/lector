@@ -1,14 +1,18 @@
-import type { MutationHistoryEntry } from "@danypops/lector";
+import type { MutationHistoryEntry, MutationTransactionLookupOutcome } from "@danypops/lector";
 import { withWorkspace, workspaceForPath } from "../lector-client.ts";
 import { invokeLectorVehicleOperation, type LectorVehicleCall } from "../vehicle-client.ts";
 import { toWorkspaceRelativePath } from "../workspace-relative-path.ts";
 
 const MAX_INTERNAL_HISTORY_LOOKUP_RESULTS = 2_000;
 
-export interface MutationTransactionRevertOutcome {
-	readonly transactionId: string;
-	readonly reverted: readonly { readonly path: string; readonly newHash: string | null }[];
-}
+export type MutationTransactionRevertOutcome =
+	| {
+			readonly status: "reverted";
+			readonly transactionId: string;
+			readonly reverted: readonly { readonly path: string; readonly newHash: string | null }[];
+	  }
+	| { readonly status: "stale"; readonly transactionId: string; readonly stalePaths: readonly string[] }
+	| Extract<MutationTransactionLookupOutcome, { readonly status: "evicted" | "wrong-workspace" | "unknown" }>;
 
 /** Match MUTATION_HISTORY_READ_PERMISSIONS/MUTATION_HISTORY_WRITE_PERMISSIONS' own declared values server-side (mutation-history/operation-registration.ts). */
 const MUTATION_HISTORY_READ_PERMISSIONS = ["workspace:read"];
@@ -32,24 +36,14 @@ async function listResolvedHistory(
 	maxResults: number,
 	call: LectorVehicleCall,
 ): Promise<readonly MutationHistoryEntry[]> {
-	const relativePath = toWorkspaceRelativePath(root, absolutePath);
-	// Single-file edits historically record the caller's workspace-relative path, while LSP
-	// WorkspaceEdits record canonical absolute paths. Query both identities until the daemon's
-	// stored-history migration can normalize old entries, then deduplicate by immutable entry id.
-	const paths = relativePath === absolutePath ? [absolutePath] : [relativePath, absolutePath];
-	const pages = await Promise.all(
-		paths.map((path) =>
-			invokeLectorVehicleOperation<{ entries: readonly MutationHistoryEntry[] }>(
-				"workspace.mutationHistory",
-				{ workspaceId, path, maxResults },
-				MUTATION_HISTORY_READ_PERMISSIONS,
-				call,
-			),
-		),
+	const path = toWorkspaceRelativePath(root, absolutePath);
+	const page = await invokeLectorVehicleOperation<{ entries: readonly MutationHistoryEntry[] }>(
+		"workspace.mutationHistory",
+		{ workspaceId, path, maxResults },
+		MUTATION_HISTORY_READ_PERMISSIONS,
+		call,
 	);
-	const byId = new Map<string, MutationHistoryEntry>();
-	for (const page of pages) for (const entry of page.entries) byId.set(entry.id, entry);
-	return [...byId.values()].sort((a, b) => b.timestamp - a.timestamp).slice(0, maxResults);
+	return page.entries;
 }
 
 export function createMutationHistoryOperations(): MutationHistoryOperations {
@@ -84,13 +78,23 @@ export function createMutationHistoryOperations(): MutationHistoryOperations {
 		revertTransaction(absolutePath, transactionId, call) {
 			return withWorkspace(
 				() => workspaceForPath(absolutePath),
-				({ workspaceId }) =>
-					invokeLectorVehicleOperation<MutationTransactionRevertOutcome>(
+				async ({ workspaceId }) => {
+					const lookup = await invokeLectorVehicleOperation<MutationTransactionLookupOutcome>(
+						"workspace.mutationTransaction",
+						{ workspaceId, transactionId },
+						MUTATION_HISTORY_READ_PERMISSIONS,
+						call,
+					);
+					if (lookup.status === "stale") return { status: "stale", transactionId, stalePaths: lookup.stalePaths };
+					if (lookup.status !== "ready") return lookup;
+					const reverted = await invokeLectorVehicleOperation<Omit<Extract<MutationTransactionRevertOutcome, { status: "reverted" }>, "status">>(
 						"workspace.revertMutationTransaction",
 						{ workspaceId, transactionId },
 						MUTATION_HISTORY_WRITE_PERMISSIONS,
 						call,
-					),
+					);
+					return { status: "reverted", ...reverted };
+				},
 			);
 		},
 	};

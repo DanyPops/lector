@@ -27,6 +27,7 @@ describe("mutation history rendering", () => {
 
 	it("reports every atomically reverted path and names the further-revertible transaction", () => {
 		const text = formatMutationTransactionRevert("tx-old", {
+			status: "reverted",
 			transactionId: "tx-revert",
 			reverted: [
 				{ path: "src/a.ts", newHash: "hash-a" },
@@ -37,5 +38,18 @@ describe("mutation history rendering", () => {
 		expect(text).toContain("recorded as transaction tx-revert");
 		expect(text).toContain("src/a.ts -> hash-a");
 		expect(text).toContain("src/b.ts -> (deleted)");
+	});
+
+	it("renders actionable stale and missing transaction outcomes", () => {
+		expect(
+			formatMutationTransactionRevert("tx-stale", {
+				status: "stale",
+				transactionId: "tx-stale",
+				stalePaths: ["src/a.ts"],
+			}),
+		).toContain("no files were reverted");
+		expect(formatMutationTransactionRevert("tx-evicted", { status: "evicted", transactionId: "tx-evicted" })).toContain("evicted");
+		expect(formatMutationTransactionRevert("tx-wrong", { status: "wrong-workspace", transactionId: "tx-wrong" })).toContain("different registered workspace");
+		expect(formatMutationTransactionRevert("tx-unknown", { status: "unknown", transactionId: "tx-unknown" })).toContain("lost after daemon restart");
 	});
 });

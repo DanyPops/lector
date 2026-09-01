@@ -47,7 +47,7 @@ describe("Lector-backed mutation history operations", () => {
 		const secondEntry = entries.find((entry) => entry.beforeContent === "v1");
 		const reverted = await ops.revert(filePath, secondEntry?.id as string, call);
 
-		expect(reverted).toEqual({ path: "a.txt", newHash: first.newHash });
+		expect(reverted).toEqual({ path: filePath, newHash: first.newHash });
 		const read = await daemon.client.call("workspace.rawRead", { workspaceId, path: "a.txt" });
 		expect(read.content).toBe("v1");
 	}, 20_000);
@@ -82,7 +82,17 @@ describe("Lector-backed mutation history operations", () => {
 		expect(readFileSync(mathPath, "utf8")).toContain("function sum");
 		expect(readFileSync(consumerPath, "utf8")).toContain("sum(1, 2)");
 
+		const renamedConsumer = readFileSync(consumerPath, "utf8");
+		writeFileSync(consumerPath, "// newer unrelated content\n");
+		const stale = await ops.revertTransaction(mathPath, entry.transactionId, call);
+		expect(stale.status).toBe("stale");
+		if (stale.status === "stale") expect(stale.stalePaths).toEqual([consumerPath]);
+		expect(readFileSync(mathPath, "utf8")).toContain("function sum");
+		writeFileSync(consumerPath, renamedConsumer);
+
 		const reverted = await ops.revertTransaction(mathPath, entry.transactionId, call);
+		expect(reverted.status).toBe("reverted");
+		if (reverted.status !== "reverted") throw new Error(`expected reverted, got ${reverted.status}`);
 		expect(reverted.reverted.map((item) => item.path).sort()).toEqual([consumerPath, mathPath].sort());
 		expect(reverted.transactionId).not.toBe(entry.transactionId);
 		expect(readFileSync(mathPath, "utf8")).toContain("function add");
