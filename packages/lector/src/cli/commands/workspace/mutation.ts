@@ -31,12 +31,31 @@ export async function runWorkspaceRevertMutation(workspaceId: string | undefined
 export async function runWorkspaceMutationTransaction(workspaceId: string | undefined, transactionId: string | undefined, flags: string[]): Promise<void> {
 	if (!workspaceId || !transactionId) fail(USAGE);
 	const client = await connectLectorClient();
-	const { entries } = await client.call("workspace.mutationTransaction", { workspaceId, transactionId });
+	const result = await client.call("workspace.mutationTransaction", { workspaceId, transactionId });
 	if (hasFlag(flags, "--json")) {
-		console.log(JSON.stringify(entries));
+		console.log(JSON.stringify(result));
 		return;
 	}
-	for (const entry of entries) console.log(`${entry.path}  ${entry.id}  ${new Date(entry.timestamp).toISOString()}`);
+	switch (result.status) {
+		case "ready":
+		case "stale":
+			console.log(`transaction ${result.status}${result.stalePaths.length > 0 ? ` (${result.stalePaths.length} stale path(s))` : ""}`);
+			for (const entry of result.entries) console.log(`${entry.path}  ${entry.id}  ${new Date(entry.timestamp).toISOString()}`);
+			return;
+		case "evicted":
+			console.log("transaction history was evicted from bounded process-local retention");
+			return;
+		case "wrong-workspace":
+			console.log("transaction belongs to a different registered workspace");
+			return;
+		case "unknown":
+			console.log("transaction is unknown or its process-local history was lost after restart");
+			return;
+		default: {
+			const exhaustive: never = result;
+			return exhaustive;
+		}
+	}
 }
 
 export async function runWorkspaceRevertMutationTransaction(

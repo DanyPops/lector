@@ -286,6 +286,7 @@ export {
 	type LectorServiceOptions,
 	MutationEntryNotFound,
 	MutationRevertStale,
+	type MutationTransactionLookupOutcome,
 	NotAGitRepository,
 	OPERATION_NAMES,
 	type OperationInputs,

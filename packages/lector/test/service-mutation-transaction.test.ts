@@ -65,7 +65,8 @@ describe("createLectorService's rename mutation transactions", () => {
 		expect(consumerHistory.entries[0]?.transactionId).toBe(transactionId as string);
 
 		const preview = await service.dispatch("workspace.mutationTransaction", { workspaceId: built.workspaceId, transactionId: transactionId as string });
-		expect(preview.entries.map((entry) => entry.path).sort()).toEqual([consumerPath, mathPath].sort());
+		expect(preview.status).toBe("ready");
+		if (preview.status === "ready") expect(preview.entries.map((entry) => entry.path).sort()).toEqual([consumerPath, mathPath].sort());
 	}, 20_000);
 
 	it("reverts a whole rename transaction atomically, restoring every file's exact prior content", async () => {
@@ -123,9 +124,10 @@ describe("createLectorService's rename mutation transactions", () => {
 		const built = await buildService();
 		service = built.service;
 
-		await expect(service.dispatch("workspace.mutationTransaction", { workspaceId: built.workspaceId, transactionId: "never-recorded" })).rejects.toBeInstanceOf(
-			MutationTransactionNotFound,
-		);
+		await expect(service.dispatch("workspace.mutationTransaction", { workspaceId: built.workspaceId, transactionId: "never-recorded" })).resolves.toEqual({
+			status: "unknown",
+			transactionId: "never-recorded",
+		});
 		await expect(
 			service.dispatch("workspace.revertMutationTransaction", { workspaceId: built.workspaceId, transactionId: "never-recorded" }),
 		).rejects.toBeInstanceOf(MutationTransactionNotFound);

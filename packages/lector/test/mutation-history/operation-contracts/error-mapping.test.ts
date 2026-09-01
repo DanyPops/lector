@@ -13,13 +13,7 @@ import type { ContentHash } from "../../../src/content-identity/content-hash.ts"
 import { contentHashOf } from "../../../src/content-identity/content-hash.ts";
 import { InMemoryMutationHistory } from "../../../src/mutation-history/in-memory-mutation-history.ts";
 import { registerMutationHistoryOperations } from "../../../src/mutation-history/operation-registration.ts";
-import {
-	MutationEntryNotFound,
-	MutationRevertStale,
-	MutationTransactionNotFound,
-	MutationTransactionRevertStale,
-	UnknownWorkspace,
-} from "../../../src/service/errors.ts";
+import { MutationEntryNotFound, MutationRevertStale, MutationTransactionRevertStale, UnknownWorkspace } from "../../../src/service/errors.ts";
 import { MutationHistoryCoordinator } from "../../../src/service/mutation-history-handlers.ts";
 import type { MutableRegistry } from "../../../src/service/workspace-registry.ts";
 import { StaleExpectedHash } from "../../../src/workspace/exact-edit.ts";
@@ -162,19 +156,6 @@ describe("mutation history operation error mapping", () => {
 		expect(error.cause).toBeInstanceOf(StaleExpectedHash);
 	});
 
-	it("maps MutationTransactionNotFound to a coded VehicleError on workspace.mutationTransaction, keeping it as cause", async () => {
-		root = mkdtempSync(join(tmpdir(), "lector-mutation-history-error-mapping-tx-not-found-"));
-		const { vehicleRegistry } = buildFixture(new LocalFilesystemWorkspace(root), root);
-
-		const error = await invokeAndCatch(vehicleRegistry, "workspace.mutationTransaction", READ_PERMISSIONS, {
-			workspaceId: "ws",
-			transactionId: "never-recorded",
-		});
-		expect(error.code).toBe("mutation-transaction-not-found");
-		expect(error.category).toBe("not_found");
-		expect(error.cause).toBeInstanceOf(MutationTransactionNotFound);
-	});
-
 	it("maps MutationTransactionRevertStale to a coded VehicleError on workspace.revertMutationTransaction, keeping it as cause", async () => {
 		root = mkdtempSync(join(tmpdir(), "lector-mutation-history-error-mapping-tx-stale-"));
 		writeFileSync(join(root, "a.ts"), "v1");
@@ -212,7 +193,7 @@ describe("mutation history operation error mapping", () => {
 		);
 
 		const preview = manifest.operations.find((candidate) => candidate.name === "workspace.mutationTransaction");
-		expect(preview?.errors.map((failure) => failure.code).sort()).toEqual(["unknown-workspace", "mutation-transaction-not-found"].sort());
+		expect(preview?.errors.map((failure) => failure.code).sort()).toEqual(["unknown-workspace"]);
 
 		const revertTransaction = manifest.operations.find((candidate) => candidate.name === "workspace.revertMutationTransaction");
 		expect(revertTransaction?.errors.map((failure) => failure.code).sort()).toEqual(

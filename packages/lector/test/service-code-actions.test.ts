@@ -95,6 +95,8 @@ describe("workspace code actions", () => {
 		expect(readFileSync(path, "utf8")).toContain("export async function load");
 
 		if (!applied?.transactionId) throw new Error("expected transaction id");
+		const history = await service?.dispatch("workspace.mutationHistory", { workspaceId, path, maxResults: 10 });
+		expect(history?.entries[0]?.transactionId).toBe(applied.transactionId);
 		await service?.dispatch("workspace.revertMutationTransaction", { workspaceId, transactionId: applied.transactionId });
 		expect(readFileSync(path, "utf8")).toContain("export function load");
 	}, 30_000);

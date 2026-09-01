@@ -64,8 +64,13 @@ export interface MutationHistoryHandlers {
 	) => Promise<OperationOutputs["workspace.revertMutationTransaction"]>;
 }
 
+const MAX_TRACKED_TRANSACTION_OWNERS = 10_000;
+// Leaves response space for stalePaths, which can repeat every bounded entry's path.
+const MAX_MUTATION_TRANSACTION_LOOKUP_BYTES = Math.floor(MAX_MUTATION_HISTORY_BYTES / 2);
+
 export class MutationHistoryCoordinator {
 	private readonly stores = new Map<WorkspaceId, MutationHistoryPort>();
+	private readonly transactionOwners = new Map<string, WorkspaceId>();
 	private readonly createStore: (workspaceId: WorkspaceId) => MutationHistoryPort;
 	readonly handlers: MutationHistoryHandlers;
 
@@ -76,24 +81,37 @@ export class MutationHistoryCoordinator {
 				if (!this.deps.registry.has(input.workspaceId)) throw new UnknownWorkspace(input.workspaceId);
 				const maxResults = resolveBound(input.maxResults, DEFAULT_MUTATION_HISTORY_RESULTS, MAX_MUTATION_HISTORY_RESULTS, "maxResults");
 				const maxBytes = resolveBound(input.maxBytes, DEFAULT_MUTATION_HISTORY_BYTES, MAX_MUTATION_HISTORY_BYTES, "maxBytes");
-				const stored = await this.store(input.workspaceId).listForPath(input.path, maxResults);
+				const path = this.historyPath(input.workspaceId, input.path);
+				const stored = await this.store(input.workspaceId).listForPath(path, maxResults);
 				return boundMutationHistoryEntries(stored, maxResults, maxBytes, MAX_MUTATION_HISTORY_ENTRY_CONTENT_BYTES);
 			},
 			"workspace.revertMutation": async (registry, input) => this.revert(registry, input),
-			"workspace.mutationTransaction": async (_registry, input) => {
-				if (!this.deps.registry.has(input.workspaceId)) throw new UnknownWorkspace(input.workspaceId);
-				const entries = await this.store(input.workspaceId).listByTransaction(input.transactionId);
-				if (entries.length === 0) throw new MutationTransactionNotFound(input.transactionId);
-				const bounded = boundMutationHistoryEntries(
-					entries,
-					MAX_MUTATION_HISTORY_RESULTS,
-					MAX_MUTATION_HISTORY_BYTES,
-					MAX_MUTATION_HISTORY_ENTRY_CONTENT_BYTES,
-				);
-				return { transactionId: input.transactionId, ...bounded };
-			},
+			"workspace.mutationTransaction": async (_registry, input) => this.lookupTransaction(input.workspaceId, input.transactionId),
 			"workspace.revertMutationTransaction": async (registry, input) => this.revertTransaction(registry, input),
 		};
+	}
+
+	private async lookupTransaction(workspaceId: WorkspaceId, transactionId: string): Promise<OperationOutputs["workspace.mutationTransaction"]> {
+		if (!this.deps.registry.has(workspaceId)) throw new UnknownWorkspace(workspaceId);
+		const owner = this.transactionOwners.get(transactionId);
+		if (owner !== undefined && owner !== workspaceId) return { status: "wrong-workspace", transactionId };
+		const entries = await this.store(workspaceId).listByTransaction(transactionId);
+		if (entries.length === 0) return { status: owner === workspaceId ? "evicted" : "unknown", transactionId };
+		const bounded = boundMutationHistoryEntries(
+			entries,
+			MAX_MUTATION_HISTORY_RESULTS,
+			MAX_MUTATION_TRANSACTION_LOOKUP_BYTES,
+			MAX_MUTATION_HISTORY_ENTRY_CONTENT_BYTES,
+		);
+		const workspace = resolveWorkspace(this.deps.registry, workspaceId);
+		const stalePaths: string[] = [];
+		for (const entry of entries.slice(0, MAX_MUTATION_HISTORY_RESULTS)) {
+			const current = await workspace.readEntry(entry.path);
+			const currentHash = current.exists ? contentHashOf(current.content) : null;
+			if (!canRevertMutation({ entry, currentHash })) stalePaths.push(entry.path);
+		}
+		if (stalePaths.length === 0) return { status: "ready", transactionId, ...bounded, stalePaths: [] };
+		return { status: "stale", transactionId, ...bounded, stalePaths };
 	}
 
 	/** Returns a bounded transaction's immutable entries for read-only analyses. */
@@ -102,6 +120,10 @@ export class MutationHistoryCoordinator {
 		const entries = await this.store(workspaceId).listByTransaction(transactionId);
 		if (entries.length === 0) throw new MutationTransactionNotFound(transactionId);
 		return entries.slice(0, MAX_MUTATION_HISTORY_RESULTS);
+	}
+
+	private historyPath(workspaceId: WorkspaceId, path: string): string {
+		return resolveWorkspace(this.deps.registry, workspaceId).resolvePath(path);
 	}
 
 	private store(workspaceId: WorkspaceId): MutationHistoryPort {
@@ -124,7 +146,8 @@ export class MutationHistoryCoordinator {
 		const beforeContent = before.exists ? before.content : null;
 		const beforeHash = before.exists ? contentHashOf(before.content) : null;
 		const outcome = await run();
-		await this.store(workspaceId).record({ path, operation, beforeContent, beforeHash, afterHash: outcome.newHash, transactionId: null });
+		const historyPath = workspace.resolvePath(path);
+		await this.store(workspaceId).record({ path: historyPath, operation, beforeContent, beforeHash, afterHash: outcome.newHash, transactionId: null });
 		return outcome;
 	}
 
@@ -139,7 +162,15 @@ export class MutationHistoryCoordinator {
 		const store = this.store(workspaceId);
 		for (const step of steps) {
 			const beforeHash = step.beforeContent !== null ? contentHashOf(step.beforeContent) : null;
-			await store.record({ path: step.path, operation, beforeContent: step.beforeContent, beforeHash, afterHash: step.afterHash, transactionId });
+			const path = this.historyPath(workspaceId, step.path);
+			await store.record({ path, operation, beforeContent: step.beforeContent, beforeHash, afterHash: step.afterHash, transactionId });
+		}
+		this.transactionOwners.delete(transactionId);
+		this.transactionOwners.set(transactionId, workspaceId);
+		while (this.transactionOwners.size > MAX_TRACKED_TRANSACTION_OWNERS) {
+			const oldest = this.transactionOwners.keys().next().value;
+			if (oldest === undefined) break;
+			this.transactionOwners.delete(oldest);
 		}
 		return transactionId;
 	}

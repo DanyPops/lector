@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { startLectorDaemon } from "../src/daemon.ts";
-import type { MutationHistoryEntry } from "../src/index.ts";
+import type { MutationHistoryEntry, MutationTransactionLookupOutcome } from "../src/index.ts";
 import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
@@ -56,6 +56,11 @@ describe("lector CLI workspace mutation-transaction / revert-mutation-transactio
 		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
 		const project = fixture();
 		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
+		const unknown = JSON.parse(
+			await runCli(["workspace", "mutation-transaction", registered.workspaceId, "never-recorded", "--json"]),
+		) as MutationTransactionLookupOutcome;
+		expect(unknown).toEqual({ status: "unknown", transactionId: "never-recorded" });
+
 		const mathPath = join(project, "src", "math.ts");
 		const consumerPath = join(project, "src", "consumer.ts");
 		const originalMath = readFileSync(mathPath, "utf8");
@@ -73,8 +78,9 @@ describe("lector CLI workspace mutation-transaction / revert-mutation-transactio
 
 		const preview = JSON.parse(
 			await runCli(["workspace", "mutation-transaction", registered.workspaceId, transactionId as string, "--json"]),
-		) as MutationHistoryEntry[];
-		expect(preview.map((entry) => entry.path).sort()).toEqual([consumerPath, mathPath].sort());
+		) as MutationTransactionLookupOutcome;
+		expect(preview.status).toBe("ready");
+		if (preview.status === "ready") expect(preview.entries.map((entry) => entry.path).sort()).toEqual([consumerPath, mathPath].sort());
 
 		const reverted = JSON.parse(await runCli(["workspace", "revert-mutation-transaction", registered.workspaceId, transactionId as string, "--json"])) as {
 			reverted: readonly { path: string; newHash: string | null }[];

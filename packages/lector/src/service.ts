@@ -826,7 +826,7 @@ export {
 	WorkspaceReleaseBlocked,
 } from "./service/errors.ts";
 export { ImpactAnalysisRequiresFreshGraph } from "./service/impact-analysis-handler.ts";
-export type { OperationInputs, OperationName, OperationOutputs } from "./service/operations.ts";
+export type { MutationTransactionLookupOutcome, OperationInputs, OperationName, OperationOutputs } from "./service/operations.ts";
 export { OPERATION_NAMES } from "./service/operations.ts";
 export type { ClosableSymbolIndex, WarmIndexProcessCostRecorder } from "./service/warm-index-registry.ts";
 export type { MutableRegistry, RegisteredWorkspace } from "./service/workspace-registry.ts";

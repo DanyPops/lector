@@ -5,16 +5,23 @@
  * change instead of silently clobbering it.
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { contentHashOf } from "../src/content-identity/content-hash.ts";
 import { lineHashOf } from "../src/content-identity/line-hash.ts";
 import { createLectorService, type LectorService, MutationEntryNotFound, MutationRevertStale } from "../src/service.ts";
 import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
+import { LocalFilesystemWorkspace } from "../src/workspace/local-filesystem-workspace.ts";
 
 let service: LectorService | undefined;
+let fixtureRoot: string | undefined;
 
 afterEach(async () => {
 	await service?.close();
 	service = undefined;
+	if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
+	fixtureRoot = undefined;
 });
 
 describe("createLectorService's mutation history and revert", () => {
@@ -31,6 +38,20 @@ describe("createLectorService's mutation history and revert", () => {
 		const { entries } = await service.dispatch("workspace.mutationHistory", { workspaceId: "ws", path: "a.txt", maxResults: 10 });
 		expect(entries.map((entry) => entry.operation)).toEqual(["lineEdit", "exactEdit"]);
 		expect(entries[1]?.beforeContent).toBeNull();
+	});
+
+	it("normalizes local paths while accepting both query forms", async () => {
+		fixtureRoot = mkdtempSync(join(tmpdir(), "lector-mutation-path-"));
+		const absolutePath = join(fixtureRoot, "src", "a.txt");
+		service = createLectorService(new Map([["ws", new LocalFilesystemWorkspace(fixtureRoot)]]));
+		await service.dispatch("workspace.exactEdit", { workspaceId: "ws", path: "src/a.txt", expectedHash: null, content: "v1" });
+
+		const relative = await service.dispatch("workspace.mutationHistory", { workspaceId: "ws", path: "src/a.txt", maxResults: 10 });
+		const absolute = await service.dispatch("workspace.mutationHistory", { workspaceId: "ws", path: absolutePath, maxResults: 10 });
+
+		expect(relative.entries).toHaveLength(1);
+		expect(absolute.entries).toEqual(relative.entries);
+		expect(relative.entries[0]?.path).toBe(absolutePath);
 	});
 
 	it("reverts exactEdit back to the file's exact prior content", async () => {

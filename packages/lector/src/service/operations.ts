@@ -506,6 +506,23 @@ export interface OperationInputs {
 
 type Provenanced<T> = T & { readonly provenance: IntelligenceProvenance };
 
+export type MutationTransactionLookupOutcome =
+	| {
+			readonly status: "ready";
+			readonly transactionId: string;
+			readonly entries: readonly BoundedMutationHistoryEntry[];
+			readonly truncated: boolean;
+			readonly stalePaths: readonly [];
+	  }
+	| {
+			readonly status: "stale";
+			readonly transactionId: string;
+			readonly entries: readonly BoundedMutationHistoryEntry[];
+			readonly truncated: boolean;
+			readonly stalePaths: readonly string[];
+	  }
+	| { readonly status: "evicted" | "wrong-workspace" | "unknown"; readonly transactionId: string };
+
 export interface OperationOutputs {
 	"workspace.rawRead": RawRead;
 	"workspace.exactEdit": EditOutcome;
@@ -515,7 +532,7 @@ export interface OperationOutputs {
 	"workspace.mutationHistory": { entries: readonly BoundedMutationHistoryEntry[]; truncated: boolean };
 	/** newHash is null when the reverted-to state is "the file doesn't exist" -- reverting a create back to nonexistence, or reverting a delete when the file has stayed deleted since. */
 	"workspace.revertMutation": { path: string; newHash: ContentHash | null };
-	"workspace.mutationTransaction": { transactionId: string; entries: readonly BoundedMutationHistoryEntry[]; truncated: boolean };
+	"workspace.mutationTransaction": MutationTransactionLookupOutcome;
 	/** transactionId here is the REVERT's own new transaction id (itself further-revertible), not the one that was reverted. */
 	"workspace.revertMutationTransaction": { transactionId: string; reverted: readonly { path: string; newHash: ContentHash | null }[] };
 	"workspace.registerPath": { workspaceId: WorkspaceId; created: boolean };
