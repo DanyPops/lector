@@ -1,7 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import type { CacheGenerationResultSummary, JobSnapshot, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
+import type { CacheGenerationResultSummary, JobSnapshot, OperationOutputs, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
 import type { LectorTheme } from "../../extension/src/lector-tui-theme.ts";
-import { formatJobSnapshotResult, formatWorkspaceCacheCall, formatWorkspaceCacheStatusResult } from "../../extension/src/workspace-cache/rendering.ts";
+import {
+	formatJobSnapshotResult,
+	formatWorkspaceCacheCall,
+	formatWorkspaceCacheStatusResult,
+	formatWorkspaceReleaseModelContent,
+	formatWorkspaceReleaseResult,
+} from "../../extension/src/workspace-cache/rendering.ts";
 
 const theme: LectorTheme = { fg: (_color, text) => text, bold: (text) => text };
 
@@ -63,6 +69,31 @@ describe("formatWorkspaceCacheCall", () => {
 		const text = formatWorkspaceCacheCall("job_status", { jobId: "job-42" }, theme);
 		expect(text).toContain("Cache Job Status");
 		expect(text).toContain("job-42");
+	});
+
+	it("renders a release call with the directory", () => {
+		const text = formatWorkspaceCacheCall("release", { directory: "/repo" }, theme);
+		expect(text).toContain("Release Workspace");
+		expect(text).toContain("/repo");
+	});
+});
+
+describe("workspace release result", () => {
+	const outcome: OperationOutputs["workspace.release"] = {
+		workspaceId: "ws-1",
+		closedIndexes: 2,
+		closedGraph: true,
+		closedWatch: false,
+	};
+
+	it("preserves lifecycle facts for the model", () => {
+		expect(formatWorkspaceReleaseModelContent(outcome)).toBe("released workspace ws-1\nclosed indexes: 2\nclosed graph: true\nclosed watch: false");
+	});
+
+	it("renders lifecycle facts for a human", () => {
+		const text = formatWorkspaceReleaseResult(outcome, theme);
+		expect(text).toContain("released ws-1");
+		expect(text).toContain("2 index(es)");
 	});
 });
 

@@ -82,6 +82,7 @@ import {
 	formatWorkspaceMapCall,
 	formatWorkspaceMapResult,
 } from "./code-intelligence/rendering.ts";
+import { formatFindSymbolsAcrossProjectsModelContent, formatSearchTextAcrossProjectsModelContent } from "./cross-workspace-search/model-content.ts";
 import { type CrossWorkspaceOutcome, createLectorCrossWorkspaceSearchOperations } from "./cross-workspace-search/operations.ts";
 import { formatCrossWorkspaceCall, formatFindSymbolsAcrossProjectsResult, formatSearchTextAcrossProjectsResult } from "./cross-workspace-search/rendering.ts";
 import { createLectorEditOperations } from "./edit/operations.ts";
@@ -125,6 +126,11 @@ import { withLectorPresentation } from "./presentation/presentation-contract.ts"
 import { presentationTitle } from "./presentation/tool-presentation.ts";
 import { createLectorReadOperations } from "./read/operations.ts";
 import { createReferenceBasedRenameOperations } from "./reference-based-rename/operations.ts";
+import {
+	formatReferenceBasedRenameModelContent,
+	formatReferenceBasedRenameResult,
+	type ReferenceBasedRenameOutcome,
+} from "./reference-based-rename/rendering.ts";
 import { createRenameOperations } from "./rename/operations.ts";
 import { createRepoCacheEvictOperations } from "./repo-cache/evict-operations.ts";
 import { createRepoCacheListOperations } from "./repo-cache/list-operations.ts";
@@ -154,7 +160,13 @@ import {
 	monitorWorkspaceCache,
 	waitForJobCompletion,
 } from "./workspace-cache/operations.ts";
-import { formatJobSnapshotResult, formatWorkspaceCacheCall, formatWorkspaceCacheStatusResult } from "./workspace-cache/rendering.ts";
+import {
+	formatJobSnapshotResult,
+	formatWorkspaceCacheCall,
+	formatWorkspaceCacheStatusResult,
+	formatWorkspaceReleaseModelContent,
+	formatWorkspaceReleaseResult,
+} from "./workspace-cache/rendering.ts";
 import { createLectorWriteOperations } from "./write/operations.ts";
 
 function describeIntelligenceSource(provenance: IntelligenceProvenance): string {
@@ -1190,14 +1202,7 @@ export default function (pi: ExtensionAPI) {
 				const fromPath = resolve(cwd, params.fromPath);
 				const toPath = resolve(cwd, params.toPath);
 				const outcome = await referenceBasedRenameOperations.rename(fromPath, toPath, params.maxFiles, params.maxSymbolsPerFile);
-				const lines = [
-					`moved to ${outcome.movedTo}`,
-					outcome.filesUpdated.length === 0
-						? "no other files referenced it"
-						: `updated imports in ${outcome.filesUpdated.length} file(s): ${outcome.filesUpdated.join(", ")}`,
-					...outcome.caveats.map((caveat) => `caveat: ${caveat}`),
-				];
-				return { content: [{ type: "text", text: lines.join("\n") }], details: { outcome } };
+				return { content: [{ type: "text", text: formatReferenceBasedRenameModelContent(outcome) }], details: { outcome } };
 			},
 			renderCall(args, theme, context) {
 				const fromPath = typeof args.fromPath === "string" ? args.fromPath : "";
@@ -1217,13 +1222,9 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "reference_based_rename failed"), 0, 0);
 				}
-				const details = result.details as { outcome?: { movedTo: string; filesUpdated: readonly string[] } } | undefined;
+				const details = result.details as { outcome?: ReferenceBasedRenameOutcome } | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(
-					details?.outcome
-						? `${theme.fg("success", "moved")} ${theme.fg("accent", details.outcome.movedTo)} ${theme.fg("dim", `(${details.outcome.filesUpdated.length} import(s) updated)`)}`
-						: theme.fg("success", "rename complete"),
-				);
+				text.setText(details?.outcome ? formatReferenceBasedRenameResult(details.outcome, theme) : theme.fg("success", "rename complete"));
 				return text;
 			},
 		});
@@ -1604,25 +1605,27 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		interface WorkspaceCacheToolDetails {
-			readonly action: "status" | "populate" | "wait" | "job_status";
+			readonly action: "status" | "populate" | "wait" | "job_status" | "release";
 			readonly status?: WorkspaceCacheStatus;
 			readonly job?: JobSnapshot<PopulateSymbolGraphResult>;
+			readonly release?: OperationOutputs["workspace.release"];
 		}
 
 		registerLectorTool({
 			name: "workspace_cache",
 			label: "Workspace Cache",
 			description:
-				"Checks or drives population of the workspace's persisted symbol graph -- the store reachable_from, symbol_annotations (anchor resolution), reference_based_rename, and workspace_map all read from, separate from the live language-server index find_symbols/hover/go_to_definition use. action=status reports not-cached/caching/partial/cached for the given bounds, without starting work. action=populate requests a scan and briefly waits for fast completion; a source file changing mid-scan (e.g. a concurrent edit or rename) is retried automatically in the background for up to a minute before surfacing as a real failure, no manual re-run needed. action=wait subscribes to daemon job completion, with bounded status polling only when push delivery is unavailable. action=job_status is a point-in-time diagnostic read.",
+				"Checks or drives population of the workspace's persisted symbol graph -- the store reachable_from, symbol_annotations (anchor resolution), reference_based_rename, and workspace_map all read from, separate from the live language-server index find_symbols/hover/go_to_definition use. action=status reports not-cached/caching/partial/cached for the given bounds, without starting work. action=populate requests a scan and briefly waits for fast completion; a source file changing mid-scan (e.g. a concurrent edit or rename) is retried automatically in the background for up to a minute before surfacing as a real failure, no manual re-run needed. action=wait subscribes to daemon job completion, with bounded status polling only when push delivery is unavailable. action=job_status is a point-in-time diagnostic read. action=release safely closes idle workspace resources and unregisters it so fetched/package source cleanup can proceed.",
 			promptSnippet: "Check or force-populate the workspace's persisted symbol graph",
 			promptGuidelines: [
 				"Use action=populate with a larger maxFiles/maxSymbolsPerFile before relying on reachable_from/symbol_annotations/reference_based_rename against a workspace bigger than the default 500-file auto-scan -- their own errors (empty results, UnknownAnnotationAnchor, ReferenceBasedRenameRequiresFreshGraph) usually mean the graph never reached the files you need, not that population is simply still catching up.",
 				"When action=populate returns a queued/running job, call action=wait once with that jobId; do not run shell sleep or manually poll job_status.",
+				"Use action=release after finishing with a fetched or package-source workspace so package_source remove/clean and repo_cache evict can reclaim it; active leases, jobs, or watches fail closed.",
 			],
 			parameters: Type.Object({
-				action: Type.Union([Type.Literal("status"), Type.Literal("populate"), Type.Literal("wait"), Type.Literal("job_status")]),
+				action: Type.Union([Type.Literal("status"), Type.Literal("populate"), Type.Literal("wait"), Type.Literal("job_status"), Type.Literal("release")]),
 				directory: Type.Optional(
-					Type.String({ description: "Required for action=status/populate -- absolute or cwd-relative path used to resolve the workspace" }),
+					Type.String({ description: "Required for action=status/populate/release -- absolute or cwd-relative path used to resolve the workspace" }),
 				),
 				maxFiles: Type.Optional(
 					Type.Number({ description: "action=status/populate only -- defaults to 500, the same bound the automatic first-touch scan uses" }),
@@ -1638,7 +1641,7 @@ export default function (pi: ExtensionAPI) {
 				),
 				jobId: Type.Optional(Type.String({ description: "Required for action=wait/job_status -- a jobId returned by action=populate" })),
 			}),
-			async execute(_toolCallId, params, signal): Promise<AgentToolResult<WorkspaceCacheToolDetails>> {
+			async execute(toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<WorkspaceCacheToolDetails>> {
 				if (params.action === "job_status") {
 					if (!params.jobId) throw new Error("workspace_cache action=job_status requires jobId");
 					const job = await cacheOperations.jobStatus(params.jobId);
@@ -1674,6 +1677,18 @@ export default function (pi: ExtensionAPI) {
 				}
 				if (!params.directory) throw new Error(`workspace_cache action=${params.action} requires directory`);
 				const directory = resolve(cwd, params.directory);
+				if (params.action === "release") {
+					const release = await cacheOperations.release(directory, {
+						toolName: "workspace_cache",
+						toolCallId,
+						signal,
+						context: ctx,
+					});
+					return {
+						content: [{ type: "text", text: formatWorkspaceReleaseModelContent(release) }],
+						details: { action: "release", release },
+					};
+				}
 				const maxFiles = params.maxFiles ?? 500;
 				const maxSymbolsPerFile = params.maxSymbolsPerFile ?? 100;
 				if (params.action === "status") {
@@ -1690,7 +1705,8 @@ export default function (pi: ExtensionAPI) {
 				};
 			},
 			renderCall(args, theme, context) {
-				const action = args.action === "populate" || args.action === "wait" || args.action === "job_status" ? args.action : "status";
+				const action =
+					args.action === "populate" || args.action === "wait" || args.action === "job_status" || args.action === "release" ? args.action : "status";
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(formatWorkspaceCacheCall(action, args, theme));
 				return text;
@@ -1706,7 +1722,13 @@ export default function (pi: ExtensionAPI) {
 				}
 				const details = result.details as WorkspaceCacheToolDetails | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(details?.action === "status" ? formatWorkspaceCacheStatusResult(details.status, theme) : formatJobSnapshotResult(details?.job, theme));
+				text.setText(
+					details?.action === "status"
+						? formatWorkspaceCacheStatusResult(details.status, theme)
+						: details?.action === "release"
+							? formatWorkspaceReleaseResult(details.release, theme)
+							: formatJobSnapshotResult(details?.job, theme),
+				);
 				return text;
 			},
 		});
@@ -2522,7 +2544,7 @@ export default function (pi: ExtensionAPI) {
 				const directories = params.directories.map((directory) => resolve(cwd, directory));
 				const results = await crossWorkspaceSearchOperations.findSymbols(params.query, directories, params.timeoutMs, params.maxResults);
 				return {
-					content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("find_symbols_across_projects"), results) }],
+					content: [{ type: "text", text: formatFindSymbolsAcrossProjectsModelContent(results) }],
 					details: { results },
 				};
 			},
@@ -2564,7 +2586,7 @@ export default function (pi: ExtensionAPI) {
 				const directories = params.directories.map((directory) => resolve(cwd, directory));
 				const results = await crossWorkspaceSearchOperations.searchText(params.query, directories, params.maxMatches, params.maxBytes, params.timeoutMs);
 				return {
-					content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("search_code_across_projects"), results) }],
+					content: [{ type: "text", text: formatSearchTextAcrossProjectsModelContent(results) }],
 					details: { results },
 				};
 			},

@@ -89,6 +89,7 @@ export const LECTOR_TOOL_PRESENTATION_SPECS: Readonly<Record<string, ToolPresent
 			populate: { title: "Populate Workspace Cache", family: "status" },
 			wait: { title: "Wait for Cache Job", family: "status" },
 			job_status: { title: "Cache Job Status", family: "status" },
+			release: { title: "Release Workspace", family: "mutation" },
 		},
 	},
 	git: {

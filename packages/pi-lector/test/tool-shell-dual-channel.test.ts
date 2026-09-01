@@ -183,7 +183,7 @@ describe("pi-lector production tool renderer wiring", () => {
 		}
 	});
 
-	it("renders all 69 action paths through production definitions with human titles", async () => {
+	it("renders all 70 action paths through production definitions with human titles", async () => {
 		const harness = createExtensionHarness(lectorExtension, { cwd: process.cwd() });
 		try {
 			await harness.boot();

@@ -24,7 +24,7 @@ const EXPECTED_FAMILIES = new Set<PresentationFamily>([
 describe("Lector tool presentation matrix", () => {
 	it("covers every Lector-owned tool and action from the audited public surface", () => {
 		expect(Object.keys(LECTOR_TOOL_PRESENTATION_SPECS)).toHaveLength(34);
-		expect(presentationPathCount()).toBe(69);
+		expect(presentationPathCount()).toBe(70);
 	});
 
 	it("gives every path a human title and fitting presentation family", () => {
@@ -44,6 +44,7 @@ describe("Lector tool presentation matrix", () => {
 	it("uses action intent rather than generic multiplexer labels", () => {
 		expect(presentationTitle("git", "grep-history")).toBe("Search Git History");
 		expect(presentationTitle("workspace_cache", "populate")).toBe("Populate Workspace Cache");
+		expect(presentationTitle("workspace_cache", "release")).toBe("Release Workspace");
 		expect(presentationTitle("package_source", "resolve")).toBe("Resolve Package Source");
 		expect(presentationTitle("symbol_annotations", "tree")).toBe("Annotation Tree");
 	});

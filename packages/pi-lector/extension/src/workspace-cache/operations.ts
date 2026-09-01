@@ -1,13 +1,15 @@
 import {
 	type CacheResultCounts,
 	type JobSnapshot,
+	type OperationOutputs,
 	type PopulateSymbolGraphResult,
 	remoteErrorIs,
 	resolveLectorDaemonConnection,
 	type WorkspaceCacheStatus,
 } from "@danypops/lector";
 import { connectPushChannel } from "@danypops/vehicle-client/daemon-client";
-import { lectorClient, withWorkspace, workspaceForProjectDirectory } from "../lector-client.ts";
+import { forgetWorkspaceId, lectorClient, withWorkspace, workspaceForProjectDirectory } from "../lector-client.ts";
+import { invokeLectorVehicleOperation, type LectorVehicleCall } from "../vehicle-client.ts";
 
 export interface JobWatchHandle {
 	close(): void;
@@ -25,9 +27,11 @@ export type JobWatchOutcome = { readonly status: "subscribed"; readonly handle: 
  * want today's exact contract.
  */
 const DEFAULT_POPULATE_RETRY_TIME_BUDGET_MS = 60_000;
+const WORKSPACE_RELEASE_PERMISSIONS = ["workspace:write"];
 
 export interface WorkspaceCacheOperations {
 	status(directory: string, maxFiles: number, maxSymbolsPerFile: number): Promise<WorkspaceCacheStatus>;
+	release(directory: string, call: LectorVehicleCall): Promise<OperationOutputs["workspace.release"]>;
 	submit(
 		directory: string,
 		maxFiles: number,
@@ -39,6 +43,8 @@ export interface WorkspaceCacheOperations {
 	watchJob?(jobId: string, onJob: (job: JobSnapshot<PopulateSymbolGraphResult>) => void): Promise<JobWatchOutcome>;
 }
 
+export type WorkspaceCacheMonitorOperations = Omit<WorkspaceCacheOperations, "release">;
+
 export function createWorkspaceCacheOperations(ownerId?: string): WorkspaceCacheOperations {
 	return {
 		status(directory, maxFiles, maxSymbolsPerFile) {
@@ -47,6 +53,21 @@ export function createWorkspaceCacheOperations(ownerId?: string): WorkspaceCache
 				async ({ workspaceId }) => {
 					const client = await lectorClient();
 					return client.call("workspace.cacheStatus", { workspaceId, maxFiles, maxSymbolsPerFile });
+				},
+			);
+		},
+		release(directory, call) {
+			return withWorkspace(
+				() => workspaceForProjectDirectory(directory),
+				async ({ workspaceId, root }) => {
+					const result = await invokeLectorVehicleOperation<OperationOutputs["workspace.release"]>(
+						"workspace.release",
+						{ workspaceId },
+						WORKSPACE_RELEASE_PERMISSIONS,
+						call,
+					);
+					forgetWorkspaceId(root);
+					return result;
 				},
 			);
 		},
@@ -159,7 +180,7 @@ export type JobCompletionOutcome =
 
 /** Waits on Vehicle push delivery and checks status on a bounded cadence when push is unavailable or disconnected. */
 export async function waitForJobCompletion(
-	operations: WorkspaceCacheOperations,
+	operations: WorkspaceCacheMonitorOperations,
 	jobId: string,
 	options: WaitForJobCompletionOptions,
 ): Promise<JobCompletionOutcome> {
@@ -205,7 +226,7 @@ export async function waitForJobCompletion(
 }
 
 /** Drives one bounded session cache lifecycle; Pi event handlers only render its states. */
-export async function monitorWorkspaceCache(operations: WorkspaceCacheOperations, options: MonitorWorkspaceCacheOptions): Promise<void> {
+export async function monitorWorkspaceCache(operations: WorkspaceCacheMonitorOperations, options: MonitorWorkspaceCacheOptions): Promise<void> {
 	const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 	const initial = await operations.status(options.directory, options.maxFiles, options.maxSymbolsPerFile);
 	if (!options.shouldContinue()) return;

@@ -1,8 +1,8 @@
-import type { CacheResultCounts, JobSnapshot, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
+import type { CacheResultCounts, JobSnapshot, OperationOutputs, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
 import type { LectorTheme } from "../lector-tui-theme.ts";
 import { presentationTitle } from "../presentation/tool-presentation.ts";
 
-type WorkspaceCacheAction = "status" | "populate" | "wait" | "job_status";
+type WorkspaceCacheAction = "status" | "populate" | "wait" | "job_status" | "release";
 
 export function formatWorkspaceCacheCall(
 	action: WorkspaceCacheAction,
@@ -27,6 +27,23 @@ export function formatWorkspaceCacheCall(
 function formatResultCounts(result: CacheResultCounts): string {
 	const failed = result.filesFailed > 0 ? `, ${result.filesFailed} failed` : "";
 	return `${result.filesProcessed}/${result.filesAttempted} files${failed}, ${result.symbolsProcessed} symbols, ${result.nodesAdded} nodes, ${result.edgesAdded} edges`;
+}
+
+export function formatWorkspaceReleaseModelContent(outcome: OperationOutputs["workspace.release"]): string {
+	return [
+		`released workspace ${outcome.workspaceId}`,
+		`closed indexes: ${outcome.closedIndexes}`,
+		`closed graph: ${outcome.closedGraph}`,
+		`closed watch: ${outcome.closedWatch}`,
+	].join("\n");
+}
+
+export function formatWorkspaceReleaseResult(outcome: OperationOutputs["workspace.release"] | undefined, theme: LectorTheme): string {
+	if (!outcome) return theme.fg("dim", "No result.");
+	return theme.fg(
+		"success",
+		`released ${outcome.workspaceId} -- ${outcome.closedIndexes} index(es), graph ${outcome.closedGraph ? "closed" : "idle"}, watch ${outcome.closedWatch ? "closed" : "idle"}`,
+	);
 }
 
 export function formatWorkspaceCacheStatusResult(status: WorkspaceCacheStatus | undefined, theme: LectorTheme): string {

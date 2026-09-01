@@ -4,7 +4,7 @@ import {
 	cacheContextMessage,
 	describeCacheState,
 	monitorWorkspaceCache,
-	type WorkspaceCacheOperations,
+	type WorkspaceCacheMonitorOperations as WorkspaceCacheOperations,
 	waitForJobCompletion,
 } from "../../extension/src/workspace-cache/operations.ts";
 
