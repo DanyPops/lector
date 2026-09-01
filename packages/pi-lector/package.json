@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/pi-lector",
-	"version": "0.14.0",
+	"version": "0.15.0",
 	"description": "Pi host adapter for Lector: overrides read/write/edit with a daemon-backed, hash-guarded filesystem",
 	"license": "MIT",
 	"type": "module",
@@ -22,7 +22,7 @@
 		"@danypops/vehicle-client-pi": "^0.45.0"
 	},
 	"dependencies": {
-		"@danypops/lector": "^0.20.4",
+		"@danypops/lector": "^0.21.0",
 		"@danypops/vehicle-client": "^0.10.8",
 		"@danypops/vehicle-core": "^0.19.1",
 		"malevich-tui-components": "^0.32.1",
