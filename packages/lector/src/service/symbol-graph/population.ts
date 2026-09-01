@@ -87,7 +87,7 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 			for (;;) {
 				attempt++;
 				try {
-					return await populateSymbolGraphOnce(_registry, input);
+					return await populateSymbolGraphOnce(_registry, input, attempt - 1);
 				} catch (error) {
 					if (!(error instanceof WorkspaceChangedDuringPopulation)) throw error;
 					const elapsedMs = now() - startedAt;
@@ -128,6 +128,7 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 	async function populateSymbolGraphOnce(
 		_registry: MutableRegistry,
 		input: OperationInputs["workspace.populateSymbolGraph"],
+		staleRetries: number,
 	): Promise<OperationOutputs["workspace.populateSymbolGraph"]> {
 		const entry = registry.get(input.workspaceId);
 		if (!entry?.rootPath) throw new SymbolQueryUnavailable(input.workspaceId);
@@ -202,12 +203,39 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 			input.maxSymbolsPerFile,
 			logger,
 			POPULATION_CONCURRENCY,
-			(progress) => progressTracker.set(input.workspaceId, progress),
+			(progress) => {
+				const enriched = { ...progress, filesReused: filesToSkip.length, staleRetries };
+				progressTracker.set(input.workspaceId, enriched);
+				if (progress.filesProcessed === 1 || progress.filesProcessed === progress.filesTotal || progress.filesProcessed % 25 === 0) {
+					logger.debug("symbol graph population progress", {
+						module: "population",
+						operation: "workspace.populateSymbolGraph",
+						filesProcessed: progress.filesProcessed,
+						filesTotal: progress.filesTotal,
+						filesSucceeded: progress.filesSucceeded,
+						filesFailed: progress.filesFailed,
+						filesReused: filesToSkip.length,
+						symbolsProcessed: progress.symbolsProcessed,
+						nodesAdded: progress.nodesAdded,
+						edgesAdded: progress.edgesAdded,
+						staleRetries,
+						scopeCount: before.coverage.scopes.length,
+						languageCount: before.coverage.languages.length,
+					});
+				}
+			},
 		);
 		const after = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
 		if (after.fingerprint !== before.fingerprint) throw new WorkspaceChangedDuringPopulation(input.workspaceId);
 
-		const result = mergePopulationResult(reprocessResult, filesToSkip.length, before.absoluteFiles.length);
+		const mergedResult = mergePopulationResult(reprocessResult, filesToSkip.length, before.absoluteFiles.length);
+		const result = {
+			...mergedResult,
+			filesReused: filesToSkip.length,
+			filesReprocessed: filesToReprocess.length,
+			sourceCoverage: before.coverage,
+			staleRetries,
+		};
 		const fileContentHashes = computeUpdatedFileContentHashes(
 			previousGeneration?.fileContentHashes,
 			filesToSkip,
@@ -217,19 +245,27 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 			reprocessResult.failuresTruncated,
 		);
 
+		const gitHeadSha = await cacheFreshness.captureGitHeadShaIfClean(rootPath);
+		const remoteCommit = entry.remoteReference ? await repoFetcher?.resolveRemoteCommit(entry.remoteReference) : undefined;
+		// Capture the generation after every population-side effect that can overlap project tooling.
+		// A source change during this finalization window consumes the same bounded retry contract as
+		// a change during the main scan, so a reported success names content an immediate consumer sees.
+		const settled = await deriveSourceManifest(rootPath, extensions, input.maxFiles, MAX_SOURCE_MANIFEST_BYTES);
+		if (settled.fingerprint !== after.fingerprint) throw new WorkspaceChangedDuringPopulation(input.workspaceId);
+		const completedResult = { ...result, sourceGeneration: settled.fingerprint };
 		await graph.setGeneration({
-			sourceFingerprint: after.fingerprint,
+			sourceFingerprint: settled.fingerprint,
 			maxFiles: input.maxFiles,
 			maxSymbolsPerFile: input.maxSymbolsPerFile,
 			completedAt: Date.now(),
 			provenance: workspaceIndex.index.provenance,
 			sources: workspaceIndex.sources,
-			result,
-			gitHeadSha: await cacheFreshness.captureGitHeadShaIfClean(rootPath),
-			walkedFiles: before.absoluteFiles,
+			result: completedResult,
+			gitHeadSha,
+			walkedFiles: settled.absoluteFiles,
 			fileContentHashes,
 			remoteReference: entry.remoteReference,
-			remoteCommit: entry.remoteReference ? await repoFetcher?.resolveRemoteCommit(entry.remoteReference) : undefined,
+			remoteCommit,
 		});
 		// A workspace that has been populated at least once stays graph-watched for the rest of
 		// the daemon's uptime -- the whole point of "keeps the symbol graph warm on disk changes".
@@ -248,7 +284,7 @@ export function createPopulationHandlers(deps: PopulationHandlerDeps): Populatio
 			graphRefresh.markWatched(input.workspaceId);
 			ensureOsWatcher(input.workspaceId, rootPath);
 		}
-		return result;
+		return completedResult;
 	}
 
 	return { "workspace.populateSymbolGraph": populateSymbolGraphHandler };

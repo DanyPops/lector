@@ -577,6 +577,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private readonly contentCache: ContentCachePort;
 	private readonly logger: Logger;
 	private readonly provisioner: LanguageServerProvisionerPort | undefined;
+	private restartCount = 0;
 
 	isAlive(): boolean {
 		return this.process?.isAlive ?? true;
@@ -1053,6 +1054,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	}
 
 	private async restartForSeed(seedFile: string): Promise<LanguageServerProcess> {
+		const startedAt = performance.now();
 		await this.process?.stop();
 		this.process = undefined;
 		this.initializing = undefined;
@@ -1060,7 +1062,16 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		this.latestDiagnostics.clear();
 		this.diagnosticsWaiters.clear();
 		this.fallbackSeedFile = seedFile;
-		return this.ensureInitialized();
+		const process = await this.ensureInitialized();
+		this.restartCount++;
+		this.logger.info("language server restarted for workspace coverage", {
+			component: "lsp",
+			operation: "restart-for-coverage",
+			backendId: this.descriptor.backendId,
+			restartCount: this.restartCount,
+			durationMs: Math.round(performance.now() - startedAt),
+		});
+		return process;
 	}
 
 	async findSymbols(query: string, bounds: SymbolSearchBounds = { maxResults: DEFAULT_MAX_SYMBOL_RESULTS }): Promise<SymbolSearchResult> {

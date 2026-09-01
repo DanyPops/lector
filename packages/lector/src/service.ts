@@ -22,7 +22,7 @@ import type { ContentCachePort } from "./content-cache/port.ts";
 import { CratesIoPackageSourceResolver } from "./crates-io-registry/crates-io-package-source-resolver.ts";
 import { CratesIoRegistryClient } from "./crates-io-registry/crates-io-registry-client.ts";
 import type { CratesIoRegistryPort } from "./crates-io-registry/port.ts";
-import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "./external-search/external-search-result.ts";
+import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeSearchResult } from "./external-search/external-search-result.ts";
 import { EXTERNAL_SEARCH_PERMISSIONS, registerExternalSearchOperations } from "./external-search/operation-registration.ts";
 import { InMemoryExternalSearchCache } from "./external-search-cache/in-memory-external-search-cache.ts";
 import type { ExternalSearchCachePort } from "./external-search-cache/port.ts";
@@ -154,7 +154,7 @@ export interface LectorServiceOptions {
 	symbolIndexLanguageLimits?: Readonly<Record<string, number>>;
 	/** Optional adaptive resource strategy layered beneath the fixed process safety ceilings. */
 	symbolIndexResourcePolicy?: WarmIndexResourcePolicy;
-	/** Warm-index slots populateSymbolGraph alone can never grow the pool into -- interactive queries (findSymbols, goToDefinition, rename, cross-project search) keep the full maxActiveSymbolIndexes; background population queues instead of competing for admission on equal footing. Defaults to 0 (no reservation, today's behavior). */
+	/** Warm-index slots populateSymbolGraph alone can never grow the pool into -- interactive queries keep the full maxActiveSymbolIndexes. Defaults to 1 when capacity exceeds one, otherwise 0. */
 	reservedForegroundSlots?: number;
 	/** The hard structural ceiling a resource policy's own soft ceiling can never raise maxActiveSymbolIndexes past -- independent of memory, protecting against pathological process-count exhaustion. Defaults to 32 (or maxActiveSymbolIndexes if that's already higher). */
 	absoluteMaxActiveIndexes?: number;
@@ -337,7 +337,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		maxActive: options.maxActiveSymbolIndexes,
 		languageLimits: options.symbolIndexLanguageLimits,
 		resourcePolicy: options.symbolIndexResourcePolicy,
-		reservedForegroundSlots: options.reservedForegroundSlots,
+		reservedForegroundSlots: options.reservedForegroundSlots ?? (options.maxActiveSymbolIndexes === 1 ? 0 : 1),
 		absoluteMaxActiveIndexes: options.absoluteMaxActiveIndexes,
 		backgroundAdmissionQueueTimeoutMs: options.backgroundAdmissionQueueTimeoutMs,
 		maxQueuedBackgroundAdmissions: options.maxQueuedBackgroundAdmissions,
@@ -411,7 +411,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 	const createExternalSearchCache = options.createExternalSearchCache ?? (<T extends object>() => new InMemoryExternalSearchCache<T>());
 	const githubSearchCache = createExternalSearchCache<GithubRepoSearchResult>();
 	const npmSearchCache = createExternalSearchCache<{ candidates: readonly NpmPackageCandidate[] }>();
-	const sourcegraphSearchCache = createExternalSearchCache<{ candidates: readonly SourcegraphCodeCandidate[] }>();
+	const sourcegraphSearchCache = createExternalSearchCache<SourcegraphCodeSearchResult>();
 	const textSearch: TextSearchPort =
 		options.createTextSearch?.() ??
 		new IndexedTextSearch(

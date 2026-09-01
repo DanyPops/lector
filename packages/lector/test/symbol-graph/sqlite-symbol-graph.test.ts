@@ -86,6 +86,18 @@ describe("SqliteSymbolGraph durability", () => {
 					nodesAdded: 2,
 					edgesAdded: 0,
 					failureCount: 1,
+					filesReused: 4,
+					filesReprocessed: 3,
+					staleRetries: 1,
+					sourceGeneration: "a".repeat(64),
+					sourceCoverage: {
+						scannedEntries: 12,
+						truncated: true,
+						scopes: [{ scope: "packages/go", files: 2 }],
+						scopeOmittedCount: 1,
+						languages: [{ extension: ".go", files: 2 }],
+						languageOmittedCount: 0,
+					},
 					failures: [
 						{
 							path: "/repo/excluded_test.go",
@@ -104,7 +116,23 @@ describe("SqliteSymbolGraph durability", () => {
 			try {
 				const generation = await second.getGeneration();
 				expect(generation?.sources).toEqual(sources);
-				expect(generation?.result).toMatchObject({ completeness: "partial", filesFailed: 1, failureCount: 1 });
+				expect(generation?.result).toMatchObject({
+					completeness: "partial",
+					filesFailed: 1,
+					failureCount: 1,
+					filesReused: 4,
+					filesReprocessed: 3,
+					staleRetries: 1,
+					sourceGeneration: "a".repeat(64),
+					sourceCoverage: {
+						scannedEntries: 12,
+						truncated: true,
+						scopes: [{ scope: "packages/go", files: 2 }],
+						scopeOmittedCount: 1,
+						languages: [{ extension: ".go", files: 2 }],
+						languageOmittedCount: 0,
+					},
+				});
 			} finally {
 				await second.close();
 			}

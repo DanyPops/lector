@@ -81,9 +81,22 @@ describe("BoundedJobExecutor", () => {
 		expect(calls).toContainEqual({
 			level: "warn",
 			message: "background job failed",
-			fields: { component: "background-jobs", operation: "workspace.populateSymbolGraph", jobId: submitted.id, priority: "local", code: "TypeError" },
+			fields: { component: "background-jobs", operation: "workspace.populateSymbolGraph", priority: "local", code: "TypeError" },
+		});
+		expect(calls).toContainEqual({
+			level: "debug",
+			message: "background job submitted",
+			fields: {
+				component: "background-jobs",
+				operation: "workspace.populateSymbolGraph",
+				priority: "local",
+				status: "running",
+				runningJobs: 1,
+				queuedJobs: 0,
+			},
 		});
 		expect(JSON.stringify(calls)).not.toContain("language server crashed");
+		expect(JSON.stringify(calls)).not.toContain(submitted.id);
 	});
 
 	it("never runs more than maxConcurrent jobs", async () => {

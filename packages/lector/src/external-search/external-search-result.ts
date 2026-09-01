@@ -50,6 +50,17 @@ export interface SourcegraphCodeCandidate {
 	readonly url: string;
 }
 
+export type SourcegraphSearchStopReason = "deadline" | "max-results" | "max-response-bytes";
+
+/** Bounded outcome from Sourcegraph's streaming API. Partial candidates remain useful when a transport bound ends collection. */
+export interface SourcegraphCodeSearchResult {
+	readonly candidates: readonly SourcegraphCodeCandidate[];
+	readonly completeness: "complete" | "partial";
+	readonly truncated: boolean;
+	readonly stopReason?: SourcegraphSearchStopReason;
+	readonly bytesRead: number;
+}
+
 /** Splits Sourcegraph's own "host/owner/repo" repository field into repo.fetch's explicit fields -- null for anything that doesn't have exactly that shape (a non-GitHub-style forge path, an unexpected component count), never a guessed partial match. */
 export function splitSourcegraphRepository(repository: string): { host: string; owner: string; repo: string } | null {
 	const segments = repository.split("/");

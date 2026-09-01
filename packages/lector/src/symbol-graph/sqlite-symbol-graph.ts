@@ -161,6 +161,30 @@ function asPopulationFailure(value: unknown): SymbolGraphPopulationFailure | und
 	return { path: value.path, operation: value.operation, code: value.code, message: value.message, provenance };
 }
 
+function parseSourceCoverage(value: unknown): PopulateSymbolGraphResult["sourceCoverage"] | undefined {
+	if (!isRecord(value) || !isNonNegativeInteger(value.scannedEntries) || typeof value.truncated !== "boolean") return undefined;
+	if (!Array.isArray(value.scopes) || !Array.isArray(value.languages) || value.scopes.length > 100 || value.languages.length > 100) return undefined;
+	if (!isNonNegativeInteger(value.scopeOmittedCount) || !isNonNegativeInteger(value.languageOmittedCount)) return undefined;
+	const scopes: { scope: string; files: number }[] = [];
+	for (const item of value.scopes) {
+		if (!isRecord(item) || typeof item.scope !== "string" || item.scope.length > 512 || !isNonNegativeInteger(item.files)) return undefined;
+		scopes.push({ scope: item.scope, files: item.files });
+	}
+	const languages: { extension: string; files: number }[] = [];
+	for (const item of value.languages) {
+		if (!isRecord(item) || typeof item.extension !== "string" || item.extension.length > 32 || !isNonNegativeInteger(item.files)) return undefined;
+		languages.push({ extension: item.extension, files: item.files });
+	}
+	return {
+		scannedEntries: value.scannedEntries,
+		truncated: value.truncated,
+		scopes,
+		scopeOmittedCount: value.scopeOmittedCount,
+		languages,
+		languageOmittedCount: value.languageOmittedCount,
+	};
+}
+
 function parsePopulationResult(json: string | null): PopulateSymbolGraphResult | undefined {
 	const value = parseJson(json);
 	if (!isRecord(value) || (value.completeness !== "complete" && value.completeness !== "partial") || !Array.isArray(value.failures)) return undefined;
@@ -188,6 +212,25 @@ function parsePopulationResult(json: string | null): PopulateSymbolGraphResult |
 	) {
 		return undefined;
 	}
+	const filesReused = value.filesReused === undefined ? undefined : isNonNegativeInteger(value.filesReused) ? value.filesReused : null;
+	const filesReprocessed = value.filesReprocessed === undefined ? undefined : isNonNegativeInteger(value.filesReprocessed) ? value.filesReprocessed : null;
+	const staleRetries = value.staleRetries === undefined ? undefined : isNonNegativeInteger(value.staleRetries) ? value.staleRetries : null;
+	const sourceGeneration =
+		value.sourceGeneration === undefined
+			? undefined
+			: typeof value.sourceGeneration === "string" && value.sourceGeneration.length === 64
+				? value.sourceGeneration
+				: null;
+	const sourceCoverage = value.sourceCoverage === undefined ? undefined : parseSourceCoverage(value.sourceCoverage);
+	if (
+		filesReused === null ||
+		filesReprocessed === null ||
+		staleRetries === null ||
+		sourceGeneration === null ||
+		(value.sourceCoverage !== undefined && !sourceCoverage)
+	) {
+		return undefined;
+	}
 	return {
 		completeness: value.completeness,
 		filesAttempted: value.filesAttempted,
@@ -199,6 +242,11 @@ function parsePopulationResult(json: string | null): PopulateSymbolGraphResult |
 		failureCount: value.failureCount,
 		failures,
 		failuresTruncated: value.failuresTruncated,
+		...(filesReused !== undefined ? { filesReused } : {}),
+		...(filesReprocessed !== undefined ? { filesReprocessed } : {}),
+		...(staleRetries !== undefined ? { staleRetries } : {}),
+		...(sourceGeneration !== undefined ? { sourceGeneration } : {}),
+		...(sourceCoverage ? { sourceCoverage } : {}),
 	};
 }
 

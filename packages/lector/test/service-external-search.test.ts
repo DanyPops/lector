@@ -11,7 +11,7 @@ import type {
 	ExternalSearchBounds,
 	GithubRepoSearchResult,
 	NpmPackageCandidate,
-	SourcegraphCodeCandidate,
+	SourcegraphCodeSearchResult,
 } from "../src/external-search/external-search-result.ts";
 import type { GithubSearchPort } from "../src/github-search/port.ts";
 import type { NpmRegistryPort } from "../src/npm-registry/port.ts";
@@ -49,16 +49,22 @@ class CountingNpmRegistry implements NpmRegistryPort {
 
 class CountingSourcegraphSearch implements SourcegraphSearchPort {
 	calls = 0;
-	async searchCode(query: string): Promise<readonly SourcegraphCodeCandidate[]> {
+	async searchCode(query: string): Promise<SourcegraphCodeSearchResult> {
 		this.calls++;
-		return [
-			{
-				repository: "github.com/acme/widgets",
-				path: `${query}.ts`,
-				lineMatches: [],
-				url: `https://sourcegraph.com/github.com/acme/widgets/-/blob/${query}.ts`,
-			},
-		];
+		return {
+			candidates: [
+				{
+					repository: "github.com/acme/widgets",
+					path: `${query}.ts`,
+					lineMatches: [],
+					url: `https://sourcegraph.com/github.com/acme/widgets/-/blob/${query}.ts`,
+				},
+			],
+			completeness: "partial",
+			truncated: true,
+			stopReason: "deadline",
+			bytesRead: 100,
+		};
 	}
 }
 
@@ -95,6 +101,7 @@ describe("createLectorService's external search operations", () => {
 		const second = await service.dispatch("search.sourcegraphCode", { query: "widget", maxResults: 10 });
 
 		expect(first.candidates[0]?.path).toBe("widget.ts");
+		expect(first).toMatchObject({ completeness: "partial", truncated: true, stopReason: "deadline" });
 		expect(second).toEqual(first);
 		expect(sourcegraphSearch.calls).toBe(1);
 	});

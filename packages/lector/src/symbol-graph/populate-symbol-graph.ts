@@ -69,8 +69,18 @@ export interface SymbolGraphPopulationFailure {
 
 /** A live snapshot of an in-progress population, reported after each file completes -- filesTotal is known upfront (the caller already computed which files to walk before calling), so a caller can render a real fraction, not just an opaque "running" state. */
 export interface PopulationProgress {
+	/** Files whose complete document-symbol/call pipeline has settled, including failures. */
 	readonly filesProcessed: number;
 	readonly filesTotal: number;
+	readonly filesSucceeded: number;
+	readonly filesFailed: number;
+	readonly symbolsProcessed: number;
+	readonly nodesAdded: number;
+	readonly edgesAdded: number;
+	/** Filled by the service-level delta population wrapper. */
+	readonly filesReused?: number;
+	/** Filled by the service-level retry wrapper. */
+	readonly staleRetries?: number;
 }
 
 export interface PopulateSymbolGraphResult {
@@ -85,6 +95,23 @@ export interface PopulateSymbolGraphResult {
 	readonly failureCount: number;
 	readonly failures: readonly SymbolGraphPopulationFailure[];
 	readonly failuresTruncated: boolean;
+	/** Files reused from the previous generation without another LSP walk. */
+	readonly filesReused?: number;
+	/** Files selected as new, changed, or dependent on changed declarations. */
+	readonly filesReprocessed?: number;
+	/** Source-selection coverage for this bounded generation. */
+	readonly sourceCoverage?: {
+		readonly scannedEntries: number;
+		readonly truncated: boolean;
+		readonly scopes: readonly { readonly scope: string; readonly files: number }[];
+		readonly scopeOmittedCount: number;
+		readonly languages: readonly { readonly extension: string; readonly files: number }[];
+		readonly languageOmittedCount: number;
+	};
+	/** Source-staleness retries consumed before this generation completed. */
+	readonly staleRetries?: number;
+	/** Exact bounded source-manifest identity recorded for a completed service generation. */
+	readonly sourceGeneration?: string;
 }
 
 const UNKNOWN_PROVENANCE: IntelligenceProvenance = {
@@ -158,6 +185,7 @@ export async function populateSymbolGraph(
 ): Promise<PopulateSymbolGraphResult> {
 	if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("concurrency must be a positive integer");
 	let filesProcessed = 0;
+	let completedFiles = 0;
 	let symbolsProcessed = 0;
 	let nodesAdded = 0;
 	let edgesAdded = 0;
@@ -198,12 +226,10 @@ export async function populateSymbolGraph(
 				topLevel = await withTransientRetry(() => index.documentSymbols(file, { settleMs: POPULATION_SETTLE_MS }));
 			} catch (error) {
 				recordFailure(file, "document-symbols", error);
-				onProgress?.({ filesProcessed: filesProcessed + failedFiles.size, filesTotal: files.length });
 				return;
 			}
 			const flattened = flattenDocumentSymbols(topLevel).slice(0, maxSymbolsPerFile);
 			filesProcessed++;
-			onProgress?.({ filesProcessed: filesProcessed + failedFiles.size, filesTotal: files.length });
 
 			for (const { entry, parentLocation } of flattened) {
 				symbolsProcessed++;
@@ -234,6 +260,16 @@ export async function populateSymbolGraph(
 			}
 		} finally {
 			await index.releaseFile?.(file);
+			completedFiles++;
+			onProgress?.({
+				filesProcessed: completedFiles,
+				filesTotal: files.length,
+				filesSucceeded: filesProcessed,
+				filesFailed: failedFiles.size,
+				symbolsProcessed,
+				nodesAdded,
+				edgesAdded,
+			});
 		}
 	}
 

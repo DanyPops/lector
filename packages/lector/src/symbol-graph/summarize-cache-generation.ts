@@ -56,6 +56,7 @@ export function summarizeCacheFailures(failures: readonly SymbolGraphPopulationF
 export function summarizeCacheGeneration(generation: SymbolGraphGeneration): CacheGenerationSummary {
 	const { failureSummary, failureSummaryTruncated } = summarizeCacheFailures(generation.result.failures);
 	return {
+		sourceFingerprint: generation.sourceFingerprint,
 		completedAt: generation.completedAt,
 		maxFiles: generation.maxFiles,
 		maxSymbolsPerFile: generation.maxSymbolsPerFile,
@@ -70,6 +71,11 @@ export function summarizeCacheGeneration(generation: SymbolGraphGeneration): Cac
 			symbolsProcessed: generation.result.symbolsProcessed,
 			nodesAdded: generation.result.nodesAdded,
 			edgesAdded: generation.result.edgesAdded,
+			...(generation.result.filesReused !== undefined ? { filesReused: generation.result.filesReused } : {}),
+			...(generation.result.filesReprocessed !== undefined ? { filesReprocessed: generation.result.filesReprocessed } : {}),
+			...(generation.result.staleRetries !== undefined ? { staleRetries: generation.result.staleRetries } : {}),
+			...(generation.result.sourceCoverage ? { sourceCoverage: generation.result.sourceCoverage } : {}),
+			...(generation.result.sourceGeneration ? { sourceGeneration: generation.result.sourceGeneration } : {}),
 			failureCount: generation.result.failureCount,
 			failureSummary,
 			failureSummaryTruncated: failureSummaryTruncated || generation.result.failuresTruncated,

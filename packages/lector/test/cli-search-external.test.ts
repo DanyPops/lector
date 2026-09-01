@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { startLectorDaemon } from "../src/daemon.ts";
-import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../src/external-search/external-search-result.ts";
+import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeSearchResult } from "../src/external-search/external-search-result.ts";
 import type { GithubSearchPort } from "../src/github-search/port.ts";
 import type { NpmRegistryPort } from "../src/npm-registry/port.ts";
 import type { SourcegraphSearchPort } from "../src/sourcegraph-search/port.ts";
@@ -65,15 +65,20 @@ class FakeNpmRegistry implements NpmRegistryPort {
 }
 
 class FakeSourcegraphSearch implements SourcegraphSearchPort {
-	async searchCode(query: string): Promise<readonly SourcegraphCodeCandidate[]> {
-		return [
-			{
-				repository: "github.com/acme/widgets",
-				path: `src/${query}.ts`,
-				lineMatches: [{ line: 3, preview: "export function widget() {}" }],
-				url: `https://sourcegraph.com/github.com/acme/widgets/-/blob/src/${query}.ts`,
-			},
-		];
+	async searchCode(query: string): Promise<SourcegraphCodeSearchResult> {
+		return {
+			candidates: [
+				{
+					repository: "github.com/acme/widgets",
+					path: `src/${query}.ts`,
+					lineMatches: [{ line: 3, preview: "export function widget() {}" }],
+					url: `https://sourcegraph.com/github.com/acme/widgets/-/blob/src/${query}.ts`,
+				},
+			],
+			completeness: "complete",
+			truncated: false,
+			bytesRead: 100,
+		};
 	}
 }
 
@@ -140,8 +145,9 @@ describe("lector CLI search github-repos/npm-packages/sourcegraph-code", () => {
 			createSourcegraphSearch: () => new FakeSourcegraphSearch(),
 		});
 
-		const result = JSON.parse(await runCli(["search", "sourcegraph-code", "widget", "--json"])) as { candidates: readonly SourcegraphCodeCandidate[] };
+		const result = JSON.parse(await runCli(["search", "sourcegraph-code", "widget", "--json"])) as SourcegraphCodeSearchResult;
 
+		expect(result).toMatchObject({ completeness: "complete", truncated: false, bytesRead: 100 });
 		expect(result.candidates).toEqual([
 			{
 				repository: "github.com/acme/widgets",

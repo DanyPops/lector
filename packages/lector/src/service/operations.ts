@@ -11,7 +11,7 @@ import type { TypeHierarchyEntry } from "../code-intelligence/type-hierarchy.ts"
 import type { NarrowedType } from "../code-intelligence/typescript-narrowed-type.ts";
 import type { JobSnapshot } from "../concurrency/bounded-job-executor.ts";
 import type { ContentHash } from "../content-identity/content-hash.ts";
-import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../external-search/external-search-result.ts";
+import type { GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeSearchResult } from "../external-search/external-search-result.ts";
 import type { GitDiffResult } from "../git/diff-result.ts";
 import type { GitGrepResult } from "../git/grep-result.ts";
 import type { GitHistoryGrepResult } from "../git/history-grep-result.ts";
@@ -610,7 +610,7 @@ export interface OperationOutputs {
 	"package.cleanSources": { removed: number; skipped: number };
 	"search.githubRepos": GithubRepoSearchResult;
 	"search.npmPackages": { candidates: readonly NpmPackageCandidate[] };
-	"search.sourcegraphCode": { candidates: readonly SourcegraphCodeCandidate[] };
+	"search.sourcegraphCode": SourcegraphCodeSearchResult;
 	"workspace.searchText": TextSearchResult;
 	"workspace.findFiles": FindFilesResult;
 	"workspace.watch": { watchId: string; topic: string };

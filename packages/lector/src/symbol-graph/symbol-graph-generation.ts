@@ -69,6 +69,11 @@ export interface CacheResultCounts {
 	readonly symbolsProcessed: number;
 	readonly nodesAdded: number;
 	readonly edgesAdded: number;
+	readonly filesReused?: number;
+	readonly filesReprocessed?: number;
+	readonly staleRetries?: number;
+	readonly sourceCoverage?: PopulateSymbolGraphResult["sourceCoverage"];
+	readonly sourceGeneration?: string;
 }
 
 /** The compact view of one generation's own population result that crosses the wire by default -- see summarize-cache-generation.ts for why. */
@@ -86,6 +91,8 @@ export interface CacheGenerationResultSummary extends CacheResultCounts {
  * remains reachable through workspace.cacheWalkedFiles/workspace.cacheFailures.
  */
 export interface CacheGenerationSummary {
+	/** Exact source-manifest identity accepted by this completed generation. */
+	readonly sourceFingerprint?: string;
 	readonly completedAt: number;
 	readonly maxFiles: number;
 	readonly maxSymbolsPerFile: number;

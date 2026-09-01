@@ -131,9 +131,10 @@ export class BoundedJobExecutor<Result = unknown> {
 		this.#logger.debug("background job submitted", {
 			component: "background-jobs",
 			operation: input.operation,
-			jobId: id,
 			priority: input.priority,
 			status: entry.snapshot.status,
+			runningJobs: this.#running,
+			queuedJobs: this.#queuedIds.length,
 		});
 		return entry.snapshot;
 	}
@@ -230,7 +231,6 @@ export class BoundedJobExecutor<Result = unknown> {
 		this.#logger.warn("background job failed", {
 			component: "background-jobs",
 			operation: entry.snapshot.operation,
-			jobId: entry.snapshot.id,
 			priority: entry.snapshot.priority,
 			code: failure.name || "Error",
 		});

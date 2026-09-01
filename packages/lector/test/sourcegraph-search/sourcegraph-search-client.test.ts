@@ -52,12 +52,14 @@ describe("SourcegraphSearchClient", () => {
 		});
 		const client = new SourcegraphSearchClient({ baseUrl });
 
-		const candidates = await client.searchCode("widget", BOUNDS);
+		const result = await client.searchCode("widget", BOUNDS);
 
 		expect(observedPath).toBe("/.api/search/stream");
 		expect(observedQuery).toBe("?q=widget");
 		expect(observedAccept as string | null).toBe("text/event-stream");
-		expect(candidates).toEqual([
+		expect(result).toMatchObject({ completeness: "complete", truncated: false });
+		expect(result.bytesRead).toBeGreaterThan(0);
+		expect(result.candidates).toEqual([
 			{
 				repository: "github.com/acme/widgets",
 				path: "src/widget.ts",
@@ -83,9 +85,10 @@ describe("SourcegraphSearchClient", () => {
 		);
 		const client = new SourcegraphSearchClient({ baseUrl });
 
-		const candidates = await client.searchCode("widget", { ...BOUNDS, maxResults: 2 });
+		const result = await client.searchCode("widget", { ...BOUNDS, maxResults: 2 });
 
-		expect(candidates.length).toBe(2);
+		expect(result.candidates.length).toBe(2);
+		expect(result).toMatchObject({ completeness: "partial", truncated: true, stopReason: "max-results" });
 	});
 
 	it("ignores non-content match entries (e.g. a repository match) rather than throwing", async () => {
@@ -97,9 +100,10 @@ describe("SourcegraphSearchClient", () => {
 		);
 		const client = new SourcegraphSearchClient({ baseUrl });
 
-		const candidates = await client.searchCode("widget", BOUNDS);
+		const result = await client.searchCode("widget", BOUNDS);
 
-		expect(candidates).toEqual([]);
+		expect(result.candidates).toEqual([]);
+		expect(result).toMatchObject({ completeness: "complete", truncated: false });
 	});
 
 	it("surfaces an alert event as a typed request failure rather than returning partial results silently", async () => {
@@ -132,7 +136,32 @@ describe("SourcegraphSearchClient", () => {
 		await expect(client.searchCode("widget", { ...BOUNDS, maxResponseBytes: 100 })).rejects.toBeInstanceOf(SourcegraphSearchResponseLimitExceeded);
 	});
 
-	it("times out a hanging stream", async () => {
+	it("returns collected candidates when the deadline ends a hanging stream", async () => {
+		const encoder = new TextEncoder();
+		const baseUrl = serve(
+			() =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							controller.enqueue(
+								encoder.encode('event: matches\ndata: [{"type":"content","repository":"github.com/a/one","path":"a.ts","lineMatches":[]}]\n\n'),
+							);
+						},
+					}),
+					{ headers: { "content-type": "text/event-stream" } },
+				),
+		);
+		const client = new SourcegraphSearchClient({ baseUrl, partialResultGraceMs: 20 });
+		const startedAt = performance.now();
+
+		const result = await client.searchCode("widget", { ...BOUNDS, timeoutMs: 2_000 });
+
+		expect(performance.now() - startedAt).toBeLessThan(500);
+		expect(result.candidates).toHaveLength(1);
+		expect(result).toMatchObject({ completeness: "partial", truncated: true, stopReason: "deadline" });
+	});
+
+	it("reports a timeout when the deadline yields no candidates", async () => {
 		const baseUrl = serve(async () => {
 			await Bun.sleep(200);
 			return sseResponse([{ event: "done", data: {} }]);

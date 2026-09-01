@@ -7,16 +7,6 @@ function toPosixPath(relativePath: string): string {
 	return sep === "/" ? relativePath : relativePath.split(sep).join("/");
 }
 
-/**
- * Rewrites one .gitignore line so a nested .gitignore's own patterns, which are relative to that
- * file's own directory (gitignore(5)), can be added to a single ignore() instance that matches
- * paths relative to the scan root instead. A pattern with no slash (or only a trailing one) is
- * unanchored -- it matches at any depth under its own directory, not just directly inside it --
- * so it gets a `**\/` inserted; a pattern with a leading or internal slash is already anchored to
- * its own directory and only needs that directory prefixed on. Deliberately does not handle
- * backslash-escaped `\#`/`\!` (real but rare in practice); those pass through as literal text
- * exactly as they do in the un-rewritten root .gitignore case.
- */
 function rewriteForSubdirectory(pattern: string, relativeDir: string): string {
 	const negated = pattern.startsWith("!");
 	let body = negated ? pattern.slice(1) : pattern;
@@ -29,7 +19,6 @@ function rewriteForSubdirectory(pattern: string, relativeDir: string): string {
 	return `${negated ? "!" : ""}${rewritten}${directoryOnly ? "/" : ""}`;
 }
 
-/** Loads one directory's own .gitignore (if any) into the shared filter; a no-op, not an error, when the directory has none. */
 function loadGitignore(filter: ignore.Ignore, rootPath: string, relativeDir: string): void {
 	let contents: string;
 	try {
@@ -43,39 +32,107 @@ function loadGitignore(filter: ignore.Ignore, rootPath: string, relativeDir: str
 	}
 }
 
+export interface SourceFileSelectionCoverage {
+	readonly scannedEntries: number;
+	readonly truncated: boolean;
+	readonly scopes: readonly { readonly scope: string; readonly files: number }[];
+	readonly scopeOmittedCount: number;
+	readonly languages: readonly { readonly extension: string; readonly files: number }[];
+	readonly languageOmittedCount: number;
+}
+
+export interface SourceFileSelection {
+	readonly files: readonly string[];
+	readonly coverage: SourceFileSelectionCoverage;
+}
+
+interface DirectoryCursor {
+	readonly relativeDir: string;
+	readonly entries: readonly Dirent[];
+	index: number;
+}
+
+const ENTRY_SCAN_MULTIPLIER = 100;
+const MIN_ENTRY_SCAN_BOUND = 1_000;
+const MAX_COVERAGE_STRATA = 100;
+
+function scopeOf(relativePath: string): string {
+	const [topLevel, child] = toPosixPath(relativePath).split("/");
+	if (!topLevel) return ".";
+	if (child && ["apps", "crates", "libs", "packages", "services"].includes(topLevel)) return `${topLevel}/${child}`;
+	return topLevel;
+}
+
 /**
- * Bounded (entry-count-limited, skips node_modules/.git/build output, hidden dirs, and every
- * .gitignore-matched path -- root and nested) recursive source-file scan.
+ * Selects source files with a deterministic round-robin directory walk. Each active directory
+ * contributes at most one source file per turn, so an alphabetically early package cannot consume
+ * the whole file budget before sibling packages and languages receive coverage.
  */
-export function findSourceFiles(rootPath: string, isSourceExtension: (extension: string) => boolean, maxFiles: number): string[] {
-	const files: string[] = [];
-	let scanned = 0;
+export function selectSourceFiles(rootPath: string, isSourceExtension: (extension: string) => boolean, maxFiles: number): SourceFileSelection {
+	if (!Number.isSafeInteger(maxFiles) || maxFiles < 1) throw new RangeError("maxFiles must be a positive safe integer");
 	const filter = ignore();
 	loadGitignore(filter, rootPath, "");
+	const queue: DirectoryCursor[] = [];
+	const files: string[] = [];
+	const scopes = new Map<string, number>();
+	const languages = new Map<string, number>();
+	const maxScannedEntries = Math.max(MIN_ENTRY_SCAN_BOUND, maxFiles * ENTRY_SCAN_MULTIPLIER);
+	let scannedEntries = 0;
+	let truncated = false;
 
-	const visit = (relativeDir: string): void => {
-		if (scanned >= maxFiles) return;
+	function enqueue(relativeDir: string): void {
 		let entries: Dirent[];
 		try {
 			entries = readdirSync(join(rootPath, relativeDir), { withFileTypes: true, encoding: "utf-8" });
 		} catch {
 			return;
 		}
-		for (const entry of [...entries].sort((left, right) => left.name.localeCompare(right.name))) {
-			if (scanned >= maxFiles) return;
-			const relativePath = relativeDir ? join(relativeDir, entry.name) : entry.name;
+		queue.push({ relativeDir, entries: [...entries].sort((left, right) => left.name.localeCompare(right.name)), index: 0 });
+	}
+
+	enqueue("");
+	while (queue.length > 0 && files.length < maxFiles && scannedEntries < maxScannedEntries) {
+		const cursor = queue.shift();
+		if (!cursor) break;
+		let selected = false;
+		while (cursor.index < cursor.entries.length && !selected && scannedEntries < maxScannedEntries) {
+			const entry = cursor.entries[cursor.index++];
+			if (!entry) continue;
+			scannedEntries++;
+			const relativePath = cursor.relativeDir ? join(cursor.relativeDir, entry.name) : entry.name;
 			if (filter.ignores(toPosixPath(relativePath))) continue;
 			if (entry.isDirectory()) {
 				if (SKIP_DIRECTORY_NAMES.has(entry.name) || entry.name.startsWith(".")) continue;
 				loadGitignore(filter, rootPath, relativePath);
-				visit(relativePath);
-			} else if (entry.isFile() && isSourceExtension(extname(entry.name))) {
-				scanned++;
-				files.push(relativePath);
+				enqueue(relativePath);
+				continue;
 			}
+			const extension = extname(entry.name);
+			if (!entry.isFile() || !isSourceExtension(extension)) continue;
+			files.push(relativePath);
+			scopes.set(scopeOf(relativePath), (scopes.get(scopeOf(relativePath)) ?? 0) + 1);
+			languages.set(extension, (languages.get(extension) ?? 0) + 1);
+			selected = true;
 		}
+		if (cursor.index < cursor.entries.length) queue.push(cursor);
+	}
+	if (queue.length > 0 || scannedEntries >= maxScannedEntries) truncated = true;
+	const scopeCoverage = [...scopes].sort(([left], [right]) => left.localeCompare(right)).map(([scope, count]) => ({ scope, files: count }));
+	const languageCoverage = [...languages].sort(([left], [right]) => left.localeCompare(right)).map(([extension, count]) => ({ extension, files: count }));
+	return {
+		files,
+		coverage: {
+			scannedEntries,
+			truncated,
+			scopes: scopeCoverage.slice(0, MAX_COVERAGE_STRATA),
+			scopeOmittedCount: Math.max(0, scopeCoverage.length - MAX_COVERAGE_STRATA),
+			languages: languageCoverage.slice(0, MAX_COVERAGE_STRATA),
+			languageOmittedCount: Math.max(0, languageCoverage.length - MAX_COVERAGE_STRATA),
+		},
 	};
+}
 
-	visit("");
-	return files;
+/** Returns the bounded selected file list for callers that do not need coverage metadata. */
+export function findSourceFiles(rootPath: string, isSourceExtension: (extension: string) => boolean, maxFiles: number): string[] {
+	return [...selectSourceFiles(rootPath, isSourceExtension, maxFiles).files];
 }

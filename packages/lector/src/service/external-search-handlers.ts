@@ -1,4 +1,9 @@
-import type { ExternalSearchBounds, GithubRepoSearchResult, NpmPackageCandidate, SourcegraphCodeCandidate } from "../external-search/external-search-result.ts";
+import type {
+	ExternalSearchBounds,
+	GithubRepoSearchResult,
+	NpmPackageCandidate,
+	SourcegraphCodeSearchResult,
+} from "../external-search/external-search-result.ts";
 import type { ExternalSearchCachePort } from "../external-search-cache/port.ts";
 import type { GithubSearchPort } from "../github-search/port.ts";
 import type { NpmRegistryPort } from "../npm-registry/port.ts";
@@ -22,7 +27,7 @@ export interface ExternalSearchHandlerDeps {
 	readonly sourcegraphSearch: SourcegraphSearchPort;
 	readonly githubSearchCache: ExternalSearchCachePort<GithubRepoSearchResult>;
 	readonly npmSearchCache: ExternalSearchCachePort<{ candidates: readonly NpmPackageCandidate[] }>;
-	readonly sourcegraphSearchCache: ExternalSearchCachePort<{ candidates: readonly SourcegraphCodeCandidate[] }>;
+	readonly sourcegraphSearchCache: ExternalSearchCachePort<SourcegraphCodeSearchResult>;
 }
 
 export interface ExternalSearchHandlers {
@@ -61,8 +66,7 @@ export function createExternalSearchHandlers(deps: ExternalSearchHandlerDeps): E
 			const cacheKey = { source: "sourcegraph-code" as const, query: input.query, maxResults: input.maxResults };
 			const cached = await deps.sourcegraphSearchCache.get(cacheKey);
 			if (cached) return cached;
-			const candidates = await deps.sourcegraphSearch.searchCode(input.query, bounds);
-			const result = { candidates };
+			const result = await deps.sourcegraphSearch.searchCode(input.query, bounds);
 			await deps.sourcegraphSearchCache.set(cacheKey, result);
 			return result;
 		},

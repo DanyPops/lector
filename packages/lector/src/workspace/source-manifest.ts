@@ -3,13 +3,14 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ContentHash } from "../content-identity/content-hash.ts";
-import { findSourceFiles } from "../text-search/find-source-files.ts";
+import { type SourceFileSelectionCoverage, selectSourceFiles } from "../text-search/find-source-files.ts";
 
 export interface SourceManifest {
 	readonly fingerprint: string;
 	readonly absoluteFiles: readonly string[];
 	/** Each file's own content hash, same algorithm as contentHashOf -- lets a caller diff which specific files changed since a prior manifest, not just whether the tree as a whole did. */
 	readonly fileHashes: ReadonlyMap<string, ContentHash>;
+	readonly coverage: SourceFileSelectionCoverage;
 }
 
 export class SourceManifestLimitExceeded extends Error {
@@ -22,7 +23,8 @@ export class SourceManifestLimitExceeded extends Error {
 /** Hashes the same bounded, sorted source-file set population will consume. */
 export async function deriveSourceManifest(rootPath: string, extensions: readonly string[], maxFiles: number, maxBytes: number): Promise<SourceManifest> {
 	if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new RangeError("maxBytes must be a positive safe integer");
-	const relativeFiles = findSourceFiles(rootPath, (extension) => extensions.includes(extension), maxFiles);
+	const selection = selectSourceFiles(rootPath, (extension) => extensions.includes(extension), maxFiles);
+	const relativeFiles = selection.files;
 	const hash = createHash("sha256");
 	const absoluteFiles: string[] = [];
 	const fileHashes = new Map<string, ContentHash>();
@@ -52,5 +54,5 @@ export async function deriveSourceManifest(rootPath: string, extensions: readonl
 		fileHashes.set(absolutePath, fileHash.digest("hex") as ContentHash);
 		absoluteFiles.push(absolutePath);
 	}
-	return { fingerprint: hash.digest("hex"), absoluteFiles, fileHashes };
+	return { fingerprint: hash.digest("hex"), absoluteFiles, fileHashes, coverage: selection.coverage };
 }

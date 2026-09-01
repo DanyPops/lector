@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findSourceFiles } from "../../src/text-search/find-source-files.ts";
+import { findSourceFiles, selectSourceFiles } from "../../src/text-search/find-source-files.ts";
 
 function withFixture(build: (root: string) => void, run: (root: string) => void): void {
 	const root = mkdtempSync(join(tmpdir(), "lector-find-source-files-"));
@@ -144,6 +144,35 @@ describe("findSourceFiles", () => {
 			},
 			(root) => {
 				expect(findSourceFiles(root, IS_TS, 100).sort()).toEqual([join("a.ts"), join("sub", "b.ts")].sort());
+			},
+		));
+
+	it("stratifies a tight bound across sibling packages and languages", () =>
+		withFixture(
+			(root) => {
+				for (let index = 0; index < 20; index++) write(root, `packages/a/src/a-${String(index).padStart(2, "0")}.ts`);
+				write(root, "packages/b/src/main.py");
+				write(root, "packages/c/src/main.go");
+			},
+			(root) => {
+				const selection = selectSourceFiles(root, (extension) => [".ts", ".py", ".go"].includes(extension), 6);
+				expect(selection.files.some((path) => path.includes(join("packages", "b")))).toBe(true);
+				expect(selection.files.some((path) => path.includes(join("packages", "c")))).toBe(true);
+				expect(selection.coverage.languages.map(({ extension }) => extension).sort()).toEqual([".go", ".py", ".ts"]);
+				expect(selection.coverage.truncated).toBe(true);
+			},
+		));
+
+	it("bounds reported coverage strata", () =>
+		withFixture(
+			(root) => {
+				for (let index = 0; index < 105; index++) write(root, `packages/p-${String(index).padStart(3, "0")}/main.ts`);
+			},
+			(root) => {
+				const coverage = selectSourceFiles(root, IS_TS, 105).coverage;
+				expect(coverage.scopes).toHaveLength(100);
+				expect(coverage.scopeOmittedCount).toBe(5);
+				expect(coverage.languageOmittedCount).toBe(0);
 			},
 		));
 

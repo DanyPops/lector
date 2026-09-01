@@ -129,9 +129,10 @@ export async function runSearchSourcegraphCode(query: string | undefined, flags:
 	if (!query) fail(USAGE);
 	const maxResults = Number(flagValue(flags, "--max-results") ?? String(DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS));
 	const client = await connectLectorClient();
-	const { candidates } = await client.call("search.sourcegraphCode", { query, maxResults });
+	const result = await client.call("search.sourcegraphCode", { query, maxResults });
+	const { candidates } = result;
 	if (hasFlag(flags, "--json")) {
-		console.log(JSON.stringify({ candidates }));
+		console.log(JSON.stringify(result));
 		return;
 	}
 	if (candidates.length === 0) {
@@ -143,6 +144,7 @@ export async function runSearchSourcegraphCode(query: string | undefined, flags:
 			`${candidate.repository} -- ${candidate.path}${candidate.lineMatches.length > 0 ? ` (${candidate.lineMatches.length} matching lines)` : ""} -- ${candidate.url}`,
 		);
 	}
+	if (result.truncated) console.log(`partial results -- ${result.stopReason ?? "bounded"}`);
 }
 
 const SEARCH_ACTIONS: Record<string, (query: string | undefined, flags: string[]) => Promise<void>> = {

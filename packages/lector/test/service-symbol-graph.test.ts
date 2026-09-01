@@ -59,6 +59,13 @@ describe("createLectorService's symbol-graph operations", () => {
 		const populateResult = await service.dispatch("workspace.populateSymbolGraph", { workspaceId, maxFiles: 100, maxSymbolsPerFile: 50 });
 		expect(populateResult.filesProcessed).toBeGreaterThan(0);
 		expect(populateResult.edgesAdded).toBeGreaterThan(0);
+		expect(populateResult).toMatchObject({
+			filesReused: 0,
+			filesReprocessed: populateResult.filesAttempted,
+			staleRetries: 0,
+			sourceGeneration: expect.any(String),
+			sourceCoverage: { scannedEntries: expect.any(Number), truncated: false, scopes: expect.any(Array), languages: expect.any(Array) },
+		});
 
 		const chainFile = join(fixtureRoot, "src", "chain.ts");
 		const at = { workspaceId, path: chainFile, line: 1, character: 17 }; // "a" in "export function a"

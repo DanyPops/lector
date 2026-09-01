@@ -121,7 +121,7 @@ describe("foreground admission priority over background population", () => {
 		documents.resolve([]);
 	});
 
-	it("with reservedForegroundSlots configured, the same concurrent foreground query is admitted promptly instead of starving", async () => {
+	it("the production default reserves foreground capacity during background population", async () => {
 		const rootA = fixture();
 		const rootB = fixture();
 		const documents = deferred<readonly DocumentSymbolEntry[]>();
@@ -129,7 +129,6 @@ describe("foreground admission priority over background population", () => {
 		service = createLectorService(new Map(), {
 			allowDynamicOnly: true,
 			maxActiveSymbolIndexes: 2,
-			reservedForegroundSlots: 1,
 			createSymbolIndex: (rootPath: string, _descriptor: LanguageServerDescriptor) => (rootPath === rootA ? blocked : new InstantIndex()),
 		});
 		const { workspaceId: workspaceA } = await service.dispatch("workspace.registerPath", { path: rootA });
@@ -143,10 +142,14 @@ describe("foreground admission priority over background population", () => {
 		await blocked.entered;
 		expect((await service.dispatch("job.status", { jobId: job.id })).job.status).toBe("running");
 
-		const startedAt = Date.now();
-		const { symbols } = await service.dispatch("workspace.findSymbols", { workspaceId: workspaceB, query: "found" });
-		expect(symbols.map((symbol) => symbol.name)).toContain("found");
-		expect(Date.now() - startedAt).toBeLessThan(500); // admitted immediately, never queued behind background
+		const latencies: number[] = [];
+		for (let query = 0; query < 5; query++) {
+			const startedAt = performance.now();
+			const { symbols } = await service.dispatch("workspace.findSymbols", { workspaceId: workspaceB, query: "found" });
+			latencies.push(performance.now() - startedAt);
+			expect(symbols.map((symbol) => symbol.name)).toContain("found");
+		}
+		expect(Math.max(...latencies)).toBeLessThan(500); // admitted immediately throughout the blocked background population
 
 		documents.resolve([]);
 	});

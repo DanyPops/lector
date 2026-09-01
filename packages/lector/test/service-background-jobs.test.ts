@@ -278,12 +278,23 @@ describe("createLectorService background jobs", () => {
 			await new Promise((resolve) => setTimeout(resolve, 1));
 			activeJobs = await service.dispatch("workspace.activeCachingJobs", {});
 		}
-		expect(activeJobs.jobs).toEqual([{ workspaceId, status: "running", rootPath: directory, progress: { filesProcessed: 1, filesTotal: 3 } }]);
+		const expectedProgress = {
+			filesProcessed: 1,
+			filesTotal: 3,
+			filesSucceeded: 1,
+			filesFailed: 0,
+			symbolsProcessed: 0,
+			nodesAdded: 0,
+			edgesAdded: 0,
+			filesReused: 0,
+			staleRetries: 0,
+		};
+		expect(activeJobs.jobs).toEqual([{ workspaceId, status: "running", rootPath: directory, progress: expectedProgress }]);
 		const statusAfterOneFile = await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 });
 		expect(statusAfterOneFile).toEqual({
 			status: "caching",
 			jobId: submitted.job.id,
-			progress: { filesProcessed: 1, filesTotal: 3 },
+			progress: expectedProgress,
 		});
 
 		// The remaining two finish -- the job completes, and progress is cleared (population has no
@@ -392,10 +403,16 @@ describe("createLectorService background jobs", () => {
 			final = await service.dispatch("job.status", { jobId: job.id });
 		}
 		expect(final.job.status).toBe("succeeded");
+		if (final.job.status !== "succeeded") throw new Error("expected a completed population");
 		// Two real attempts happened -- the first raced and recorded nothing, the second (against the
 		// now-settled file) succeeded and actually recorded a generation.
 		expect(documentSymbolsCalls).toBe(2);
-		expect(await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 })).toMatchObject({ status: "cached" });
+		expect(final.job.result).toMatchObject({ staleRetries: 1, sourceGeneration: expect.any(String) });
+		const immediateStatus = await service.dispatch("workspace.cacheStatus", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 });
+		expect(immediateStatus).toMatchObject({
+			status: "cached",
+			generation: { sourceFingerprint: final.job.result.sourceGeneration, result: { staleRetries: 1 } },
+		});
 	});
 
 	it("still fails with WorkspaceChangedDuringPopulation once the retry budget is exhausted against a workspace that keeps changing every attempt, and logs the exhaustion distinctly from a fail-fast single attempt", async () => {

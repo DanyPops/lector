@@ -113,7 +113,9 @@ export type {
 	GithubRepoSearchResult,
 	NpmPackageCandidate,
 	SourcegraphCodeCandidate,
+	SourcegraphCodeSearchResult,
 	SourcegraphLineMatch,
+	SourcegraphSearchStopReason,
 } from "./external-search/external-search-result.ts";
 export { DEFAULT_EXTERNAL_SEARCH_MAX_RESULTS, splitSourcegraphRepository } from "./external-search/external-search-result.ts";
 export { deriveExternalSearchCacheKey, type ExternalSearchCacheKey, type ExternalSearchSource } from "./external-search-cache/external-search-cache-key.ts";
