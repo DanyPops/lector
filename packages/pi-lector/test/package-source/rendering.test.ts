@@ -42,9 +42,9 @@ function verified(): PackageSourceOperationResult {
 describe("package-source rendering", () => {
 	it("renders a stable call while arguments stream", () => {
 		expect(formatPackageSourceCall({ directory: "/project", name: "@scope/widget", version: "1.2.3" }, theme)).toContain(
-			"package_source @scope/widget@1.2.3 /project",
+			"Resolve Package Source @scope/widget@1.2.3 /project",
 		);
-		expect(formatPackageSourceCall({}, theme)).toContain("package_source");
+		expect(formatPackageSourceCall({}, theme)).toContain("Resolve Package Source");
 	});
 
 	it("renders verified identity, commit, and reusable workspace", () => {
@@ -113,11 +113,11 @@ describe("package-source rendering", () => {
 	}
 
 	it("renders list/remove/clean call shapes distinctly from resolve", () => {
-		expect(formatPackageSourceCall({ action: "list", text: "widget" }, theme)).toContain("list");
+		expect(formatPackageSourceCall({ action: "list", text: "widget" }, theme)).toContain("List Package Sources");
 		expect(formatPackageSourceCall({ action: "remove", ecosystem: "npm", name: "@scope/widget", resolvedVersion: "1.2.3" }, theme)).toContain(
-			"@scope/widget@1.2.3",
+			"Remove Package Source @scope/widget@1.2.3",
 		);
-		expect(formatPackageSourceCall({ action: "clean", ecosystem: "npm" }, theme)).toContain("clean");
+		expect(formatPackageSourceCall({ action: "clean", ecosystem: "npm" }, theme)).toContain("Clean Package Sources");
 	});
 
 	it("formatPackageSourceListResult is an empty-state fallback only -- a non-empty page renders as a Table", () => {

@@ -8,13 +8,13 @@ const REAL_PATCH = "@@ -1,3 +1,3 @@\n line 1\n-line 2\n+line 2 patched\n line 3\
 
 describe("formatApplyPatchCall", () => {
 	it("renders just the header when patchText is missing or empty (still streaming in)", () => {
-		expect(formatApplyPatchCall({ path: "src/a.ts" }, theme)).toBe("apply_patch src/a.ts");
-		expect(formatApplyPatchCall({ path: "src/a.ts", patchText: "" }, theme)).toBe("apply_patch src/a.ts");
+		expect(formatApplyPatchCall({ path: "src/a.ts" }, theme)).toBe("Apply Patch src/a.ts");
+		expect(formatApplyPatchCall({ path: "src/a.ts", patchText: "" }, theme)).toBe("Apply Patch src/a.ts");
 	});
 
 	it("appends a real colored diff preview once patchText is present", () => {
 		const text = formatApplyPatchCall({ path: "src/a.ts", patchText: REAL_PATCH }, theme);
-		expect(text).toContain("apply_patch src/a.ts");
+		expect(text).toContain("Apply Patch src/a.ts");
 		expect(text).toContain("-line 2");
 		expect(text).toContain("+line 2 patched");
 	});

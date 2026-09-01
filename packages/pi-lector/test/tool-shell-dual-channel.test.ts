@@ -1,12 +1,6 @@
 /**
- * Runs @danypops/vehicle-conformance's dual-channel matrix against pi-lector's own real
- * production rendering path for package_source's "resolve" action: an explicit discriminated
- * PackageSourceOutcome.status union with a compile-time `const exhaustive: never` guard, matching
- * cross-workspace-search/rendering.ts's own pattern.
- *
- * Every JSON.stringify() call in this package's rendering modules sits inside an already-exhaustive
- * never-guard's own unreachable-error message, never a silent fallback render -- so this fixture
- * targets the one representative renderer with the strongest pattern rather than one per tool.
+ * Exercises the shared Vehicle conformance fixture and the complete Lector-owned production
+ * renderer matrix, including every multiplexer action and the read/write/edit overrides.
  */
 import { describe, expect, it } from "bun:test";
 import type { PackageSourceOperationResult, PackageSourceOutcome } from "@danypops/lector";
@@ -15,6 +9,8 @@ import { runToolShellDualChannelConformance, type ToolShellDualChannelFixture } 
 import { initTheme, Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import lectorExtension from "../extension/src/index.ts";
+import { projectLectorPresentation } from "../extension/src/presentation/presentation-contract.ts";
+import { LECTOR_TOOL_PRESENTATION_SPECS, presentationTitle } from "../extension/src/presentation/tool-presentation.ts";
 
 // A real Theme emitting real ANSI SGR escapes -- required because the conformance suite's own
 // physical-line-width assertion strips real ANSI via a CSI regex before counting visible width.
@@ -121,8 +117,9 @@ const fixture: ToolShellDualChannelFixture = {
 				render(details, fallbackContent, { ...options, expanded: false }),
 			renderCall: (args: unknown, width: 40 | 80 | 120) => renderCall(args as never, theme, { cwd: process.cwd() } as never).render(width),
 			invalidProjection: async () => {
-				const bogus = { status: "not-a-real-status" } as unknown as PackageSourceOutcome;
-				render({ action: "resolve", result: resultOf(bogus) }, "MODEL_ONLY", { width: 80, expanded: false });
+				const cyclic: { self?: unknown } = {};
+				cyclic.self = cyclic;
+				projectLectorPresentation("package_source", cyclic);
 			},
 			// One representative real payload per PackageSourceOutcome.status -- proves the real
 			// exhaustive-switch renderer differentiates all 6 declared statuses instead of collapsing
@@ -170,15 +167,15 @@ const fixture: ToolShellDualChannelFixture = {
 
 runToolShellDualChannelConformance(fixture);
 
-describe("pi-lector custom tool renderer wiring", () => {
-	it("registers both channels for every custom tool", async () => {
+describe("pi-lector production tool renderer wiring", () => {
+	it("registers both channels for every Lector-owned tool", async () => {
 		const harness = createExtensionHarness(lectorExtension, { cwd: process.cwd() });
 		try {
 			await harness.boot();
-			const customTools = [...harness.tools.values()].filter(({ name }) => !["read", "write", "edit"].includes(name));
-			expect(customTools.length).toBeGreaterThan(0);
-			const missingCallRenderers = customTools.filter(({ definition }) => !definition.renderCall).map(({ name }) => name);
-			const missingResultRenderers = customTools.filter(({ definition }) => !definition.renderResult).map(({ name }) => name);
+			const lectorTools = [...harness.tools.values()];
+			expect(lectorTools).toHaveLength(34);
+			const missingCallRenderers = lectorTools.filter(({ definition }) => !definition.renderCall).map(({ name }) => name);
+			const missingResultRenderers = lectorTools.filter(({ definition }) => !definition.renderResult).map(({ name }) => name);
 			expect(missingCallRenderers).toEqual([]);
 			expect(missingResultRenderers).toEqual([]);
 		} finally {
@@ -186,27 +183,87 @@ describe("pi-lector custom tool renderer wiring", () => {
 		}
 	});
 
-	it("renders every custom tool safely at responsive widths", async () => {
+	it("renders all 69 action paths through production definitions with human titles", async () => {
+		const harness = createExtensionHarness(lectorExtension, { cwd: process.cwd() });
+		try {
+			await harness.boot();
+			for (const [toolName, spec] of Object.entries(LECTOR_TOOL_PRESENTATION_SPECS)) {
+				const definition = harness.tools.get(toolName)?.definition;
+				if (!definition?.renderCall) throw new Error(`${toolName} is missing a call renderer`);
+				const actions = spec.actions ? Object.keys(spec.actions) : [undefined];
+				for (const action of actions) {
+					const args = {
+						action,
+						direction: action,
+						path: "src/index.ts",
+						fromPath: "src/old.ts",
+						toPath: "src/new.ts",
+						directory: ".",
+						directories: ["."],
+						query: "widget",
+						patterns: ["*.ts"],
+						line: 1,
+						character: 1,
+					};
+					const rendered = definition
+						.renderCall(args as never, theme, { cwd: process.cwd(), state: {} } as never)
+						.render(120)
+						.join("\n");
+					if (!["read", "write", "edit"].includes(toolName))
+						expect(rendered, `${toolName}:${action ?? "default"}`).toContain(presentationTitle(toolName, action));
+				}
+			}
+		} finally {
+			await harness.shutdown();
+		}
+	});
+
+	it("falls back to semantic model content for malformed replay across every custom tool", async () => {
+		const harness = createExtensionHarness(lectorExtension, { cwd: process.cwd() });
+		try {
+			await harness.boot();
+			for (const { name, definition } of harness.tools.values()) {
+				if (["read", "write", "edit"].includes(name)) continue;
+				if (!definition.renderResult) throw new Error(`${name} is missing a result renderer`);
+				const rendered = definition
+					.renderResult(
+						{ content: [{ type: "text", text: "SEMANTIC_REPLAY_FALLBACK" }], details: { schema: "unknown/v9" } } as never,
+						{ isPartial: false, expanded: false },
+						theme,
+						{ cwd: process.cwd(), isError: false, state: {} } as never,
+					)
+					.render(80)
+					.join("\n");
+				expect(rendered, name).toContain("SEMANTIC_REPLAY_FALLBACK");
+			}
+		} finally {
+			await harness.shutdown();
+		}
+	});
+
+	it("renders every Lector-owned tool safely at responsive widths", async () => {
 		const harness = createExtensionHarness(lectorExtension, { cwd: process.cwd() });
 		const secret = "SECRET_CALL_ARGUMENT";
 		try {
 			await harness.boot();
-			const customTools = [...harness.tools.values()].filter(({ name }) => !["read", "write", "edit"].includes(name));
-			for (const { name, definition } of customTools) {
+			const lectorTools = [...harness.tools.values()];
+			for (const { name, definition } of lectorTools) {
 				if (!definition.renderCall || !definition.renderResult) throw new Error(`${name} is missing a renderer`);
 				for (const width of [40, 80, 120] as const) {
-					const callLines = definition.renderCall({ apiKey: secret, token: secret } as never, theme, { cwd: process.cwd() } as never).render(width);
+					const callLines = definition.renderCall({ apiKey: secret, token: secret } as never, theme, { cwd: process.cwd(), state: {} } as never).render(width);
 					expect(callLines.join("\n"), `${name} call arguments`).not.toContain(secret);
 					const partialLines = definition
 						.renderResult({ content: [{ type: "text", text: "MODEL_PARTIAL" }], details: undefined } as never, { isPartial: true, expanded: false }, theme, {
 							cwd: process.cwd(),
 							isError: false,
+							state: {},
 						} as never)
 						.render(width);
 					const errorLines = definition
 						.renderResult({ content: [{ type: "text", text: "MODEL_ERROR" }], details: undefined } as never, { isPartial: false, expanded: false }, theme, {
 							cwd: process.cwd(),
 							isError: true,
+							state: {},
 						} as never)
 						.render(width);
 					expect(errorLines.join("\n"), `${name} error channel`).toContain("MODEL_ERROR");

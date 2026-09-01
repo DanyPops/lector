@@ -14,6 +14,7 @@ import type {
 import { keyHint, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { renderTruncatedList } from "malevich-tui-components";
 import { colorForKind, formatLocation, type LectorTheme } from "../lector-tui-theme.ts";
+import { presentationTitle } from "../presentation/tool-presentation.ts";
 
 /**
  * Custom TUI rendering for the code-intelligence tools: go_to_definition,
@@ -41,7 +42,7 @@ function formatPositionalCall(toolName: string, args: { path?: unknown; line?: u
 	const path = typeof args.path === "string" ? args.path : "";
 	const line = typeof args.line === "number" ? args.line : "?";
 	const character = typeof args.character === "number" ? args.character : "?";
-	return `${theme.fg("toolTitle", theme.bold(toolName))} ${theme.fg("accent", `${path}:${line}:${character}`)}`;
+	return `${theme.fg("toolTitle", theme.bold(presentationTitle(toolName)))} ${theme.fg("accent", `${path}:${line}:${character}`)}`;
 }
 
 function moreLine(theme: LectorTheme): (hidden: number) => string {
@@ -110,7 +111,7 @@ export function formatHoverResult(hover: Hover | undefined, expanded: boolean, t
 
 export function formatDocumentSymbolsCall(args: { path?: unknown }, theme: LectorTheme): string {
 	const path = typeof args.path === "string" ? args.path : "";
-	return `${theme.fg("toolTitle", theme.bold("document_symbols"))} ${theme.fg("accent", path)}`;
+	return `${theme.fg("toolTitle", theme.bold(presentationTitle("document_symbols")))} ${theme.fg("accent", path)}`;
 }
 
 /** Flattens a hierarchical DocumentSymbolEntry[] into (depth, entry) pairs, depth-first, for bounded rendering. */
@@ -149,7 +150,7 @@ export function formatDocumentSymbolsResult(symbols: readonly DocumentSymbolEntr
 
 export function formatDiagnosticsCall(args: { path?: unknown }, theme: LectorTheme): string {
 	const path = typeof args.path === "string" ? args.path : "";
-	return `${theme.fg("toolTitle", theme.bold("diagnostics"))} ${theme.fg("accent", path)}`;
+	return `${theme.fg("toolTitle", theme.bold(presentationTitle("diagnostics")))} ${theme.fg("accent", path)}`;
 }
 
 export function formatDiagnosticsResult(diagnostics: readonly Diagnostic[] | undefined, expanded: boolean, theme: LectorTheme): string {
@@ -175,7 +176,7 @@ export function formatDiagnosticsResult(diagnostics: readonly Diagnostic[] | und
 
 function formatPathCall(toolName: string, args: { path?: unknown }, theme: LectorTheme, qualifier = ""): string {
 	const path = typeof args.path === "string" ? args.path : "";
-	return `${theme.fg("toolTitle", theme.bold(toolName))}${qualifier ? ` ${theme.fg("muted", qualifier)}` : ""} ${theme.fg("accent", path)}`;
+	return `${theme.fg("toolTitle", theme.bold(presentationTitle(toolName)))}${qualifier ? ` ${theme.fg("muted", qualifier)}` : ""} ${theme.fg("accent", path)}`;
 }
 
 export function formatCodeActionPreviewCall(
@@ -249,7 +250,11 @@ export function formatDiagnosticDeltaResult(result: OperationOutputs["workspace.
 }
 
 export function formatTypeHierarchyCall(args: { direction?: unknown; path?: unknown; line?: unknown; character?: unknown }, theme: LectorTheme): string {
-	return `${formatPositionalCall("type_hierarchy", args, theme)} ${theme.fg("muted", typeof args.direction === "string" ? args.direction : "")}`;
+	const direction = typeof args.direction === "string" ? args.direction : undefined;
+	const path = typeof args.path === "string" ? args.path : "";
+	const line = typeof args.line === "number" ? args.line : "?";
+	const character = typeof args.character === "number" ? args.character : "?";
+	return `${theme.fg("toolTitle", theme.bold(presentationTitle("type_hierarchy", direction)))} ${theme.fg("accent", `${path}:${line}:${character}`)}`;
 }
 
 export function formatTypeHierarchyResult(
@@ -311,7 +316,7 @@ export function formatCallHierarchyCall(args: { direction?: unknown; path?: unkn
 	const path = typeof args.path === "string" ? args.path : "";
 	const line = typeof args.line === "number" ? args.line : "?";
 	const character = typeof args.character === "number" ? args.character : "?";
-	return `${theme.fg("toolTitle", theme.bold("call_hierarchy"))} ${theme.fg("muted", direction)} ${theme.fg("accent", `${path}:${line}:${character}`)}`;
+	return `${theme.fg("toolTitle", theme.bold(presentationTitle("call_hierarchy", direction)))} ${theme.fg("accent", `${path}:${line}:${character}`)}`;
 }
 
 function formatPrepareCallHierarchyResult(items: readonly CallHierarchyEntry[] | undefined, theme: LectorTheme): string {
@@ -384,7 +389,7 @@ export function formatReachableFromResult(symbols: readonly SymbolNode[] | undef
 export function formatWorkspaceMapCall(args: { path?: unknown; maxEntries?: unknown }, theme: LectorTheme): string {
 	const path = typeof args.path === "string" ? args.path : "";
 	const maxEntries = typeof args.maxEntries === "number" ? ` (top ${args.maxEntries})` : "";
-	return `${theme.fg("toolTitle", theme.bold("workspace_map"))} ${theme.fg("dim", path)}${theme.fg("muted", maxEntries)}`;
+	return `${theme.fg("toolTitle", theme.bold(presentationTitle("workspace_map")))} ${theme.fg("dim", path)}${theme.fg("muted", maxEntries)}`;
 }
 
 export function formatWorkspaceMapResult(result: WorkspaceMapResult | undefined, expanded: boolean, theme: LectorTheme): string {

@@ -2,6 +2,7 @@ import type { PackageSourceListEntry, PackageSourceOperationResult } from "@dany
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { renderTruncatedList, type TableColumn } from "malevich-tui-components";
 import type { LectorTheme } from "../lector-tui-theme.ts";
+import { presentationTitle } from "../presentation/tool-presentation.ts";
 
 const DEFAULT_VISIBLE_CANDIDATES = 5;
 
@@ -14,18 +15,18 @@ export function formatPackageSourceCall(
 	args: { action?: unknown; directory?: unknown; name?: unknown; version?: unknown; ecosystem?: unknown; resolvedVersion?: unknown; text?: unknown },
 	theme: LectorTheme,
 ): string {
-	const label = theme.fg("toolTitle", theme.bold("package_source"));
 	const action: PackageSourceAction = args.action === "list" || args.action === "remove" || args.action === "clean" ? args.action : "resolve";
+	const label = theme.fg("toolTitle", theme.bold(presentationTitle("package_source", action)));
 	if (action === "list") {
 		const text = typeof args.text === "string" && args.text.length > 0 ? ` ${theme.fg("dim", args.text)}` : "";
-		return `${label} ${theme.fg("accent", "list")}${text}`;
+		return `${label}${text}`;
 	}
 	if (action === "remove" || action === "clean") {
 		const name = typeof args.name === "string" ? args.name : "";
 		const version = typeof args.resolvedVersion === "string" ? `@${args.resolvedVersion}` : "";
 		const ecosystem = typeof args.ecosystem === "string" ? args.ecosystem : "";
 		const identity = name ? `${name}${version}` : ecosystem;
-		return `${label} ${theme.fg("accent", action)}${identity ? ` ${theme.fg("dim", identity)}` : ""}`;
+		return `${label}${identity ? ` ${theme.fg("accent", identity)}` : ""}`;
 	}
 	const name = typeof args.name === "string" ? args.name : "";
 	const version = typeof args.version === "string" ? `@${args.version}` : "";

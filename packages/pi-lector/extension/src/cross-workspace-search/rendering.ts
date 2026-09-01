@@ -3,14 +3,19 @@ import { keyHint } from "@earendil-works/pi-coding-agent";
 import { renderTruncatedList } from "malevich-tui-components";
 import { describeFindSymbolSources } from "../find-symbols/rendering.ts";
 import type { LectorTheme } from "../lector-tui-theme.ts";
+import { presentationTitle } from "../presentation/tool-presentation.ts";
 import type { CrossWorkspaceOutcome } from "./operations.ts";
 
 const DEFAULT_VISIBLE_PER_WORKSPACE = 10;
 
-export function formatCrossWorkspaceCall(args: { directories?: unknown; query?: unknown }, theme: LectorTheme): string {
+export function formatCrossWorkspaceCall(
+	toolName: "find_symbols_across_projects" | "search_code_across_projects",
+	args: { directories?: unknown; query?: unknown },
+	theme: LectorTheme,
+): string {
 	const directories = Array.isArray(args.directories) ? args.directories.filter((d): d is string => typeof d === "string") : [];
 	const query = typeof args.query === "string" ? args.query : "";
-	return `${theme.fg("accent", `"${query}"`)} ${theme.fg("dim", `across ${directories.length} project(s)`)}`;
+	return `${theme.fg("toolTitle", theme.bold(presentationTitle(toolName)))} ${theme.fg("accent", `"${query}"`)} ${theme.fg("dim", `across ${directories.length} project(s)`)}`;
 }
 
 function formatOutcomeHeader(entry: CrossWorkspaceOutcome<unknown>, theme: LectorTheme): string {

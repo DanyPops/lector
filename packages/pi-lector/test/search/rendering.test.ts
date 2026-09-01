@@ -18,7 +18,7 @@ function result(overrides: Partial<TextSearchResult> = {}): TextSearchResult {
 
 describe("formatSearchCall", () => {
 	it("shows the query and directory", () => {
-		expect(formatSearchCall({ directory: "/repo", query: "foo" }, theme)).toContain('search_code "foo" /repo');
+		expect(formatSearchCall({ directory: "/repo", query: "foo" }, theme)).toContain('Search Code "foo" /repo');
 	});
 });
 

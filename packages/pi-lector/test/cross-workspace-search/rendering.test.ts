@@ -42,7 +42,9 @@ function entry<T>(directory: string, outcome: WorkspaceQueryOutcome<T>, collapse
 
 describe("formatCrossWorkspaceCall", () => {
 	it("shows the query and project count", () => {
-		expect(formatCrossWorkspaceCall({ directories: ["/a", "/b"], query: "foo" }, theme)).toContain('"foo" across 2 project(s)');
+		const text = formatCrossWorkspaceCall("find_symbols_across_projects", { directories: ["/a", "/b"], query: "foo" }, theme);
+		expect(text).toContain("Find Symbols Across Projects");
+		expect(text).toContain('"foo" across 2 project(s)');
 	});
 });
 

@@ -1,5 +1,6 @@
 import type { CacheResultCounts, JobSnapshot, PopulateSymbolGraphResult, WorkspaceCacheStatus } from "@danypops/lector";
 import type { LectorTheme } from "../lector-tui-theme.ts";
+import { presentationTitle } from "../presentation/tool-presentation.ts";
 
 type WorkspaceCacheAction = "status" | "populate" | "wait" | "job_status";
 
@@ -8,10 +9,10 @@ export function formatWorkspaceCacheCall(
 	args: { directory?: unknown; maxFiles?: unknown; maxSymbolsPerFile?: unknown; jobId?: unknown },
 	theme: LectorTheme,
 ): string {
-	const label = theme.fg("toolTitle", theme.bold("workspace_cache"));
+	const label = theme.fg("toolTitle", theme.bold(presentationTitle("workspace_cache", action)));
 	if (action === "job_status" || action === "wait") {
 		const jobId = typeof args.jobId === "string" ? args.jobId : "";
-		return `${label} ${theme.fg("accent", action)} ${theme.fg("dim", jobId)}`;
+		return `${label} ${theme.fg("accent", jobId)}`;
 	}
 	const directory = typeof args.directory === "string" ? args.directory : "";
 	const maxFiles = typeof args.maxFiles === "number" ? String(args.maxFiles) : "default";
@@ -20,7 +21,7 @@ export function formatWorkspaceCacheCall(
 		action === "populate" && (typeof args.maxFiles === "number" || typeof args.maxSymbolsPerFile === "number")
 			? theme.fg("dim", ` (maxFiles=${maxFiles}, maxSymbolsPerFile=${maxSymbolsPerFile})`)
 			: "";
-	return `${label} ${theme.fg("accent", action)} ${theme.fg("dim", directory)}${bounds}`;
+	return `${label} ${theme.fg("accent", directory)}${bounds}`;
 }
 
 function formatResultCounts(result: CacheResultCounts): string {

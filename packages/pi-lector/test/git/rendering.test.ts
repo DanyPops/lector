@@ -11,7 +11,7 @@ const theme: LectorTheme = { fg: (_color, text) => text, bold: (text) => text };
 
 describe("formatGitCall", () => {
 	it("shows the action, directory, and an optional ref", () => {
-		expect(formatGitCall({ action: "log", directory: "/repo", ref: "main" }, theme)).toContain("git log /repo main");
+		expect(formatGitCall({ action: "log", directory: "/repo", ref: "main" }, theme)).toContain("Git Log /repo main");
 	});
 });
 

@@ -90,7 +90,7 @@ function sampleNode(overrides: Partial<SymbolNode> = {}): SymbolNode {
 describe("formatGoToDefinitionCall/Result", () => {
 	it("shows the tool name and position", () => {
 		const text = formatGoToDefinitionCall({ path: "src/index.ts", line: 3, character: 5 }, plainTheme);
-		expect(text).toContain("go_to_definition");
+		expect(text).toContain("Go to Definition");
 		expect(text).toContain("src/index.ts:3:5");
 	});
 
@@ -108,7 +108,7 @@ describe("formatGoToDefinitionCall/Result", () => {
 describe("formatFindReferencesCall/Result", () => {
 	it("shows the tool name and position", () => {
 		const text = formatFindReferencesCall({ path: "src/index.ts", line: 3, character: 5 }, plainTheme);
-		expect(text).toContain("find_references");
+		expect(text).toContain("Find References");
 		expect(text).toContain("src/index.ts:3:5");
 	});
 
@@ -133,7 +133,7 @@ describe("formatFindReferencesCall/Result", () => {
 describe("formatHoverCall/Result", () => {
 	it("shows the tool name and position", () => {
 		const text = formatHoverCall({ path: "src/index.ts", line: 3, character: 5 }, plainTheme);
-		expect(text).toContain("hover");
+		expect(text).toContain("Hover");
 		expect(text).toContain("src/index.ts:3:5");
 	});
 
@@ -169,7 +169,7 @@ describe("formatDocumentSymbolsCall/Result", () => {
 
 	it("shows the tool name and path", () => {
 		const text = formatDocumentSymbolsCall({ path: "src/index.ts" }, plainTheme);
-		expect(text).toContain("document_symbols");
+		expect(text).toContain("Document Symbols");
 		expect(text).toContain("src/index.ts");
 	});
 
@@ -199,7 +199,7 @@ describe("formatDiagnosticsCall/Result", () => {
 
 	it("shows the tool name and path", () => {
 		const text = formatDiagnosticsCall({ path: "src/index.ts" }, plainTheme);
-		expect(text).toContain("diagnostics");
+		expect(text).toContain("Diagnostics");
 		expect(text).toContain("src/index.ts");
 	});
 
@@ -236,8 +236,7 @@ function callHierarchyEntry(overrides: Partial<CallHierarchyEntry> = {}): CallHi
 describe("formatCallHierarchyCall/Result", () => {
 	it("shows the tool name, direction, and position", () => {
 		const text = formatCallHierarchyCall({ direction: "prepare", path: "src/math.ts", line: 1, character: 17 }, plainTheme);
-		expect(text).toContain("call_hierarchy");
-		expect(text).toContain("prepare");
+		expect(text).toContain("Prepare Call Hierarchy");
 		expect(text).toContain("src/math.ts:1:17");
 	});
 
@@ -294,7 +293,7 @@ describe("formatReachableFromCall/Result", () => {
 
 	it("shows the tool name, position, and depth", () => {
 		const text = formatReachableFromCall({ path: "src/math.ts", line: 5, character: 17, maxDepth: 2 }, plainTheme);
-		expect(text).toContain("reachable_from");
+		expect(text).toContain("Reachable Symbols");
 		expect(text).toContain("src/math.ts:5:17");
 		expect(text).toContain("depth 2");
 	});
@@ -331,7 +330,7 @@ describe("formatWorkspaceMapCall/Result", () => {
 
 	it("shows the tool name, path, and requested entry count", () => {
 		const text = formatWorkspaceMapCall({ path: "src/math.ts", maxEntries: 20 }, plainTheme);
-		expect(text).toContain("workspace_map");
+		expect(text).toContain("Workspace Map");
 		expect(text).toContain("src/math.ts");
 		expect(text).toContain("20");
 	});
@@ -394,7 +393,7 @@ describe("type-hierarchy rendering", () => {
 			truncated: false,
 			provenance,
 		} satisfies OperationOutputs["workspace.prepareTypeHierarchy"];
-		expect(formatTypeHierarchyCall({ direction: "supertypes", path: "src/math.ts", line: 1, character: 1 }, plainTheme)).toContain("supertypes");
+		expect(formatTypeHierarchyCall({ direction: "supertypes", path: "src/math.ts", line: 1, character: 1 }, plainTheme)).toContain("Supertypes");
 		const text = formatTypeHierarchyResult(result, false, plainTheme);
 		expect(text).toContain("Base");
 		expect(text).toContain("abstract");
@@ -416,7 +415,7 @@ describe("impact-analysis rendering", () => {
 			truncated: false,
 			deadlineReached: false,
 		} satisfies OperationOutputs["workspace.impactAnalysis"];
-		expect(formatImpactAnalysisCall({ path: ".", source: "git" }, plainTheme)).toContain("impact_analysis");
+		expect(formatImpactAnalysisCall({ path: ".", source: "git" }, plainTheme)).toContain("Impact Analysis");
 		const text = formatImpactAnalysisResult(result, false, plainTheme);
 		expect(text).toContain("add");
 		expect(text).toContain("caller");

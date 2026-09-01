@@ -2,13 +2,14 @@ import type { FindFilesResult } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { renderTruncatedList } from "malevich-tui-components";
 import type { LectorTheme } from "../lector-tui-theme.ts";
+import { presentationTitle } from "../presentation/tool-presentation.ts";
 
 const DEFAULT_VISIBLE_PATHS = 40;
 
 export function formatFindFilesCall(args: { directory?: unknown; patterns?: unknown }, theme: LectorTheme): string {
 	const directory = typeof args.directory === "string" ? args.directory : "";
 	const patterns = Array.isArray(args.patterns) ? args.patterns.filter((p): p is string => typeof p === "string") : [];
-	return `${theme.fg("toolTitle", theme.bold("find_files"))} ${theme.fg("accent", patterns.map((p) => `"${p}"`).join(", "))} ${theme.fg("dim", directory)}`;
+	return `${theme.fg("toolTitle", theme.bold(presentationTitle("find_files")))} ${theme.fg("accent", patterns.map((p) => `"${p}"`).join(", "))} ${theme.fg("dim", directory)}`;
 }
 
 export function formatFindFilesResult(result: FindFilesResult | undefined, expanded: boolean, theme: LectorTheme): string {

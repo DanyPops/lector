@@ -41,28 +41,27 @@ function summarizedResult(overrides: Partial<CacheGenerationResultSummary> = {})
 describe("formatWorkspaceCacheCall", () => {
 	it("renders a status call with the directory", () => {
 		const text = formatWorkspaceCacheCall("status", { directory: "/repo" }, theme);
-		expect(text).toContain("workspace_cache");
-		expect(text).toContain("status");
+		expect(text).toContain("Workspace Cache Status");
 		expect(text).toContain("/repo");
 	});
 
 	it("renders a populate call with the directory and bounds when given", () => {
 		const text = formatWorkspaceCacheCall("populate", { directory: "/repo", maxFiles: 2000, maxSymbolsPerFile: 200 }, theme);
-		expect(text).toContain("populate");
+		expect(text).toContain("Populate Workspace Cache");
 		expect(text).toContain("/repo");
 		expect(text).toContain("2000");
 	});
 
 	it("renders a wait call with the jobId, not a directory", () => {
 		const text = formatWorkspaceCacheCall("wait", { jobId: "job-42", directory: "/wrong" }, theme);
-		expect(text).toContain("wait");
+		expect(text).toContain("Wait for Cache Job");
 		expect(text).toContain("job-42");
 		expect(text).not.toContain("/wrong");
 	});
 
 	it("renders a job_status call with the jobId, not a directory", () => {
 		const text = formatWorkspaceCacheCall("job_status", { jobId: "job-42" }, theme);
-		expect(text).toContain("job_status");
+		expect(text).toContain("Cache Job Status");
 		expect(text).toContain("job-42");
 	});
 });

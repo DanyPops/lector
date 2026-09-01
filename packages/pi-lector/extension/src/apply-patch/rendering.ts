@@ -1,6 +1,7 @@
 import type { EditOutcome } from "@danypops/lector";
 import { renderDiffLines, renderTruncatedList, type TextMeasure } from "malevich-tui-components";
 import type { LectorTheme } from "../lector-tui-theme.ts";
+import { presentationTitle } from "../presentation/tool-presentation.ts";
 
 /**
  * The applied result (EditOutcome) only carries a hash transition, not the
@@ -15,7 +16,7 @@ const DEFAULT_VISIBLE_PATCH_LINES = 12;
 
 export function formatApplyPatchCall(args: { path?: unknown; patchText?: unknown }, theme: LectorTheme, measure?: TextMeasure): string {
 	const path = typeof args.path === "string" ? args.path : "";
-	const header = `${theme.fg("toolTitle", theme.bold("apply_patch"))} ${theme.fg("accent", path)}`;
+	const header = `${theme.fg("toolTitle", theme.bold(presentationTitle("apply_patch")))} ${theme.fg("accent", path)}`;
 	if (typeof args.patchText !== "string" || args.patchText.length === 0) return header;
 
 	const styledLines = renderDiffLines(

@@ -10,7 +10,7 @@ const theme: LectorTheme = { fg: (_color, text) => text, bold: (text) => text };
 
 describe("formatFindFilesCall", () => {
 	it("shows the patterns and directory", () => {
-		expect(formatFindFilesCall({ directory: "/repo", patterns: ["*.ts"] }, theme)).toContain('find_files "*.ts" /repo');
+		expect(formatFindFilesCall({ directory: "/repo", patterns: ["*.ts"] }, theme)).toContain('Find Files "*.ts" /repo');
 	});
 });
 

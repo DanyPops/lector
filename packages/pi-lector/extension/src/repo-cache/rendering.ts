@@ -2,6 +2,7 @@ import type { CachedRepositoryEntry, CachedRepositoryPage, RepoFetchResult } fro
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import type { TableColumn } from "malevich-tui-components";
 import type { LectorTheme } from "../lector-tui-theme.ts";
+import { presentationTitle } from "../presentation/tool-presentation.ts";
 
 /** Table has no row-count bound of its own; a cache can grow arbitrarily large even though repo_cache's own `maxResults` bounds any one page, so the display itself still needs a cap independent of that. */
 export const REPO_CACHE_VISIBLE_ROWS = 20;
@@ -17,16 +18,16 @@ export function formatRepoCacheCall(
 	args: { owner?: unknown; repo?: unknown; ref?: unknown; host?: unknown; text?: unknown },
 	theme: LectorTheme,
 ): string {
-	const label = theme.fg("toolTitle", theme.bold("repo_cache"));
+	const label = theme.fg("toolTitle", theme.bold(presentationTitle("repo_cache", action)));
 	if (action === "list") {
 		const filter = typeof args.text === "string" && args.text.length > 0 ? args.text : typeof args.repo === "string" ? args.repo : "";
-		return `${label} ${theme.fg("accent", "list")}${filter ? ` ${theme.fg("dim", filter)}` : ""}`;
+		return `${label}${filter ? ` ${theme.fg("accent", filter)}` : ""}`;
 	}
 	const host = typeof args.host === "string" && args.host.length > 0 ? args.host : "github.com";
 	const owner = typeof args.owner === "string" ? args.owner : "";
 	const repo = typeof args.repo === "string" ? args.repo : "";
 	const ref = typeof args.ref === "string" ? `@${args.ref}` : "";
-	return `${label} ${theme.fg("accent", action)} ${theme.fg("dim", `${host}/${owner}/${repo}${ref}`)}`;
+	return `${label} ${theme.fg("accent", `${host}/${owner}/${repo}${ref}`)}`;
 }
 
 export function formatRepoFetchResult(result: (RepoFetchResult & { workspaceId: string }) | undefined, theme: LectorTheme): string {

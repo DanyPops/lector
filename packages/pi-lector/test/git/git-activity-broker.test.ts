@@ -16,6 +16,7 @@ import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { registerActivityBroker, unregisterActivityBroker } from "@danypops/vehicle-client-pi/activity-broker";
 import lectorExtension from "../../extension/src/index.ts";
 import { resetLectorClientForTests, setLectorClientConnectorForTests } from "../../extension/src/lector-client.ts";
+import { parseLectorPresentation } from "../../extension/src/presentation/presentation-contract.ts";
 import { resetLectorVehicleClientForTests, setLectorVehicleClientConnectorForTests } from "../../extension/src/vehicle-client.ts";
 import { startIsolatedLectorDaemon } from "../support/isolated-lector-daemon.ts";
 
@@ -57,8 +58,9 @@ describe("git tool (status/log/diff): real end-to-end Activity Broker proof", ()
 		const h = createExtensionHarness(lectorExtension, { cwd: repoRoot });
 		await h.boot();
 		try {
-			const result = (await h.invokeTool("git", { action: "status", directory: repoRoot })) as { details: { summary: unknown } };
-			expect(result.details.summary).toBeDefined();
+			const result = (await h.invokeTool("git", { action: "status", directory: repoRoot })) as { details: unknown };
+			const details = parseLectorPresentation(result.details, "git") as { summary?: unknown } | undefined;
+			expect(details?.summary).toBeDefined();
 		} finally {
 			await h.shutdown();
 		}
@@ -95,8 +97,9 @@ describe("git tool (status/log/diff): real end-to-end Activity Broker proof", ()
 				maxMatches: 20,
 				maxBytes: 20_000,
 				deadlineMs: 5_000,
-			})) as { details: { historyGrep: { matches: readonly { text: string }[] } } };
-			expect(result.details.historyGrep.matches).toContainEqual(expect.objectContaining({ text: "historical needle" }));
+			})) as { details: unknown };
+			const details = parseLectorPresentation(result.details, "git") as { historyGrep?: { matches: readonly { text: string }[] } } | undefined;
+			expect(details?.historyGrep?.matches).toContainEqual(expect.objectContaining({ text: "historical needle" }));
 		} finally {
 			await harness.shutdown();
 		}

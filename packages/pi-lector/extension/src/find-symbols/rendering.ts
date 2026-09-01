@@ -2,6 +2,7 @@ import type { SymbolSearchResult, WorkspaceSymbol } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { renderTruncatedList } from "malevich-tui-components";
 import { colorForKind, formatLocation, type LectorTheme } from "../lector-tui-theme.ts";
+import { presentationTitle } from "../presentation/tool-presentation.ts";
 
 /**
  * Custom TUI rendering for find_symbols -- the one Lector-backed tool with
@@ -18,7 +19,7 @@ const DEFAULT_VISIBLE_RESULTS = 8;
 
 export function formatFindSymbolsCall(args: { query?: unknown; directory?: unknown }, theme: FindSymbolsTheme): string {
 	const query = typeof args.query === "string" ? args.query : "";
-	let content = `${theme.fg("toolTitle", theme.bold("find_symbols"))} ${theme.fg("accent", `"${query}"`)}`;
+	let content = `${theme.fg("toolTitle", theme.bold(presentationTitle("find_symbols")))} ${theme.fg("accent", `"${query}"`)}`;
 	if (typeof args.directory === "string" && args.directory.length > 0) {
 		content += ` ${theme.fg("muted", `in ${args.directory}`)}`;
 	}

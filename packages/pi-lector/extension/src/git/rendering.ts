@@ -3,6 +3,7 @@ import { keyHint } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { renderDiffLines, renderTruncatedList, type TextMeasure } from "malevich-tui-components";
 import type { LectorTheme } from "../lector-tui-theme.ts";
+import { presentationTitle } from "../presentation/tool-presentation.ts";
 
 /** Real ANSI-aware measurement, not Malevich's own ASCII-only default -- every diff line renderDiffLines receives is already theme.fg-styled. */
 const measure: TextMeasure = { visibleWidth, truncateToWidth };
@@ -61,31 +62,32 @@ export function formatGitCall(
 	theme: LectorTheme,
 ): string {
 	const action = typeof args.action === "string" ? args.action : "";
+	const label = theme.fg("toolTitle", theme.bold(presentationTitle("git", action)));
 	const directory = typeof args.directory === "string" ? args.directory : "";
 	if (action === "compare-symbol") {
 		const path = typeof args.path === "string" ? args.path : "";
 		const symbol = typeof args.symbol === "string" ? args.symbol : "";
 		const fromRef = typeof args.fromRef === "string" ? args.fromRef : "";
 		const toRef = typeof args.toRef === "string" ? ` -> ${args.toRef}` : "";
-		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", `${directory}/${path}`)} (${symbol}) ${fromRef}${toRef}`;
+		return `${label} ${theme.fg("accent", `${directory}/${path}`)} (${symbol}) ${fromRef}${toRef}`;
 	}
 	if (action === "is-ancestor") {
 		const ancestorRef = typeof args.ancestorRef === "string" ? args.ancestorRef : "";
 		const ref = typeof args.ref === "string" ? args.ref : "";
-		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)} ${ancestorRef} -> ${ref}`;
+		return `${label} ${theme.fg("accent", directory)} ${ancestorRef} -> ${ref}`;
 	}
 	if (action === "grep-ref" || action === "grep-history") {
 		const ref = action === "grep-ref" && typeof args.ref === "string" ? `${args.ref} ` : "";
 		const pattern = typeof args.pattern === "string" ? args.pattern : "";
-		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)} ${ref}"${pattern}"`;
+		return `${label} ${theme.fg("accent", directory)} ${ref}"${pattern}"`;
 	}
 	if (action === "show") {
 		const ref = typeof args.ref === "string" ? args.ref : "";
 		const path = typeof args.path === "string" ? args.path : "";
-		return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", `${directory}/${path}`)} @ ${ref}`;
+		return `${label} ${theme.fg("accent", `${directory}/${path}`)} @ ${ref}`;
 	}
 	const ref = typeof args.ref === "string" ? ` ${args.ref}` : "";
-	return `${theme.fg("toolTitle", theme.bold("git"))} ${theme.fg("muted", action)} ${theme.fg("accent", directory)}${ref}`;
+	return `${label} ${theme.fg("accent", directory)}${ref}`;
 }
 
 function formatGitWorktreeAddResult(result: GitWorktreeAddResult | undefined, theme: LectorTheme): string {

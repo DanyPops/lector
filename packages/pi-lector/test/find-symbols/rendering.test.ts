@@ -49,7 +49,7 @@ function result(symbols: readonly WorkspaceSymbol[], truncated = false): SymbolS
 describe("formatFindSymbolsCall", () => {
 	it("shows the tool name and the quoted query", () => {
 		const text = formatFindSymbolsCall({ query: "exactEdit" }, plainTheme);
-		expect(text).toContain("find_symbols");
+		expect(text).toContain("Find Symbols");
 		expect(text).toContain('"exactEdit"');
 	});
 

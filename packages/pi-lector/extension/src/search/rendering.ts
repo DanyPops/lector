@@ -2,13 +2,14 @@ import type { TextSearchResult } from "@danypops/lector";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { renderTruncatedList } from "malevich-tui-components";
 import type { LectorTheme } from "../lector-tui-theme.ts";
+import { presentationTitle } from "../presentation/tool-presentation.ts";
 
 const DEFAULT_VISIBLE_MATCHES = 20;
 
 export function formatSearchCall(args: { directory?: unknown; query?: unknown }, theme: LectorTheme): string {
 	const directory = typeof args.directory === "string" ? args.directory : "";
 	const query = typeof args.query === "string" ? args.query : "";
-	return `${theme.fg("toolTitle", theme.bold("search_code"))} ${theme.fg("accent", `"${query}"`)} ${theme.fg("dim", directory)}`;
+	return `${theme.fg("toolTitle", theme.bold(presentationTitle("search_code")))} ${theme.fg("accent", `"${query}"`)} ${theme.fg("dim", directory)}`;
 }
 
 export function formatSearchResult(result: TextSearchResult | undefined, expanded: boolean, theme: LectorTheme): string {

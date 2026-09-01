@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import type {
 	CachedRepositoryPage,
 	ContentHash,
-	ContextBundleResult,
 	Diagnostic,
 	DocumentSymbolEntry,
 	EditOutcome,
@@ -121,6 +120,9 @@ import {
 	PACKAGE_SOURCE_LIST_VISIBLE_ROWS,
 	packageSourceListMoreLine,
 } from "./package-source/rendering.ts";
+import { formatSemanticModelContent } from "./presentation/model-content.ts";
+import { withLectorPresentation } from "./presentation/presentation-contract.ts";
+import { presentationTitle } from "./presentation/tool-presentation.ts";
 import { createLectorReadOperations } from "./read/operations.ts";
 import { createReferenceBasedRenameOperations } from "./reference-based-rename/operations.ts";
 import { createRenameOperations } from "./rename/operations.ts";
@@ -189,7 +191,7 @@ export default function (pi: ExtensionAPI) {
 	const customToolNames = new Set<string>();
 	function registerLectorTool<TParams extends TSchema, TDetails = unknown, TState = unknown>(tool: ToolDefinition<TParams, TDetails, TState>): void {
 		customToolNames.add(tool.name);
-		pi.registerTool(tool);
+		pi.registerTool(withLectorPresentation(tool));
 	}
 	pi.on("tool_result", (event) => {
 		if (!customToolNames.has(event.toolName)) return;
@@ -471,7 +473,11 @@ export default function (pi: ExtensionAPI) {
 				return { content: [{ type: "text", text }], details: result };
 			},
 			renderCall(args, theme) {
-				return new Text(theme.fg("toolTitle", `localize ${typeof args.query === "string" ? args.query : "context"}`), 0, 0);
+				return new Text(
+					`${theme.fg("toolTitle", theme.bold(presentationTitle("localize_context")))} ${theme.fg("accent", typeof args.query === "string" ? `"${args.query}"` : "")}`,
+					0,
+					0,
+				);
 			},
 			renderResult(result, { isPartial }, theme, context) {
 				if (isPartial) return new Text(theme.fg("warning", "Localizing..."), 0, 0);
@@ -482,8 +488,11 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "localize_context failed"), 0, 0);
 				}
-				const details = result.details as ContextBundleResult | undefined;
-				return new Text(details ? `${details.candidates.length} candidates · graph ${details.completeness.graph}` : "Localization complete", 0, 0);
+				const contentText = result.content
+					.filter((block) => block.type === "text")
+					.map((block) => block.text)
+					.join("\n");
+				return new Text(contentText || "Localization complete", 0, 0);
 			},
 		});
 
@@ -1195,7 +1204,7 @@ export default function (pi: ExtensionAPI) {
 				const toPath = typeof args.toPath === "string" ? args.toPath : "";
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				text.setText(
-					`${theme.fg("toolTitle", theme.bold("reference_based_rename"))} ${theme.fg("accent", fromPath)} ${theme.fg("dim", "->")} ${theme.fg("accent", toPath)}`,
+					`${theme.fg("toolTitle", theme.bold(presentationTitle("reference_based_rename")))} ${theme.fg("accent", fromPath)} ${theme.fg("dim", "->")} ${theme.fg("accent", toPath)}`,
 				);
 				return text;
 			},
@@ -1260,7 +1269,7 @@ export default function (pi: ExtensionAPI) {
 				const action = typeof args.action === "string" ? args.action : "";
 				const path = typeof args.path === "string" ? args.path : "";
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(`${theme.fg("toolTitle", theme.bold("rename"))} ${theme.fg("dim", action)} ${theme.fg("accent", path)}`);
+				text.setText(`${theme.fg("toolTitle", theme.bold(presentationTitle("rename", action)))} ${theme.fg("accent", path)}`);
 				return text;
 			},
 			renderResult(result, { isPartial }, theme, context) {
@@ -1441,10 +1450,10 @@ export default function (pi: ExtensionAPI) {
 								? ` ${args.rootId}`
 								: "";
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(`${theme.fg("toolTitle", theme.bold("symbol_annotations"))} ${theme.fg("accent", action)}${theme.fg("dim", id)}`);
+				text.setText(`${theme.fg("toolTitle", theme.bold(presentationTitle("symbol_annotations", action)))}${theme.fg("accent", id)}`);
 				return text;
 			},
-			renderResult(result, { isPartial }, theme, context) {
+			renderResult(result, { expanded, isPartial }, theme, context) {
 				if (isPartial) return new Text(theme.fg("warning", "Working on annotation..."), 0, 0);
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 				if (context.isError) {
@@ -1457,11 +1466,11 @@ export default function (pi: ExtensionAPI) {
 				}
 				const details = result.details as SymbolAnnotationToolDetails | undefined;
 				if (details?.annotations) {
-					text.setText(formatAnnotationListSummary(details.annotations, theme));
+					text.setText(expanded ? details.annotations.map(formatAnnotationDetail).join("\n\n") : formatAnnotationListSummary(details.annotations, theme));
 					return text;
 				}
 				if (details?.annotation) {
-					text.setText(formatAnnotationSummary(details.annotation, theme));
+					text.setText(expanded ? formatAnnotationDetail(details.annotation) : formatAnnotationSummary(details.annotation, theme));
 					return text;
 				}
 				if (details?.scrubbed !== undefined) {
@@ -1633,7 +1642,10 @@ export default function (pi: ExtensionAPI) {
 				if (params.action === "job_status") {
 					if (!params.jobId) throw new Error("workspace_cache action=job_status requires jobId");
 					const job = await cacheOperations.jobStatus(params.jobId);
-					return { content: [{ type: "text", text: JSON.stringify(job) }], details: { action: "job_status", job } };
+					return {
+						content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("workspace_cache", "job_status"), job) }],
+						details: { action: "job_status", job },
+					};
 				}
 				if (params.action === "wait") {
 					if (!params.jobId) throw new Error("workspace_cache action=wait requires jobId");
@@ -1655,7 +1667,10 @@ export default function (pi: ExtensionAPI) {
 						);
 					}
 					const job = outcome.kind === "terminal" ? outcome.job : await cacheOperations.jobStatus(params.jobId);
-					return { content: [{ type: "text", text: JSON.stringify(job) }], details: { action: "wait", job } };
+					return {
+						content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("workspace_cache", "wait"), job) }],
+						details: { action: "wait", job },
+					};
 				}
 				if (!params.directory) throw new Error(`workspace_cache action=${params.action} requires directory`);
 				const directory = resolve(cwd, params.directory);
@@ -1663,10 +1678,16 @@ export default function (pi: ExtensionAPI) {
 				const maxSymbolsPerFile = params.maxSymbolsPerFile ?? 100;
 				if (params.action === "status") {
 					const status = await cacheOperations.status(directory, maxFiles, maxSymbolsPerFile);
-					return { content: [{ type: "text", text: JSON.stringify(status) }], details: { action: "status", status } };
+					return {
+						content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("workspace_cache", "status"), status) }],
+						details: { action: "status", status },
+					};
 				}
 				const job = await cacheOperations.submit(directory, maxFiles, maxSymbolsPerFile, params.waitMs ?? 3_000);
-				return { content: [{ type: "text", text: JSON.stringify(job) }], details: { action: "populate", job } };
+				return {
+					content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("workspace_cache", "populate"), job) }],
+					details: { action: "populate", job },
+				};
 			},
 			renderCall(args, theme, context) {
 				const action = args.action === "populate" || args.action === "wait" || args.action === "job_status" ? args.action : "status";
@@ -1764,7 +1785,7 @@ export default function (pi: ExtensionAPI) {
 				if (params.action === "status") {
 					const summary = await gitOperations.status(directory, vehicleCall);
 					const details: GitToolDetails = { action: "status", summary };
-					return { content: [{ type: "text", text: JSON.stringify(summary) }], details };
+					return { content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("git", "status"), summary) }], details };
 				}
 				if (params.action === "log") {
 					if (params.maxCount === undefined) throw new Error("git action=log requires maxCount");
@@ -1785,18 +1806,18 @@ export default function (pi: ExtensionAPI) {
 					if (params.maxBytes === undefined) throw new Error("git action=compare-symbol requires maxBytes");
 					const comparison = await gitOperations.compareSymbol(directory, params.path, params.symbol, params.fromRef, params.toRef, params.maxBytes);
 					const details: GitToolDetails = { action: "compare-symbol", comparison };
-					return { content: [{ type: "text", text: JSON.stringify(comparison) }], details };
+					return { content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("git", "compare-symbol"), comparison) }], details };
 				}
 				if (params.action === "worktree-add") {
 					if (!params.ref) throw new Error("git action=worktree-add requires ref");
 					const worktreeAdd = await gitOperations.worktreeAdd(directory, params.ref, params.forceRefresh, vehicleCall);
 					const details: GitToolDetails = { action: "worktree-add", worktreeAdd };
-					return { content: [{ type: "text", text: JSON.stringify(worktreeAdd) }], details };
+					return { content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("git", "worktree-add"), worktreeAdd) }], details };
 				}
 				if (params.action === "worktree-remove") {
 					const worktreeRemove = await gitOperations.worktreeRemove(directory, vehicleCall);
 					const details: GitToolDetails = { action: "worktree-remove", worktreeRemove };
-					return { content: [{ type: "text", text: JSON.stringify(worktreeRemove) }], details };
+					return { content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("git", "worktree-remove"), worktreeRemove) }], details };
 				}
 				if (params.action === "show") {
 					if (!params.ref || !params.path) throw new Error("git action=show requires ref and path");
@@ -1809,7 +1830,7 @@ export default function (pi: ExtensionAPI) {
 					if (params.maxMatches === undefined || params.maxBytes === undefined) throw new Error("git action=grep-ref requires maxMatches and maxBytes");
 					const grep = await gitOperations.grep(directory, params.ref, params.pattern, params.pathspecs, params.maxMatches, params.maxBytes, vehicleCall);
 					const details: GitToolDetails = { action: "grep-ref", grep };
-					return { content: [{ type: "text", text: JSON.stringify(grep) }], details };
+					return { content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("git", "grep-ref"), grep) }], details };
 				}
 				if (params.action === "grep-history") {
 					if (!params.pattern) throw new Error("git action=grep-history requires pattern");
@@ -1835,20 +1856,20 @@ export default function (pi: ExtensionAPI) {
 						vehicleCall,
 					);
 					const details: GitToolDetails = { action: "grep-history", historyGrep };
-					return { content: [{ type: "text", text: JSON.stringify(historyGrep) }], details };
+					return { content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("git", "grep-history"), historyGrep) }], details };
 				}
 				if (params.action === "ls-ref") {
 					if (!params.ref) throw new Error("git action=ls-ref requires ref");
 					if (params.maxResults === undefined) throw new Error("git action=ls-ref requires maxResults");
 					const listFiles = await gitOperations.listFiles(directory, params.ref, params.pathspecs, params.maxResults, vehicleCall);
 					const details: GitToolDetails = { action: "ls-ref", listFiles };
-					return { content: [{ type: "text", text: JSON.stringify(listFiles) }], details };
+					return { content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("git", "ls-ref"), listFiles) }], details };
 				}
 				if (params.action === "is-ancestor") {
 					if (!params.ancestorRef || !params.ref) throw new Error("git action=is-ancestor requires ancestorRef and ref");
 					const result = await gitOperations.isAncestor(directory, params.ancestorRef, params.ref, vehicleCall);
 					const details: GitToolDetails = { action: "is-ancestor", isAncestor: { ancestorRef: params.ancestorRef, ref: params.ref, result } };
-					return { content: [{ type: "text", text: JSON.stringify({ isAncestor: result }) }], details };
+					return { content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("git", "is-ancestor"), { isAncestor: result }) }], details };
 				}
 				throw new Error(`unknown git action: ${String(params.action)}`);
 			},
@@ -2134,7 +2155,7 @@ export default function (pi: ExtensionAPI) {
 				const action = typeof args.action === "string" ? args.action : "";
 				const path = typeof args.path === "string" ? args.path : "";
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(`${theme.fg("toolTitle", theme.bold("mutation_history"))} ${theme.fg("accent", action)} ${theme.fg("dim", path)}`);
+				text.setText(`${theme.fg("toolTitle", theme.bold(presentationTitle("mutation_history", action)))} ${theme.fg("accent", path)}`);
 				return text;
 			},
 			renderResult(result, { isPartial }, theme, context) {
@@ -2210,7 +2231,10 @@ export default function (pi: ExtensionAPI) {
 						maxResults: params.maxResults,
 						cursor: params.cursor,
 					});
-					return { content: [{ type: "text", text: JSON.stringify(page) }], details: { action: "list", page } };
+					return {
+						content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("package_source", "list"), page) }],
+						details: { action: "list", page },
+					};
 				}
 				if (params.action === "remove") {
 					if (!params.name || !params.resolvedVersion) throw new Error("package_source action=remove requires ecosystem, name, and resolvedVersion");
@@ -2220,11 +2244,17 @@ export default function (pi: ExtensionAPI) {
 						params.name,
 						params.resolvedVersion,
 					);
-					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "remove", result } };
+					return {
+						content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("package_source", "remove"), result) }],
+						details: { action: "remove", result },
+					};
 				}
 				if (params.action === "clean") {
 					const result = await packageSourceOperations.clean(optionalPackageEcosystem(params.ecosystem));
-					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "clean", result } };
+					return {
+						content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("package_source", "clean"), result) }],
+						details: { action: "clean", result },
+					};
 				}
 				if (!params.directory || !params.name) throw new Error("package_source action=resolve requires directory and name");
 				const directory = resolve(cwd, params.directory);
@@ -2235,7 +2265,10 @@ export default function (pi: ExtensionAPI) {
 					params.registry ?? null,
 					optionalPackageEcosystem(params.ecosystem),
 				);
-				return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "resolve", result } };
+				return {
+					content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("package_source", "resolve"), result) }],
+					details: { action: "resolve", result },
+				};
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -2332,12 +2365,18 @@ export default function (pi: ExtensionAPI) {
 						params.forceRefresh,
 						vehicleCall,
 					);
-					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "fetch", result } };
+					return {
+						content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("repo_cache", "fetch"), result) }],
+						details: { action: "fetch", result },
+					};
 				}
 				if (params.action === "evict") {
 					if (!params.owner || !params.repo) throw new Error("repo_cache action=evict requires owner and repo");
 					const result = await repoCacheEvictOperations.evict(params.host ?? "github.com", params.owner, params.repo, params.ref ?? null, vehicleCall);
-					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "evict", result } };
+					return {
+						content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("repo_cache", "evict"), result) }],
+						details: { action: "evict", result },
+					};
 				}
 				if (params.maxResults === undefined) throw new Error("repo_cache action=list requires maxResults");
 				const page = await repoCacheListOperations.list(
@@ -2346,7 +2385,10 @@ export default function (pi: ExtensionAPI) {
 					params.cursor,
 					vehicleCall,
 				);
-				return { content: [{ type: "text", text: JSON.stringify(page) }], details: { action: "list", page } };
+				return {
+					content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("repo_cache", "list"), page) }],
+					details: { action: "list", page },
+				};
 			},
 			renderCall(args, theme, context) {
 				const action = args.action === "list" || args.action === "evict" ? args.action : "fetch";
@@ -2419,14 +2461,23 @@ export default function (pi: ExtensionAPI) {
 				};
 				if (params.action === "github_repos") {
 					const result = await externalSearchOperations.githubRepos(params.query, maxResults, vehicleCall);
-					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "github_repos", result } };
+					return {
+						content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("external_search", "github_repos"), result) }],
+						details: { action: "github_repos", result },
+					};
 				}
 				if (params.action === "npm_packages") {
 					const result = await externalSearchOperations.npmPackages(params.query, maxResults, vehicleCall);
-					return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "npm_packages", result } };
+					return {
+						content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("external_search", "npm_packages"), result) }],
+						details: { action: "npm_packages", result },
+					};
 				}
 				const result = await externalSearchOperations.sourcegraphCode(params.query, maxResults, vehicleCall);
-				return { content: [{ type: "text", text: JSON.stringify(result) }], details: { action: "sourcegraph_code", result } };
+				return {
+					content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("external_search", "sourcegraph_code"), result) }],
+					details: { action: "sourcegraph_code", result },
+				};
 			},
 			renderCall(args, theme, context) {
 				const action = args.action === "npm_packages" || args.action === "sourcegraph_code" ? args.action : "github_repos";
@@ -2434,7 +2485,7 @@ export default function (pi: ExtensionAPI) {
 				text.setText(formatExternalSearchCall(action, args, theme));
 				return text;
 			},
-			renderResult(result, { isPartial }, theme, context) {
+			renderResult(result, { expanded, isPartial }, theme, context) {
 				if (isPartial) return new Text(theme.fg("warning", "Searching..."), 0, 0);
 				if (context.isError) {
 					const errorText = result.content
@@ -2445,9 +2496,9 @@ export default function (pi: ExtensionAPI) {
 				}
 				const details = result.details as ExternalSearchToolDetails | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				if (details?.action === "npm_packages") text.setText(formatNpmPackageSearchResult(details.result, theme));
-				else if (details?.action === "sourcegraph_code") text.setText(formatSourcegraphCodeSearchResult(details.result, theme));
-				else text.setText(formatGithubRepoSearchResult(details?.action === "github_repos" ? details.result : undefined, theme));
+				if (details?.action === "npm_packages") text.setText(formatNpmPackageSearchResult(details.result, expanded, theme));
+				else if (details?.action === "sourcegraph_code") text.setText(formatSourcegraphCodeSearchResult(details.result, expanded, theme));
+				else text.setText(formatGithubRepoSearchResult(details?.action === "github_repos" ? details.result : undefined, expanded, theme));
 				return text;
 			},
 		});
@@ -2470,11 +2521,14 @@ export default function (pi: ExtensionAPI) {
 			async execute(_toolCallId, params) {
 				const directories = params.directories.map((directory) => resolve(cwd, directory));
 				const results = await crossWorkspaceSearchOperations.findSymbols(params.query, directories, params.timeoutMs, params.maxResults);
-				return { content: [{ type: "text", text: JSON.stringify(results) }], details: { results } };
+				return {
+					content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("find_symbols_across_projects"), results) }],
+					details: { results },
+				};
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatCrossWorkspaceCall(args, theme));
+				text.setText(formatCrossWorkspaceCall("find_symbols_across_projects", args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
@@ -2509,11 +2563,14 @@ export default function (pi: ExtensionAPI) {
 			async execute(_toolCallId, params) {
 				const directories = params.directories.map((directory) => resolve(cwd, directory));
 				const results = await crossWorkspaceSearchOperations.searchText(params.query, directories, params.maxMatches, params.maxBytes, params.timeoutMs);
-				return { content: [{ type: "text", text: JSON.stringify(results) }], details: { results } };
+				return {
+					content: [{ type: "text", text: formatSemanticModelContent(presentationTitle("search_code_across_projects"), results) }],
+					details: { results },
+				};
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(formatCrossWorkspaceCall(args, theme));
+				text.setText(formatCrossWorkspaceCall("search_code_across_projects", args, theme));
 				return text;
 			},
 			renderResult(result, { expanded, isPartial }, theme, context) {
