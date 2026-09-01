@@ -37,11 +37,11 @@ export interface CaptureLectorAgentTraceOptions {
 	/** The scripted tool call(s)/text step(s) the faux provider plays back -- no live LLM call. */
 	readonly script: readonly FauxScriptStep[];
 	readonly cwd?: string;
-	/** How long to wait for the scripted tool call(s) to finish. Default 20s. */
+	/** How long to wait for the scripted agent run to finish. Default 20s. */
 	readonly timeoutMs?: number;
 }
 
-/** Spawns the scripted run, waits for its last scripted tool call to complete, and returns every event observed. */
+/** Spawns the scripted run, waits for the agent's terminal event, and returns every event observed. */
 export async function captureLectorAgentTrace(options: CaptureLectorAgentTraceOptions): Promise<LectorAgentTrace> {
 	const proc = spawnRealPiProcess({
 		extensions: [resolveFauxProviderExtensionPath(), PI_LECTOR_EXTENSION_PATH],
@@ -55,7 +55,7 @@ export async function captureLectorAgentTrace(options: CaptureLectorAgentTraceOp
 	proc.sendPrompt("go");
 
 	try {
-		await waitForRpcEvent(events, (event): event is Extract<AgentSessionEvent, { type: "tool_execution_end" }> => event.type === "tool_execution_end", {
+		await waitForRpcEvent(events, (event): event is Extract<AgentSessionEvent, { type: "agent_end" }> => event.type === "agent_end", {
 			timeoutMs: options.timeoutMs ?? 20_000,
 		});
 	} finally {
