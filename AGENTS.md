@@ -65,12 +65,12 @@ for the shared substrate lector builds on.
 ## Git & Releases
 
 - Never commit an edit/write in the same tool call as the commit itself.
-- Release: bump `package.json` version (PATCH when every existing consumer's own declared floor
-  already covers it, avoiding a cascade of dependency-range edits across
-  `pi-lector`/`alef-lector`/`zodiac-lector`), typecheck + test + lint locally, commit, push,
-  then tag and push the tag. `@danypops/lector` uses `lector-v<version>`, `@danypops/pi-lector`
-  uses `pi-lector-v<version>` -- see `.github/workflows/publish.yml`. Push tags one at a time,
-  never batched in a single `git push`.
+- Release: bump `package.json` version and synchronize the lockfile (PATCH when every existing
+  consumer's own declared floor already covers it), commit, push, then tag and push the tag.
+  `@danypops/lector` uses `lector-v<version>`, `@danypops/pi-lector` uses `pi-lector-v<version>`
+  -- see `.github/workflows/publish.yml`. Push tags one at a time, never batched in a single `git push`.
+- GitHub Actions owns release verification. Use the publish workflow's tests, typechecks and lint;
+  do not duplicate them locally for release-only changes or use local log dumps as release evidence.
 - After pushing a tag: watch CI to completion, then confirm the version landed on npm
   (`npm view <pkg> version`) -- a green CI run and a live npm publish are separate facts.
 
