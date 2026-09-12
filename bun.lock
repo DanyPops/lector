@@ -63,7 +63,7 @@
     },
     "packages/pi-lector": {
       "name": "@danypops/pi-lector",
-      "version": "0.17.1",
+      "version": "0.17.2",
       "dependencies": {
         "@danypops/lector": "^0.23.1",
         "@danypops/vehicle-client": "^0.10.8",
