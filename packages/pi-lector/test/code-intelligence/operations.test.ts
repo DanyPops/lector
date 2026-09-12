@@ -155,6 +155,8 @@ describe("Lector-backed code-intelligence operations", () => {
 		expect(diagnostics.diagnostics.length).toBeGreaterThan(0);
 		expect(diagnostics.diagnostics[0]?.severity).toBe("error");
 		expect(diagnostics.diagnostics[0]?.range.path).toBe(brokenFile);
+		expect(diagnostics.context?.confidence).toBe("unknown");
+		expect(diagnostics.context?.document.synchronizedVersion).toBe(1);
 	}, 20_000);
 
 	it("previews and applies a guarded code action", async () => {

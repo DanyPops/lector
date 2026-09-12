@@ -66,6 +66,10 @@ describe("Python reference CLI parity", () => {
 		expect(definition.provenance).toEqual(json.provenance);
 		expect(definition.locations.some(({ path }) => path.endsWith("contracts/payment.py"))).toBe(true);
 
+		const diagnosticJson: unknown = JSON.parse(await runCli(["workspace", "diagnostics", registration.workspaceId, checkoutPath, "--json"]));
+		expect(diagnosticJson).toMatchObject({ context: { confidence: "unknown", configuration: "server-managed-unverified" } });
+		expect(await runCli(["workspace", "diagnostics", registration.workspaceId, checkoutPath])).toContain("Project context: unknown");
+
 		const human = await runCli(["workspace", "symbols", registration.workspaceId, "run_checkout"]);
 		expect(human).toContain("semantic via pyright");
 		expect(human).toContain("run_checkout");

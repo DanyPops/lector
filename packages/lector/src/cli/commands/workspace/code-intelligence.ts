@@ -132,8 +132,10 @@ export async function runWorkspaceDiagnostics(workspaceId: string | undefined, p
 		console.log(JSON.stringify(result));
 		return;
 	}
-	const { diagnostics, provenance } = result;
+	const { diagnostics, provenance, context } = result;
 	console.log(formatIntelligenceSource(provenance));
+	console.log(`Project context: ${context?.confidence ?? "unknown"}`);
+	for (const finding of context?.setupFindings ?? []) console.log(`setup ${finding.kind}: ${finding.action}`);
 	if (diagnostics.length === 0) {
 		console.log("no diagnostics");
 		return;

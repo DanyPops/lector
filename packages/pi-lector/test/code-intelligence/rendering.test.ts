@@ -203,6 +203,20 @@ describe("formatDiagnosticsCall/Result", () => {
 		expect(text).toContain("src/index.ts");
 	});
 
+	it("shows degraded setup beside empty diagnostics", () => {
+		const text = formatDiagnosticsResult([], true, plainTheme, {
+			confidence: "degraded",
+			server: {},
+			document: {},
+			configuration: "server-managed-unverified",
+			truncated: false,
+			setupFindings: [{ kind: "interpreter", evidence: "server-message", action: "Verify the Python interpreter." }],
+		});
+		expect(text).toContain("Project context: degraded");
+		expect(text).toContain("Verify the Python interpreter.");
+		expect(text).toContain("No diagnostics");
+	});
+
 	it("shows a clear, positive message when there are no diagnostics", () => {
 		expect(formatDiagnosticsResult([], false, plainTheme)).toContain("No diagnostics");
 	});

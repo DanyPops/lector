@@ -1,6 +1,7 @@
 import type { CodeActionPreview, CodeActionPreviewId } from "../code-intelligence/code-action.ts";
 import type { SymbolComparisonStatus } from "../code-intelligence/compare-symbol-declarations.ts";
 import type { Diagnostic } from "../code-intelligence/diagnostic.ts";
+import type { DiagnosticContext } from "../code-intelligence/diagnostic-context.ts";
 import type { DocumentHighlight } from "../code-intelligence/document-highlight.ts";
 import type { DocumentSymbolEntry } from "../code-intelligence/document-symbol.ts";
 import type { Hover } from "../code-intelligence/hover.ts";
@@ -561,7 +562,7 @@ export interface OperationOutputs {
 	/** truncated is true only when hover text itself was cut by maxBytes -- absent entirely (undefined hover) is not truncation. */
 	"workspace.hover": Provenanced<{ hover: Hover | undefined; truncated: boolean }>;
 	"workspace.documentSymbols": Provenanced<{ symbols: readonly DocumentSymbolEntry[]; truncated: boolean }>;
-	"workspace.diagnostics": Provenanced<{ diagnostics: readonly Diagnostic[]; truncated: boolean }>;
+	"workspace.diagnostics": Provenanced<{ diagnostics: readonly Diagnostic[]; truncated: boolean; context?: DiagnosticContext }>;
 	"workspace.prepareCallHierarchy": Provenanced<{ items: readonly CallHierarchyEntry[] }>;
 	"workspace.incomingCalls": Provenanced<{ calls: readonly IncomingCall[]; truncated: boolean }>;
 	"workspace.outgoingCalls": Provenanced<{ calls: readonly OutgoingCall[]; truncated: boolean }>;

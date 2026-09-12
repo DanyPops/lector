@@ -78,6 +78,8 @@ export const USAGE = `Usage:
   lector workspace hover <workspace-id> <path> <line> <character> [--json]
   lector workspace document-symbols <workspace-id> <path> [--json]
   lector workspace diagnostics <workspace-id> <path> [--json]
+    native diagnostics plus bounded project confidence, setup findings and synchronized source identity;
+    reported readiness is the server's claim, while build features and environment remain unverified
   lector workspace diagnostic-delta <workspace-id> <transaction|git> <transaction-id|ref>
     --max-results <n> --max-bytes <n> [--max-depth <n> --max-nodes <n> --max-edges <n>
     --deadline-ms <n> --max-files <n> --max-symbols-per-file <n> --auto-populate] [--json]

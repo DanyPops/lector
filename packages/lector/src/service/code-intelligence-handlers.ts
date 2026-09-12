@@ -1,5 +1,6 @@
 import { boundListFromStart, jsonByteSize } from "../bounds/bound-list.ts";
 import { truncateUtf8 } from "../bounds/truncate-utf8.ts";
+import { DiagnosticContextTracker } from "../code-intelligence/diagnostic-context.ts";
 import { diagnostics as diagnosticsQuery } from "../code-intelligence/diagnostics.ts";
 import { documentHighlights as documentHighlightsQuery } from "../code-intelligence/document-highlights.ts";
 import { documentSymbols as documentSymbolsQuery } from "../code-intelligence/document-symbols.ts";
@@ -236,7 +237,8 @@ export function createCodeIntelligenceHandlers(deps: CodeIntelligenceHandlerDeps
 			const maxResults = resolveBound(input.maxResults, DEFAULT_DIAGNOSTIC_RESULTS, MAX_DIAGNOSTIC_RESULTS, "maxResults");
 			const maxBytes = resolveBound(input.maxBytes, DEFAULT_DIAGNOSTIC_BYTES, MAX_DIAGNOSTIC_BYTES, "maxBytes");
 			const { page, truncated } = boundListFromStart(diagnostics, maxResults, maxBytes, jsonByteSize);
-			return { diagnostics: page, truncated, provenance: lease.value.index.provenance };
+			const context = lease.value.index.diagnosticContext?.(input.path) ?? new DiagnosticContextTracker().snapshot({});
+			return { diagnostics: page, truncated, provenance: lease.value.index.provenance, context };
 		},
 		async "workspace.prepareCallHierarchy"(_registry, input) {
 			await using lease = await requireCodeIntelligence(warmIndexes, input);

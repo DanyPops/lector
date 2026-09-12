@@ -174,6 +174,8 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 		const initial = await service.dispatch("workspace.rawRead", { workspaceId, path });
 		const clean = await service.dispatch("workspace.diagnostics", { workspaceId, path });
 		expect(clean.diagnostics).toEqual([]);
+		expect(clean.context?.confidence).toBe("unknown");
+		expect(clean.context?.document.synchronizedContentHash).toBe(initial.hash);
 
 		const broken = await service.dispatch("workspace.exactEdit", {
 			workspaceId,
@@ -192,6 +194,7 @@ describe("createLectorService's Tier A code-intelligence operations", () => {
 		});
 		const fixed = await service.dispatch("workspace.diagnostics", { workspaceId, path });
 		expect(fixed.diagnostics).toEqual([]);
+		expect(fixed.context?.document.synchronizedVersion).toBeGreaterThan(clean.context?.document.synchronizedVersion ?? 0);
 	}, 20_000);
 
 	it("routes a real query through the default LSP backend end to end, and reuses the same warm index findSymbols already keeps alive", async () => {

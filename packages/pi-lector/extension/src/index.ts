@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import type {
 	CachedRepositoryPage,
 	ContentHash,
-	Diagnostic,
 	DocumentSymbolEntry,
 	EditOutcome,
 	FindFilesResult,
@@ -53,6 +52,7 @@ import { formatApplyPatchCall, formatApplyPatchResult } from "./apply-patch/rend
 import { createLectorCodeIntelligenceOperations } from "./code-intelligence/operations.ts";
 import {
 	type CallHierarchyToolDetails,
+	describeDiagnosticContext,
 	formatCallHierarchyCall,
 	formatCallHierarchyResult,
 	formatCodeActionApplyCall,
@@ -771,7 +771,8 @@ export default function (pi: ExtensionAPI) {
 		registerLectorTool({
 			name: "diagnostics",
 			label: "Diagnostics",
-			description: "List every error and warning a language server currently knows about for one file, as of its last analysis.",
+			description:
+				"List native errors and warnings with bounded project-context confidence, separate setup findings, synchronized source hash and reported document versions. Server readiness is not compiler verification; unreported configuration stays unknown.",
 			promptSnippet: "List current errors/warnings for one file",
 			promptGuidelines: ["Use diagnostics after an edit to check for new type errors in one specific file, instead of running a full project build."],
 			parameters: Type.Object({ path: Type.String({ description: "Absolute or cwd-relative path to the file" }) }),
@@ -782,7 +783,10 @@ export default function (pi: ExtensionAPI) {
 					details.diagnostics.length === 0
 						? "No diagnostics."
 						: details.diagnostics.map((d) => `${d.severity} ${d.range.path}:${d.range.start.line}:${d.range.start.character} -- ${d.message}`).join("\n");
-				return { content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${text}` }], details };
+				return {
+					content: [{ type: "text", text: `${describeIntelligenceSource(details.provenance)}\n${describeDiagnosticContext(details.context)}\n${text}` }],
+					details,
+				};
 			},
 			renderCall(args, theme, context) {
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -798,9 +802,9 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 					return new Text(theme.fg("error", errorText || "diagnostics failed"), 0, 0);
 				}
-				const details = result.details as { diagnostics?: readonly Diagnostic[]; provenance?: IntelligenceProvenance } | undefined;
+				const details = result.details as OperationOutputs["workspace.diagnostics"] | undefined;
 				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-				text.setText(renderIntelligenceSource(formatDiagnosticsResult(details?.diagnostics, expanded, theme), details?.provenance, theme));
+				text.setText(renderIntelligenceSource(formatDiagnosticsResult(details?.diagnostics, expanded, theme, details?.context), details?.provenance, theme));
 				return text;
 			},
 		});

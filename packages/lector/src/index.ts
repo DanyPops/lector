@@ -21,6 +21,7 @@ export {
 } from "./code-intelligence/code-action.ts";
 export type { SymbolComparisonStatus, SymbolDeclarationComparison } from "./code-intelligence/compare-symbol-declarations.ts";
 export type { Diagnostic, DiagnosticSeverity } from "./code-intelligence/diagnostic.ts";
+export type { DiagnosticContext, DiagnosticDocumentContext, DiagnosticSetupFinding } from "./code-intelligence/diagnostic-context.ts";
 export { type ChangedDiagnostic, type DiagnosticDelta, diagnosticDelta } from "./code-intelligence/diagnostic-delta.ts";
 export { diagnostics } from "./code-intelligence/diagnostics.ts";
 export type { DocumentSymbolEntry } from "./code-intelligence/document-symbol.ts";

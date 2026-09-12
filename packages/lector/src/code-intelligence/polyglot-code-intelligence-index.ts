@@ -129,6 +129,11 @@ export class PolyglotCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 		return this.indexForPath(path).diagnostics(path, options);
 	}
 
+	/** Returns project evidence from the backend owning this file's language. */
+	diagnosticContext(path: string) {
+		return this.indexForPath(path).diagnosticContext?.(path);
+	}
+
 	documentVersion(path: string): number | undefined {
 		return this.indexForPath(path).documentVersion?.(path);
 	}

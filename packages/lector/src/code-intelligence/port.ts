@@ -4,6 +4,7 @@ import type { ParsedWorkspaceEdit, RenameRange } from "../workspace/workspace-ed
 import type { WorkspaceLocation } from "../workspace/workspace-symbol.ts";
 import type { CodeActionQuery, SemanticCodeAction } from "./code-action.ts";
 import type { Diagnostic } from "./diagnostic.ts";
+import type { DiagnosticContext } from "./diagnostic-context.ts";
 import type { DocumentHighlight } from "./document-highlight.ts";
 import type { DocumentSymbolEntry } from "./document-symbol.ts";
 import type { Hover } from "./hover.ts";
@@ -49,6 +50,8 @@ export interface CodeIntelligencePort {
 	documentSymbols(path: string, options?: { settleMs?: number }): Promise<DocumentSymbolEntry[]>;
 	/** Every diagnostic currently known for one file, as of the server's last analysis. */
 	diagnostics(path: string, options?: { timeoutMs?: number }): Promise<Diagnostic[]>;
+	/** Returns bounded setup and document evidence when the adapter can observe it. */
+	diagnosticContext?(path: string): DiagnosticContext | undefined;
 	/** Optional bounded workspace/diagnostic pull. Backends without an honest workspace-wide pull omit it. */
 	workspaceDiagnostics?(maxFiles: number, maxDiagnosticsPerFile: number, timeoutMs: number): Promise<Diagnostic[]>;
 	/** Current synchronized LSP document version, when the backend tracks one. */

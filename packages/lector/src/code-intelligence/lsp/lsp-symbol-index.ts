@@ -35,6 +35,7 @@ import type { CallHierarchyEntry, IncomingCall, OutgoingCall } from "../../symbo
 import type { CodeRange } from "../../workspace/code-range.ts";
 import { type ParsedWorkspaceEdit, parsePrepareRenameResult, parseWorkspaceEdit, type RenameRange } from "../../workspace/workspace-edit.ts";
 import type { SymbolSearchResult, WorkspaceLocation, WorkspaceSymbol } from "../../workspace/workspace-symbol.ts";
+import { type DiagnosticContext, DiagnosticContextTracker } from "../diagnostic-context.ts";
 import { TypeScriptCompilerSymbolIndex } from "../typescript-compiler-symbol-index.ts";
 import { resolveSeedFile } from "./discover-seed-file.ts";
 import { LanguageServerProcess } from "./language-server-process.ts";
@@ -279,6 +280,7 @@ interface LspCallHierarchyOutgoingCall {
 
 interface LspPublishDiagnosticsParams {
 	uri: string;
+	version?: number;
 	diagnostics: LspDiagnostic[];
 }
 
@@ -327,7 +329,7 @@ function parsePublishDiagnosticsParams(params: unknown): LspPublishDiagnosticsPa
 		const diagnostic = parseLspDiagnostic(item);
 		if (diagnostic) diagnostics.push(diagnostic);
 	}
-	return { uri: params.uri, diagnostics };
+	return { uri: params.uri, diagnostics, ...(typeof params.version === "number" && Number.isSafeInteger(params.version) ? { version: params.version } : {}) };
 }
 
 /** DocumentDiagnosticReport: textDocument/diagnostic's response. "unchanged" means the server's prior report (identified by resultId) is still current -- Lector always requests fresh (no previousResultId sent), so it never receives "unchanged" in practice, but must still not crash if a server sends one anyway. */
@@ -565,7 +567,8 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 	private readonly maxRefreshBytes: number;
 	private readonly maxFallbackSeedFiles: number;
 	private readonly workspaceReadyTimeoutMs: number;
-	private readonly openedFiles = new Map<string, { version: number; content: string }>();
+	private readonly openedFiles = new Map<string, { version: number; content: string; publishedVersion?: number }>();
+	private contextTracker = new DiagnosticContextTracker();
 	private readonly latestDiagnostics = new Map<string, Diagnostic[]>();
 	private readonly diagnosticsWaiters = new Map<string, Array<() => void>>();
 	private process: LanguageServerProcess | undefined;
@@ -633,11 +636,20 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 
 	private configureProcess(proc: LanguageServerProcess): void {
 		this.dynamicCapabilities = new DynamicCapabilityRegistry();
+		this.contextTracker = new DiagnosticContextTracker();
+		proc.onNotification("experimental/serverStatus", (params) => this.contextTracker.recordStatus(params));
+		proc.onNotification("window/logMessage", (params) => this.contextTracker.recordMessage(params));
+		proc.onNotification("window/showMessage", (params) => this.contextTracker.recordMessage(params));
 		proc.onNotification("textDocument/publishDiagnostics", (params) => {
 			const parsed = parsePublishDiagnosticsParams(params);
 			if (!parsed) return;
 			const { uri, diagnostics } = parsed;
 			const path = fileURLToPath(uri);
+			const opened = this.openedFiles.get(path);
+			if (opened) {
+				delete opened.publishedVersion;
+				if (parsed.version !== undefined) opened.publishedVersion = parsed.version;
+			}
 			this.latestDiagnostics.set(
 				path,
 				diagnostics.map((item) => normalizeDiagnostic(path, item)),
@@ -655,12 +667,13 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		});
 	}
 
-	private requestInitialize(proc: LanguageServerProcess): Promise<{ capabilities?: unknown }> {
+	private requestInitialize(proc: LanguageServerProcess): Promise<{ capabilities?: unknown; serverInfo?: unknown }> {
 		return proc.request("initialize", {
 			processId: process.pid,
 			rootUri: pathToFileURL(this.cwd).href,
 			workspaceFolders: [{ uri: pathToFileURL(this.cwd).href, name: this.cwd }],
 			capabilities: {
+				experimental: { serverStatusNotification: true },
 				textDocument: {
 					documentSymbol: { hierarchicalDocumentSymbolSupport: true },
 					definition: { linkSupport: true },
@@ -729,7 +742,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 				});
 				spawned = proc;
 				this.configureProcess(proc);
-				let initializeResult: { capabilities?: unknown };
+				let initializeResult: { capabilities?: unknown; serverInfo?: unknown };
 				try {
 					initializeResult = await this.requestInitialize(proc);
 				} catch (error) {
@@ -741,6 +754,7 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 					this.configureProcess(proc);
 					initializeResult = await this.requestInitialize(proc);
 				}
+				this.contextTracker.recordServerInfo(initializeResult.serverInfo);
 				this.negotiatedCapabilities = parseServerCapabilities(initializeResult.capabilities);
 				if (this.negotiatedCapabilities.positionEncoding !== "utf-16") {
 					this.logger.warn("language server selected unsupported position encoding", {
@@ -1241,6 +1255,26 @@ export class LspSymbolIndex implements SymbolIndexPort, CodeIntelligencePort {
 		);
 		if (report?.kind !== "full") return [];
 		return report.items.map((item) => normalizeDiagnostic(path, item));
+	}
+
+	/** Waits on server-status events for an already-running project; returns false when readiness is unreported or the deadline expires. */
+	waitForProjectQuiescence(timeoutMs: number): Promise<boolean> {
+		if (!this.process?.isAlive) return Promise.resolve(false);
+		return this.contextTracker.waitForQuiescence(timeoutMs);
+	}
+
+	/** Returns server setup evidence and the synchronized source identity, preserving unreported versions as unknown. */
+	diagnosticContext(path: string): DiagnosticContext {
+		const opened = this.openedFiles.get(this.resolveTargetPath(path));
+		return this.contextTracker.snapshot(
+			opened
+				? {
+						synchronizedVersion: opened.version,
+						synchronizedContentHash: contentHashOf(opened.content),
+						...(opened.publishedVersion !== undefined ? { publishedVersion: opened.publishedVersion } : {}),
+					}
+				: {},
+		);
 	}
 
 	documentVersion(path: string): number | undefined {

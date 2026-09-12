@@ -71,6 +71,10 @@ export class FallbackCodeIntelligenceIndex implements SymbolIndexPort, CodeIntel
 	diagnostics(path: string, options?: { timeoutMs?: number }): Promise<Diagnostic[]> {
 		return this.primary.diagnostics(path, options);
 	}
+	/** Preserves the semantic primary's project evidence. */
+	diagnosticContext(path: string) {
+		return this.primary.diagnosticContext?.(path);
+	}
 	documentVersion(path: string): number | undefined {
 		return this.primary.documentVersion?.(path);
 	}

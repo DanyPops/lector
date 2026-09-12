@@ -1,6 +1,7 @@
 import type {
 	CallHierarchyEntry,
 	Diagnostic,
+	DiagnosticContext,
 	DocumentSymbolEntry,
 	Hover,
 	IncomingCall,
@@ -153,8 +154,21 @@ export function formatDiagnosticsCall(args: { path?: unknown }, theme: LectorThe
 	return `${theme.fg("toolTitle", theme.bold(presentationTitle("diagnostics")))} ${theme.fg("accent", path)}`;
 }
 
-export function formatDiagnosticsResult(diagnostics: readonly Diagnostic[] | undefined, expanded: boolean, theme: LectorTheme): string {
-	if (!diagnostics || diagnostics.length === 0) return theme.fg("success", "No diagnostics.");
+/** Describes project confidence separately from native diagnostics, optionally including setup actions. */
+export function describeDiagnosticContext(context: DiagnosticContext | undefined, expanded = true): string {
+	const lines = [`Project context: ${context?.confidence ?? "unknown"}`];
+	if (expanded) for (const finding of context?.setupFindings ?? []) lines.push(`setup ${finding.kind}: ${finding.action}`);
+	return lines.join("\n");
+}
+
+export function formatDiagnosticsResult(
+	diagnostics: readonly Diagnostic[] | undefined,
+	expanded: boolean,
+	theme: LectorTheme,
+	context?: DiagnosticContext,
+): string {
+	const contextText = context ? `${describeDiagnosticContext(context, expanded)}\n` : "";
+	if (!diagnostics || diagnostics.length === 0) return contextText + theme.fg("success", "No diagnostics.");
 
 	const lines = [
 		theme.fg("muted", `${diagnostics.length} diagnostic${diagnostics.length === 1 ? "" : "s"}:`),
@@ -171,7 +185,7 @@ export function formatDiagnosticsResult(diagnostics: readonly Diagnostic[] | und
 			moreLine: moreLine(theme),
 		}),
 	];
-	return lines.join("\n");
+	return contextText + lines.join("\n");
 }
 
 function formatPathCall(toolName: string, args: { path?: unknown }, theme: LectorTheme, qualifier = ""): string {
