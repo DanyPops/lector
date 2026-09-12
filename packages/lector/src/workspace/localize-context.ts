@@ -4,6 +4,7 @@ import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "../symbol-grap
 import type { SymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import type { TextSearchPort } from "../text-search/port.ts";
 import type { TextSearchMatch } from "../text-search/text-search-result.ts";
+import { LocalizationSources } from "./localization-sources.ts";
 import type { WorkspacePort } from "./port.ts";
 
 const EDGE_KINDS: readonly SymbolEdgeKind[] = ["calls", "references", "contains"];
@@ -83,6 +84,7 @@ export interface LocalizeContextOptions {
 interface MutableCandidate {
 	readonly node: SymbolNode;
 	score: number;
+	signature?: string;
 	readonly reasons: ContextReason[];
 }
 
@@ -122,17 +124,8 @@ function lexicalReasonFor(node: SymbolNode, matchesByPath: ReadonlyMap<string, r
 	return { kind: "lexical-content", detail: `query terms matched this file at line${matches.length === 1 ? "" : "s"} ${lines}`, score: 12 };
 }
 
-async function attachSignature(workspace: WorkspacePort, candidate: MutableCandidate): Promise<ContextCandidate> {
-	let signature: string | undefined;
-	try {
-		const entry = await workspace.readEntry(candidate.node.location.path);
-		if (entry.exists) {
-			const sourceLine = entry.content.split("\n")[candidate.node.location.line - 1]?.trim();
-			if (sourceLine) signature = truncateUtf8(sourceLine, 2_048).value;
-		}
-	} catch {
-		// A file may disappear after graph population. The declaration and its provenance remain useful.
-	}
+function projectCandidate(candidate: MutableCandidate): ContextCandidate {
+	const signature = candidate.signature;
 	return {
 		name: candidate.node.name,
 		kind: candidate.node.kind,
@@ -209,6 +202,7 @@ export async function localizeContext(
 
 	const nodes = await graph.allNodes(options.maxGraphNodes);
 	const graphGeneration = await graph.getGeneration();
+	const sources = new LocalizationSources(workspace, graphGeneration?.fileContentHashes, deadlineSignal);
 	const candidates = new Map<SymbolNodeId, MutableCandidate>();
 	const normalizedSeeds = new Set((options.seedSymbols ?? []).map((seed) => seed.toLowerCase()));
 	const seedLocations = (options.seedLocations ?? []).map((seed) => ({ ...seed, path: workspace.resolvePath(seed.path) }));
@@ -234,6 +228,9 @@ export async function localizeContext(
 		if (lexicalReason) addReason(candidate, lexicalReason);
 		for (const annotationReason of annotationReasons.get(node.id) ?? []) addReason(candidate, annotationReason);
 		if (candidate.score > 0) {
+			const signature = await sources.declaration(node);
+			if (!signature) continue;
+			candidate.signature = truncateUtf8(signature, 2048).value;
 			if (!pathLooksLikeTest(node.location.path)) candidate.score += 1;
 			candidates.set(node.id, candidate);
 		}
@@ -254,12 +251,14 @@ export async function localizeContext(
 				for (const direction of ["out", "in"] as const) {
 					const neighborIds = direction === "out" ? await graph.edgesFrom(sourceId, edgeKind) : await graph.edgesTo(sourceId, edgeKind);
 					for (const neighborId of neighborIds) {
-						if (visited.size >= options.maxGraphNodes) break;
+						if (visited.size >= options.maxGraphNodes || deadlineReached()) break;
 						const neighbor = await graph.getNode(neighborId);
 						if (!neighbor) continue;
 						let candidate = candidates.get(neighborId);
 						if (!candidate) {
-							candidate = { node: neighbor, score: 0, reasons: [] };
+							const signature = await sources.declaration(neighbor);
+							if (!signature) continue;
+							candidate = { node: neighbor, score: 0, reasons: [], signature: truncateUtf8(signature, 2048).value };
 							candidates.set(neighborId, candidate);
 						}
 						const arrow = direction === "out" ? `${source.name} -> ${neighbor.name}` : `${neighbor.name} -> ${source.name}`;
@@ -286,13 +285,14 @@ export async function localizeContext(
 	const rankedItems: ContextCandidate[] = [];
 	for (const candidate of rankedSymbols) {
 		if (deadlineReached()) break;
-		rankedItems.push(await attachSignature(workspace, candidate));
+		rankedItems.push(projectCandidate(candidate));
 	}
-	const symbolPaths = new Set(nodes.map((node) => node.location.path));
+	const symbolPaths = new Set(rankedSymbols.map((candidate) => candidate.node.location.path));
 	for (const [path, pathMatches] of matchesByPath) {
 		if (symbolPaths.has(path)) continue;
 		const first = pathMatches[0];
-		if (!first) continue;
+		if (!first || deadlineReached()) continue;
+		if (!(await sources.lexical(path, first.lineNumber, first.line))) continue;
 		const pathReasons = terms
 			.filter((term) => path.toLowerCase().includes(term))
 			.map((term): ContextReason => ({ kind: "path", detail: `path contains: ${term}`, score: 5 }));
@@ -331,12 +331,12 @@ export async function localizeContext(
 	}
 	const reachedDeadline = deadlineReached();
 	const candidateLimitReached = nodes.length >= options.maxGraphNodes || visited.size >= options.maxGraphNodes;
-	const graphBounded = candidateLimitReached || graphGeneration?.result.completeness !== "complete";
+	const graphBounded = sources.partial || candidateLimitReached || graphGeneration?.result.completeness !== "complete";
 	return {
 		queryTerms: terms,
 		candidates: output,
 		totalCandidates: rankedItems.length,
-		truncated: output.length < rankedItems.length || reachedDeadline,
+		truncated: sources.partial || output.length < rankedItems.length || reachedDeadline,
 		completeness: {
 			lexical,
 			graph: graphGeneration === undefined ? "unavailable" : graphBounded ? "bounded" : "complete",

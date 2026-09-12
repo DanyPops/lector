@@ -4,6 +4,7 @@ import { InMemorySymbolGraph } from "../src/symbol-graph/in-memory-symbol-graph.
 import { deriveSymbolNodeId } from "../src/symbol-graph/symbol-node-id.ts";
 import type { TextSearchPort } from "../src/text-search/port.ts";
 import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
+import { recordLocalizationGeneration } from "./helpers/localization-generation.ts";
 
 const noLexicalMatches: TextSearchPort = {
 	async search() {
@@ -25,6 +26,7 @@ describe("workspace.localizeContext", () => {
 			kind: "function",
 			location: { path: "src/cache.ts", line: 1, character: 1 },
 		});
+		await recordLocalizationGeneration(workspace, graph);
 		const service = createLectorService(new Map([["ws", workspace]]), {
 			createTextSearch: () => noLexicalMatches,
 			createSymbolGraph: () => graph,

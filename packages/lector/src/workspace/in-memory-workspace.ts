@@ -2,6 +2,7 @@ import { type ContentHash, contentHashOf } from "../content-identity/content-has
 import { StaleExpectedHash } from "./exact-edit.ts";
 import { type FileTreeEntry, type FileTreePort, WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "./file-tree-port.ts";
 import type { WorkspaceEntry, WorkspacePort } from "./port.ts";
+import type { SourceSnapshot, SourceSnapshotPort } from "./source-snapshot.ts";
 
 function normalizeDirectoryPath(path: string): string {
 	return path.replace(/^\/+|\/+$/g, "");
@@ -41,13 +42,21 @@ function ancestorsInclusive(path: string): string[] {
  * directories are tracked explicitly (both ones created directly via createDirectory and every
  * ancestor implied by a file's own path) rather than inferred purely from file key prefixes.
  */
-export class InMemoryWorkspace implements WorkspacePort, FileTreePort {
+export class InMemoryWorkspace implements WorkspacePort, FileTreePort, SourceSnapshotPort {
 	private readonly entries = new Map<string, string>();
 	private readonly directories = new Set<string>();
 
 	/** No real filesystem root to resolve against -- whatever string a caller uses is already this workspace's own identity for it. */
 	resolvePath(path: string): string {
 		return path;
+	}
+
+	async readSourceSnapshot(path: string, maxBytes: number, signal: AbortSignal): Promise<SourceSnapshot> {
+		if (signal.aborted) return { status: "unavailable", reason: "aborted" };
+		if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 1_048_576) return { status: "unavailable", reason: "limit" };
+		const content = this.entries.get(path);
+		if (content === undefined) return { status: "unavailable", reason: "missing" };
+		return Buffer.byteLength(content) > maxBytes ? { status: "unavailable", reason: "limit" } : { status: "ready", content };
 	}
 
 	async readEntry(path: string): Promise<WorkspaceEntry> {

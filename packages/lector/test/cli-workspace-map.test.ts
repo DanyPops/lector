@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { startLectorDaemon } from "../src/daemon.ts";
-import type { WorkspaceMapResult } from "../src/index.ts";
+import type { ContextBundleResult, WorkspaceMapResult } from "../src/index.ts";
 import { InMemoryWorkspace } from "../src/workspace/in-memory-workspace.ts";
 import { isolatedLectorPaths } from "./support/isolated-daemon-paths.ts";
 
@@ -54,6 +54,35 @@ async function runCli(args: readonly string[]): Promise<string> {
 }
 
 describe("lector CLI workspace map", () => {
+	it("localizes populated source through the authenticated CLI", async () => {
+		isolated = isolatedLectorPaths();
+		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });
+		const project = fixture();
+		const registered = JSON.parse(await runCli(["workspace", "register", project, "--json"])) as { workspaceId: string };
+		await runCli(["workspace", "populate-symbol-graph", registered.workspaceId, "--max-files", "10", "--max-symbols-per-file", "10", "--json"]);
+		const output = JSON.parse(
+			await runCli([
+				"workspace",
+				"localize-context",
+				registered.workspaceId,
+				"central",
+				"--max-symbols",
+				"5",
+				"--max-bytes",
+				"10000",
+				"--max-depth",
+				"2",
+				"--deadline-ms",
+				"5000",
+				"--seed-symbols-json",
+				'["central"]',
+				"--json",
+			]),
+		) as ContextBundleResult;
+		expect(output.candidates.some((candidate) => candidate.name === "central")).toBe(true);
+		expect(output.completeness.deadlineReached).toBe(false);
+	});
+
 	it("ranks a real LSP-populated graph and bounds the result to --max-entries", async () => {
 		isolated = isolatedLectorPaths();
 		daemon = await startLectorDaemon({ workspaces: new Map([["bootstrap", new InMemoryWorkspace()]]), paths: isolated.paths });

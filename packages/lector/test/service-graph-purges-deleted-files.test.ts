@@ -90,9 +90,14 @@ describe("symbol-graph regeneration purges files that disappeared since the prev
 		expect(await graph.getNode(calleeNodeId)).toBeDefined();
 		expect(await graph.edgesFrom(callerNodeId, "calls")).toEqual([calleeNodeId]);
 
-		// The deletion this test is really about.
+		const beforeDelete = await service.dispatch("workspace.localizeContext", { workspaceId, query: "calleeFn", seedSymbols: ["calleeFn"] });
+		expect(beforeDelete.candidates.some((candidate) => candidate.name === "calleeFn")).toBe(true);
 		unlinkSync(bPath);
 		bDeleted = true;
+		const afterDelete = await service.dispatch("workspace.localizeContext", { workspaceId, query: "calleeFn", seedSymbols: ["calleeFn"] });
+		expect(afterDelete.candidates.some((candidate) => candidate.name === "calleeFn")).toBe(false);
+		expect(afterDelete.truncated).toBe(true);
+		expect(await graph.getNode(calleeNodeId)).toBeDefined();
 
 		await service.dispatch("workspace.populateSymbolGraph", { workspaceId, maxFiles: 10, maxSymbolsPerFile: 10 });
 		expect(await graph.getNode(callerNodeId)).toBeDefined();

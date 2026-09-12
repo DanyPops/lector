@@ -416,6 +416,7 @@ export type { WorkspaceResolutionFallback, WorkspaceResolutionOutcome, Workspace
 export type { ConciseProvenance, FormattedSymbol, FormattedSymbolSearchResult, ResponseFormat } from "./workspace/response-format.ts";
 export { formatProvenanced, formatSymbolSearchResult, toConciseProvenance } from "./workspace/response-format.ts";
 export { deriveSourceManifest, type SourceManifest, SourceManifestLimitExceeded } from "./workspace/source-manifest.ts";
+export type { SourceSnapshot, SourceSnapshotPort } from "./workspace/source-snapshot.ts";
 export {
 	InvalidUnifiedDiff,
 	parseUnifiedDiff,

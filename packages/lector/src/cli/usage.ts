@@ -63,6 +63,11 @@ export const USAGE = `Usage:
     expectedHash,lines}) -- finer-grained than exactEdit's whole-file guard: a concurrent
     change to a line no edit references never invalidates this one. All edits in one call
     land atomically, or none do.
+  lector workspace localize-context <workspace-id> <query> --max-symbols <n> --max-bytes <n>
+    --max-depth <n> --deadline-ms <n> [--seed-symbols-json <array>] [--seed-locations-json <array>] [--json]
+    validates declarations against generation hashes and current bounded source snapshots;
+    excludes stale or unverified evidence and marks incomplete results. Source checks are
+    limited to 128 files, 1 MiB per file and a 16 MiB snapshot budget.
   lector workspace symbols <workspace-id> <query> [--seed-file <path>] [--response-format <concise|detailed>] [--json]
   lector workspace definition <workspace-id> <path> <line> <character> [--json]
   lector workspace implementation <workspace-id> <path> <line> <character> [--json]

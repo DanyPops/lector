@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
-import type { Dirent } from "node:fs";
+import { createReadStream, type Dirent } from "node:fs";
 import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
 import { StaleExpectedHash } from "./exact-edit.ts";
 import { type FileTreeEntry, type FileTreePort, WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "./file-tree-port.ts";
 import type { WorkspaceEntry, WorkspacePort } from "./port.ts";
+import type { SourceSnapshot, SourceSnapshotPort } from "./source-snapshot.ts";
 
 const DEFAULT_NEW_FILE_MODE = 0o644;
 const PERMISSION_BITS_MASK = 0o777;
@@ -33,7 +34,7 @@ function isEnoent(error: unknown): boolean {
  * existing mode before the rename (temp files default to a more
  * restrictive mode, which a naive rename would otherwise leave in place).
  */
-export class LocalFilesystemWorkspace implements WorkspacePort, FileTreePort {
+export class LocalFilesystemWorkspace implements WorkspacePort, FileTreePort, SourceSnapshotPort {
 	private readonly root: string;
 
 	constructor(root: string) {
@@ -52,6 +53,31 @@ export class LocalFilesystemWorkspace implements WorkspacePort, FileTreePort {
 			throw new PathEscapesWorkspaceRoot(path, this.root);
 		}
 		return absolute;
+	}
+
+	async readSourceSnapshot(path: string, maxBytes: number, signal: AbortSignal): Promise<SourceSnapshot> {
+		if (signal.aborted) return { status: "unavailable", reason: "aborted" };
+		if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 1_048_576) return { status: "unavailable", reason: "limit" };
+		try {
+			const absolute = this.resolvePath(path);
+			if (!(await stat(absolute)).isFile()) return { status: "unavailable", reason: "unreadable" };
+			const stream = createReadStream(absolute, { signal, highWaterMark: Math.min(65536, maxBytes + 1) });
+			try {
+				const chunks: Buffer[] = [];
+				let bytes = 0;
+				for await (const chunk of stream) {
+					if (!Buffer.isBuffer(chunk)) return { status: "unavailable", reason: "unreadable" };
+					bytes += chunk.length;
+					if (bytes > maxBytes) return { status: "unavailable", reason: "limit" };
+					chunks.push(chunk);
+				}
+				return { status: "ready", content: Buffer.concat(chunks, bytes).toString("utf8") };
+			} finally {
+				stream.destroy();
+			}
+		} catch (error) {
+			return { status: "unavailable", reason: error instanceof Error && error.name === "AbortError" ? "aborted" : isEnoent(error) ? "missing" : "unreadable" };
+		}
 	}
 
 	async readEntry(path: string): Promise<WorkspaceEntry> {

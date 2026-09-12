@@ -4,6 +4,7 @@ import { fail, flagValue, hasFlag, parsePosition, parseResponseFormat, requiredI
 import { formatCallHierarchyEntry, formatIntelligenceSource, formatSymbolSources } from "../../format.ts";
 import { USAGE } from "../../usage.ts";
 import type { ActionHandler } from "../action-handler.ts";
+import { runWorkspaceLocalize } from "./localize-context.ts";
 
 /** findSymbols/goToDefinition/goToImplementation/findReferences/hover/documentSymbols/diagnostics/callHierarchy/map/hasWarmIndex -- mirrors service/code-intelligence-handlers.ts + workspace-map-handler.ts's own scope. */
 
@@ -400,6 +401,7 @@ export async function runWorkspaceHasWarmIndex(workspaceId: string | undefined, 
 }
 
 export const CODE_INTELLIGENCE_ACTIONS: Record<string, ActionHandler> = {
+	"localize-context": ([workspaceId, query, ...flags]) => runWorkspaceLocalize(workspaceId, query, flags),
 	symbols: (actionArgs) => {
 		const [workspaceId, path, ...flags] = actionArgs;
 		return runWorkspaceSymbols(workspaceId, path, flags);
