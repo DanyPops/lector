@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { createReadStream, type Dirent } from "node:fs";
-import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
 import { StaleExpectedHash } from "./exact-edit.ts";
 import { type FileTreeEntry, type FileTreePort, WorkspaceEntryAlreadyExists, WorkspaceEntryDoesNotExist } from "./file-tree-port.ts";
+import { localizedPath } from "./localization-scope.ts";
 import type { WorkspaceEntry, WorkspacePort } from "./port.ts";
 import type { SourceSnapshot, SourceSnapshotPort } from "./source-snapshot.ts";
 
@@ -59,7 +60,8 @@ export class LocalFilesystemWorkspace implements WorkspacePort, FileTreePort, So
 		if (signal.aborted) return { status: "unavailable", reason: "aborted" };
 		if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 1_048_576) return { status: "unavailable", reason: "limit" };
 		try {
-			const absolute = this.resolvePath(path);
+			const absolute = await realpath(this.resolvePath(path));
+			if (!localizedPath(await realpath(this.root), absolute)) return { status: "unavailable", reason: "unreadable" };
 			if (!(await stat(absolute)).isFile()) return { status: "unavailable", reason: "unreadable" };
 			const stream = createReadStream(absolute, { signal, highWaterMark: Math.min(65536, maxBytes + 1) });
 			try {

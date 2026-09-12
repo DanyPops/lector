@@ -81,6 +81,7 @@ describe("lector CLI workspace map", () => {
 		) as ContextBundleResult;
 		expect(output.candidates.some((candidate) => candidate.name === "central")).toBe(true);
 		expect(output.completeness.deadlineReached).toBe(false);
+		expect(output.candidates.find((candidate) => candidate.name === "central")?.path).toBe("index.ts");
 	});
 
 	it("ranks a real LSP-populated graph and bounds the result to --max-entries", async () => {

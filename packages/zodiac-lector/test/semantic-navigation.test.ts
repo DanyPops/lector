@@ -157,7 +157,7 @@ describe("Lector Zodiac semantic navigation", () => {
 								name: "refreshCache",
 								kind: "function",
 								role: "production",
-								path: "/tmp/project/src/cache.ts",
+								path: "src/cache.ts",
 								line: 7,
 								character: 3,
 								score: 25,

@@ -437,7 +437,7 @@ export default function (pi: ExtensionAPI) {
 			name: "localize_context",
 			label: "Localize Context",
 			description:
-				"Localize a natural-language coding task to a bounded, ranked set of workspace symbols. Combines lexical source matches with the persisted call/reference/containment graph, returns compact signatures and explicit score reasons, and reports incomplete or unavailable graph coverage. Checks generation hashes against bounded current source snapshots; stale or unverified declarations are excluded and completeness is reduced. The daemon does not invoke an LLM. `directory` selects the project explicitly.",
+				"Localize a natural-language coding task to a bounded, ranked set of workspace symbols. Combines lexical source matches with the persisted call/reference/containment graph, returns compact signatures and explicit score reasons, and reports incomplete or unavailable graph coverage. Returns workspace-relative paths, excluding dependency and escaped symlink targets; inspect a package through its separately registered workspace. Checks generation hashes against bounded current source snapshots; stale or unverified declarations are excluded and completeness is reduced. The daemon does not invoke an LLM. `directory` selects the project explicitly.",
 			promptSnippet: "Localize a coding task to ranked symbols and compact graph-backed context",
 			promptGuidelines: [
 				"Use localize_context near the start of an unfamiliar implementation or debugging task to get a bounded candidate set before reading files one by one.",

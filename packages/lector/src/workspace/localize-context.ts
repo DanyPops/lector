@@ -4,6 +4,7 @@ import type { SymbolEdgeKind, SymbolGraphPort, SymbolNode } from "../symbol-grap
 import type { SymbolNodeId } from "../symbol-graph/symbol-node-id.ts";
 import type { TextSearchPort } from "../text-search/port.ts";
 import type { TextSearchMatch } from "../text-search/text-search-result.ts";
+import { localizedPath } from "./localization-scope.ts";
 import { LocalizationSources } from "./localization-sources.ts";
 import type { WorkspacePort } from "./port.ts";
 
@@ -46,6 +47,7 @@ export interface ContextCandidate {
 	readonly name: string;
 	readonly kind: string;
 	readonly role: "production" | "test" | "configuration";
+	/** Workspace-relative source path, scoped by the request's workspace identity. */
 	readonly path: string;
 	readonly line: number;
 	readonly character: number;
@@ -83,6 +85,7 @@ export interface LocalizeContextOptions {
 
 interface MutableCandidate {
 	readonly node: SymbolNode;
+	readonly relativePath: string;
 	score: number;
 	signature?: string;
 	readonly reasons: ContextReason[];
@@ -110,7 +113,12 @@ function pathLooksLikeTest(path: string): boolean {
 
 function candidateRole(path: string): ContextCandidate["role"] {
 	if (pathLooksLikeTest(path)) return "test";
-	if (/(^|[/\\])(?:package\.json|tsconfig[^/\\]*\.json|Cargo\.toml|go\.mod|pyproject\.toml|[^/\\]+\.config\.[^/\\]+)$/i.test(path)) return "configuration";
+	if (
+		/(^|[/\\])(?:package\.json|bun\.lockb?|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|go\.sum|uv\.lock|tsconfig[^/\\]*\.json|Cargo\.toml|go\.mod|pyproject\.toml|[^/\\]+\.config\.[^/\\]+)$/i.test(
+			path,
+		)
+	)
+		return "configuration";
 	return "production";
 }
 
@@ -129,8 +137,8 @@ function projectCandidate(candidate: MutableCandidate): ContextCandidate {
 	return {
 		name: candidate.node.name,
 		kind: candidate.node.kind,
-		role: candidateRole(candidate.node.location.path),
-		path: candidate.node.location.path,
+		role: candidateRole(candidate.relativePath),
+		path: candidate.relativePath,
 		line: candidate.node.location.line,
 		character: candidate.node.location.character,
 		...(signature ? { signature } : {}),
@@ -152,6 +160,14 @@ export async function localizeContext(
 	options: LocalizeContextOptions,
 ): Promise<ContextBundleResult> {
 	const terms = extractQueryTerms(query);
+	const root = workspace.resolvePath(".");
+	const sourcePath = (path: string) => {
+		try {
+			return localizedPath(root, workspace.resolvePath(path));
+		} catch {
+			return undefined;
+		}
+	};
 	const startedAt = Date.now();
 	const deadlineSignal = AbortSignal.timeout(options.deadlineMs);
 	const deadlineReached = () => deadlineSignal.aborted || Date.now() - startedAt >= options.deadlineMs;
@@ -173,6 +189,7 @@ export async function localizeContext(
 
 	const matchesByPath = new Map<string, TextSearchMatch[]>();
 	for (const match of matches) {
+		if (!sourcePath(match.path)) continue;
 		const resolvedPath = workspace.resolvePath(match.path);
 		const existing = matchesByPath.get(resolvedPath) ?? [];
 		existing.push(match);
@@ -200,15 +217,24 @@ export async function localizeContext(
 		}
 	}
 
-	const nodes = await graph.allNodes(options.maxGraphNodes);
 	const graphGeneration = await graph.getGeneration();
+	const manifest = graphGeneration?.walkedFiles ?? Object.keys(graphGeneration?.fileContentHashes ?? {});
+	const paths = [...new Set([...matchesByPath.keys(), ...(options.seedLocations ?? []).map((seed) => seed.path), ...manifest])]
+		.filter((path) => sourcePath(path) !== undefined)
+		.map((path) => workspace.resolvePath(path))
+		.slice(0, options.maxGraphNodes);
+	const nodes = paths.length > 0 ? await graph.nodesForFiles(paths, options.maxGraphNodes) : await graph.allNodes(options.maxGraphNodes);
 	const sources = new LocalizationSources(workspace, graphGeneration?.fileContentHashes, deadlineSignal);
 	const candidates = new Map<SymbolNodeId, MutableCandidate>();
 	const normalizedSeeds = new Set((options.seedSymbols ?? []).map((seed) => seed.toLowerCase()));
-	const seedLocations = (options.seedLocations ?? []).map((seed) => ({ ...seed, path: workspace.resolvePath(seed.path) }));
+	const seedLocations = (options.seedLocations ?? [])
+		.filter((seed) => sourcePath(seed.path) !== undefined)
+		.map((seed) => ({ ...seed, path: workspace.resolvePath(seed.path) }));
 	for (const node of nodes) {
 		if (deadlineReached()) break;
-		const candidate: MutableCandidate = { node, score: 0, reasons: [] };
+		const relativePath = sourcePath(node.location.path);
+		if (!relativePath) continue;
+		const candidate: MutableCandidate = { node, relativePath, score: 0, reasons: [] };
 		const normalizedName = node.name.toLowerCase();
 		if (normalizedSeeds.has(normalizedName)) addReason(candidate, { kind: "seed-symbol", detail: `explicit seed symbol: ${node.name}`, score: 40 });
 		if (
@@ -217,12 +243,12 @@ export async function localizeContext(
 					seed.path === node.location.path && seed.line === node.location.line && (seed.character === undefined || seed.character === node.location.character),
 			)
 		) {
-			addReason(candidate, { kind: "seed-symbol", detail: `explicit seed location: ${node.location.path}:${node.location.line}`, score: 40 });
+			addReason(candidate, { kind: "seed-symbol", detail: `explicit seed location: ${relativePath}:${node.location.line}`, score: 40 });
 		}
 		for (const term of terms) {
 			if (normalizedName === term) addReason(candidate, { kind: "symbol-name", detail: `exact symbol-name match: ${term}`, score: 24 });
 			else if (normalizedName.includes(term)) addReason(candidate, { kind: "symbol-name", detail: `symbol name contains: ${term}`, score: 14 });
-			if (node.location.path.toLowerCase().includes(term)) addReason(candidate, { kind: "path", detail: `path contains: ${term}`, score: 5 });
+			if (relativePath.toLowerCase().includes(term)) addReason(candidate, { kind: "path", detail: `path contains: ${term}`, score: 5 });
 		}
 		const lexicalReason = lexicalReasonFor(node, matchesByPath);
 		if (lexicalReason) addReason(candidate, lexicalReason);
@@ -231,7 +257,7 @@ export async function localizeContext(
 			const signature = await sources.declaration(node);
 			if (!signature) continue;
 			candidate.signature = truncateUtf8(signature, 2048).value;
-			if (!pathLooksLikeTest(node.location.path)) candidate.score += 1;
+			if (!pathLooksLikeTest(relativePath)) candidate.score += 1;
 			candidates.set(node.id, candidate);
 		}
 	}
@@ -254,11 +280,13 @@ export async function localizeContext(
 						if (visited.size >= options.maxGraphNodes || deadlineReached()) break;
 						const neighbor = await graph.getNode(neighborId);
 						if (!neighbor) continue;
+						const relativePath = sourcePath(neighbor.location.path);
+						if (!relativePath) continue;
 						let candidate = candidates.get(neighborId);
 						if (!candidate) {
 							const signature = await sources.declaration(neighbor);
 							if (!signature) continue;
-							candidate = { node: neighbor, score: 0, reasons: [], signature: truncateUtf8(signature, 2048).value };
+							candidate = { node: neighbor, relativePath, score: 0, reasons: [], signature: truncateUtf8(signature, 2048).value };
 							candidates.set(neighborId, candidate);
 						}
 						const arrow = direction === "out" ? `${source.name} -> ${neighbor.name}` : `${neighbor.name} -> ${source.name}`;
@@ -277,7 +305,7 @@ export async function localizeContext(
 	const rankedSymbols = [...candidates.values()].sort(
 		(a, b) =>
 			b.score - a.score ||
-			Number(pathLooksLikeTest(a.node.location.path)) - Number(pathLooksLikeTest(b.node.location.path)) ||
+			Number(pathLooksLikeTest(a.relativePath)) - Number(pathLooksLikeTest(b.relativePath)) ||
 			a.node.location.path.localeCompare(b.node.location.path) ||
 			a.node.location.line - b.node.location.line ||
 			a.node.id.localeCompare(b.node.id),
@@ -289,22 +317,23 @@ export async function localizeContext(
 	}
 	const symbolPaths = new Set(rankedSymbols.map((candidate) => candidate.node.location.path));
 	for (const [path, pathMatches] of matchesByPath) {
-		if (symbolPaths.has(path)) continue;
+		const relativePath = sourcePath(path);
+		if (!relativePath || symbolPaths.has(path)) continue;
 		const first = pathMatches[0];
 		if (!first || deadlineReached()) continue;
 		if (!(await sources.lexical(path, first.lineNumber, first.line))) continue;
 		const pathReasons = terms
-			.filter((term) => path.toLowerCase().includes(term))
+			.filter((term) => relativePath.toLowerCase().includes(term))
 			.map((term): ContextReason => ({ kind: "path", detail: `path contains: ${term}`, score: 5 }));
 		const reasons: ContextReason[] = [
 			{ kind: "lexical-content", detail: `query terms matched this file at line ${first.lineNumber}`, score: 12 },
 			...pathReasons,
 		];
 		rankedItems.push({
-			name: path,
+			name: relativePath,
 			kind: "file",
-			role: candidateRole(path),
-			path,
+			role: candidateRole(relativePath),
+			path: relativePath,
 			line: first.lineNumber,
 			character: (first.lineStartByte ?? 0) + first.matchStart + 1,
 			signature: truncateUtf8(first.line.trim(), 2_048).value,

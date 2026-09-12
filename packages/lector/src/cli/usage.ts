@@ -65,7 +65,9 @@ export const USAGE = `Usage:
     land atomically, or none do.
   lector workspace localize-context <workspace-id> <query> --max-symbols <n> --max-bytes <n>
     --max-depth <n> --deadline-ms <n> [--seed-symbols-json <array>] [--seed-locations-json <array>] [--json]
-    validates declarations against generation hashes and current bounded source snapshots;
+    returns workspace-relative paths and excludes dependency and escaped symlink targets.
+    Inspect a dependency through its separately registered, explicitly bounded workspace.
+    Validates declarations against generation hashes and current bounded source snapshots;
     excludes stale or unverified evidence and marks incomplete results. Source checks are
     limited to 128 files, 1 MiB per file and a 16 MiB snapshot budget.
   lector workspace symbols <workspace-id> <query> [--seed-file <path>] [--response-format <concise|detailed>] [--json]
