@@ -324,8 +324,11 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	let cachingOverlay: CachingOverlay | undefined;
+	let disposeWorkspaceObserver: (() => void) | undefined;
 	pi.on("session_shutdown", (_event, ctx) => {
 		sessionGeneration++;
+		disposeWorkspaceObserver?.();
+		disposeWorkspaceObserver = undefined;
 		cacheStatesByRoot.clear();
 		monitoringRoots.clear();
 		lastInjectedSummary = undefined;
@@ -343,7 +346,11 @@ export default function (pi: ExtensionAPI) {
 		monitoringRoots.clear();
 		lastInjectedSummary = undefined;
 		uiContext = ctx;
-		setNewWorkspaceObserver((root) => startMonitoringRoot(root, ctx));
+		disposeWorkspaceObserver?.();
+		const observerGeneration = sessionGeneration;
+		disposeWorkspaceObserver = setNewWorkspaceObserver((root) => {
+			if (sessionGeneration === observerGeneration) startMonitoringRoot(root, ctx);
+		});
 		if (ctx.hasUI) {
 			// The persistent widget counterpart to the single-line "lector-cache" status above.
 			// Ownership is the Pi session, not cwd: one session may legitimately touch several roots.

@@ -61,8 +61,13 @@ const retryingClient: RetryingClient<LectorClient> = createRetryingClient(() => 
  */
 let onNewWorkspace: ((root: string) => void) | undefined;
 
-export function setNewWorkspaceObserver(observer: ((root: string) => void) | undefined): void {
-	onNewWorkspace = observer;
+/** Registers a workspace observer and returns an idempotent disposer that preserves later registrations. */
+export function setNewWorkspaceObserver(observer: ((root: string) => void) | undefined): () => void {
+	const registration = observer ? (root: string) => observer(root) : undefined;
+	onNewWorkspace = registration;
+	return () => {
+		if (onNewWorkspace === registration) onNewWorkspace = undefined;
+	};
 }
 
 export interface RetryingLectorClient {
