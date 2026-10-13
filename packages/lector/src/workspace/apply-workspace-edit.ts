@@ -1,5 +1,6 @@
 import type { ContentHash } from "../content-identity/content-hash.ts";
 import type { WorkspacePort } from "./port.ts";
+import { dominantEnding, replacementText, retainBom } from "./text-bytes.ts";
 import type { ParsedWorkspaceEdit, TextEditOperation, WorkspaceEditOperation } from "./workspace-edit.ts";
 
 export class OverlappingWorkspaceEdits extends Error {
@@ -26,8 +27,10 @@ interface Position {
 	readonly character: number;
 }
 
-/** 1-indexed line/character -> absolute string offset into `content`, split the same way lineEdit/applyPatch already do (plain "\n", no special CRLF handling). */
 function offsetFor(lines: readonly string[], position: Position): number {
+	const line = lines[position.line - 1];
+	const length = line?.endsWith("\r") ? line.length - 1 : line?.length;
+	if (length === undefined || position.character < 1 || position.character > length + 1) throw new RangeError("WorkspaceEdit position is outside the document");
 	let offset = 0;
 	for (let i = 0; i < position.line - 1; i++) offset += (lines[i]?.length ?? 0) + 1;
 	return offset + (position.character - 1);
@@ -36,18 +39,24 @@ function offsetFor(lines: readonly string[], position: Position): number {
 /** Applies every edit in one file's own list, rejecting overlaps rather than resolving them order-dependently. Processes from the end backwards so an earlier edit's own offsets are never shifted by a later one's length change. */
 function applyTextEdits(content: string, path: string, edits: TextEditOperation["edits"]): string {
 	const lines = content.split("\n");
-	const withOffsets = edits.map((edit) => ({ edit, start: offsetFor(lines, edit.range.start), end: offsetFor(lines, edit.range.end) }));
+	const bomOffset = content.startsWith("\uFEFF") ? 1 : 0;
+	const body = content.slice(bomOffset);
+	const withOffsets = edits.map((edit) => ({
+		edit,
+		start: Math.max(0, offsetFor(lines, edit.range.start) - bomOffset),
+		end: Math.max(0, offsetFor(lines, edit.range.end) - bomOffset),
+	}));
 	const sorted = [...withOffsets].sort((a, b) => a.start - b.start);
 	for (let i = 1; i < sorted.length; i++) {
 		const previous = sorted[i - 1];
 		const current = sorted[i];
 		if (previous && current && current.start < previous.end) throw new OverlappingWorkspaceEdits(path);
 	}
-	let result = content;
+	let result = body;
 	for (const { edit, start, end } of [...sorted].reverse()) {
-		result = result.slice(0, start) + edit.newText + result.slice(end);
+		result = result.slice(0, start) + replacementText(body.slice(start, end), edit.newText, dominantEnding(content)) + result.slice(end);
 	}
-	return result;
+	return retainBom(content, result);
 }
 
 function touchedPathsOf(edit: ParsedWorkspaceEdit): string[] {

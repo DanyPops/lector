@@ -3,6 +3,7 @@ import type { EditOutcome } from "./exact-edit.ts";
 import { StaleExpectedHash } from "./exact-edit.ts";
 import type { WorkspacePort } from "./port.ts";
 import { WorkspaceEntryNotFound } from "./raw-read.ts";
+import { dominantEnding, joinTextLines, replacementLines, retainBom, textLines } from "./text-bytes.ts";
 import { parseUnifiedDiff, type UnifiedDiffHunk } from "./unified-diff.ts";
 
 export interface ApplyPatchRequest {
@@ -76,19 +77,22 @@ export async function applyPatch(workspace: WorkspacePort, request: ApplyPatchRe
 	const currentHash = contentHashOf(entry.content);
 	if (currentHash !== request.expectedHash) throw new StaleExpectedHash(request.path, request.expectedHash, currentHash);
 
-	const hunks = parseUnifiedDiff(request.patchText);
-	let lines: readonly string[] = entry.content.split("\n");
+	const hunks = parseUnifiedDiff(request.patchText.replaceAll("\r\n", "\n"));
+	const ending = dominantEnding(entry.content);
+	let records = textLines(entry.content);
 	let offset = 0;
 
 	for (const [index, hunk] of hunks.entries()) {
 		const hint = hunk.oldStart - 1 + offset;
+		const lines = records.map((line, index) => (index === 0 ? line.text.replace(/^\uFEFF/, "") : line.text));
 		const position = findHunkPosition(lines, hunk.beforeLines, hint);
 		if (position === undefined) throw new PatchRejected(request.path, index, hunk);
-		lines = [...lines.slice(0, position), ...hunk.afterLines, ...lines.slice(position + hunk.beforeLines.length)];
+		const replacement = replacementLines(records.slice(position, position + hunk.beforeLines.length), hunk.afterLines, ending);
+		records = [...records.slice(0, position), ...replacement, ...records.slice(position + hunk.beforeLines.length)];
 		offset += hunk.afterLines.length - hunk.beforeLines.length;
 	}
 
-	const newContent = lines.join("\n");
+	const newContent = retainBom(entry.content, joinTextLines(records, ending));
 	const { previousHash, newHash } = await workspace.writeEntry(request.path, request.expectedHash, newContent);
 	return { path: request.path, previousHash, newHash };
 }

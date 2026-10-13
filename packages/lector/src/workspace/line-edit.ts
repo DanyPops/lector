@@ -2,6 +2,7 @@ import { type ContentHash, contentHashOf } from "../content-identity/content-has
 import { type LineHash, lineHashOf } from "../content-identity/line-hash.ts";
 import type { WorkspacePort } from "./port.ts";
 import { WorkspaceEntryNotFound } from "./raw-read.ts";
+import { dominantEnding, joinTextLines, replacementLines, retainBom, type TextLine, textLines } from "./text-bytes.ts";
 
 /** Replaces the inclusive line range [startLine, endLine] with `lines` -- an empty `lines` array deletes the range. */
 export interface LineEditReplace {
@@ -181,7 +182,7 @@ function validate(lines: readonly string[], edits: readonly LineEdit[]): LineEdi
 	return failures;
 }
 
-function apply(lines: readonly string[], edits: readonly LineEdit[]): string[] {
+function apply(lines: readonly TextLine[], edits: readonly LineEdit[], ending: string): TextLine[] {
 	const result = [...lines];
 	// Apply from the highest splice position downward so an earlier splice's own length
 	// change never invalidates a not-yet-applied edit's line numbers -- the same bottom-up
@@ -189,8 +190,13 @@ function apply(lines: readonly string[], edits: readonly LineEdit[]): string[] {
 	const ordered = [...edits].sort((a, b) => splicePosition(b) - splicePosition(a));
 	for (const edit of ordered) {
 		const position = splicePosition(edit);
-		if (edit.kind === "replace") result.splice(position, edit.endLine - edit.startLine + 1, ...edit.lines);
-		else result.splice(position, 0, ...edit.lines);
+		const count = edit.kind === "replace" ? edit.endLine - edit.startLine + 1 : 0;
+		const replacement = replacementLines(
+			result.slice(position, position + count),
+			edit.lines.map((line) => line.replace(/\r$/, "")),
+			ending,
+		);
+		result.splice(position, count, ...replacement);
 	}
 	return result;
 }
@@ -213,7 +219,8 @@ export async function lineEdit(workspace: WorkspacePort, request: LineEditReques
 	const failures = validate(lines, request.edits);
 	if (failures.length > 0) throw new LineEditRejected(request.path, failures);
 
-	const newContent = apply(lines, request.edits).join("\n");
+	const ending = dominantEnding(entry.content);
+	const newContent = retainBom(entry.content, joinTextLines(apply(textLines(entry.content), request.edits, ending), ending));
 	const currentHash = contentHashOf(entry.content);
 	try {
 		const { previousHash, newHash } = await workspace.writeEntry(request.path, currentHash, newContent);
