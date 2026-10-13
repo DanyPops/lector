@@ -21,9 +21,11 @@ export interface ReferenceBasedRenameInput {
 	readonly movedFileContent: string;
 	readonly movedFileHash: ContentHash;
 	readonly referencingFiles: readonly ReferencingFileInput[];
+	readonly movedFileImportSpecifiers?: readonly ImportSpecifierOccurrence[];
 }
 
 export interface FileMove {
+	readonly originalContent?: string;
 	readonly fromPath: string;
 	readonly toPath: string;
 	readonly expectedHash: ContentHash;
@@ -46,7 +48,7 @@ export interface ReferenceBasedRenamePlan {
 /** Always surfaced, never silently omitted -- this rename's own explicit, known-narrower-than-LSP scope. */
 const CAVEATS: readonly string[] = [
 	"only rewrites static import/export declarations with a literal relative specifier -- dynamic import(expr)/require(expr) with a non-literal argument, and any plain string reference, are never touched",
-	"scoped to references the workspace's own populated symbol graph already knows about -- a reference in an unindexed or excluded file is not covered",
+	"scoped to the workspace's completed source generation and semantic references -- an excluded or unsupported source file is not covered",
 ];
 
 const KNOWN_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"] as const;
@@ -105,8 +107,23 @@ export function planReferenceBasedRename(input: ReferenceBasedRenameInput): Refe
 		importRewrites.push({ path: file.path, expectedHash: file.hash, newContent, rewrittenSpecifiers: matching.length });
 	}
 
+	let movedContent = input.movedFileContent;
+	const oldDirectory = posix.dirname(toPosixPath(input.fromPath));
+	const newDirectory = posix.dirname(toPosixPath(input.toPath));
+	for (const occurrence of [...(input.movedFileImportSpecifiers ?? [])].sort((a, b) => b.startIndex - a.startIndex)) {
+		if (!occurrence.specifier.startsWith(".")) continue;
+		const target = resolvesToTarget(oldDirectory, occurrence.specifier, input.fromPath) ? input.toPath : posix.resolve(oldDirectory, occurrence.specifier);
+		const replacement = computeNewSpecifier(newDirectory, occurrence.specifier, target);
+		movedContent = movedContent.slice(0, occurrence.startIndex) + replacement + movedContent.slice(occurrence.endIndex);
+	}
 	return {
-		move: { fromPath: input.fromPath, toPath: input.toPath, expectedHash: input.movedFileHash, content: input.movedFileContent },
+		move: {
+			fromPath: input.fromPath,
+			toPath: input.toPath,
+			expectedHash: input.movedFileHash,
+			content: movedContent,
+			...(movedContent !== input.movedFileContent ? { originalContent: input.movedFileContent } : {}),
+		},
 		importRewrites,
 		caveats: CAVEATS,
 	};

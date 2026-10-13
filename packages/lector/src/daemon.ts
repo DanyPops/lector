@@ -35,6 +35,7 @@ import { type ClosableSymbolIndex, createLectorService, type LectorService, type
 import type { SourcegraphSearchPort } from "./sourcegraph-search/port.ts";
 import { SqliteSymbolGraph } from "./symbol-graph/sqlite-symbol-graph.ts";
 import { lectorVersion } from "./version.ts";
+import type { ContentFormatter } from "./workspace/mutation-plan.ts";
 import type { WorkspacePort } from "./workspace/port.ts";
 
 /**
@@ -135,6 +136,7 @@ const DEFAULT_SYMBOL_INDEX_ESTIMATED_BYTES = 512 * 1024 * 1024;
 const DEFAULT_ADAPTIVE_LANGUAGE_LIMITS: Readonly<Record<string, number>> = Object.freeze({ c: 1, cpp: 1 });
 
 export interface LectorDaemonOptions {
+	formatContent?: ContentFormatter;
 	workspaces: ReadonlyMap<WorkspaceId, WorkspacePort>;
 	/** Override resolved paths (tests inject an isolated tmp root). Defaults to the real XDG paths. */
 	paths?: DaemonPaths;
@@ -263,6 +265,7 @@ function prepare(options: LectorDaemonOptions): {
 				})()
 			: undefined);
 	const service = createLectorService(options.workspaces, {
+		formatContent: options.formatContent,
 		allowDynamicOnly: options.allowDynamicOnly,
 		logger: options.logger,
 		createSymbolIndex: options.createSymbolIndex,

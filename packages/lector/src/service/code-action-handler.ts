@@ -5,6 +5,7 @@ import type { SerialExecutionQueue } from "../concurrency/serial-execution-queue
 import { type ContentHash, contentHashOf } from "../content-identity/content-hash.ts";
 import { applyWorkspaceEdit, collectTouchedPaths } from "../workspace/apply-workspace-edit.ts";
 import { StaleExpectedHash } from "../workspace/exact-edit.ts";
+import { applyMutationPlan, type ContentFormatter, FormatterUnavailable, type MutationPlan, previewMutationPlan } from "../workspace/mutation-plan.ts";
 import type { ParsedWorkspaceEdit } from "../workspace/workspace-edit.ts";
 import { requireCodeIntelligence } from "./code-intelligence-handlers.ts";
 import type { DiagnosticValidationCoordinator } from "./diagnostic-validation-coordinator.ts";
@@ -25,6 +26,7 @@ const MAX_BYTES = 1_048_576;
 const MAX_DEADLINE_MS = 120_000;
 
 interface StoredPreview {
+	readonly plan?: MutationPlan;
 	readonly workspaceId: WorkspaceId;
 	readonly action: SemanticCodeAction;
 	readonly expectedHashes: ReadonlyMap<string, ContentHash | null>;
@@ -96,6 +98,7 @@ function fileOperationParts(edit: ParsedWorkspaceEdit): {
 }
 
 export interface CodeActionHandlerDeps {
+	readonly formatContent?: ContentFormatter;
 	readonly registry: MutableRegistry;
 	readonly warmIndexes: WarmIndexRegistry<WorkspaceId>;
 	readonly mutationBarrier: SerialExecutionQueue;
@@ -135,6 +138,7 @@ export class CodeActionHandlers {
 	}
 
 	private async preview(input: OperationInputs["workspace.previewCodeActions"]): Promise<OperationOutputs["workspace.previewCodeActions"]> {
+		if (input.format && !this.deps.formatContent) throw new FormatterUnavailable();
 		if (input.maxActions < 1 || input.maxEdits < 1 || input.maxFiles < 1 || input.maxBytes < 1 || input.deadlineMs < 1) {
 			throw new InvalidCodeActionRequest("bounds must all be positive");
 		}
@@ -195,8 +199,10 @@ export class CodeActionHandlers {
 				continue;
 			}
 			for (const path of paths) entry.port.resolvePath(path);
+			const plan = input.format && action.edit ? await previewMutationPlan(entry.port, action.edit, input, this.deps.formatContent) : undefined;
 			const id = codeActionPreviewId(randomUUID());
 			const preview: CodeActionPreview = {
+				...(plan ? { files: plan.files, formatted: true } : {}),
 				id,
 				title: action.title,
 				...(action.kind ? { kind: action.kind } : {}),
@@ -217,6 +223,10 @@ export class CodeActionHandlers {
 				if (path === sourcePath && hash !== sourceHash) throw new StaleExpectedHash(path, sourceHash, hash);
 				expectedHashes.set(path, hash);
 			}
+			for (const file of plan?.files ?? []) {
+				const actual = expectedHashes.get(file.path) ?? null;
+				if (actual !== file.expectedHash) throw new StaleExpectedHash(file.path, file.expectedHash, actual);
+			}
 			const storedAction: SemanticCodeAction = {
 				path: action.path,
 				title: action.title,
@@ -228,7 +238,13 @@ export class CodeActionHandlers {
 				...(action.command ? { command: { title: action.command.title, command: action.command.command } } : {}),
 			};
 			this.prune();
-			this.previews.set(id, { workspaceId: input.workspaceId, action: storedAction, expectedHashes, createdAt: this.now() });
+			this.previews.set(id, {
+				workspaceId: input.workspaceId,
+				action: structuredClone(storedAction),
+				expectedHashes,
+				...(plan ? { plan: structuredClone(plan) } : {}),
+				createdAt: this.now(),
+			});
 			actions.push(preview);
 		}
 		const deadlineReached = this.now() >= deadlineAt;
@@ -262,7 +278,7 @@ export class CodeActionHandlers {
 			await index.notifyFilesWillRename?.(fileOperations.renamePairs);
 			await index.notifyFilesWillCreate?.(fileOperations.createPaths);
 			await index.notifyFilesWillDelete?.(fileOperations.deletePaths);
-			const outcome = await applyWorkspaceEdit(entry.port, edit, stored.expectedHashes);
+			const outcome = stored.plan ? await applyMutationPlan(entry.port, stored.plan) : await applyWorkspaceEdit(entry.port, edit, stored.expectedHashes);
 			index.notifyFilesDidRename?.(fileOperations.renamePairs);
 			index.notifyFilesDidCreate?.(fileOperations.createPaths);
 			index.notifyFilesDidDelete?.(fileOperations.deletePaths);
@@ -275,6 +291,7 @@ export class CodeActionHandlers {
 			}
 			this.previews.delete(input.previewId);
 			return {
+				...(stored.plan ? { formatted: stored.plan.formatted } : {}),
 				touchedPaths: outcome.touchedPaths,
 				...(transactionId ? { transactionId } : {}),
 				...(stored.action.command ? { pendingCommand: { title: stored.action.command.title, command: stored.action.command.command } } : {}),

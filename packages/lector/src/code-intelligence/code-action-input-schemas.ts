@@ -59,6 +59,7 @@ export const previewCodeActionsInputSchema: VehicleSchemaCodec<OperationInputs["
 	jsonSchema: {
 		type: "object",
 		properties: {
+			format: { type: "boolean" },
 			workspaceId: { type: "string" },
 			path: { type: "string" },
 			range: { type: "object" },
@@ -98,6 +99,7 @@ export const previewCodeActionsInputSchema: VehicleSchemaCodec<OperationInputs["
 			return schemaIssue(["includeCommandActions"], "includeCommandActions must be a boolean");
 		}
 		const { maxActions, maxEdits, maxFiles, maxBytes, deadlineMs } = value;
+		if (value.format !== undefined && typeof value.format !== "boolean") return schemaIssue(["format"], "format must be a boolean");
 		if (!isPositiveSafeInteger(maxActions)) return schemaIssue(["maxActions"], "maxActions must be a positive safe integer");
 		if (!isPositiveSafeInteger(maxEdits)) return schemaIssue(["maxEdits"], "maxEdits must be a positive safe integer");
 		if (!isPositiveSafeInteger(maxFiles)) return schemaIssue(["maxFiles"], "maxFiles must be a positive safe integer");
@@ -106,6 +108,7 @@ export const previewCodeActionsInputSchema: VehicleSchemaCodec<OperationInputs["
 		return {
 			success: true,
 			value: {
+				...(typeof value.format === "boolean" ? { format: value.format } : {}),
 				workspaceId: value.workspaceId,
 				path: value.path,
 				range: { start, end },

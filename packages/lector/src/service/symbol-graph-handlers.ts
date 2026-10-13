@@ -143,6 +143,7 @@ export function createSymbolGraphHandlers(deps: SymbolGraphHandlerDeps): SymbolG
 	const cacheQuery = createCacheQueryHandlers({ registry, warmIndexes, graphRefresh, jobs, cacheFreshness, progressTracker });
 
 	const rename = createRenameHandlers({
+		cacheWalkedFiles: cacheQuery.handlers["workspace.cacheWalkedFiles"],
 		registry,
 		warmIndexes,
 		renameMutationBarrier,

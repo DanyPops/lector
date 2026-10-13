@@ -1,3 +1,4 @@
+import type { MutationFileChange } from "../workspace/mutation-plan.ts";
 import type { ParsedWorkspaceEdit } from "../workspace/workspace-edit.ts";
 import type { Diagnostic } from "./diagnostic.ts";
 
@@ -37,6 +38,8 @@ export function codeActionPreviewId(value: string): CodeActionPreviewId {
 }
 
 export interface CodeActionPreview {
+	readonly files?: readonly MutationFileChange[];
+	readonly formatted?: boolean;
 	readonly id: CodeActionPreviewId;
 	readonly title: string;
 	readonly kind?: string;

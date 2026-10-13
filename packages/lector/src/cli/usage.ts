@@ -3,6 +3,7 @@ export const USAGE = `Usage:
     at least one --workspace, --workspace-path, or --dynamic-workspaces is required
     --workspace <id>            ephemeral in-memory workspace (data lost on restart)
     --workspace-path <id>=<dir> real directory <dir>, registered under <id>
+    --formatter-biome <path>    explicit absolute Biome executable for preview-time stdin formatting
     --dynamic-workspaces        start with none pre-registered; every workspace is added at
                                  runtime via "lector workspace register" (workspace.registerPath) --
                                  the mode a long-lived background daemon (e.g. lector.service) wants,

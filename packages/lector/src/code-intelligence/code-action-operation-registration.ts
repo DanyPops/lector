@@ -14,6 +14,7 @@ import type { MutableRegistry } from "../service/workspace-registry.ts";
 import { OverlappingWorkspaceEdits } from "../workspace/apply-workspace-edit.ts";
 import { StaleExpectedHash } from "../workspace/exact-edit.ts";
 import { PathEscapesWorkspaceRoot } from "../workspace/local-filesystem-workspace.ts";
+import { FormatterUnavailable, MutationPlanLimitExceeded, MutationRollbackIncomplete } from "../workspace/mutation-plan.ts";
 import { UnsupportedWorkspaceEditVariant } from "../workspace/workspace-edit.ts";
 import { CodeActionsUnavailable } from "./code-action.ts";
 import { applyCodeActionInputSchema, previewCodeActionsInputSchema } from "./code-action-input-schemas.ts";
@@ -26,6 +27,8 @@ export const CODE_ACTION_PREVIEW_PERMISSIONS = [WORKSPACE_READ_PERMISSION];
 export const CODE_ACTION_APPLY_PERMISSIONS = [WORKSPACE_WRITE_PERMISSION];
 
 const PREVIEW_ERRORS = [
+	{ code: "formatter-unavailable", description: "explicit formatting requires a configured host content formatter" },
+	{ code: "mutation-plan-limit", description: "the complete formatted plan exceeds declared bounds" },
 	UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR,
 	{ code: "code-actions-unavailable", description: "the selected semantic backend does not support code actions" },
 	{ code: "invalid-code-action-request", description: "the request exceeds a service bound or cannot fit its response envelope" },
@@ -34,6 +37,7 @@ const PREVIEW_ERRORS = [
 	{ code: "unsupported-workspace-edit", description: "the language server returned an unsupported WorkspaceEdit variant" },
 ];
 const APPLY_ERRORS = [
+	{ code: "mutation-rollback-incomplete", description: "formatted application failed and some paths could not be rolled back" },
 	UNKNOWN_WORKSPACE_ERROR_DESCRIPTOR,
 	{ code: "code-action-preview-unavailable", description: "the preview is unknown, expired, or belongs to another workspace" },
 	{ code: "code-action-command-denied", description: "guarded apply does not execute language-server commands" },
@@ -44,6 +48,9 @@ const APPLY_ERRORS = [
 ];
 
 const mapCodeActionError = defineErrorMapping([
+	{ errorClass: MutationRollbackIncomplete, category: "internal", code: "mutation-rollback-incomplete" },
+	{ errorClass: FormatterUnavailable, category: "validation", code: "formatter-unavailable" },
+	{ errorClass: MutationPlanLimitExceeded, category: "validation", code: "mutation-plan-limit" },
 	UNKNOWN_WORKSPACE_ERROR_MAPPING,
 	{ errorClass: CodeActionsUnavailable, category: "validation", code: "code-actions-unavailable" },
 	{ errorClass: InvalidCodeActionRequest, category: "validation", code: "invalid-code-action-request" },

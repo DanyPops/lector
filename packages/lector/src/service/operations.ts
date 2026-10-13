@@ -46,6 +46,7 @@ import type { WorkspaceQueryOutcome } from "../workspace/workspace-query-outcome
 import type { SymbolSearchResult, WorkspaceLocation } from "../workspace/workspace-symbol.ts";
 import type { DiagnosticValidationResult, GitDiagnosticValidationResult } from "./diagnostic-validation-coordinator.ts";
 import type { JobTopic, JobWatchId, WorkspaceId } from "./errors.ts";
+import type { RenamePreview } from "./rename-preview-handlers.ts";
 import type { ActiveCachingJobSummary } from "./symbol-graph/cache-query-handlers.ts";
 
 export type OperationName =
@@ -93,6 +94,9 @@ export type OperationName =
 	| "workspace.referenceBasedRename"
 	| "workspace.prepareRename"
 	| "workspace.rename"
+	| "workspace.previewRename"
+	| "workspace.previewFileMove"
+	| "workspace.applyRenamePreview"
 	| "workspace.gitStatus"
 	| "workspace.gitLog"
 	| "workspace.gitDiff"
@@ -184,6 +188,9 @@ export const OPERATION_NAMES: readonly OperationName[] = [
 	"workspace.referenceBasedRename",
 	"workspace.prepareRename",
 	"workspace.rename",
+	"workspace.previewRename",
+	"workspace.previewFileMove",
+	"workspace.applyRenamePreview",
 	"workspace.gitStatus",
 	"workspace.gitLog",
 	"workspace.gitDiff",
@@ -370,7 +377,21 @@ export interface OperationInputs {
 	};
 	"workspace.prepareRename": WorkspacePosition;
 	"workspace.rename": WorkspacePosition & { newName: string };
+	"workspace.previewRename": WorkspacePosition & { newName: string; maxFiles: number; maxEdits: number; maxBytes: number; format?: boolean };
+	"workspace.previewFileMove": {
+		workspaceId: WorkspaceId;
+		fromPath: string;
+		toPath: string;
+		maxFiles: number;
+		maxSymbolsPerFile: number;
+		maxAffectedFiles: number;
+		maxEdits: number;
+		maxBytes: number;
+		format?: boolean;
+	};
+	"workspace.applyRenamePreview": { workspaceId: WorkspaceId; previewId: string };
 	"workspace.previewCodeActions": {
+		format?: boolean;
 		workspaceId: WorkspaceId;
 		path: string;
 		range: { start: { line: number; character: number }; end: { line: number; character: number } };
@@ -584,8 +605,12 @@ export interface OperationOutputs {
 	"workspace.referenceBasedRename": Omit<ReferenceBasedRenameOutcome, "steps"> & { transactionId: string };
 	"workspace.prepareRename": Provenanced<{ range: RenameRange | null }>;
 	"workspace.rename": Provenanced<{ touchedPaths: readonly string[]; transactionId?: string }>;
+	"workspace.previewRename": RenamePreview;
+	"workspace.previewFileMove": RenamePreview;
+	"workspace.applyRenamePreview": { touchedPaths: readonly string[]; transactionId: string; formatted: boolean };
 	"workspace.previewCodeActions": Provenanced<{ actions: readonly CodeActionPreview[]; truncated: boolean; deadlineReached: boolean }>;
 	"workspace.applyCodeAction": Provenanced<{
+		formatted?: boolean;
 		touchedPaths: readonly string[];
 		transactionId?: string;
 		/** Commands are previewed but remain outside the atomic file-edit transaction. */

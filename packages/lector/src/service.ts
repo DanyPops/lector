@@ -81,6 +81,8 @@ import { createLocalizeContextHandler } from "./service/localize-context-handler
 import { MutationHistoryCoordinator } from "./service/mutation-history-handlers.ts";
 import { OPERATION_NAMES, type OperationInputs, type OperationName, type OperationOutputs } from "./service/operations.ts";
 import { createPackageSourceHandlers } from "./service/package-source-handlers.ts";
+import { RenamePreviewHandlers } from "./service/rename-preview-handlers.ts";
+import { RENAME_APPLY_PERMISSIONS, RENAME_PREVIEW_PERMISSIONS, registerRenamePreviewOperations } from "./service/rename-preview-registration.ts";
 import { createRepoFetchHandlers } from "./service/repo-fetch-handlers.ts";
 import { createSymbolGraphHandlers } from "./service/symbol-graph-handlers.ts";
 import { type ClosableSymbolIndex, type WarmIndexPoolStatus, type WarmIndexProcessCostRecorder, WarmIndexRegistry } from "./service/warm-index-registry.ts";
@@ -104,6 +106,7 @@ import { lectorVersion } from "./version.ts";
 import { PatchRejected } from "./workspace/apply-patch.ts";
 import { StaleExpectedHash } from "./workspace/exact-edit.ts";
 import { LineEditRace, LineEditRejected } from "./workspace/line-edit.ts";
+import type { ContentFormatter } from "./workspace/mutation-plan.ts";
 import { registerWorkspaceLifecycleOperations } from "./workspace/operation-registration.ts";
 
 import type { WorkspacePort } from "./workspace/port.ts";
@@ -144,6 +147,7 @@ export interface LectorService {
 }
 
 export interface LectorServiceOptions {
+	formatContent?: ContentFormatter;
 	/** Threaded into the default LspSymbolIndex's open-file lifecycle and every workspace.populateSymbolGraph run. Defaults to a no-op. */
 	logger?: Logger;
 	/** Factory for the symbol index backing workspace.findSymbols and code intelligence, given the descriptor resolved for the call. Defaults to an LspSymbolIndex configured for whichever descriptor is passed. */
@@ -602,7 +606,28 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 			dispatchThroughOperationRegistry(operationRegistry, "search.sourcegraphCode", 1, input, EXTERNAL_SEARCH_PERMISSIONS),
 	};
 	const codeIntelligenceHandlers = createCodeIntelligenceHandlers({ warmIndexes });
+	const renamePreviewHandlers = new RenamePreviewHandlers({
+		cacheWalkedFiles: symbolGraphHandlers.handlers["workspace.cacheWalkedFiles"],
+		registry,
+		warmIndexes,
+		renameMutationBarrier,
+		mutationHistory,
+		diagnosticValidation,
+		cacheStatus: symbolGraphHandlers.handlers["workspace.cacheStatus"],
+		populateSymbolGraph: symbolGraphHandlers.handlers["workspace.populateSymbolGraph"],
+		formatContent: options.formatContent,
+	});
+	registerRenamePreviewOperations(operationRegistry, registry, renamePreviewHandlers);
+	const registryRenamePreviewHandlers: Pick<OperationHandlers, "workspace.previewRename" | "workspace.previewFileMove" | "workspace.applyRenamePreview"> = {
+		"workspace.previewRename": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.previewRename", 1, input, RENAME_PREVIEW_PERMISSIONS),
+		"workspace.previewFileMove": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.previewFileMove", 1, input, RENAME_PREVIEW_PERMISSIONS),
+		"workspace.applyRenamePreview": (_registry, input) =>
+			dispatchThroughOperationRegistry(operationRegistry, "workspace.applyRenamePreview", 1, input, RENAME_APPLY_PERMISSIONS),
+	};
 	const codeActionHandlers = new CodeActionHandlers({
+		formatContent: options.formatContent,
 		registry,
 		warmIndexes,
 		mutationBarrier: renameMutationBarrier,
@@ -716,6 +741,7 @@ export function createLectorService(workspaces: ReadonlyMap<WorkspaceId, Workspa
 		...registryWorkspaceLifecycleHandlers,
 		...codeIntelligenceHandlers,
 		...registryCodeActionHandlers,
+		...registryRenamePreviewHandlers,
 		...symbolGraphHandlers.handlers,
 		...gitHandlers,
 		...registryGitHandlers,

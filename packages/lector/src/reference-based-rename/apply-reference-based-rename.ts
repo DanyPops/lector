@@ -65,7 +65,7 @@ export async function applyReferenceBasedRename(workspace: WorkspacePort, plan: 
 				beforeContent: applied[index + 1]?.undoContent ?? null,
 				afterHash: applied[index + 1]?.currentHash ?? null,
 			})),
-			{ path: plan.move.fromPath, beforeContent: plan.move.content, afterHash: null },
+			{ path: plan.move.fromPath, beforeContent: plan.move.originalContent ?? plan.move.content, afterHash: null },
 		];
 
 		return { movedTo: plan.move.toPath, filesUpdated: plan.importRewrites.map((rewrite) => rewrite.path), caveats: plan.caveats, steps };

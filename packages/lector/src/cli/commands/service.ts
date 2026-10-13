@@ -4,6 +4,7 @@ import { resolveLectorPaths } from "../../constants.ts";
 import { serveMain } from "../../daemon.ts";
 import type { WorkspaceId } from "../../service.ts";
 import { lectorVersion } from "../../version.ts";
+import { biomeFormatter } from "../../workspace/biome-formatter.ts";
 import { InMemoryWorkspace } from "../../workspace/in-memory-workspace.ts";
 import { LocalFilesystemWorkspace } from "../../workspace/local-filesystem-workspace.ts";
 import type { WorkspacePort } from "../../workspace/port.ts";
@@ -13,6 +14,9 @@ import { USAGE } from "../usage.ts";
 /** `lector serve` (runs the daemon directly) and `lector service <install|start|stop|restart|status>` (native systemd-unit lifecycle) -- kept together since install's own unit always just re-invokes `serve --dynamic-workspaces`. */
 
 export async function runServe(args: string[]): Promise<void> {
+	const formatterPaths = collectFlagValues(args, "--formatter-biome");
+	if (formatterPaths.length > 1) fail("--formatter-biome accepts one absolute executable path");
+	const formatterPath = formatterPaths[0];
 	const memoryIds = collectFlagValues(args, "--workspace");
 	const pathEntries = collectFlagValues(args, "--workspace-path").map(parseWorkspacePathFlag);
 	const dynamicWorkspaces = hasFlag(args, "--dynamic-workspaces");
@@ -37,6 +41,7 @@ export async function runServe(args: string[]): Promise<void> {
 		[...memoryIds.map((id) => `${id} (in-memory)`), ...pathEntries.map(({ id, dir }) => `${id} (${dir})`)].join(", ") || "none pre-registered, dynamic-only";
 
 	serveMain({
+		...(formatterPath ? { formatContent: biomeFormatter(formatterPath) } : {}),
 		workspaces,
 		allowDynamicOnly: dynamicWorkspaces,
 		symbolIndexMemoryBudgetBytes,

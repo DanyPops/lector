@@ -175,7 +175,7 @@ describe("planReferenceBasedRename", () => {
 
 		expect(plan.caveats).toEqual([
 			"only rewrites static import/export declarations with a literal relative specifier -- dynamic import(expr)/require(expr) with a non-literal argument, and any plain string reference, are never touched",
-			"scoped to references the workspace's own populated symbol graph already knows about -- a reference in an unindexed or excluded file is not covered",
+			"scoped to the workspace's completed source generation and semantic references -- an excluded or unsupported source file is not covered",
 		]);
 	});
 });
