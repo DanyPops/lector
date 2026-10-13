@@ -31,9 +31,9 @@ describe("runInstrumentedTests", () => {
 			expect(exitCode).toBe(0);
 			expect(report.timedTestCount).toBe(1);
 			expect(report.slowestTests[0]?.name).toBe("group > passes");
-			// The real bun test output was genuinely mirrored, not swallowed -- a caller watching
-			// stdout/stderr live still sees it, same as running bun test directly would show.
-			expect(stdoutChunks.join("") + stderrChunks.join("")).toContain("group > passes");
+			const consoleOutput = stdoutChunks.join("") + stderrChunks.join("");
+			expect(consoleOutput).toContain("bun test");
+			expect(consoleOutput).toContain("1 pass");
 			expect(reportTexts.join("")).toContain("group > passes");
 			const machineReport = await Bun.file(jsonOut).json();
 			expect(machineReport).toMatchObject({ schemaVersion: 1, exitCode: 0, report: { timedTestCount: 1 } });
